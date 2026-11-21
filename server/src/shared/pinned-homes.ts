@@ -37,6 +37,8 @@ export interface HomesInput {
   reviewKeyOf?: ReadonlyMap<string, string>;
   /** The keys of the requests still listed: a pinned request that is not is not drawn. None when absent. */
   listedReviews?: ReadonlySet<string>;
+  /** False when the sidebar has no CODE REVIEWS section (shared/review-settings.ts): a review session then stays in its usual home. */
+  reviewsSection?: boolean;
 }
 
 /** One session row of the CODE REVIEWS section, with what hangs under it. */
@@ -124,7 +126,7 @@ export function projectRowIds(sessions: readonly HomeSession[], projectId: strin
 const flatNode = (sessionId: string): TreeNode => ({ sessionId, via: null, movedFrom: null, children: [] });
 
 /** Where everything in the sidebar is drawn, given what is pinned. */
-export function sidebarHomes({ pins, trees: given, sessions, reviewing, reviewKeyOf, listedReviews }: HomesInput): SidebarHomes {
+export function sidebarHomes({ pins, trees: given, sessions, reviewing, reviewKeyOf, listedReviews, reviewsSection }: HomesInput): SidebarHomes {
   const { trees, inProjectList, nestedInProject: nestedBeforePins } = sessionHomes(given, sessions);
   const pinnedGroups = new Set(pins.filter((p) => p.kind === 'group').map((p) => p.id));
   const pinnedProjects = new Set(pins.filter((p) => p.kind === 'project').map((p) => p.id));
@@ -171,7 +173,7 @@ export function sidebarHomes({ pins, trees: given, sessions, reviewing, reviewKe
   for (const row of pinned) if ((row.kind === 'session' || row.kind === 'review') && row.node) idsOf([row.node], inSessionRows);
   // What PINNED already draws: a review session there stays there.
   const underPinned = new Set([...pinnedAway, ...inside]);
-  const candidates = (reviewing?.size ? sessions : []).flatMap((session) => {
+  const candidates = (reviewing?.size && reviewsSection !== false ? sessions : []).flatMap((session) => {
     const node = reviewing!.has(session.id) && !underPinned.has(session.id) ? nodes.get(session.id) : undefined;
     return node ? [{ id: session.id, node }] : [];
   });

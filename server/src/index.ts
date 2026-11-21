@@ -12,13 +12,13 @@ import { detailsSources } from './details-api.ts';
 import { syncPullRequests } from './pull-request-sync.ts';
 import { originUrl } from './git.ts';
 import { sharedGlabSignIn } from './pull-requests/glab.ts';
-import { sampleReviewRequests, storyReviewRequests } from './review-requests/fake.ts';
+import { sampleReviewCount, sampleReviewRequests, sampleUnreadCount, storyReviewRequests } from './review-requests/fake.ts';
 import { githubReviewRequests } from './review-requests/github.ts';
 import { gitlabReviewRequests } from './review-requests/gitlab.ts';
 import { ReviewRequestStore } from './review-requests/store.ts';
 import { REVIEW_CHECK_MS, syncReviewRequests } from './review-requests/sync.ts';
 import { reviewStarter } from './review-requests/auto.ts';
-import { asReviewOrder, reviewSessionTitle } from './shared/review-requests.ts';
+import { asDismissedKeys, asReviewOrder, reviewSessionTitle } from './shared/review-requests.ts';
 import { ready } from './shared/sourced.ts';
 import { SHUTDOWN_DEADLINE_MS, timedSteps } from './shared/shutdown.ts';
 import { SessionRuntime } from './runtime.ts';
@@ -99,7 +99,17 @@ const details = detailsSources(fake);
 // The order the user dragged the CODE REVIEWS rows into is kept with the app's settings.
 const REVIEW_ORDER_KEY = 'review-order';
 const storedReviewOrder = await db.getSetting(REVIEW_ORDER_KEY).then((raw) => (raw ? asReviewOrder(JSON.parse(raw)) : null)).catch(() => null);
+// So are the requests the user dismissed, by key.
+const REVIEW_DISMISSED_KEY = 'review-dismissed';
+const storedDismissed = await db.getSetting(REVIEW_DISMISSED_KEY).then((raw) => (raw ? asDismissedKeys(JSON.parse(raw)) : [])).catch(() => []);
+// And the ones they have looked at: a waiting request not among them is new.
+const REVIEW_SEEN_KEY = 'review-seen';
+const storedSeen = await db.getSetting(REVIEW_SEEN_KEY).then((raw) => (raw ? asDismissedKeys(JSON.parse(raw)) : [])).catch(() => []);
 const reviewRequests = new ReviewRequestStore({
+  seen: storedSeen,
+  saveSeen: (keys) => void db.putSetting(REVIEW_SEEN_KEY, JSON.stringify(keys)).catch((error: unknown) => console.error('[kestrel] could not store the read reviews', error)),
+  dismissed: storedDismissed,
+  saveDismissed: (keys) => void db.putSetting(REVIEW_DISMISSED_KEY, JSON.stringify(keys)).catch((error: unknown) => console.error('[kestrel] could not store the dismissed reviews', error)),
   order: storedReviewOrder ?? [],
   saveOrder: (order) => void db.putSetting(REVIEW_ORDER_KEY, JSON.stringify(order)).catch((error: unknown) => console.error('[kestrel] could not store the review order', error)),
 });
@@ -118,12 +128,21 @@ const seedSampleReviews = async (): Promise<void> => {
     return;
   }
   const state = await workspace.state();
-  const samples = sampleReviewRequests(state.projects.map((p) => p.id), Date.now());
+  // KESTREL_SAMPLE_REVIEWS=300 seeds that many, to see a long list.
+  const samples = sampleReviewRequests(state.projects.map((p) => p.id), Date.now(), sampleReviewCount(process.env.KESTREL_SAMPLE_REVIEWS));
   reviewRequests.set('github.com', ready(samples));
   // SAMPLE: the second request has a review session, so CODE REVIEWS shows both kinds of row.
   const reviewed = samples[1];
   if (reviewed?.projectId && !state.sessions.some((s) => s.review?.key === reviewed.key)) {
     await workspace.addSession({ title: reviewSessionTitle(reviewed.title), agent: 'claude', startedIn: reviewed.projectId, state: 'done', note: 'Finished', review: { key: reviewed.key, host: reviewed.host, number: reviewed.number, sha: '4f9c2ab81d3e5f60718293a4b5c6d7e8f9a0b1c2', url: reviewed.url } });
+  }
+  // SAMPLE: a request with a review is read, as one whose review was started is; the rest are new.
+  reviewRequests.markSeen([reviewed, scripted ? samples[2] : undefined].flatMap((r) => (r ? [r.key] : [])), true);
+  // KESTREL_SAMPLE_UNREAD=10 leaves that many new, the most recent ones, and marks the rest read.
+  const unread = sampleUnreadCount(process.env.KESTREL_SAMPLE_UNREAD);
+  if (unread !== null) {
+    reviewRequests.markSeen(samples.slice(0, unread).map((r) => r.key), false);
+    reviewRequests.markSeen(samples.slice(unread).map((r) => r.key), true);
   }
   // SAMPLE: with the scripted agent the third request has a review that really ran (a scripted turn
   // that hands over a sample review), so the review card can be seen. It has no project or worktree.

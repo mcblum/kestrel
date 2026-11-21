@@ -13,6 +13,8 @@ import { normalizeProject } from '@kestrel/server/project-folders';
 import { isPullRequestLookup, type PullRequestLookup } from '@kestrel/server/details';
 import { asSourced, type Sourced } from '@kestrel/server/sourced';
 import { asReviewRequestsView, NO_REVIEW_REQUESTS, type ReviewRequestsView } from '@kestrel/server/review-requests';
+import { counted } from '@kestrel/server/toasts';
+import { toasts } from './toasts.ts';
 import { initialTabs } from '@kestrel/server/tabs';
 import { DEFAULT_REMEMBERED } from '@kestrel/server/sticky-controls';
 import { EMPTY_SIDEBAR } from '@kestrel/server/sidebar';
@@ -256,11 +258,13 @@ export function applyPullRequests(message: { all?: unknown; changes?: unknown })
 export function applyReviewRequests(raw: unknown) {
   const prev = current().reviewRequests;
   const view = asReviewRequestsView(raw);
-  const byKey = new Map(prev.requests.map((r) => [r.key, r]));
-  const requests = view.requests.map((r) => shareJson(byKey.get(r.key), r));
-  const same = requests.length === prev.requests.length && requests.every((r, i) => r === prev.requests[i]);
-  const next: ReviewRequestsView = { requests: same ? prev.requests : requests, problems: shareJson(prev.problems, view.problems), order: shareJson(prev.order, view.order) };
-  if (next.requests !== prev.requests || next.problems !== prev.problems || next.order !== prev.order) set({ reviewRequests: next });
+  const byKey = new Map([...prev.requests, ...prev.dismissed].map((r) => [r.key, r]));
+  const shared = (list: ReviewRequestsView['requests'], held: ReviewRequestsView['requests']) => {
+    const next = list.map((r) => shareJson(byKey.get(r.key), r));
+    return next.length === held.length && next.every((r, i) => r === held[i]) ? held : next;
+  };
+  const next: ReviewRequestsView = { requests: shared(view.requests, prev.requests), unread: shareJson(prev.unread, view.unread), dismissed: shared(view.dismissed, prev.dismissed), problems: shareJson(prev.problems, view.problems), order: shareJson(prev.order, view.order) };
+  if (next.requests !== prev.requests || next.unread !== prev.unread || next.dismissed !== prev.dismissed || next.problems !== prev.problems || next.order !== prev.order) set({ reviewRequests: next });
 }
 
 /** Write one route's answer into `resources`; an answer identical to the one held keeps its identity. At most MAX_RESOURCES are kept, the least recently written dropped first. */
@@ -326,6 +330,33 @@ export async function act<T>(work: () => Promise<T>): Promise<T | undefined> {
     set({ error: messageFor(error) });
     return undefined;
   }
+}
+
+/**
+ * `act`, and when the work was done, a toast saying so with Undo (toasts.ts). `quiet`: it is itself
+ * an undo, or there is nothing to say (nothing changed), so nothing is announced.
+ */
+async function announced<T>(work: () => Promise<T>, quiet: boolean, message: () => string, undo: () => unknown): Promise<T | undefined> {
+  let done = false;
+  const result = await act(async () => {
+    const value = await work();
+    done = true;
+    return value;
+  });
+  if (done && !quiet) toasts.show(message(), () => void undo());
+  return result;
+}
+
+/** A name in a toast: “name”, or the plain word when it is not known. */
+const quoted = (name: string | undefined, fallback: string): string => (name ? `“${name}”` : fallback);
+
+/** What a pinned thing is called, for its toast. */
+function pinName(kind: PinKind, id: string): string {
+  const ws = current().workspace;
+  if (kind === 'session') return quoted(ws?.sessions.find((s) => s.id === id)?.title, 'the session');
+  if (kind === 'project') return quoted(ws?.projects.find((p) => p.id === id)?.name, 'the project');
+  if (kind === 'group') return quoted(ws?.groups.find((g) => g.id === id)?.name, 'the group');
+  return quoted(current().reviewRequests.requests.find((r) => r.key === id)?.title, 'the review request');
 }
 
 /** Messages with the same id replace each other; others are appended. Unchanged ones keep identity. */
@@ -518,11 +549,25 @@ export const actions = {
   /** "Stop command" from a command's menu: a refusal shows in the error line. */
   stopCommandFromMenu: (id: string, commandId: string) => act(() => call(`/api/sessions/${encodeURIComponent(id)}/commands/${encodeURIComponent(commandId)}/stop`, { method: 'POST', body: '{}' })),
 
-  moveSession: (id: string, groupId: string | null) => act(() => call(`/api/sessions/${encodeURIComponent(id)}/move`, { method: 'POST', body: JSON.stringify({ groupId }) })),
+  /** Move a session into a group, or out of one. Undo puts it back where it was; `quiet` when it is itself an undo. */
+  moveSession: (id: string, groupId: string | null, quiet = false): Promise<unknown> => {
+    const session = current().sessionsById.get(id);
+    const from = session?.groupId ?? null;
+    const group = current().workspace?.groups.find((g) => g.id === groupId)?.name;
+    return announced(
+      () => call(`/api/sessions/${encodeURIComponent(id)}/move`, { method: 'POST', body: JSON.stringify({ groupId }) }),
+      quiet || !session || from === groupId,
+      () => (groupId ? `Moved ${quoted(session?.title, 'the session')} to ${quoted(group, 'the group')}` : `Moved ${quoted(session?.title, 'the session')} out of its group`),
+      () => actions.moveSession(id, from, true),
+    );
+  },
   createGroup: (name: string, projectId?: string) => act(() => call<{ id: string }>('/api/groups', { method: 'POST', body: JSON.stringify({ name, ...(projectId ? { projectId } : {}) }) })),
   /** A Sessions-list group, with its sessions, into a project; refused with the reason when something in it belongs elsewhere. */
   moveGroupToProject: async (groupId: string, projectId: string): Promise<boolean> => (await act(() => call(`/api/groups/${encodeURIComponent(groupId)}/project`, { method: 'POST', body: JSON.stringify({ projectId }) }).then(() => true))) ?? false,
-  renameGroup: (id: string, name: string) => act(() => call(`/api/groups/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ name }) })),
+  renameGroup: (id: string, name: string, quiet = false): Promise<unknown> => {
+    const was = current().workspace?.groups.find((g) => g.id === id)?.name;
+    return announced(() => call(`/api/groups/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ name }) }), quiet || !was || was === name, () => `Renamed the group to “${name}”`, () => actions.renameGroup(id, was!, true));
+  },
   deleteGroup: (id: string) => act(() => call(`/api/groups/${encodeURIComponent(id)}`, { method: 'DELETE' })),
   createSession: (input: { prompt: string; agent: Agent; projectId: string | null; groupId: string | null; folderId?: string | null; model?: string; effort?: string; fast?: boolean; modelChosen?: boolean; permission?: PermissionLevel; base?: BaseChoice; rememberBase?: boolean } & Partial<AttachmentRefs>) => act(() => call<{ id: string }>('/api/sessions', { method: 'POST', body: JSON.stringify(input) })),
   /** Start reviewing a request the user was asked to review, or get the review already started (server review-requests/start.ts). */
@@ -556,7 +601,23 @@ export const actions = {
     set({ reviewRequests: { ...held, order } });
     return act(() => call('/api/review-requests/order', { method: 'PUT', body: JSON.stringify({ order }) }));
   },
-  setPinned: (kind: PinKind, id: string, pinned: boolean) => act(() => call('/api/pins', { method: 'POST', body: JSON.stringify({ kind, id, pinned }) })),
+  /** Dismiss requests the user was asked to review, or restore dismissed ones. The server's push moves them between the lists. */
+  /** `announce`: say so in a toast with Undo (not when it is itself an undo). */
+  dismissReviews: async (keys: string[], dismissed: boolean, announce = true) => {
+    const done = await act(() => call('/api/review-requests/dismissed', { method: 'PUT', body: JSON.stringify({ keys, dismissed }) }));
+    if (done && announce && keys.length > 0) toasts.show(`${dismissed ? 'Dismissed' : 'Restored'} ${counted(keys.length, 'review request')}`, () => actions.dismissReviews(keys, !dismissed, false));
+    return done;
+  },
+  /** Mark review requests read, or unread again. The server's push says which are new. */
+  /** `announce`: say so in a toast with Undo, for a deliberate marking (not for opening a request, which reads it). */
+  markReviewsSeen: async (keys: string[], seen: boolean, announce = false) => {
+    const done = await act(() => call('/api/review-requests/seen', { method: 'PUT', body: JSON.stringify({ keys, seen }) }));
+    if (done && announce && keys.length > 0) toasts.show(`Marked ${counted(keys.length, 'review request')} as ${seen ? 'read' : 'unread'}`, () => actions.markReviewsSeen(keys, !seen));
+    return done;
+  },
+  /** Pin to, or unpin from, the top of the sidebar. Undo does the other; `quiet` when it is itself an undo, or part of a larger move. */
+  setPinned: (kind: PinKind, id: string, pinned: boolean, quiet = false): Promise<unknown> =>
+    announced(() => call('/api/pins', { method: 'POST', body: JSON.stringify({ kind, id, pinned }) }), quiet, () => `${pinned ? 'Pinned' : 'Unpinned'} ${pinName(kind, id)}`, () => actions.setPinned(kind, id, !pinned, true)),
   /**
    * A row dropped on the PINNED section, beside `target` (or at the end). One already pinned moves;
    * one that is not is pinned there. Shown at once; the server's next state confirms or puts it back.
@@ -577,12 +638,28 @@ export const actions = {
   },
   /** Open (or, with null, close) the tag box in a session's top line. */
   startTagging: (id: string | null) => set({ tagging: id }),
+  /** Adding a tag is typed and needs no toast; taking one off says so, with Undo to put it back. */
   addTag: (id: string, tag: string) => act(() => call(`/api/sessions/${encodeURIComponent(id)}/tags`, { method: 'POST', body: JSON.stringify({ tag }) })),
-  removeTag: (id: string, tag: string) => act(() => call(`/api/sessions/${encodeURIComponent(id)}/tags/${encodeURIComponent(tag)}`, { method: 'DELETE' })),
-  renameSession: (id: string, title: string) => act(() => call(`/api/sessions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ title }) })),
-  renameProject: (id: string, name: string) => act(() => call(`/api/projects/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ name }) })),
+  removeTag: (id: string, tag: string) => announced(() => call(`/api/sessions/${encodeURIComponent(id)}/tags/${encodeURIComponent(tag)}`, { method: 'DELETE' }), false, () => `Removed the tag “${tag}”`, () => actions.addTag(id, tag)),
+  /** Renaming says so, with Undo back to the old name; `quiet` when it is itself an undo. */
+  renameSession: (id: string, title: string, quiet = false): Promise<unknown> => {
+    const was = current().sessionsById.get(id)?.title;
+    return announced(() => call(`/api/sessions/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ title }) }), quiet || !was || was === title, () => `Renamed the session to “${title}”`, () => actions.renameSession(id, was!, true));
+  },
+  renameProject: (id: string, name: string, quiet = false): Promise<unknown> => {
+    const was = current().workspace?.projects.find((p) => p.id === id)?.name;
+    return announced(() => call(`/api/projects/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ name }) }), quiet || !was || was === name, () => `Renamed the project to “${name}”`, () => actions.renameProject(id, was!, true));
+  },
   /** Archive or restore a session, a project or a group. */
-  archive: (kind: 'session' | 'project' | 'group', id: string, archived = true) =>
+  /** Archiving says so in a toast with Undo, which restores it; `announce: false` when it is itself an undo. */
+  archive: async (kind: 'session' | 'project' | 'group', id: string, archived = true, announce = true) => {
+    const ws = current().workspace;
+    const name = kind === 'session' ? ws?.sessions.find((s) => s.id === id)?.title : (kind === 'project' ? ws?.projects : ws?.groups)?.find((x) => x.id === id)?.name;
+    const done = await actions.sendArchive(kind, id, archived);
+    if (done && archived && announce) toasts.show(`Archived ${name ? `“${name}”` : `the ${kind}`}`, () => actions.archive(kind, id, false, false));
+  },
+  /** The archive request itself: true when it was stored. */
+  sendArchive: (kind: 'session' | 'project' | 'group', id: string, archived: boolean): Promise<boolean> =>
     act(async () => {
       const send = (skipScript: boolean) => call('/api/archive', { method: 'POST', body: JSON.stringify({ kind, id, archived, ...(skipScript ? { skipScript } : {}) }) });
       try {
@@ -592,9 +669,11 @@ export const actions = {
         const failed = (error as { archiveScript?: { output: string } }).archiveScript;
         if (!failed) throw error;
         const output = failed.output ? `\n\nIts output ended:\n${failed.output}` : '';
-        if (window.confirm(`${messageFor(error)}${output}\n\nArchive the session anyway, without running the script?`)) await send(true);
+        if (!window.confirm(`${messageFor(error)}${output}\n\nArchive the session anyway, without running the script?`)) return false;
+        await send(true);
       }
-    }),
+      return true;
+    }).then((done) => done === true),
   /** Delete a session for good, after asking. Its worktree folder goes too, and its branch when nothing is lost with it. */
   deleteSession(session: { id: string; title: string; worktreePath: string | null }): void {
     const worktree = session.worktreePath ? `\n\nIts worktree folder is removed too, with anything in it that was never committed. Its branch is deleted only if its commits are already in the main checkout's branch; otherwise it stays in the repository.` : '';
@@ -605,16 +684,33 @@ export const actions = {
     if (window.kestrelShell) await window.kestrelShell.reveal(path);
     else await navigator.clipboard.writeText(path).catch(() => undefined);
   },
-  renameWorkstream: (id: string, name: string) => act(() => call(`/api/workstreams/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ name }) })),
+  renameWorkstream: (id: string, name: string, quiet = false): Promise<unknown> => {
+    const was = current().workspace?.workstreams.find((w) => w.id === id)?.name;
+    return announced(() => call(`/api/workstreams/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ name }) }), quiet || !was || was === name, () => `Renamed the workstream to “${name}”`, () => actions.renameWorkstream(id, was!, true));
+  },
   /** Say what a workstream is for; an empty objective clears it. */
   setWorkstreamObjective: (id: string, objective: string) => act(() => call(`/api/workstreams/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ objective }) })),
   /** Take a session out of a workstream. Only the reference goes; the session stays where it is filed. */
   removeFromWorkstream: (id: string, sessionId: string) => act(() => call(`/api/workstreams/${encodeURIComponent(id)}/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' })),
   /** Mark a workstream's work finished, or not finished after all. */
-  setWorkstreamStatus: (id: string, status: 'active' | 'complete') => act(() => call(`/api/workstreams/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status }) })),
+  setWorkstreamStatus: (id: string, status: 'active' | 'complete', quiet = false): Promise<unknown> => {
+    const name = current().workspace?.workstreams.find((w) => w.id === id)?.name;
+    return announced(
+      () => call(`/api/workstreams/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+      quiet,
+      () => `Marked ${quoted(name, 'the workstream')} ${status === 'complete' ? 'complete' : 'not complete'}`,
+      () => actions.setWorkstreamStatus(id, status === 'complete' ? 'active' : 'complete', true),
+    );
+  },
   /** Archive a workstream (out of the sidebar, still searchable) or restore it. Its sessions are not touched. */
   /** `withSessions`: a restore that also brings back the sessions archived with it. */
-  archiveWorkstream: (id: string, archived: boolean, withSessions = false) => act(() => call(`/api/workstreams/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(withSessions ? { archived, sessions: true } : { archived }) })),
+  /** Archiving says so in a toast with Undo, which restores it; `announce: false` when it is itself an undo. */
+  archiveWorkstream: async (id: string, archived: boolean, withSessions = false, announce = true) => {
+    const name = current().workspace?.workstreams.find((w) => w.id === id)?.name;
+    const done = await act(() => call(`/api/workstreams/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(withSessions ? { archived, sessions: true } : { archived }) }));
+    if (done && archived && announce) toasts.show(`Archived the workstream ${name ? `“${name}”` : ''}`.trim(), () => actions.archiveWorkstream(id, false, false, false));
+    return done;
+  },
   stopWorkstream: (id: string) => act(() => call<{ stopped: number }>(`/api/workstreams/${encodeURIComponent(id)}/stop`, { method: 'POST', body: '{}' })),
   /** Delete a workstream, after asking. Its sessions stay where they are: only the grouping goes. */
   deleteWorkstream(workstream: { id: string; name: string; sessionIds: readonly string[] }): void {

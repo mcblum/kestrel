@@ -5,8 +5,15 @@
 .kestrel .save-bar-status { flex: 1; min-width: 0; font-size: 12px; color: var(--s-muted); }
 .kestrel .save-bar-status.problem { color: var(--limit-error); }
 .kestrel .save-bar button { height: 30px; padding: 0 14px; font-size: 12px; }
-/* A project's Settings tab scrolls with its page: there the bar sticks to the bottom of the view. */
-.kestrel .save-bar.sticky { position: sticky; bottom: 0; z-index: 2; margin-top: 24px; padding: 12px 0; }
+/* A project's Settings tab scrolls with its page. There the page fills the pane and the bar is its
+   footer: at the pane's bottom edge with its line above it, however short the section is, and
+   stuck there while a long section scrolls under it. It is as wide as the page's column, not the
+   window (Matt, 2026-11-21). */
+.kestrel .scope-page .pane-main > .page:has(> .local-panel:not([hidden]) > .project-settings) { flex: 1 0 auto; box-sizing: border-box; grid-template-rows: auto auto minmax(0, 1fr); align-content: stretch; padding-bottom: 0; }
+.kestrel .local-panel:not([hidden]):has(> .project-settings) { grid-template-rows: minmax(0, 1fr); align-content: stretch; }
+.kestrel .project-settings { display: flex; flex-direction: column; min-height: 0; }
+.kestrel .project-settings > :not(.save-bar) { flex: 1 0 auto; padding-bottom: 24px; }
+.kestrel .save-bar.sticky { position: sticky; bottom: 0; z-index: 2; padding: 12px 0; }
 @media (max-width: 1000px) { .kestrel .save-bar { padding: 12px 20px; } }
 /* Where an editor's draft is on the page: no size, but laid out, so a hidden section's draft can be told apart. */
 .kestrel .draft-anchor { display: block; height: 0; }

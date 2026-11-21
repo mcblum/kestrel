@@ -4,11 +4,11 @@
 // is refused is not retried: its reason is put on the request (store.ts `note`) so its page says
 // why, and is tried again only when the setting changes.
 import type { ReviewRequest } from '../shared/review-requests.ts';
-import { reviewsToStart, type ReviewSettings } from '../shared/review-settings.ts';
+import { reviewsToStart, type ReviewAutomation } from '../shared/review-settings.ts';
 import type { ReviewRequestStore } from './store.ts';
 
 export interface ReviewStarterDeps {
-  settings(): Promise<ReviewSettings>;
+  settings(): Promise<ReviewAutomation>;
   sessions(): Promise<readonly { state: string; review?: { key: string } }[]>;
   /** Start the review (the runtime's `startReview`); throws with a reason when it cannot. */
   start(request: ReviewRequest): Promise<unknown>;
@@ -32,6 +32,8 @@ export function reviewStarter(deps: ReviewStarterDeps, store: ReviewRequestStore
     for (const request of due) {
       try {
         await deps.start(request);
+        // The review session is where its news shows from now on.
+        store.markSeen([request.key], true);
       } catch (error) {
         store.note(request.key, reasonOf(error));
       }

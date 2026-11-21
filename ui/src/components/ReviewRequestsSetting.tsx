@@ -3,25 +3,17 @@
 // start on its own. With a `projectId` it is the same list seen from that project's Settings tab:
 // one switch. Held once in the app store through useResource; a change writes back what the
 // server stored.
-import { DEFAULT_REVIEW_SETTINGS, isAutomatic, isChosenProject, REPLY_WARNING, REVIEW_MODE_LABEL, REVIEW_MODES, sanitizeReviewSettings, withProject, type ReviewMode, type ReviewProjects, type ReviewSettings } from '@kestrel/server/review-settings';
+import { DEFAULT_REVIEW_SETTINGS, isAutomatic, isChosenProject, REPLY_WARNING, REVIEW_MODE_LABEL, REVIEW_MODES, REVIEW_PLACE_LABEL, REVIEW_PLACES, withProject, type ReviewMode, type ReviewPlace, type ReviewProjects, type ReviewSettings } from '@kestrel/server/review-settings';
 import { useState } from 'react';
-import { ready, type Sourced } from '@kestrel/server/sourced';
 import { useResource } from '../data/resources.ts';
 import { openView } from '../route.ts';
-import { act, call, OLDER_SERVER, putResource, RESTART_REASON, useApp } from '../store.ts';
+import { asReviewSettings as asSettings, REVIEW_SETTINGS_PATH, saveReviewSettings as save } from '../reviewSettings.ts';
+import { OLDER_SERVER, RESTART_REASON, useApp } from '../store.ts';
 import { SettingSection } from './SettingHelp.tsx';
-
-const REVIEW_SETTINGS_PATH = '/api/review-settings';
-const asSettings = (raw: unknown): Sourced<ReviewSettings> => ready(sanitizeReviewSettings(raw));
-
-const save = async (change: Partial<ReviewSettings> & { confirmed?: boolean }): Promise<void> => {
-  const stored = await act(() => call<ReviewSettings>(REVIEW_SETTINGS_PATH, { method: 'PUT', body: JSON.stringify(change) }));
-  if (stored) putResource(REVIEW_SETTINGS_PATH, ready(sanitizeReviewSettings(stored)));
-};
 
 const MODE_NOTE: Record<ReviewMode, string> = {
   off: 'GitHub and GitLab are not asked, and nothing is listed.',
-  list: 'Requests appear under CODE REVIEWS in the sidebar. You start each review.',
+  list: 'Requests are listed where you choose below. You start each review.',
   start: 'A review session starts when a request arrives, two at a time at most; the rest wait. Nothing is posted to the host until you post it.',
   reply: 'A review session starts when a request arrives, and its review is posted in your name when it is finished, approval included.',
 };
@@ -62,6 +54,52 @@ function Projects({ projects, registered }: { projects: ReviewProjects; register
         </div>
       )}
     </fieldset>
+  );
+}
+
+const PLACE_NOTE: Record<ReviewPlace, string> = {
+  both: 'A CODE REVIEWS section in the sidebar, and a Code reviews row at its top that opens the page with all of them.',
+  sidebar: 'A CODE REVIEWS section in the sidebar. Its "Show more" opens the page with all of them.',
+  page: 'A Code reviews row at the top of the sidebar opens the page, with a dot and a count while some are new. A review session stays in its project.',
+};
+
+/** The numbers offered for how many requests the sidebar lists; the stored one is added when it is not among them. */
+const LIMIT_CHOICES = [3, 5, 10, 15, 20, 30, 50];
+
+/** Where the requests are shown, and how many of them the sidebar lists. Both save as they are changed. */
+function Place({ settings }: { settings: ReviewSettings }) {
+  const limits = LIMIT_CHOICES.includes(settings.sidebarLimit) ? LIMIT_CHOICES : [...LIMIT_CHOICES, settings.sidebarLimit].sort((a, b) => a - b);
+  return (
+    <div className="review-setting-place">
+      <label className="review-setting-field">
+        <span>Show them</span>
+        <select aria-label="Where review requests are shown" className="form-control" value={settings.show} onChange={(e) => void save({ show: e.target.value as ReviewPlace })}>
+          {REVIEW_PLACES.map((place) => (
+            <option key={place} value={place}>
+              {REVIEW_PLACE_LABEL[place]}
+              {place === DEFAULT_REVIEW_SETTINGS.show ? ' (default)' : ''}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="settings-help">{PLACE_NOTE[settings.show]}</p>
+      {settings.show !== 'page' && (
+        <>
+          <label className="review-setting-field">
+            <span>In the sidebar, list</span>
+            <select aria-label="How many review requests the sidebar lists" className="form-control" value={settings.sidebarLimit} onChange={(e) => void save({ sidebarLimit: Number(e.target.value) })}>
+              {limits.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                  {n === DEFAULT_REVIEW_SETTINGS.sidebarLimit ? ' (default)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="settings-help">The most recent requests nobody has started on. The rest are behind "Show more". A review that is under way is always listed.</p>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -111,6 +149,7 @@ function AppControls({ settings }: { settings: ReviewSettings }) {
       </select>
       <p className="settings-help">{MODE_NOTE[settings.mode]}</p>
       {isAutomatic(settings.mode) && <Projects projects={settings.projects} registered={registered} />}
+      {settings.mode !== 'off' && <Place settings={settings} />}
     </>
   );
 }

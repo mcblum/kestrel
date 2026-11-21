@@ -71,7 +71,7 @@ export function NewSessionTab({ tab }: { tab: Extract<Tab, { kind: 'new' }> }) {
     files.sent();
     // Opened from PINNED: pinned the moment it exists. Not one of the choices new sessions remember.
     const { pinned, modelChosen: _chosen, ...sent } = controls;
-    if (pinned) void actions.setPinned('session', created.id, true);
+    if (pinned) void actions.setPinned('session', created.id, true, true);
     tabActions.becomeSession(tab.id, created.id, { ...sent, permission });
   };
 

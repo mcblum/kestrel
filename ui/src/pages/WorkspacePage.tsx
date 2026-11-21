@@ -4,6 +4,7 @@ import { useApp } from '../store.ts';
 import { ListPage } from './ListPage.tsx';
 import { WorkstreamPage } from './WorkstreamPage.tsx';
 import { ReviewRequestPage } from './ReviewRequestPage.tsx';
+import { CodeReviewsPage } from './CodeReviewsPage.tsx';
 import { NeedsYouPage } from './NeedsYouPage.tsx';
 import { PullRequestsPage } from './PullRequestsPage.tsx';
 import { DEFAULT_REQUEST_FILTER } from '@kestrel/server/pull-request-list';
@@ -25,6 +26,7 @@ export function WorkspacePage({ view }: { view: View }) {
   if (view.kind === 'move') return <MovePage key={`${view.sessionId}:${view.projectId}:${view.groupId ?? ''}`} sessionId={view.sessionId} projectId={view.projectId} groupId={view.groupId} />;
   if (view.kind === 'new-project') return <CreateProjectPage from={view.from} />;
   if (view.kind === 'code') return <CodePage key={`${view.sessionId}:${view.messageId}:${view.at}`} view={view} />;
+  if (view.kind === 'code-reviews') return <CodeReviewsPage dismissed={view.filter === 'dismissed'} />;
   if (view.kind === 'review-request') return <ReviewRequestPage key={view.id} id={view.id} />;
   if (view.kind === 'workstream') return <WorkstreamPage key={view.id} id={view.id} workspace={workspace} />;
   // Filters and sort belong to one destination: another destination starts fresh. A project's local

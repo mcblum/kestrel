@@ -11,7 +11,7 @@ import type { ByNumberProvider } from '../pull-requests/by-number.ts';
 import type { CommandRunner } from '../pull-requests/types.ts';
 import { hostTerms, type HostKind } from '../shared/host-terms.ts';
 import { draftReview, summaryProblem, verdictProblem, VERDICT_POSTED, type ReviewReply, type ReviewVerdict } from '../shared/review-reply.ts';
-import { repliesOnItsOwn, type ReviewSettings } from '../shared/review-settings.ts';
+import { repliesOnItsOwn, type ReviewAutomation } from '../shared/review-settings.ts';
 import type { TranscriptAction } from '../transcript.ts';
 import { Refused } from '../workspace.ts';
 import { postReview } from './post.ts';
@@ -24,7 +24,7 @@ export interface ReviewRepliesHost {
   messages(sessionId: string): readonly ChatMessage[];
   showCard(sessionId: string, card: Card): void;
   notice(sessionId: string, text: string, level: 'error' | 'info'): void;
-  settings(): Promise<ReviewSettings>;
+  settings(): Promise<ReviewAutomation>;
   byNumber(host: HostKind): ByNumberProvider;
   run: CommandRunner;
   now(): number;

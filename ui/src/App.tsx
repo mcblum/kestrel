@@ -5,6 +5,7 @@ import { X } from 'lucide-react';
 import { BrowserLayer } from './components/BrowserLayer.tsx';
 import { LaunchScreen, useLaunchPhase } from './components/LaunchScreen.tsx';
 import { ContextMenuHost } from './components/ContextMenu.tsx';
+import { ToastHost } from './components/ToastHost.tsx';
 import { NewSessionTab } from './components/NewSessionTab.tsx';
 import { SearchPanel } from './components/Panels.tsx';
 import { Tooltips } from './components/Tooltips.tsx';
@@ -144,14 +145,7 @@ export function App() {
       <BrowserLayer />
       {/* After the shell on purpose: window drag regions are applied in document order, so this button's no-drag area must come after the sidebar's drag strip or a click on it drags the window. */}
       <SidebarToggle />
-      {error && (
-        <div className="toast" role="alert">
-          {error}
-          <button className="icon-button" aria-label="Dismiss" onClick={actions.clearError}>
-            <X />
-          </button>
-        </div>
-      )}
+      <ToastHost />
       {/* With the sidebar hidden or a rail, the update toast that sits above Settings floats at the bottom-left instead. */}
       {(sidebarHidden || (sidebarMode === 'rail' && !floatOpen)) && <UpdateNotice floating />}
       {switcher && <SearchPanel onClose={close} />}

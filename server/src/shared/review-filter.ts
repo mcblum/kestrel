@@ -1,0 +1,92 @@
+// The Code reviews page's filters: who asked, which project, how recently it was opened, and a
+// forgiving text search over what a row shows. Pure and browser-safe; `now` is passed in.
+import { askedBy, repositoryName, requestNumberLabel, type ReviewRequest } from './review-requests.ts';
+
+/** How recently: opened within the last hour, day, week or month; `any` is no limit. */
+export type ReviewWithin = 'any' | 'hour' | 'day' | 'week' | 'month';
+
+export const REVIEW_WITHIN: readonly ReviewWithin[] = ['any', 'hour', 'day', 'week', 'month'];
+
+export const REVIEW_WITHIN_LABEL: Record<ReviewWithin, string> = { any: 'Any time', hour: 'Last hour', day: 'Last day', week: 'Last week', month: 'Last month' };
+
+const HOUR_MS = 3_600_000;
+const WITHIN_MS: Record<Exclude<ReviewWithin, 'any'>, number> = { hour: HOUR_MS, day: 24 * HOUR_MS, week: 7 * 24 * HOUR_MS, month: 30 * 24 * HOUR_MS };
+
+export interface ReviewFilters {
+  /** Who asked for the review (`askedBy`); empty for anyone. */
+  who: string;
+  /** The place a request is in (`placeOf`): a project's name, or a repository's; empty for any. */
+  place: string;
+  within: ReviewWithin;
+  text: string;
+}
+
+export const NO_REVIEW_FILTERS: ReviewFilters = { who: '', place: '', within: 'any', text: '' };
+
+export const isFiltering = (f: ReviewFilters): boolean => f.who !== '' || f.place !== '' || f.within !== 'any' || f.text.trim() !== '';
+
+type Listed = Pick<ReviewRequest, 'host' | 'number' | 'repository' | 'title' | 'author' | 'requestedBy' | 'projectId' | 'openedAt' | 'updatedAt'>;
+
+/** A project's name by its id; undefined when it is not registered. */
+export type ProjectNames = (projectId: string) => string | undefined;
+
+/** Where a request is, as its row says it: its project's name, or its repository's when it is in no project. */
+export const placeOf = (request: Pick<Listed, 'projectId' | 'repository'>, names: ProjectNames): string => (request.projectId && names(request.projectId)) || repositoryName(request.repository);
+
+/** When a request was opened; when it last changed where the host did not say. */
+export const openedAtOf = (request: Pick<Listed, 'openedAt' | 'updatedAt'>): number => request.openedAt ?? request.updatedAt;
+
+/** The values a select offers, each once, in alphabetical order whatever the case. */
+const choices = (values: readonly string[]): string[] => [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+
+/** Everyone who asked for one of these reviews. */
+export const whoChoices = (requests: readonly Listed[]): string[] => choices(requests.map(askedBy));
+
+/** Every project or repository one of these requests is in. */
+export const placeChoices = (requests: readonly Listed[], names: ProjectNames): string[] => choices(requests.map((r) => placeOf(r, names)));
+
+/** Whether `term`'s letters appear in `word` in order: "wbhk" in "webhook". */
+function inOrder(term: string, word: string): boolean {
+  let at = 0;
+  for (const ch of word) if (ch === term[at]) at += 1;
+  return at === term.length;
+}
+
+/**
+ * Whether text matches a search: every word typed must be found. A word is found when it is part
+ * of the text as typed, or when its letters appear in order inside one word of the text, so a
+ * letter left out or an abbreviation still finds it. Case is ignored. Pure.
+ */
+export function matchesText(haystack: string, query: string): boolean {
+  const text = haystack.toLowerCase();
+  const words = text.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((term) => text.includes(term) || (term.length >= 3 && words.some((word) => inOrder(term, word))));
+}
+
+/** What the text search reads of a request: its title, repository, project, number, author and who asked. */
+export const searchText = (request: Listed, names: ProjectNames): string =>
+  [request.title, request.repository, placeOf(request, names), requestNumberLabel(request), request.author, request.requestedBy ?? ''].join(' ');
+
+/** The requests that pass every filter, in the order given. Pure. */
+export function filterReviews<T extends Listed>(requests: readonly T[], filters: ReviewFilters, names: ProjectNames, now: number): T[] {
+  const since = filters.within === 'any' ? null : now - WITHIN_MS[filters.within];
+  return requests.filter(
+    (r) =>
+      (filters.who === '' || askedBy(r) === filters.who) &&
+      (filters.place === '' || placeOf(r, names) === filters.place) &&
+      (since === null || openedAtOf(r) >= since) &&
+      (filters.text.trim() === '' || matchesText(searchText(r, names), filters.text)),
+  );
+}
+
+/**
+ * The page's two groups: the requests the user has a review of (a session reviews them), which is
+ * what they took on, and the ones nobody has started. Each keeps the order given. Pure.
+ */
+export function splitStarted<T extends { key: string }>(requests: readonly T[], started: ReadonlySet<string>): { started: T[]; rest: T[] } {
+  return { started: requests.filter((r) => started.has(r.key)), rest: requests.filter((r) => !started.has(r.key)) };
+}

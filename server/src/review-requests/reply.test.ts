@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { ChatMessage, Session } from '../model.ts';
 import type { PullRequest } from '../shared/details.ts';
 import { draftReview, foldComments, type ReviewReply } from '../shared/review-reply.ts';
-import type { ReviewSettings } from '../shared/review-settings.ts';
+import type { ReviewAutomation as ReviewSettings } from '../shared/review-settings.ts';
 import { ready, unavailable, type Sourced } from '../shared/sourced.ts';
 import { ghReviewArgs, gitlabNote, glabApproveArgs, postReview } from './post.ts';
 import { ReviewReplies } from './reply.ts';

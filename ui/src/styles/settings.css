@@ -6,8 +6,9 @@
 .kestrel .settings-nav .side-link { min-height: 32px; padding: 7px 10px; font-size: 12px; }
 .kestrel .settings-body { padding: 32px 36px 64px; container-type: inline-size; }
 .kestrel .settings-body > * { max-width: 680px; }
-.kestrel .settings-body > h1, .kestrel .settings-body > .setting-heading { margin-bottom: 28px; }
-.kestrel .settings-body .settings-section { max-width: 680px; margin-top: 32px; gap: 14px; }
+/* Tight enough that a section reads as one screen: a heading, then its settings close under it (Matt, 2026-11-21). */
+.kestrel .settings-body > h1, .kestrel .settings-body > .setting-heading { margin-bottom: 18px; }
+.kestrel .settings-body .settings-section { max-width: 680px; margin-top: 22px; gap: 8px; }
 .kestrel .settings-body > h1 + .settings-section, .kestrel .settings-body > .setting-heading + .setting-help-content + .settings-section { margin-top: 0; }
 .kestrel .settings-body .settings-section h2 { font-size: 13px; line-height: 20px; font-weight: 600; }
 .kestrel .settings-body .settings-section > .setting-heading { margin-bottom: 2px; }

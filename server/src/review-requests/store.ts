@@ -2,7 +2,13 @@
 // current in the background (sync.ts) and pushed: nothing asks gh or glab per view. A host that
 // cannot be asked keeps its last answer and gains a problem, so a failed ask never empties the
 // list. Listeners hear only when what would be pushed really changed.
-import { NO_REVIEW_REQUESTS, orderReviewRequests, type ReviewRequest, type ReviewRequestsView } from '../shared/review-requests.ts';
+// A request the user dismissed stays held, apart (`dismissed`): it is not listed as waiting, no
+// review of it starts on its own, and it comes back only when the user restores it. The dismissed
+// keys are kept with the app's settings, and outlive the request: a host that answers with nothing
+// for a moment must not bring three hundred dismissed requests back.
+// A waiting request the user has not opened is unread (`unread`): it is read once its page is
+// opened, a review of it is started, or it is marked read. The read keys are kept the same way.
+import { NO_REVIEW_REQUESTS, orderReviewRequests, withDismissed, type ReviewRequest, type ReviewRequestsView } from '../shared/review-requests.ts';
 import type { Sourced } from '../shared/sourced.ts';
 
 interface HostEntry {
@@ -17,13 +23,25 @@ export interface ReviewRequestStoreOptions {
   order?: readonly string[];
   /** Keeps the order when it changes; failures are the caller's to log. */
   saveOrder?: (order: readonly string[]) => void;
+  /** The keys of the requests the user dismissed, as they were last stored. */
+  dismissed?: readonly string[];
+  /** Keeps the dismissed keys when they change; failures are the caller's to log. */
+  saveDismissed?: (keys: readonly string[]) => void;
+  /** The keys of the requests the user has looked at, as they were last stored. */
+  seen?: readonly string[];
+  /** Keeps the read keys when they change; failures are the caller's to log. */
+  saveSeen?: (keys: readonly string[]) => void;
 }
 
 export class ReviewRequestStore {
   private order: readonly string[];
+  private dismissedKeys: readonly string[];
+  private seenKeys: readonly string[];
 
   constructor(private readonly options: ReviewRequestStoreOptions = {}) {
     this.order = options.order ?? [];
+    this.dismissedKeys = options.dismissed ?? [];
+    this.seenKeys = options.seen ?? [];
     this.current = { ...NO_REVIEW_REQUESTS, order: [...this.order] };
     this.json = JSON.stringify(this.current);
   }
@@ -34,6 +52,30 @@ export class ReviewRequestStore {
     this.options.saveOrder?.(this.order);
     this.replace(this.hosts);
   }
+
+  /** Dismiss these requests (`on`), or restore them. A key of a request not listed now is kept all the same. */
+  dismiss(keys: readonly string[], on: boolean): void {
+    const next = withDismissed(this.dismissedKeys, keys, on);
+    if (next.length === this.dismissedKeys.length && next.every((key, i) => key === this.dismissedKeys[i])) return;
+    this.dismissedKeys = next;
+    this.options.saveDismissed?.(next);
+    // Dismissed is looked at: restored later, it does not come back as new.
+    if (on) this.keepSeen(withDismissed(this.seenKeys, keys, true));
+    this.replace(this.hosts);
+  }
+
+  /** Mark these requests read (`seen`), or unread again. A waiting request not marked read is new. */
+  markSeen(keys: readonly string[], seen: boolean): void {
+    if (this.keepSeen(withDismissed(this.seenKeys, keys, seen))) this.replace(this.hosts);
+  }
+
+  private keepSeen(next: readonly string[]): boolean {
+    if (next.length === this.seenKeys.length && next.every((key, i) => key === this.seenKeys[i])) return false;
+    this.seenKeys = next;
+    this.options.saveSeen?.(next);
+    return true;
+  }
+
   private hosts: ReadonlyMap<string, HostEntry> = new Map();
   /** Why a review of a request could not be started on its own, by the request's key. */
   private notes: ReadonlyMap<string, string> = new Map();
@@ -89,8 +131,12 @@ export class ReviewRequestStore {
     // A reason outlives its request only until the request leaves the list.
     const keys = new Set(listed.map((r) => r.key));
     this.notes = new Map([...this.notes].filter(([key]) => keys.has(key)));
+    const gone = new Set(this.dismissedKeys);
+    const seen = new Set(this.seenKeys);
     const view: ReviewRequestsView = {
-      requests: orderReviewRequests(listed.map((r) => (this.notes.has(r.key) ? { ...r, notStarted: this.notes.get(r.key)! } : r))),
+      requests: orderReviewRequests(listed.filter((r) => !gone.has(r.key)).map((r) => (this.notes.has(r.key) ? { ...r, notStarted: this.notes.get(r.key)! } : r))),
+      unread: listed.filter((r) => !gone.has(r.key) && !seen.has(r.key)).map((r) => r.key).sort(),
+      dismissed: orderReviewRequests(listed.filter((r) => gone.has(r.key))),
       order: [...this.order],
       problems: names.flatMap((name) => (hosts.get(name)!.problem ? [{ hostName: name, reason: hosts.get(name)!.problem! }] : [])),
     };

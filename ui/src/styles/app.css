@@ -142,8 +142,14 @@ body { background: light-dark(#fafbf9, #171a19); }
 .kestrel #studio-overlay { position: fixed; inset: 0; background: #14221c65; z-index: 5; display: flex; justify-content: flex-end; border-radius: 0; }
 .kestrel .detail-panel { overflow-y: auto; }
 .kestrel .switch-results { margin-top: 14px; }
-.kestrel .primary-button { display: inline-flex; align-items: center; gap: 6px; }
-.kestrel .primary-button svg { width: 12px; height: 12px; }
+/* One button, two looks (Matt, 2026-11-21): the primary and the secondary button are laid out the
+   same way everywhere. An icon sits on the label's line, centred, a set gap before it, at one size.
+   A page does not restyle its own buttons: what differs is only the look (filled or outlined) and
+   the size (`small`). */
+.kestrel :is(.primary-button, .secondary-button) { display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
+.kestrel :is(.primary-button, .secondary-button) > svg { width: 12px; height: 12px; flex: none; }
+.kestrel a:is(.primary-button, .secondary-button) { text-decoration: none; }
+.kestrel a.secondary-button { color: var(--s-ink); }
 .kestrel .toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 6; box-sizing: border-box; max-width: calc(100vw - 16px); display: flex; align-items: center; gap: 10px; background: var(--s-warm); color: var(--s-ink); border: 1px solid color-mix(in srgb, var(--s-amber) 40%, var(--s-line)); border-radius: 8px; padding: 9px 12px; font-size: 11px; box-shadow: 0 8px 30px #0000001f; }
 .kestrel .settings-version { color: var(--s-muted); font-size: 11px; }
 .kestrel .boot-message { padding: 60px 40px; max-width: 560px; }
@@ -316,7 +322,7 @@ body { background: light-dark(#fafbf9, #171a19); }
 .kestrel .page-head-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 30px; }
 .kestrel .page-head h1 { font-family: inherit; font-size: 19px; line-height: 26px; font-weight: 600; letter-spacing: -.01em; margin: 0; }
 .kestrel .page-head-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 11px; color: var(--s-muted); min-height: 18px; }
-.kestrel .primary-button.small { padding: 6px 11px; font-size: 11px; }
+.kestrel :is(.primary-button, .secondary-button).small { padding: 6px 11px; font-size: 11px; }
 .kestrel .link-button { background: none; border: 0; padding: 0; color: var(--s-accent); font-size: 11px; cursor: pointer; }
 .kestrel .filter-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0 8px; }
 .kestrel .chips { display: flex; flex-wrap: wrap; gap: 2px; }
@@ -402,19 +408,16 @@ body { background: light-dark(#fafbf9, #171a19); }
 .kestrel .starter-row { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-block); }
 .kestrel .starter-where { display: grid; gap: var(--space-label); width: min(260px, 100%); }
 .kestrel .starter-where .ctl-label { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--s-muted); }
-.kestrel .starter-row .primary-button svg { width: 13px; height: 13px; }
 .kestrel .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-label); }
 .kestrel .tile { display: flex; align-items: center; justify-content: space-between; gap: var(--space-block); padding: 12px; background: var(--s-paper); border: 1px solid var(--s-line); border-radius: 10px; }
 .kestrel .tile-text { display: grid; gap: 2px; min-width: 0; }
 .kestrel .tile-text strong { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kestrel .tile-text small { font-size: 11px; color: var(--s-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.kestrel .tile .secondary-button.small { flex: none; padding: 5px 9px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; }
-.kestrel .tile .secondary-button.small svg, .kestrel .tile-add svg { width: 12px; height: 12px; }
+.kestrel .tile .secondary-button.small { flex: none; }
+.kestrel .tile-add svg { width: 12px; height: 12px; }
 .kestrel .tile-add { justify-content: center; gap: 6px; border-style: dashed; background: transparent; color: var(--s-muted); font: inherit; font-size: 12px; }
 .kestrel .tile-add:hover { color: var(--s-accent); border-color: var(--s-accent); }
 
-.kestrel .work-title .secondary-button { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.kestrel .work-title .secondary-button svg { width: 13px; height: 13px; }
 
 /* ---- session: one line at the top, then the conversation --------------------------------- */
 .kestrel .session-bar { display: flex; align-items: center; gap: 12px; min-height: 36px; padding: 0 16px; border-bottom: 1px solid var(--s-line); font-size: 11px; color: var(--s-muted); white-space: nowrap; overflow: hidden; }
@@ -1031,3 +1034,20 @@ body { background: light-dark(#fafbf9, #171a19); }
   background-size: 5px 5px;
   background-repeat: no-repeat;
 }
+
+/* Toasts (components/ToastHost.tsx): a stack at the bottom centre, newest lowest. A note of what
+   was just done stands out by contrast, not colour; a refused action keeps the warm error look. */
+.kestrel .toast-stack { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 6; display: flex; flex-direction: column; align-items: center; gap: 6px; max-width: calc(100vw - 16px); pointer-events: none; }
+.kestrel .toast-stack .toast { position: static; transform: none; max-width: 100%; pointer-events: auto; }
+/* A note is the page turned inside out, so it cannot be missed against it: the ink colour behind,
+   the page's colour for the words (dark on a light theme, near white on a dark one). Still grey. */
+.kestrel .toast.note { background: var(--s-ink); color: var(--s-bg); border-color: var(--s-ink); padding: 10px 12px 10px 16px; font-size: 12px; box-shadow: 0 10px 34px #00000047, 0 2px 8px #0000002e; animation: toast-in .26s cubic-bezier(.2, .8, .2, 1) both; }
+.kestrel .toast-text { min-width: 0; }
+.kestrel .toast.note .icon-button { color: color-mix(in srgb, var(--s-bg) 70%, transparent); }
+.kestrel .toast.note .icon-button:hover { color: var(--s-bg); background: color-mix(in srgb, var(--s-bg) 16%, transparent); }
+.kestrel .toast-undo { flex: none; padding: 3px 10px; font: inherit; font-weight: 600; color: var(--s-bg); background: color-mix(in srgb, var(--s-bg) 18%, transparent); border: 0; border-radius: 5px; cursor: pointer; }
+.kestrel .toast-undo:hover { background: color-mix(in srgb, var(--s-bg) 30%, transparent); }
+.kestrel .toast-undo:focus-visible { outline: 2px solid var(--s-bg); outline-offset: 1px; }
+/* In: it rises a little and settles, quickly enough not to be waited for. */
+@keyframes toast-in { from { opacity: 0; transform: translateY(14px) scale(.97); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .kestrel .toast.note { animation: none; } }

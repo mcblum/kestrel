@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { reviewStarter } from '../review-requests/auto.ts';
 import { ReviewRequestStore } from '../review-requests/store.ts';
 import type { ReviewRequest } from '../shared/review-requests.ts';
-import { DEFAULT_REVIEW_SETTINGS, MAX_REVIEWS_AT_ONCE, reviewsToStart, sanitizeReviewSettings, startsOnItsOwn, withProject, type ReviewSettings } from '../shared/review-settings.ts';
+import { DEFAULT_REVIEW_SETTINGS, MAX_REVIEWS_AT_ONCE, reviewsToStart, sanitizeReviewSettings, startsOnItsOwn, withProject, type ReviewAutomation, type ReviewSettings } from '../shared/review-settings.ts';
 import { ready } from '../shared/sourced.ts';
 import { reviewSettingsRoute } from './api.ts';
 import { ReviewPrefs } from './prefs.ts';
@@ -21,17 +21,17 @@ const request = (number: number, projectId: string | null = 'p1', updatedAt = nu
   updatedAt,
   projectId,
 });
-const START: ReviewSettings = { mode: 'start', projects: 'all' };
+const START: ReviewAutomation = { mode: 'start', projects: 'all' };
 const NONE = new Set<string>();
 
 describe('the setting as stored', () => {
   it('lists requests and takes in every project until the user says otherwise', () => {
-    expect(sanitizeReviewSettings(null)).toEqual({ mode: 'list', projects: 'all' });
+    expect(sanitizeReviewSettings(null)).toMatchObject({ mode: 'list', projects: 'all' });
     expect(sanitizeReviewSettings({ mode: 'publish', projects: 7 })).toEqual(DEFAULT_REVIEW_SETTINGS);
   });
 
   it('keeps a valid choice, each project once', () => {
-    expect(sanitizeReviewSettings({ mode: 'start', projects: ['a', 'b', 'a'] })).toEqual({ mode: 'start', projects: ['a', 'b'] });
+    expect(sanitizeReviewSettings({ mode: 'start', projects: ['a', 'b', 'a'] })).toEqual({ ...DEFAULT_REVIEW_SETTINGS, mode: 'start', projects: ['a', 'b'] });
   });
 });
 
@@ -82,7 +82,7 @@ describe('which reviews are due', () => {
   });
 
   it('skips a request that was tried and refused, one in no project, and one in a project not chosen', () => {
-    const settings: ReviewSettings = { mode: 'start', projects: ['p1'] };
+    const settings: ReviewAutomation = { mode: 'start', projects: ['p1'] };
     const requests = [request(1), request(2, null), request(3, 'p2'), request(4)];
     expect(reviewsToStart(settings, requests, [], new Set([request(1).key])).map((r) => r.number)).toEqual([4]);
   });
@@ -103,7 +103,7 @@ describe('ReviewPrefs', () => {
     prefs.onChange((s) => heard.push(s));
     await prefs.set({ mode: 'start' });
     await prefs.set({ projects: ['p1'] });
-    expect(await prefs.current()).toEqual({ mode: 'start', projects: ['p1'] });
+    expect(await prefs.current()).toEqual({ ...DEFAULT_REVIEW_SETTINGS, mode: 'start', projects: ['p1'] });
     expect(heard).toHaveLength(2);
   });
 });
@@ -119,7 +119,7 @@ describe('the route', () => {
 
   it('stores a choice of projects, dropping any that is not registered', async () => {
     const answer = await put(new ReviewPrefs(), { mode: 'start', projects: ['p2', 'gone'] });
-    expect(answer).toEqual({ status: 200, body: { mode: 'start', projects: ['p2'] } });
+    expect(answer).toEqual({ status: 200, body: { ...DEFAULT_REVIEW_SETTINGS, mode: 'start', projects: ['p2'] } });
   });
 
   it('stores posting on its own only when the warning was confirmed', async () => {
@@ -139,7 +139,7 @@ describe('the route', () => {
 });
 
 describe('starting reviews on their own', () => {
-  const setUp = (settings: ReviewSettings, start: (r: ReviewRequest) => Promise<unknown>) => {
+  const setUp = (settings: ReviewAutomation, start: (r: ReviewRequest) => Promise<unknown>) => {
     const store = new ReviewRequestStore();
     const sessions: { state: string; review?: { key: string } }[] = [];
     const starter = reviewStarter({ settings: async () => settings, sessions: async () => sessions, start }, store);

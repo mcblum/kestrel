@@ -139,6 +139,19 @@ export async function runMenuAction(action: MenuAction, newTab = false): Promise
     case 'pin':
       await actions.setPinned(action.kind, action.id, action.pinned);
       return;
+    case 'open-review':
+      if (action.sessionId) openSession(action.sessionId, newTab);
+      else openView({ kind: 'review-request', id: action.key }, newTab);
+      return;
+    case 'open-link':
+      window.open(action.url, '_blank', 'noreferrer');
+      return;
+    case 'mark-review-read':
+      await actions.markReviewsSeen([action.key], action.read, true);
+      return;
+    case 'dismiss-review':
+      await actions.dismissReviews([action.key], action.dismissed);
+      return;
     case 'delete-session': {
       const session = appStore.get().sessionsById.get(action.sessionId);
       if (session) actions.deleteSession(session);

@@ -17,8 +17,12 @@
 #                             file holding it (a File-type CI variable). Required to push.
 #   GITHUB_SYNC_KNOWN_HOSTS   github.com's host keys, as known_hosts lines. When unset they are
 #                             fetched with ssh-keyscan, which trusts the network at that moment.
-#   GITHUB_SYNC_AUTHOR_NAME   the public commits' author (default "Kestrel").
-#   GITHUB_SYNC_AUTHOR_EMAIL  and address (default "kestrel@users.noreply.github.com").
+#   GITHUB_SYNC_AUTHOR_NAME   the public commits' author. Required to push.
+#   GITHUB_SYNC_AUTHOR_EMAIL  and address. Required to push. GitHub credits a commit to the account
+#                             this address belongs to, so it must be one verified on your GitHub
+#                             account, or that account's "<id>+<login>@users.noreply.github.com".
+#                             There is no default: a made-up "<name>@users.noreply.github.com" is
+#                             some other person's address, and they would get the credit.
 #   GITHUB_SYNC_BRANCH        the branch on GitHub (default "main").
 #   GITHUB_SYNC_REMOTE       for a test: any git remote to push to instead of GitHub (no key used).
 #   GITHUB_SYNC_DENY          an extended regular expression that must match nothing in the tree,
@@ -111,7 +115,8 @@ if git -C "$pub" diff --cached --quiet 2>/dev/null && git -C "$pub" rev-parse -q
   exit 0
 fi
 subject="$(git -C "$ROOT" log -1 --format=%s HEAD)"
-git -C "$pub" -c user.name="${GITHUB_SYNC_AUTHOR_NAME:-Kestrel}" -c user.email="${GITHUB_SYNC_AUTHOR_EMAIL:-kestrel@users.noreply.github.com}" -c commit.gpgsign=false \
+[ -n "${GITHUB_SYNC_AUTHOR_NAME:-}" ] && [ -n "${GITHUB_SYNC_AUTHOR_EMAIL:-}" ] || fail "set GITHUB_SYNC_AUTHOR_NAME and GITHUB_SYNC_AUTHOR_EMAIL: the public commit is credited to the GitHub account that address belongs to"
+git -C "$pub" -c user.name="$GITHUB_SYNC_AUTHOR_NAME" -c user.email="$GITHUB_SYNC_AUTHOR_EMAIL" -c commit.gpgsign=false \
   commit -q -m "$subject" -m "Source commit $(git -C "$ROOT" rev-parse --short HEAD)."
 git -C "$pub" push -q origin "HEAD:$branch"
 echo "==> pushed to ${GITHUB_SYNC_REMOTE:-github.com/$GITHUB_SYNC_REPO} ($branch): $subject"

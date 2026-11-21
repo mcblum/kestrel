@@ -25,8 +25,11 @@ import { UpdateNotice } from './UpdateNotice.tsx';
 import { Heading } from './SidebarHeading.tsx';
 import { SidebarTags } from './SidebarTags.tsx';
 import { SidebarPins } from './SidebarPins.tsx';
-import { ReviewRequestRow, SidebarReviews } from './SidebarReviews.tsx';
-import { requestNumberLabel, reviewingIds, reviewRowDetail, type ReviewMark } from '@kestrel/server/review-requests';
+import { ReviewRequestRow, ReviewsLink, SidebarReviews } from './SidebarReviews.tsx';
+import { openedText, requestNumberLabel, reviewingIds, reviewRowDetail, type ReviewMark } from '@kestrel/server/review-requests';
+import { hasReviewLink, hasReviewSection } from '@kestrel/server/review-settings';
+import { useReviewSettings } from '../reviewSettings.ts';
+import { useMinuteNow } from '../useNow.ts';
 import { cardTrigger } from '../hoverCardState.ts';
 import { cameFromText } from '@kestrel/server/session-card';
 import { HoverCardHost } from './HoverCard.tsx';
@@ -69,7 +72,9 @@ function sessionTip(session: SessionView, projects: readonly Project[], dotLabel
 function ReviewWhere({ review, fallback }: { review: ReviewMark; fallback: string }) {
   const request = useApp((s) => s.reviewRequests.requests.find((r) => r.key === review.key));
   const project = useApp((s) => (request?.projectId ? s.workspace?.projects.find((p) => p.id === request.projectId)?.name : undefined));
-  return <>{request ? reviewRowDetail(request, project) : `${fallback} ${requestNumberLabel(review)}`}</>;
+  const now = useMinuteNow();
+  // With how long ago the request was opened, as its request row had.
+  return <>{request ? [reviewRowDetail(request, project), openedText(request, now)].filter(Boolean).join(' · ') : `${fallback} ${requestNumberLabel(review)}`}</>;
 }
 
 const TreeRow = memo(function TreeRow({ node, depth, activeId, rootId, groupId, parentId }: { node: TreeNode; depth: number; activeId: string | null; /** The top session of this row's tree. */ rootId: string; /** The group this row is listed in; `undefined` in a project's list, where a drop only reorders. */ groupId: string | null | undefined; /** The row this one is drawn under, if any. */ parentId?: string }) {
@@ -610,7 +615,7 @@ function ResizeHandle() {
 }
 
 /** Where everything is drawn once pins are taken into account (shared/pinned-homes.ts). */
-function useHomes(workspace: WorkspaceState | null): SidebarHomes | null {
+function useHomes(workspace: WorkspaceState | null, reviewsSection: boolean): SidebarHomes | null {
   const requests = useApp((s) => s.reviewRequests.requests);
   // The same set while the same sessions are reviewing, so the homes are not worked out again for nothing.
   const reviewingKey = useMemo(() => [...reviewingIds(workspace?.sessions ?? [], requests)].join(' '), [workspace?.sessions, requests]);
@@ -620,8 +625,8 @@ function useHomes(workspace: WorkspaceState | null): SidebarHomes | null {
     if (!workspace) return workspace;
     const reviewing = new Set(reviewingKey ? reviewingKey.split(' ') : []);
     const reviewKeyOf = new Map(workspace.sessions.flatMap((s) => (s.review && reviewing.has(s.id) ? [[s.id, s.review.key] as const] : [])));
-    return sidebarHomes({ ...workspace, reviewing, reviewKeyOf, listedReviews: new Set(listedKey ? listedKey.split(' ') : []) });
-  }, [workspace?.pins, workspace?.trees, workspace?.sessions, reviewingKey, listedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+    return sidebarHomes({ ...workspace, reviewing, reviewKeyOf, listedReviews: new Set(listedKey ? listedKey.split(' ') : []), reviewsSection });
+  }, [workspace?.pins, workspace?.trees, workspace?.sessions, reviewingKey, listedKey, reviewsSection]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 /** PINNED's rows in the session order: dragged, or newest activity first (shared/pinned-order.ts). */
@@ -688,13 +693,16 @@ export function Sidebar({ route, activeId, onSwitch }: { route: Route | null; ac
   const workspace = useApp((s) => s.workspace);
   const collapsed = useTabs((v) => v.sidebar.collapsed);
   const seen = useTabs((v) => v.seen);
-  const homes = useHomes(workspace);
+  const homes = useHomes(workspace, hasReviewSection(useReviewSettings()));
   if (!workspace || !homes) return <aside className="studio-sidebar" />;
   return <SidebarBody workspace={workspace} homes={homes} collapsed={collapsed} route={route} activeId={activeId} onSwitch={onSwitch} />;
 }
 
 function SidebarBody({ workspace, homes, collapsed, route, activeId, onSwitch }: { workspace: WorkspaceState; homes: SidebarHomes; collapsed: readonly string[]; route: Route | null; activeId: string | null; onSwitch: () => void }) {
   const pinnedRows = usePinnedRows(workspace, homes);
+  // Where review requests are shown (Settings → Git): the section, the row for their page, or both.
+  const reviewSettings = useReviewSettings();
+  const reviewsSection = hasReviewSection(reviewSettings);
   // Folded PINNED still shows the open session if it is drawn there.
   const keptPin = activeId ? pinnedHolder(pinnedRows, workspace, homes, activeId) : undefined;
 
@@ -727,6 +735,7 @@ function SidebarBody({ workspace, homes, collapsed, route, activeId, onSwitch }:
       <div className="top-menu">
         {nav({ kind: 'overview' }, 'Overview', <LayoutDashboard aria-hidden />)}
         {nav({ kind: 'pull-requests' }, 'Pull requests', <GitPullRequest aria-hidden />)}
+        {hasReviewLink(reviewSettings) && <ReviewsLink active={isView(route, { kind: 'code-reviews' })} />}
         <button className="side-link" {...opener((newTab) => void runMenuAction(item.newSession().action!, newTab))}>
           <Plus aria-hidden />
           <span className="link-label">New session</span>
@@ -740,7 +749,7 @@ function SidebarBody({ workspace, homes, collapsed, route, activeId, onSwitch }:
       </div>
       <nav aria-label="Sessions and projects" className="side-scroll">
         <SidebarPins rows={pinnedRows} render={(row) => <PinnedItem row={row} workspace={workspace} homes={homes} route={route} activeId={activeId} />} kept={keptPin && activeId ? <PinnedItem row={keptPin} workspace={workspace} homes={homes} route={route} activeId={activeId} only={activeId} /> : null} />
-        <SidebarReviews route={route} rows={homes.reviews} activeId={activeId} renderSession={(node) => <TreeRow node={node} depth={0} activeId={activeId} rootId={node.sessionId} groupId={undefined} />} />
+        {reviewsSection && <SidebarReviews route={route} rows={homes.reviews} activeId={activeId} limit={reviewSettings.sidebarLimit} renderSession={(node) => <TreeRow node={node} depth={0} activeId={activeId} rootId={node.sessionId} groupId={undefined} />} />}
         {/* What the user is in the middle of comes first: the work that reaches across projects, then the directory. */}
         <SidebarWorkstreams workspace={workspace} route={route} activeId={activeId} renderNode={(node) => <TreeRow key={node.sessionId} node={node} depth={1} activeId={activeId} rootId={node.sessionId} groupId={undefined} />} />
         {/* Groups that span projects and sessions with no project. Not drawn while there are none: a new group is made from the sidebar's right-click menu. */}

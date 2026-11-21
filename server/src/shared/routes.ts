@@ -24,6 +24,8 @@ export type View =
   | { kind: 'tag'; id: string }
   /** A workstream's page: what the work is for, its sessions, and what needs the user. */
   | { kind: 'workstream'; id: string }
+  /** The Code reviews page: every request the user was asked to review; `filter: 'dismissed'` is the ones they dismissed. */
+  | { kind: 'code-reviews'; filter?: 'dismissed' }
   /** A request the user was asked to review, by its key (shared/review-requests.ts). */
   | { kind: 'review-request'; id: string }
   /** Create project; `from: 'folder'` is its second way in, several projects from one parent folder. */
@@ -68,6 +70,7 @@ export function parseViewPath(path: string): View {
   if (a === 'code' && id && c && /^\d+$/.test(d ?? '')) return { kind: 'code', sessionId: id, messageId: decodeURIComponent(c), at: Number(d) };
   if (a === 'new-project') return b === 'folder' ? { kind: 'new-project', from: 'folder' } : { kind: 'new-project' };
   if (a === 'pull-requests') return pullRequestsView(isRequestFilter(b) ? b : undefined);
+  if (a === 'code-reviews') return b === 'dismissed' ? { kind: 'code-reviews', filter: 'dismissed' } : { kind: 'code-reviews' };
   if (a === 'all' && b === 'done') return { kind: 'all', filter: 'done' };
   if (a === 'attention' || a === 'all' || a === 'unscoped') return { kind: a };
   return OVERVIEW_VIEW;
@@ -80,7 +83,7 @@ export function viewPath(view: View): string {
   if (view.kind === 'settings') return view.section ? `#/settings/${encodeURIComponent(view.section)}` : '#/settings';
   if (view.kind === 'move') return `#/move/${encodeURIComponent(view.sessionId)}/${encodeURIComponent(view.projectId)}${view.groupId ? `/${encodeURIComponent(view.groupId)}` : ''}`;
   if (view.kind === 'code') return `#/code/${encodeURIComponent(view.sessionId)}/${encodeURIComponent(view.messageId)}/${view.at}`;
-  if (view.kind === 'all' && view.filter) return `#/all/${view.filter}`;
+  if ((view.kind === 'all' || view.kind === 'code-reviews') && view.filter) return `#/${view.kind}/${view.filter}`;
   if (view.kind === 'pull-requests') return view.filter ? `#/pull-requests/${view.filter}` : '#/pull-requests';
   if (view.kind === 'new-project' && view.from) return `#/new-project/${view.from}`;
   return view.kind === 'overview' ? '#/' : `#/${view.kind}`;
@@ -89,11 +92,12 @@ export function viewPath(view: View): string {
 /**
  * The destination a view belongs to, without its local tab: what names the workspace tab and which
  * sidebar row is selected. A project is the same destination on its Sessions and Settings tabs, the
- * Pull requests page under every filter.
+ * Pull requests and Code reviews pages under every filter.
  */
 export function containerOf(view: View): View {
   if (view.kind === 'all') return { kind: 'all' };
   if (view.kind === 'pull-requests') return { kind: 'pull-requests' };
+  if (view.kind === 'code-reviews') return { kind: 'code-reviews' };
   if (view.kind === 'new-project') return { kind: 'new-project' };
   return view.kind === 'project' ? { kind: 'project', id: view.id } : view;
 }

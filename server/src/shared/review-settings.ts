@@ -22,13 +22,48 @@ export const REVIEW_MODE_LABEL: Record<ReviewMode, string> = {
 /** Every project, those registered later included; or only the projects with these ids. */
 export type ReviewProjects = 'all' | readonly string[];
 
+/**
+ * Where the requests are shown. `sidebar`: the CODE REVIEWS section. `page`: the Code reviews page,
+ * reached from a row of the sidebar's top menu, and no section (the default: Matt, 2026-11-21).
+ * `both`: the section and that row.
+ * The page exists whichever is chosen: the section's "Show more" opens it.
+ */
+export type ReviewPlace = 'both' | 'sidebar' | 'page';
+
+export const REVIEW_PLACES: readonly ReviewPlace[] = ['page', 'sidebar', 'both'];
+
+export const REVIEW_PLACE_LABEL: Record<ReviewPlace, string> = {
+  both: 'In the sidebar and on their own page',
+  sidebar: 'In the sidebar',
+  page: 'On their own page',
+};
+
+/** How many requests nobody has started on the sidebar's section lists before "Show more". */
+export const SIDEBAR_LIMIT = { min: 1, max: 50, initial: 5 } as const;
+
 export interface ReviewSettings {
   mode: ReviewMode;
   /** Where a review may start on its own. Requests are listed for every project whatever this says. */
   projects: ReviewProjects;
+  show: ReviewPlace;
+  sidebarLimit: number;
 }
 
-export const DEFAULT_REVIEW_SETTINGS: ReviewSettings = { mode: 'list', projects: 'all' };
+/** The part that decides what Kestrel does on its own: all the starting and replying rules read. */
+export type ReviewAutomation = Pick<ReviewSettings, 'mode' | 'projects'>;
+
+export const DEFAULT_REVIEW_SETTINGS: ReviewSettings = { mode: 'list', projects: 'all', show: 'page', sidebarLimit: SIDEBAR_LIMIT.initial };
+
+export const isReviewPlace = (v: unknown): v is ReviewPlace => REVIEW_PLACES.includes(v as ReviewPlace);
+
+/** A limit as given, or null when it is not a whole number in range. */
+export const asSidebarLimit = (v: unknown): number | null => (typeof v === 'number' && Number.isInteger(v) && v >= SIDEBAR_LIMIT.min && v <= SIDEBAR_LIMIT.max ? v : null);
+
+/** Whether the sidebar has the CODE REVIEWS section. */
+export const hasReviewSection = (settings: Pick<ReviewSettings, 'mode' | 'show'>): boolean => settings.mode !== 'off' && settings.show !== 'page';
+
+/** Whether the sidebar's top menu has the Code reviews row. */
+export const hasReviewLink = (settings: Pick<ReviewSettings, 'mode' | 'show'>): boolean => settings.mode !== 'off' && settings.show !== 'sidebar';
 
 /** How many reviews Kestrel started on its own may be at work at once; the rest wait. */
 export const MAX_REVIEWS_AT_ONCE = 2;
@@ -46,20 +81,25 @@ export function asReviewProjects(raw: unknown): ReviewProjects | null {
 export function sanitizeReviewSettings(raw: unknown): ReviewSettings {
   if (typeof raw !== 'object' || raw === null) return DEFAULT_REVIEW_SETTINGS;
   const r = raw as Record<string, unknown>;
-  return { mode: isMode(r.mode) ? r.mode : DEFAULT_REVIEW_SETTINGS.mode, projects: asReviewProjects(r.projects) ?? DEFAULT_REVIEW_SETTINGS.projects };
+  return {
+    mode: isMode(r.mode) ? r.mode : DEFAULT_REVIEW_SETTINGS.mode,
+    projects: asReviewProjects(r.projects) ?? DEFAULT_REVIEW_SETTINGS.projects,
+    show: isReviewPlace(r.show) ? r.show : DEFAULT_REVIEW_SETTINGS.show,
+    sidebarLimit: asSidebarLimit(r.sidebarLimit) ?? DEFAULT_REVIEW_SETTINGS.sidebarLimit,
+  };
 }
 
 /** Whether a project is one of the chosen ones, whatever the mode. */
-export const isChosenProject = (settings: ReviewSettings, projectId: string): boolean => settings.projects === 'all' || settings.projects.includes(projectId);
+export const isChosenProject = (settings: ReviewAutomation, projectId: string): boolean => settings.projects === 'all' || settings.projects.includes(projectId);
 
 /** Whether a review of a request in this project starts on its own. */
 /** Whether the mode is one of the two in which Kestrel acts without being asked, in the chosen projects. */
 export const isAutomatic = (mode: ReviewMode): boolean => mode === 'start' || mode === 'reply';
 
-export const startsOnItsOwn = (settings: ReviewSettings, projectId: string | null): boolean => isAutomatic(settings.mode) && projectId !== null && isChosenProject(settings, projectId);
+export const startsOnItsOwn = (settings: ReviewAutomation, projectId: string | null): boolean => isAutomatic(settings.mode) && projectId !== null && isChosenProject(settings, projectId);
 
 /** Whether a finished review in this project is posted without the user's click. */
-export const repliesOnItsOwn = (settings: ReviewSettings, projectId: string | null): boolean => settings.mode === 'reply' && projectId !== null && isChosenProject(settings, projectId);
+export const repliesOnItsOwn = (settings: ReviewAutomation, projectId: string | null): boolean => settings.mode === 'reply' && projectId !== null && isChosenProject(settings, projectId);
 
 /** What the user must confirm before choosing `reply`. One wording, shown in Settings → Git. */
 export const REPLY_WARNING =
@@ -87,7 +127,7 @@ interface ReviewingSession {
  * already tried (`tried`: a start that was refused is not asked again). Oldest first, so a request
  * does not wait behind newer ones, and only as many as leave MAX_REVIEWS_AT_ONCE at work.
  */
-export function reviewsToStart<T extends Pick<ReviewRequest, 'key' | 'projectId' | 'updatedAt'>>(settings: ReviewSettings, requests: readonly T[], sessions: readonly ReviewingSession[], tried: ReadonlySet<string>): T[] {
+export function reviewsToStart<T extends Pick<ReviewRequest, 'key' | 'projectId' | 'updatedAt'>>(settings: ReviewAutomation, requests: readonly T[], sessions: readonly ReviewingSession[], tried: ReadonlySet<string>): T[] {
   if (!isAutomatic(settings.mode)) return [];
   const reviewed = new Set(sessions.flatMap((s) => (s.review ? [s.review.key] : [])));
   const atWork = sessions.filter((s) => s.review && s.state === 'running').length;

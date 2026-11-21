@@ -46,6 +46,7 @@ export function mapGitlabItem(item: Fields, host: string): FoundReviewRequest | 
     author: isFields(item.author) ? text(item.author.username) : '',
     url: /^https?:\/\//.test(text(item.web_url)) ? text(item.web_url) : '',
     updatedAt: Date.parse(text(item.updated_at)) || 0,
+    ...(Date.parse(text(item.created_at)) ? { openedAt: Date.parse(text(item.created_at)) } : {}),
     ...(body ? { body } : {}),
   };
 }

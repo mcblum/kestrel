@@ -167,7 +167,7 @@ describe('ReviewRequestStore', () => {
 describe('what the UI accepts', () => {
   it('reads a pushed view and drops what is not a request', () => {
     const view = { requests: [request(), { key: 'x' }], problems: [{ hostName: 'h', reason: 'r' }, 3] };
-    expect(asReviewRequestsView(view)).toEqual({ requests: [request()], problems: [{ hostName: 'h', reason: 'r' }], order: [] });
+    expect(asReviewRequestsView(view)).toEqual({ requests: [request()], unread: [], dismissed: [], problems: [{ hostName: 'h', reason: 'r' }], order: [] });
     expect(asReviewRequestsView(undefined)).toBe(NO_REVIEW_REQUESTS);
     expect(asReviewRequestsView({ requests: 'no' })).toBe(NO_REVIEW_REQUESTS);
   });

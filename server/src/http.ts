@@ -294,11 +294,31 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
       options.reviewRequests.setOrder(order);
       return send(req, res, 204, null);
     }
+    // Dismiss requests the user was asked to review, or restore dismissed ones (review-requests/store.ts).
+    if (parts[1] === 'review-requests' && parts[2] === 'dismissed' && parts.length === 3 && method === 'PUT') {
+      const body = await readJson(req);
+      const keys = asReviewOrder(body.keys);
+      if (!keys || typeof body.dismissed !== 'boolean' || !options.reviewRequests) return send(req, res, 400, { error: 'Give keys, a list of request keys, and dismissed, true or false.' });
+      options.reviewRequests.dismiss(keys, body.dismissed);
+      return send(req, res, 200, { ok: true });
+    }
+    // Mark requests read, or unread again (review-requests/store.ts).
+    if (parts[1] === 'review-requests' && parts[2] === 'seen' && parts.length === 3 && method === 'PUT') {
+      const body = await readJson(req);
+      const keys = asReviewOrder(body.keys);
+      if (!keys || typeof body.seen !== 'boolean' || !options.reviewRequests) return send(req, res, 400, { error: 'Give keys, a list of request keys, and seen, true or false.' });
+      options.reviewRequests.markSeen(keys, body.seen);
+      return send(req, res, 200, { ok: true });
+    }
     // Start reviewing a request the user was asked to review, or open the review already started (review-requests/start.ts).
     if (parts[1] === 'review-requests' && parts[2] === 'start' && parts.length === 3 && method === 'POST') {
       if (!runtime || !options.reviewRequests) return send(req, res, 409, { error: 'Reviews need a running agent runtime.' });
       const key = str((await readJson(req)).key, 'key', 400);
-      const request = options.reviewRequests.view().requests.find((r) => r.key === key);
+      const held = options.reviewRequests.view();
+      // Starting a review of a dismissed request restores it: it waits on the user again.
+      const request = held.requests.find((r) => r.key === key) ?? held.dismissed.find((r) => r.key === key);
+      if (request) options.reviewRequests.dismiss([key], false);
+      if (request) options.reviewRequests.markSeen([key], true);
       if (!request) throw new Refused('This review is no longer waiting on you: it was reviewed, merged, closed, or the request was taken back.');
       return send(req, res, 201, await runtime.startReview(request));
     }

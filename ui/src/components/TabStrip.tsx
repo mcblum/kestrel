@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState, type DragEvent } from 'react';
-import { Code, Waypoints, GitPullRequest, LayoutDashboard, Plus, Tag, X } from 'lucide-react';
+import { Code, Eye, Waypoints, GitPullRequest, LayoutDashboard, Plus, Tag, X } from 'lucide-react';
 import type { Tab } from '@kestrel/server/tabs';
 import { openNewSession } from '../commands.ts';
 import { useRowDot } from './useRowDot.ts';
@@ -55,7 +55,7 @@ const TabButton = memo(function TabButton({ tab, index, active, pinned }: { tab:
       onMouseDown={(e) => e.button === 1 && !pinned && (e.preventDefault(), tabActions.close(tab.id))}
     >
       <button className="tab-main" tabIndex={active ? 0 : -1} onClick={() => tabActions.activate(tab.id)} title={title}>
-        {route ? route.view.kind === 'tag' ? <Tag aria-hidden /> : route.view.kind === 'workstream' ? <Waypoints aria-hidden /> : route.view.kind === 'pull-requests' ? <GitPullRequest aria-hidden /> : route.view.kind === 'code' ? <Code aria-hidden /> : <LayoutDashboard aria-hidden /> : tab.kind === 'new' ? <Plus aria-hidden /> : <span className={`status-dot ${dot.className}`} aria-label={dot.label || undefined} />}
+        {route ? route.view.kind === 'tag' ? <Tag aria-hidden /> : route.view.kind === 'workstream' ? <Waypoints aria-hidden /> : route.view.kind === 'pull-requests' ? <GitPullRequest aria-hidden /> : route.view.kind === 'code-reviews' || route.view.kind === 'review-request' ? <Eye aria-hidden /> : route.view.kind === 'code' ? <Code aria-hidden /> : <LayoutDashboard aria-hidden /> : tab.kind === 'new' ? <Plus aria-hidden /> : <span className={`status-dot ${dot.className}`} aria-label={dot.label || undefined} />}
         <span className="tab-title">{title}</span>
         {unsent && <span className="tab-unsent" title="Unsent message" />}
       </button>

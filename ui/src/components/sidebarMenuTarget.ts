@@ -4,6 +4,7 @@ import { isArchived, isComplete, isOpenWork } from '@kestrel/server/workstreams'
 import type { PinKind, WorkspaceState } from '@kestrel/server/model';
 import { sidebarMenu, type MenuTarget } from '@kestrel/server/menu';
 import { isPinned } from '@kestrel/server/pins';
+import { hostTerms } from '@kestrel/server/host-terms';
 import { fitsGroup } from '@kestrel/server/project-groups';
 import { workstreamOf } from '@kestrel/server/workstreams';
 import type { Seen } from '@kestrel/server/unread';
@@ -74,7 +75,21 @@ export function menuTargetFor(ws: WorkspaceState, kind: string | undefined, id: 
   if (kind === 'session') return sessionTarget(ws, id, seen, pinned('session'));
   if (kind === 'project') return projectTarget(ws, id, pinned('project'));
   if (kind === 'tag') return { kind: 'tag', tag: id };
-  if (kind === 'review') return { kind: 'review', key: id, pinned: pinned('review') };
+  if (kind === 'review') {
+    const held = appStore.get().reviewRequests;
+    const waiting = held.requests.find((r) => r.key === id);
+    const request = waiting ?? held.dismissed.find((r) => r.key === id);
+    const sessionId = ws.sessions.find((s) => s.review?.key === id)?.id;
+    return {
+      kind: 'review',
+      key: id,
+      pinned: pinned('review'),
+      unread: held.unread.includes(id),
+      ...(request && !waiting ? { dismissed: true } : {}),
+      ...(request?.url ? { url: request.url, service: hostTerms(request.host).service } : {}),
+      ...(sessionId ? { sessionId } : {}),
+    };
+  }
   if (kind === 'workstream') {
     const workstream = ws.workstreams.find((w) => w.id === id) ?? ws.archivedWorkstreams.find((w) => w.id === id);
     if (!workstream) return { kind: 'empty' };

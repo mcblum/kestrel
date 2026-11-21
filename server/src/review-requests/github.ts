@@ -41,6 +41,7 @@ export function mapGithubItem(item: Fields): FoundReviewRequest | null {
     author: isFields(item.user) ? text(item.user.login) : '',
     url: /^https:\/\//.test(text(item.html_url)) ? text(item.html_url) : '',
     updatedAt: Date.parse(text(item.updated_at)) || 0,
+    ...(Date.parse(text(item.created_at)) ? { openedAt: Date.parse(text(item.created_at)) } : {}),
     ...(body ? { body } : {}),
   };
 }

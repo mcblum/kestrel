@@ -38,6 +38,8 @@ export function viewTitle(page: View, ws: (Pick<WorkspaceState, 'projects' | 'gr
       return ws?.groups.find((g) => g.id === view.id)?.name ?? 'Group';
     case 'tag':
       return view.id;
+    case 'code-reviews':
+      return 'Code reviews';
     case 'review-request':
       return 'Code review';
     case 'workstream':

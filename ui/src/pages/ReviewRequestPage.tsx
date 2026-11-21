@@ -1,22 +1,33 @@
 // One request the user was asked to review, as a page: what it is, who opened it, which project it
 // belongs to, and its description. It reads the one copy the server pushed (`reviewRequests`); a
-// request no longer there has been reviewed, merged, closed or taken back.
-import { useState } from 'react';
-import { ExternalLink, Eye, FolderPlus } from 'lucide-react';
+// request no longer there has been reviewed, merged, closed or taken back. One the user dismissed
+// is still shown, saying so, with Restore in place of Dismiss.
+import { useEffect, useState } from 'react';
+import { ExternalLink, Eye, FolderPlus, RotateCcw, X } from 'lucide-react';
 import { hostTerms } from '@kestrel/server/host-terms';
-import { requestNumberLabel } from '@kestrel/server/review-requests';
+import { openedText, requestNumberLabel } from '@kestrel/server/review-requests';
 import { Markdown } from '../components/Markdown.tsx';
 import { openCreateProject } from '../projectNav.ts';
 import { openSession, openView, opener } from '../route.ts';
 import { actions, useApp } from '../store.ts';
+import { useMinuteNow } from '../useNow.ts';
 import { PageHeader } from './PageHeader.tsx';
 
 export function ReviewRequestPage({ id }: { id: string }) {
-  const request = useApp((s) => s.reviewRequests.requests.find((r) => r.key === id));
+  const waiting = useApp((s) => s.reviewRequests.requests.find((r) => r.key === id));
+  const dismissed = useApp((s) => s.reviewRequests.dismissed.find((r) => r.key === id));
+  const request = waiting ?? dismissed;
   const project = useApp((s) => (request?.projectId ? s.workspace?.projects.find((p) => p.id === request.projectId) : undefined));
   // The session already reviewing it, wherever it is drawn: a request has one review at a time.
   const reviewId = useApp((s) => s.workspace?.sessions.find((session) => session.review?.key === id)?.id);
+  const now = useMinuteNow();
+  const opened = request ? openedText(request, now) : '';
   const [starting, setStarting] = useState(false);
+  // Opening a request is reading it.
+  const unread = useApp((s) => s.reviewRequests.unread.includes(id));
+  useEffect(() => {
+    if (unread) void actions.markReviewsSeen([id], true);
+  }, [id, unread]);
   const start = async (newTab: boolean) => {
     if (reviewId) return void openSession(reviewId, newTab);
     setStarting(true);
@@ -39,7 +50,7 @@ export function ReviewRequestPage({ id }: { id: string }) {
     <div className="page column collection review-page">
       <PageHeader
         title={request.title}
-        line={[`${terms.longTitle} ${where}`, request.author && `opened by ${request.author}`, request.requestedBy && `review asked by ${request.requestedBy}`].filter(Boolean).join(' · ')}
+        line={[`${terms.longTitle} ${where}`, request.author ? `opened by ${request.author}${opened ? ` ${opened}` : ''}` : opened && `opened ${opened}`, request.requestedBy && `review asked by ${request.requestedBy}`].filter(Boolean).join(' · ')}
         actions={
           <>
             {request.url && (
@@ -47,6 +58,9 @@ export function ReviewRequestPage({ id }: { id: string }) {
                 <ExternalLink aria-hidden /> Open on {terms.service}
               </a>
             )}
+            <button type="button" className="secondary-button small" onClick={() => void actions.dismissReviews([id], !dismissed)}>
+              {dismissed ? <RotateCcw aria-hidden /> : <X aria-hidden />} {dismissed ? 'Restore' : 'Dismiss'}
+            </button>
             {(project || reviewId) && (
               <button type="button" className="primary-button small" disabled={starting} {...opener((newTab) => void start(newTab))}>
                 <Eye aria-hidden /> {reviewId ? 'Open review' : starting ? 'Starting…' : 'Start review'}
@@ -55,6 +69,7 @@ export function ReviewRequestPage({ id }: { id: string }) {
           </>
         }
       />
+      {dismissed && <p className="review-dismissed-note">You dismissed this request. It is not listed as waiting on you, and no review of it starts on its own.</p>}
       <section className="page-section">
         <h2>Project</h2>
         {project ? (

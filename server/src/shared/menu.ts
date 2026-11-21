@@ -36,6 +36,14 @@ export type MenuAction =
   | { type: 'archive'; kind: 'session' | 'project' | 'group'; id: string }
   /** Pin to (or unpin from) the top of the sidebar. */
   | { type: 'pin'; kind: 'session' | 'project' | 'group' | 'review'; id: string; pinned: boolean }
+  /** Dismiss a request the user was asked to review, or restore a dismissed one (review-requests/store.ts). */
+  | { type: 'dismiss-review'; key: string; dismissed: boolean }
+  /** Open a review request: the session reviewing it when it has one, else its own page. */
+  | { type: 'open-review'; key: string; sessionId?: string }
+  /** Open an address in the browser (a request on its host). */
+  | { type: 'open-link'; url: string }
+  /** Mark a review request read, or unread again. */
+  | { type: 'mark-review-read'; key: string; read: boolean }
   | { type: 'delete-session'; sessionId: string }
   | { type: 'mark-unread'; sessionId: string; unread: boolean }
   /** Show a folder in Finder (or copy its path where there is no Finder). */
@@ -197,8 +205,13 @@ export type MenuTarget =
       projects?: readonly { id: string; name: string }[];
     }
   | { kind: 'tag'; tag: string }
-  /** A request the user was asked to review, with no review session yet: its row in CODE REVIEWS or PINNED. */
-  | { kind: 'review'; key: string; pinned: boolean }
+  /**
+   * A request the user was asked to review: its row in CODE REVIEWS, under PINNED, or on the Code
+   * reviews page. `unread`: whether it is new; absent when that is not known. `dismissed`: it is
+   * one the user dismissed. `url` and `service`: where it is on its host. `sessionId`: the session
+   * reviewing it, when it has one.
+   */
+  | { kind: 'review'; key: string; pinned: boolean; unread?: boolean; dismissed?: boolean; url?: string; service?: string; sessionId?: string }
   | {
       kind: 'workstream';
       workstreamId: string;
@@ -338,8 +351,24 @@ export function sidebarMenu(target: MenuTarget): MenuItem[] {
         { id: 'delete-folder', label: 'Delete', action: { type: 'delete-folder', groupId: g } },
       ];
     }
-    case 'review':
-      return pinItem('review', target.key, target.pinned);
+    case 'review': {
+      const k = target.key;
+      const read: MenuItem[] = target.unread !== undefined && !target.dismissed ? [{ id: 'mark-review-read', label: target.unread ? 'Mark as read' : 'Mark as unread', action: { type: 'mark-review-read', key: k, read: target.unread } }] : [];
+      const host: MenuItem[] = target.url
+        ? [
+            { id: 'open-link', label: `Open on ${target.service ?? 'its host'}`, action: { type: 'open-link', url: target.url } },
+            { id: 'copy-link', label: 'Copy link', action: { type: 'copy', text: target.url, what: 'Link' } },
+          ]
+        : [];
+      return [
+        { id: 'open-review', label: target.sessionId ? 'Open review' : 'Open', action: { type: 'open-review', key: k, ...(target.sessionId ? { sessionId: target.sessionId } : {}) } },
+        ...host,
+        ...read.map((item, i) => (i === 0 ? { ...item, separatorBefore: true } : item)),
+        // A dismissed request is not drawn under PINNED, so it has no Pin.
+        ...(target.dismissed ? [] : pinItem('review', k, target.pinned)),
+        { id: 'dismiss-review', label: target.dismissed ? 'Restore' : 'Dismiss', action: { type: 'dismiss-review', key: k, dismissed: !target.dismissed }, separatorBefore: true },
+      ];
+    }
     case 'tag':
       return [{ id: 'open-tag', label: 'Open tag page', action: { type: 'open-tag', tag: target.tag } }, item.openNewTab({ kind: 'tag', id: target.tag })];
     case 'workstream': {

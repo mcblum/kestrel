@@ -1,8 +1,6 @@
 /* The workspace's Pull requests page (pages/PullRequestsPage.tsx): one section per project, one row
    per request (number, title, host link, status, linked sessions). Grey chrome; colour only through
    the request tones (pull-request.css `pr-tone-*`). */
-.kestrel .prs-page .page-head-actions .prs-refresh { display: inline-flex; align-items: center; gap: 5px; }
-.kestrel .prs-refresh svg { width: 12px; height: 12px; }
 .kestrel .prs-spinning { animation: prs-spin 1s linear infinite; }
 @keyframes prs-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .kestrel .prs-spinning { animation: none; } }
@@ -11,9 +9,10 @@
 .kestrel .prs-unasked { list-style: none; margin: 0 0 10px; padding: 6px 8px; border: 1px solid var(--s-line); border-radius: 6px; color: var(--s-muted); font-size: 11px; line-height: 1.6; }
 
 .kestrel .prs-project { margin-bottom: 18px; }
-.kestrel .prs-list { list-style: none; margin: 0; padding: 0; display: grid; border-top: 1px solid var(--s-line); }
-.kestrel .prs-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto minmax(0, 32%); align-items: center; gap: 4px; min-width: 0; padding: 4px 2px; border-bottom: 1px solid var(--s-line); font-size: 12px; }
-.kestrel .prs-row:hover, .kestrel .prs-row:focus-within { background: var(--s-soft); }
+/* Rows as the session table's are (app.css `.trow`): no line above the first, a faint one under each, the same hover. */
+.kestrel .prs-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.kestrel .prs-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto minmax(0, 32%); align-items: center; gap: 4px; min-width: 0; padding: 4px 2px; border-bottom: 1px solid color-mix(in srgb, var(--s-line) 60%, transparent); font-size: 12px; }
+.kestrel .prs-row:hover, .kestrel .prs-row:focus-within { background: color-mix(in srgb, var(--s-ink) 4%, transparent); }
 .kestrel .prs-number .pr-number { color: var(--s-muted); border-radius: 4px; }
 .kestrel .prs-title { min-width: 0; padding: 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kestrel .prs-title-missing { color: var(--s-muted); font-style: italic; }

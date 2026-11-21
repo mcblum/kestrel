@@ -44,3 +44,19 @@ export const shortTime = (at: number): string => new Date(at).toLocaleTimeString
 export function finishedText(at: number, now: number): string {
   return daysBetween(at, now) <= 0 ? shortTime(at) : `${dateText(at, now)}, ${shortTime(at)}`;
 }
+
+const MINUTE_MS = 60_000;
+const HOUR_MS = 3_600_000;
+const plural = (n: number, unit: string): string => `${n} ${unit}${n === 1 ? '' : 's'} ago`;
+
+/** How long ago an instant was, in its largest whole unit: "just now", "20 minutes ago", "3 hours ago", "4 days ago", "2 months ago", "1 year ago". */
+export function agoText(at: number, now: number): string {
+  const ms = Math.max(0, now - at);
+  if (ms < MINUTE_MS) return 'just now';
+  if (ms < HOUR_MS) return plural(Math.floor(ms / MINUTE_MS), 'minute');
+  if (ms < MS_PER_DAY) return plural(Math.floor(ms / HOUR_MS), 'hour');
+  const days = Math.floor(ms / MS_PER_DAY);
+  if (days < 30) return plural(days, 'day');
+  if (days < 365) return plural(Math.floor(days / 30), 'month');
+  return plural(Math.floor(days / 365), 'year');
+}

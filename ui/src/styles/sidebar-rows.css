@@ -27,7 +27,8 @@
 .kestrel .studio-sidebar .fold-row:is(:hover, :has(> :focus-visible)) > .side-link .row-dot { visibility: hidden; }
 
 .kestrel .studio-sidebar .tree-row-box { position: relative; }
-.kestrel .studio-sidebar .tree-row-box > .row-archive { display: none; position: absolute; top: calc((var(--side-row) - var(--slot)) / 2); right: var(--edge); }
+/* Centred on the row whatever its height: a two-line row (a review, a workstream's lead) is taller than --side-row. */
+.kestrel .studio-sidebar .tree-row-box > .row-archive { display: none; position: absolute; top: 50%; transform: translateY(-50%); right: var(--edge); }
 .kestrel .studio-sidebar .tree-row-box:is(:hover, :has(> :focus-visible)) > .row-archive { display: inline-flex; }
 /* It lies over the end of a long title: it wears the hovered row's colour, solid, and fades the
    text out to its left so the two never overlap. */

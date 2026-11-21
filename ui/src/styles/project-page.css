@@ -28,8 +28,6 @@
 .kestrel .name-row { display: flex; align-items: center; gap: 8px; }
 .kestrel .name-row .form-control { flex: 1; min-width: 0; }
 .kestrel .name-row .form-control[aria-invalid='true'] { border-color: light-dark(#b3403a, #e07b74); }
-.kestrel .name-row .secondary-button { box-sizing: border-box; height: var(--form-control); padding: 0 16px; border-radius: 8px; font-size: 12px; }
-.kestrel .name-saved { font-size: 11px; color: var(--s-muted); }
 
 /* Shared settings layout and rows. Narrow panes turn the menu into a wrapping row. */
 .kestrel .settings-layout { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 32px; align-items: start; }
@@ -45,14 +43,21 @@
 .kestrel .settings-layout-body .settings-block h2 { font-size: 16px; line-height: 24px; font-weight: 600; }
 .kestrel .settings-layout-body .settings-block > :is(h2, .setting-heading, .settings-block-head) { display: flex; align-items: center; min-height: 34px; margin: 0; }
 
-.kestrel .setting-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(0, 2fr); align-items: start; gap: 16px; padding: 16px 0; }
+.kestrel .setting-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(0, 2fr); align-items: start; gap: 16px; padding: 10px 0; }
 .kestrel .setting-row-label { padding-top: 8px; min-width: 0; font-size: 12px; color: var(--s-ink); }
 .kestrel .setting-row-label h3 { margin: 0; font-size: 12px; font-weight: 500; }
 .kestrel .setting-row-control { display: grid; gap: 8px; min-width: 0; }
 .kestrel textarea.project-script { box-sizing: border-box; width: 100%; min-height: 96px; padding: 8px 10px; resize: vertical; font-family: var(--mono); font-size: 12px; line-height: 1.5; }
 .kestrel textarea.project-script[aria-invalid='true'] { border-color: light-dark(#b3403a, #e07b74); }
-.kestrel .setting-row.stacked { grid-template-columns: minmax(0, 1fr); }
+/* Stacked: the editor sits right under its label, as a field does under its name. The row has
+   three grid rows (the label, its help when open, the editor), so it takes no row gap: an empty
+   help row would otherwise put two gaps between the label and the editor. */
+.kestrel .setting-row.stacked { grid-template-columns: minmax(0, 1fr); gap: 0; }
 .kestrel .setting-row.stacked .setting-row-label { padding-top: 0; }
+.kestrel .setting-row.stacked .setting-row-label > .setting-heading { padding-top: 0; }
+.kestrel .setting-row.stacked .setting-row-label > .setting-help-content { margin-top: 4px; }
+.kestrel .setting-row.stacked > .setting-row-control { margin-top: 6px; }
+.kestrel .setting-row-control > textarea { margin-top: 0; }
 .kestrel .project-settings .setup { padding: 0; border: 0; border-radius: 0; background: none; }
 .kestrel .project-settings .setup-row { border-bottom: 0; }
 .kestrel .setup-source { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 20px; padding: 8px 0 16px; }

@@ -5,7 +5,10 @@
 // dot, its open request's icon: RowRequest.tsx); the title is in the tooltip. The rest is one
 // click on the sidebar toggle away (the full sidebar, floating).
 import { useMemo, type MouseEvent } from 'react';
-import { GitPullRequest, LayoutDashboard, Plus, Search, Settings } from 'lucide-react';
+import { Eye, GitPullRequest, LayoutDashboard, Plus, Search, Settings } from 'lucide-react';
+import { hasReviewLink } from '@kestrel/server/review-settings';
+import { useReviewSettings } from '../reviewSettings.ts';
+import { useReviewsToLookAt } from './SidebarReviews.tsx';
 import type { SessionView } from '@kestrel/server/model';
 import { item } from '@kestrel/server/menu';
 import { sidebarHomes } from '@kestrel/server/pinned-homes';
@@ -62,6 +65,9 @@ export function SidebarRail({ route, activeId, onSwitch }: { route: Route | null
   const overview = selectsRow(route?.view ?? null, { kind: 'overview' });
   const requests = selectsRow(route?.view ?? null, { kind: 'pull-requests' });
   const settings = route?.view.kind === 'settings';
+  const reviews = selectsRow(route?.view ?? null, { kind: 'code-reviews' });
+  const reviewsLink = hasReviewLink(useReviewSettings());
+  const newReviews = useReviewsToLookAt();
   // Right-click: the same menu the item's row has in the full sidebar.
   const onContextMenu = (event: MouseEvent) => {
     event.preventDefault();
@@ -77,6 +83,12 @@ export function SidebarRail({ route, activeId, onSwitch }: { route: Route | null
         <button className={`rail-button${requests ? ' active' : ''}`} aria-label="Pull requests" title="Pull requests" aria-current={requests ? 'page' : undefined} {...opener((newTab) => openView({ kind: 'pull-requests' }, newTab))}>
           <GitPullRequest aria-hidden />
         </button>
+        {reviewsLink && (
+          <button className={`rail-button${reviews ? ' active' : ''}`} aria-label={newReviews ? `Code reviews, ${newReviews} to look at` : 'Code reviews'} title={newReviews ? `Code reviews · ${newReviews} to look at` : 'Code reviews'} aria-current={reviews ? 'page' : undefined} {...opener((newTab) => openView({ kind: 'code-reviews' }, newTab))}>
+            <Eye aria-hidden />
+            {newReviews > 0 && <span className="status-dot rail-dot green" aria-hidden />}
+          </button>
+        )}
         <button className="rail-button" aria-label="New session" title="New session ⌘N" {...opener((newTab) => void runMenuAction(item.newSession().action!, newTab))}>
           <Plus aria-hidden />
         </button>

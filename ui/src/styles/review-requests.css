@@ -7,8 +7,6 @@
 .kestrel .studio-sidebar .review-detail { font-size: 10.5px; line-height: 1.3; color: var(--s-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* The request's page. */
-.kestrel .review-page .page-head-actions a.secondary-button { text-decoration: none; color: var(--s-ink); border-color: var(--s-line); }
-.kestrel .review-page .page-head-actions svg, .kestrel .review-no-project svg { width: 12px; height: 12px; }
 .kestrel .review-project { padding: 0; background: none; border: 0; font: inherit; font-size: 12px; color: var(--s-ink); cursor: pointer; text-decoration: underline; text-decoration-color: var(--s-line); text-underline-offset: 3px; }
 .kestrel .review-project:hover { text-decoration-color: var(--s-muted); }
 .kestrel .review-no-project { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; font-size: 12px; color: var(--s-muted); }
@@ -70,3 +68,69 @@
 /* The arrow at the excerpt's top right: the same button a code block has, laid over the corner. */
 .kestrel .review-code { position: relative; }
 .kestrel .review-code-head { position: absolute; top: 4px; right: 6px; z-index: 1; }
+
+/* The Code reviews page (pages/CodeReviewsPage.tsx): one row per request, two lines like its
+   sidebar row, then its status, the host link and Dismiss (or Restore). Grey chrome. */
+/* Rows as the session table's are (app.css `.trow`): no line above the first, a faint one under each, the same hover. */
+.kestrel .reviews-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.kestrel .reviews-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; align-items: center; gap: 8px; min-width: 0; padding: 7px 8px 7px 2px; border-bottom: 1px solid color-mix(in srgb, var(--s-line) 60%, transparent); font-size: 12px; }
+.kestrel .reviews-row:hover, .kestrel .reviews-row:focus-within { background: color-mix(in srgb, var(--s-ink) 4%, transparent); }
+.kestrel .reviews-mark { width: 14px; height: 14px; margin-left: 4px; color: var(--s-muted); }
+.kestrel .reviews-open { display: flex; flex-direction: column; gap: 1px; min-width: 0; padding: 2px 4px; text-align: left; font: inherit; color: var(--s-ink); background: none; border: 0; border-radius: 4px; cursor: pointer; }
+.kestrel .reviews-open:focus-visible, .kestrel .reviews-icon:focus-visible { outline: 2px solid var(--s-muted); outline-offset: 1px; }
+.kestrel .reviews-title, .kestrel .reviews-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .reviews-detail { font-size: 10px; color: var(--s-muted); }
+.kestrel .reviews-status { max-width: 220px; font-size: 11px; color: var(--s-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .reviews-icon { display: inline-flex; padding: 4px; color: var(--s-muted); border-radius: 4px; }
+.kestrel .reviews-icon:hover { color: var(--s-ink); background: color-mix(in srgb, var(--s-ink) 8%, transparent); }
+.kestrel .reviews-icon svg { width: 13px; height: 13px; }
+.kestrel .reviews-page { container-type: inline-size; }
+@container (max-width: 620px) {
+  .kestrel .reviews-row { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+  .kestrel .reviews-status { display: none; }
+}
+
+/* A dismissed request's own page says so. */
+.kestrel .review-dismissed-note { margin: 0 0 14px; padding: 6px 8px; border: 1px solid var(--s-line); border-radius: 6px; font-size: 12px; color: var(--s-muted); }
+
+/* The count at the end of the Code reviews row, and of "Show more" under CODE REVIEWS. */
+.kestrel .studio-sidebar .side-link .link-count { flex: none; font-size: 10px; color: var(--s-muted); font-variant-numeric: tabular-nums; }
+.kestrel .studio-sidebar .side-link.review-more { color: var(--s-muted); padding-left: calc(var(--edge) + var(--slot) + 8px); }
+.kestrel .studio-sidebar .side-link.review-more:hover { color: var(--s-ink); }
+
+/* Settings → Git → Review requests: where they are shown, and how many the sidebar lists. */
+.kestrel .review-setting-place { margin-top: 14px; }
+.kestrel .review-setting-field { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; font-size: 12px; color: var(--s-ink); }
+.kestrel .review-setting-field .form-control { width: auto; }
+
+/* A request row's second line: where it is and who asked, then, right after it, how long ago it was
+   opened. The first part gives way when the row is narrow; the age is never cut short, and never
+   pushed to the far end of a wide row. */
+.kestrel .studio-sidebar .review-second { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
+.kestrel .studio-sidebar .review-second .review-detail { flex: 0 1 auto; min-width: 0; }
+.kestrel .studio-sidebar .review-age::before { content: '· '; }
+.kestrel .studio-sidebar .review-age { flex: none; font-size: 10.5px; line-height: 1.3; color: var(--s-muted); white-space: nowrap; }
+
+
+/* A new request (not opened yet): the green dot every unread thing has. On the page it stands where
+   the eye was and the title is bold; in the top menu's Code reviews row it is how many are new, as a
+   notification's number on the ink colour (near white in the dark theme; grey chrome, so not
+   coloured), with how many wait in all after it. */
+.kestrel .reviews-new { margin: 0 3px 0 7px; }
+/* Unread a little brighter than read, as mail is: a read title steps back to the label colour. */
+.kestrel .reviews-title { color: var(--s-label); }
+.kestrel .reviews-row.unread .reviews-title { color: var(--s-ink); font-weight: 600; }
+.kestrel .reviews-row.unread .reviews-detail { color: var(--s-label); }
+
+/* The filter row under the chips: search, then who asked, which project, how recently. */
+.kestrel .reviews-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 0 20px; }
+.kestrel .reviews-filters .reviews-search { flex: 1 1 320px; max-width: 460px; border-bottom: 1px solid var(--s-line); padding: 3px 2px; }
+.kestrel .reviews-filters .form-control.reviews-pick { width: auto; max-width: 180px; min-height: 0; height: 26px; padding-top: 2px; padding-bottom: 2px; font-size: 11px; color: var(--s-muted); }
+.kestrel .reviews-filters .form-control.reviews-pick.set { color: var(--s-ink); }
+.kestrel .reviews-shown { font-size: 11px; color: var(--s-muted); font-variant-numeric: tabular-nums; }
+.kestrel .studio-sidebar .side-link .review-unread { flex: none; min-width: 18px; box-sizing: border-box; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--s-ink) 88%, transparent); color: var(--s-bg); font-size: 10px; font-weight: 600; line-height: 1.5; text-align: center; font-variant-numeric: tabular-nums; }
+.kestrel .studio-sidebar .side-link .review-unread + .link-count { margin-left: -2px; }
+
+/* Under Reviewing, when there are more than the first ten. */
+.kestrel .reviews-all { margin-top: 6px; font-size: 11px; }
+.kestrel .reviews-group { margin-bottom: 18px; }

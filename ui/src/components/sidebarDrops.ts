@@ -20,7 +20,7 @@ function orderedIds(ws: WorkspaceState): string[] {
 /** A pinned row dropped into one of the lists leaves PINNED: that list is its home again. */
 export function unpinIfPinned(kind: PinKind, id: string): void {
   const ws = appStore.get().workspace;
-  if (ws && isPinned(ws.pins, kind, id)) void actions.setPinned(kind, id, false);
+  if (ws && isPinned(ws.pins, kind, id)) void actions.setPinned(kind, id, false, true);
 }
 
 /**
