@@ -8,6 +8,7 @@
 // From a checkout it runs the TypeScript source through tsx; the packaged app runs the built
 // JavaScript in Contents/Resources/server (paths.mjs).
 import { spawn } from 'node:child_process';
+import { app } from 'electron';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -41,6 +42,8 @@ export async function startServer({ port, token, origin, dataDir, baseEnv = proc
       ...bundledBinaries(),
       // The installed app's data folder (~/.kestrel); a checkout uses ~/.kestrel-dev (server/src/data-dir.ts).
       ...(isPackaged ? { KESTREL_PACKAGED: '1' } : {}),
+      // Names the release in a crash report (server/src/crash-reports/).
+      KESTREL_APP_VERSION: app.getVersion(),
       ELECTRON_RUN_AS_NODE: '1',
       KESTREL_PORT: String(port),
       KESTREL_TOKEN: token,

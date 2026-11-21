@@ -7,6 +7,7 @@
 import type { HostKind } from '../shared/host-terms.ts';
 import type { ProcessSystem } from './kill-task.ts';
 import type { CommitSigningOptions } from '../commit-signing/prefs.ts';
+import type { CrashReportsOptions } from '../crash-reports/prefs.ts';
 import type { SettingStore } from '../suggestions/prefs.ts';
 import type { CommandRunner } from '../pull-requests/types.ts';
 import type { TitleProvider } from '../agents/title-providers.ts';
@@ -69,6 +70,7 @@ export interface RuntimeOptions {
   baseFetch?: FetchRunner;
   /** Where Settings → Workflow → Commit signing is kept, and how signing is detected (commit-signing/prefs.ts). */
   commitSigning?: CommitSigningOptions;
+  crashReports?: CrashReportsOptions;
   /** Where Settings → Git → Review requests is kept (review-settings/prefs.ts). */
   reviewPrefs?: { settings?: SettingStore };
   /** How a review is posted to its host (review-requests/post.ts); tests pass their own, so they never call gh or glab. */

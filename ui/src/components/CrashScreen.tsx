@@ -1,6 +1,7 @@
 // When the page fails to draw, say so and say why. Without this a failure anywhere in the UI
 // leaves an empty window with nothing to go on.
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { reportCrash } from '../crashReports.ts';
 
 type Failure = { error: Error; where: string };
 
@@ -18,6 +19,7 @@ export class CrashBoundary extends Component<{ children: ReactNode }, { failure:
 
   componentDidCatch(error: unknown, info: ErrorInfo) {
     console.error('[kestrel] the page failed to draw', error, info.componentStack);
+    reportCrash(error);
     this.setState({ failure: { error: error instanceof Error ? error : new Error(String(error)), where: info.componentStack ?? '' } });
   }
 

@@ -38,6 +38,8 @@ import { scriptFailure } from './shared/project-scripts.ts';
 import { commandsKeptRoute } from './commands-kept/api.ts';
 import { delegationLimitsRoute } from './limits-api.ts';
 import { commitSigningRoute } from './commit-signing/api.ts';
+import { crashReportsRoute } from './crash-reports/api.ts';
+import type { CrashReportSetup } from './shared/crash-reports.ts';
 import { sandboxAllowRoute } from './sandbox-allow/api.ts';
 import { projectRoute } from './project-api.ts';
 import { projectPath } from './shared/project-folders.ts';
@@ -150,6 +152,8 @@ export interface KestrelServerOptions {
   details?: { sources: DetailsSources; sample: boolean };
   /** The requests the user was asked to review, pushed to every window (review-requests/store.ts). */
   reviewRequests?: ReviewRequestStore;
+  /** How this copy reports its own failures, or null when it never does (shared/crash-reports.ts). Default: never. */
+  crashReporting?: CrashReportSetup | null;
   /** Who may write a generated pull request's text: the title providers (index.ts). Default: none. */
   writers?: readonly TitleProvider[];
   /** How files are opened and shown in Finder (file-open-api.ts); tests pass a stand-in runner. Default: `open` on a Mac. */
@@ -265,6 +269,9 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
     // Settings → Workflow: letting a confined session's signed commits through its sandbox (commit-signing/api.ts).
     const signing = runtime ? await commitSigningRoute(parts, method, () => readJson(req), runtime.commitSigning) : null;
     if (signing) return send(req, res, signing.status, signing.body);
+    // Settings → General: reporting Kestrel's own failures (crash-reports/api.ts).
+    const crashReports = runtime ? await crashReportsRoute(parts, method, () => readJson(req), runtime.crashReports, options.crashReporting ?? null) : null;
+    if (crashReports) return send(req, res, crashReports.status, crashReports.body);
     // Settings → Workflow: the delegation limits (limits-api.ts).
     const limits = await delegationLimitsRoute(parts, method, () => readJson(req), workspace.limits);
     if (limits) return send(req, res, limits.status, limits.body);

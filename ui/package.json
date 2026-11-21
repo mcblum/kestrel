@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@sentry/browser": "11.16.0",
     "@tanstack/react-virtual": "3.14.26",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",

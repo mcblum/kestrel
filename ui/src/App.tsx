@@ -24,6 +24,7 @@ import './onboarding/onboarding.css';
 import { commandForKey, runCommand, setSwitcherOpener } from './commands.ts';
 import { openFoldersInCreateProject } from './openedFolders.ts';
 import { tabRoute } from './route.ts';
+import { useCrashReporting } from './components/CrashReportsSetting.tsx';
 import { RAIL_WIDTH } from '@kestrel/server/sidebar-mode';
 import { setSidebarFloating, useSidebarFloating, useSidebarMode } from './sidebarRail.ts';
 import { actions, useApp } from './store.ts';
@@ -37,6 +38,8 @@ export function App() {
   const error = useApp((s) => s.error);
   // Setup progress, asked for once the workspace has arrived (the server is reachable then).
   const setup = useResource(loaded ? SETUP_PATH : null, asSetup).value;
+  // Kestrel's own failures are reported only when the server says this copy reports (crashReports.ts).
+  useCrashReporting(loaded);
   const tabsLoaded = useTabs((v) => v.loaded);
   const sidebarWidth = useTabs((v) => v.sidebar.width ?? SIDEBAR_WIDTH.initial);
   // Full, a narrow rail when the window cannot fit it (sidebarRail.ts), or hidden (⌘B).

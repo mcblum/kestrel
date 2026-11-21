@@ -23,6 +23,7 @@ import { OpenInSetting } from '../components/OpenInSetting.tsx';
 import { SandboxAllowSetting } from '../components/SandboxAllowSetting.tsx';
 import { DelegationLimitsSetting } from '../components/DelegationLimitsSetting.tsx';
 import { CommitSigningSetting } from '../components/CommitSigningSetting.tsx';
+import { CrashReportsSetting } from '../components/CrashReportsSetting.tsx';
 import { WorktreesSetting } from '../components/WorktreesSetting.tsx';
 import { SessionOrderSetting } from '../components/SessionOrderSetting.tsx';
 import { BranchPrefixSetting } from '../components/BranchPrefixSetting.tsx';
@@ -56,6 +57,7 @@ function General() {
       <OpenInSetting />
       <KeepAwakeSetting />
       <SetupSetting />
+      <CrashReportsSetting />
       {window.kestrelShell?.app && (
         <section className="settings-section">
           <h2>About</h2>

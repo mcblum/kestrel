@@ -35,6 +35,7 @@ import { BaseRefresh } from './base-refresh.ts';
 import { BrowserBridge } from './browser-bridge.ts';
 import { BrowserTools } from './browser-tools.ts';
 import { CommitSigning } from './commit-signing/prefs.ts';
+import { CrashReports } from './crash-reports/prefs.ts';
 import { Delegation, type ChildOrigin } from './delegation.ts';
 import { Display } from './display.ts';
 import { Forks } from './fork.ts';
@@ -164,6 +165,8 @@ export class SessionRuntime implements McpSessions {
   readonly commands: Commands;
   /** Settings → Workflow → Commit signing: what a confined session's sandbox lets through to sign (commit-signing/). */
   readonly commitSigning: CommitSigning;
+  /** Settings → General → Crash reports: whether a failure in Kestrel is reported (crash-reports/). */
+  readonly crashReports: CrashReports;
   /** Settings → Git → Review requests (review-settings/prefs.ts). */
   readonly reviewPrefs: ReviewPrefs;
   /** The `post_review` tool, and posting a review card to its host (review-requests/reply.ts). */
@@ -201,6 +204,7 @@ export class SessionRuntime implements McpSessions {
       () => this.commandsKept.current(),
     );
     this.commitSigning = new CommitSigning(opts.commitSigning);
+    this.crashReports = new CrashReports(opts.crashReports);
     this.reviewPrefs = new ReviewPrefs(opts.reviewPrefs);
     this.reviewReplies = new ReviewReplies({
       session: async (id) => (await workspace.state()).sessions.find((s) => s.id === id),

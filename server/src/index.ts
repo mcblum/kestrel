@@ -8,6 +8,8 @@ import { scriptedAdapter } from './agents/scripted.ts';
 import { titleProviders } from './agents/title-providers.ts';
 import { dataDir as resolveDataDir } from './data-dir.ts';
 import { createKestrelServer } from './http.ts';
+import { startCrashReporter } from './crash-reports/start.ts';
+import { crashReportSetup } from './shared/crash-reports.ts';
 import { detailsSources } from './details-api.ts';
 import { syncPullRequests } from './pull-request-sync.ts';
 import { originUrl } from './git.ts';
@@ -70,7 +72,7 @@ const titles = titleProviders(scripted ? 'scripted' : fake ? 'none' : 'real');
 // Tag rules and Settings → Git live in the store's settings; with fake data a sample GitHub login stands in for gh. The test-only `note` suggestion kind is offered to the scripted stand-in alone.
 // Codex is the user's own `codex app-server` (agents/codex/), OpenCode the user's own `opencode serve`
 // (agents/opencode/); the scripted stand-in replaces Claude only.
-const runtime = new SessionRuntime(workspace, scripted ? { claude: scriptedAdapter() } : { claude: claudeAdapter(), codex: codexAdapter(), opencode: opencodeAdapter() }, dataDir, { titleProviders: titles, suggestions: { settings: db, testKinds: scripted }, git: { settings: db, username: fake ? sampleUsername : undefined }, projectEdits: { settings: db }, startBase: { settings: db }, projectScripts: { settings: db }, projectEnv: { settings: db }, savedActions: { settings: db }, gitDefaults: { settings: db }, notifications: { settings: db }, cleanup: { settings: db }, whoDoesWhat: { settings: db }, keepAwake: { settings: db }, commandsKept: { settings: db }, openIn: { settings: db }, sandboxAllow: { settings: db }, commitSigning: { settings: db }, reviewPrefs: { settings: db }, ...(fake ? { reviewRunner: async () => ({ stdout: '' }) } : {}) });
+const runtime = new SessionRuntime(workspace, scripted ? { claude: scriptedAdapter() } : { claude: claudeAdapter(), codex: codexAdapter(), opencode: opencodeAdapter() }, dataDir, { titleProviders: titles, suggestions: { settings: db, testKinds: scripted }, git: { settings: db, username: fake ? sampleUsername : undefined }, projectEdits: { settings: db }, startBase: { settings: db }, projectScripts: { settings: db }, projectEnv: { settings: db }, savedActions: { settings: db }, gitDefaults: { settings: db }, notifications: { settings: db }, cleanup: { settings: db }, whoDoesWhat: { settings: db }, keepAwake: { settings: db }, commandsKept: { settings: db }, openIn: { settings: db }, sandboxAllow: { settings: db }, commitSigning: { settings: db }, crashReports: { settings: db }, reviewPrefs: { settings: db }, ...(fake ? { reviewRunner: async () => ({ stdout: '' }) } : {}) });
 if (demo && seeded && !story) await seedDemoExtras(workspace, runtime.savedActions);
 // SAMPLE: with fake data, one running session shows background work left running (seed.ts).
 if (fake && !story) {
@@ -116,7 +118,20 @@ const reviewRequests = new ReviewRequestStore({
 // Settings → Git → Review requests: off, listed, or started on their own, and in which projects.
 const reviewPrefs = runtime.reviewPrefs;
 let reviewSettings = await reviewPrefs.current();
-const app = createKestrelServer(workspace, { token, allowedOrigins: uiOrigins, port }, runtime, { details: { sources: details, sample: fake }, writers: titles, reviewRequests });
+// Kestrel's own failures are reported from the installed app only, never with fake data, and only
+// while Settings → General → Crash reports is on (crash-reports/). KESTREL_CRASH_DSN is a test
+// address; KESTREL_TEST_CRASH_REPORT=1 sends one report at launch to check the path.
+const crashReporting = fake ? null : crashReportSetup({ packaged: process.env.KESTREL_PACKAGED === '1', version: process.env.KESTREL_APP_VERSION ?? '', dsnOverride: process.env.KESTREL_CRASH_DSN });
+if (crashReporting) {
+  await runtime.crashReports.prefs();
+  try {
+    const reporter = await startCrashReporter(crashReporting, () => runtime.crashReports.current().enabled);
+    if (process.env.KESTREL_TEST_CRASH_REPORT === '1') console.log(`[kestrel] test crash report ${(await reporter.sendTest()) ? 'sent' : 'not sent'}`);
+  } catch (error) {
+    console.error(`[kestrel] crash reports could not start: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+const app = createKestrelServer(workspace, { token, allowedOrigins: uiOrigins, port }, runtime, { details: { sources: details, sample: fake }, writers: titles, reviewRequests, crashReporting });
 await app.listen();
 // The one copy of every session's pull requests, kept current and pushed to every window.
 const pullRequestSync = syncPullRequests(workspace, details, fake, () => app.watched(), (sessionId) => app.watching(sessionId));
