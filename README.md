@@ -12,6 +12,8 @@
 
 <p align="center">
   <a href="https://starfish.nationalmachine.io/kestrel/releases/-/releases/permalink/latest/downloads/Kestrel.dmg"><strong>Download for Mac</strong></a>
+  · <a href="https://kestrelapp.ai">Website</a>
+  · <a href="https://kestrelapp.ai/docs/">Docs</a>
   · <a href="#get-started">Get started</a>
   · <a href="DEVELOPMENT.md">Build from source</a>
 </p>
@@ -45,6 +47,8 @@ A **workstream** keeps those conversations connected. Follow the whole task, see
 3. **Add a project and start a session.** Describe what you want to accomplish. Kestrel keeps the conversation and its working copy together.
 
 For GitHub or GitLab pull requests, also sign in with `gh` or `glab`. Kestrel requires a Mac with Apple Silicon and checks for app updates automatically.
+
+The **[Kestrel docs](https://kestrelapp.ai/docs/)** cover installing, projects, sessions, workstreams, permissions, and pull requests. There is more about the app at **[kestrelapp.ai](https://kestrelapp.ai)**.
 
 ## Build, contribute, or get help
 
