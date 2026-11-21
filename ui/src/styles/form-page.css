@@ -1,0 +1,39 @@
+/* A form on a page of its own (Create project, Move to project): one compact column of about 600px,
+   centred like every other page; a 28px heading with one short line under it; 40px controls; the
+   actions at the bottom right, Cancel a quiet text button left of the primary one. Grey chrome. */
+.kestrel {
+  --form-width: 600px;
+  --form-control: 40px;
+}
+.kestrel .column.form-page { max-width: calc(var(--form-width) + 2 * var(--pad)); padding-top: calc(var(--pad) * 1.5); gap: 28px; }
+.kestrel .form-head { display: grid; gap: 6px; }
+.kestrel .form-page h1 { margin: 0; font-family: inherit; font-size: 28px; line-height: 1.2; font-weight: 600; letter-spacing: -.015em; color: var(--s-ink); }
+.kestrel .form-lede { margin: 0; font-size: 13px; line-height: 1.5; color: var(--s-muted); }
+
+.kestrel .form-page .form-field { display: grid; gap: 8px; }
+.kestrel .form-page .form-field > label, .kestrel .form-page .form-label { font-size: 13px; font-weight: 500; color: var(--s-ink); }
+.kestrel .form-optional { margin-left: 6px; font-weight: 400; color: var(--s-muted); }
+.kestrel .form-page .form-note { font-size: 12px; color: var(--s-muted); margin-top: -4px; }
+
+/* Controls: text fields and buttons share one height. */
+.kestrel .form-control,
+.kestrel .form-page .form-field > input {
+  box-sizing: border-box; height: var(--form-control); padding: 0 12px;
+  background: var(--s-bg); border: 1px solid var(--s-line); border-radius: 8px;
+  color: var(--s-ink); font: inherit; font-size: 14px;
+}
+.kestrel .form-page .form-field > input[aria-invalid='true'] { border-color: light-dark(#b3403a, #e07b74); outline-color: light-dark(#b3403a, #e07b74); }
+.kestrel .form-control::placeholder, .kestrel .form-page .form-field > input::placeholder { color: var(--s-muted); opacity: .7; }
+.kestrel .form-page .primary-button,
+.kestrel .form-page .secondary-button,
+.kestrel .form-page .quiet-button { box-sizing: border-box; height: var(--form-control); padding: 0 16px; border-radius: 8px; font-size: 13px; justify-content: center; }
+.kestrel .quiet-button { display: inline-flex; align-items: center; background: none; border: 0; color: var(--s-muted); cursor: pointer; }
+.kestrel .quiet-button:hover:not(:disabled) { color: var(--s-ink); }
+.kestrel .quiet-button:disabled { opacity: .5; }
+.kestrel .form-page .primary-button:disabled { opacity: .6; }
+
+.kestrel .form-actions { display: flex; justify-content: flex-end; align-items: center; gap: 4px; }
+.kestrel .form-page .field-error { font-size: 12px; }
+
+/* The Move page, when a session was dropped on another project's group: what the move will do. Grey, like the rest. */
+.kestrel .move-notice { margin: 0; padding: 10px 12px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-soft); font-size: 13px; line-height: 1.5; color: var(--s-ink); }

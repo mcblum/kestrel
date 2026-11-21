@@ -1,0 +1,14 @@
+/* Starting a session in a sidebar container (SidebarCreate.tsx).
+   - The + on a project or group row shows on hover or keyboard focus, at the row's far right, in
+     place of the row's dot, the way a group row's rename and delete buttons already do. Nothing
+     shifts: the dot is hidden while the + shows, and the + takes the dot's place.
+   - "Create a session…" is an empty list's one row: 22px, quiet, its + in the icon slot. */
+.kestrel .studio-sidebar .row-plus { width: var(--slot); height: var(--slot); flex: none; padding: 0; justify-content: center; align-items: center; }
+.kestrel .studio-sidebar .row-plus svg { width: 12px; height: 12px; }
+
+/* Where the + sits on a project row, and when it shows: sidebar-rows.css, with the …. */
+
+.kestrel .studio-sidebar .create-row { width: 100%; gap: 8px; padding-left: var(--edge); border: 0; background: none; text-align: left; cursor: pointer; font: inherit; font-size: 11px; color: var(--s-muted); border-radius: 6px; }
+.kestrel .studio-sidebar .create-row svg { width: var(--slot); height: 12px; flex: none; }
+.kestrel .studio-sidebar .create-row span { overflow: hidden; text-overflow: ellipsis; }
+.kestrel .studio-sidebar .create-row:hover, .kestrel .studio-sidebar .create-row:focus-visible { color: var(--s-ink); }

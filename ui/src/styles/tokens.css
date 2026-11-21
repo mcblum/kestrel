@@ -1,0 +1,19 @@
+/* Layout tokens: the one place the widths, gutters and rhythm are defined (design doc
+   2026-11-13, "Layout and wording"). Components use these names, never the numbers. */
+.kestrel {
+  --s-git-blue: light-dark(#527d87, #8fbac3);
+  --col-wide: 1040px;   /* Overview, project, folder and list pages */
+  --col-narrow: 760px;  /* New session */
+  --measure: 720px;     /* conversation text inside a wide pane */
+  --pad: 32px;          /* outer padding of the column */
+  --space-section: 32px; /* between sections */
+  --space-block: 16px;   /* between related blocks */
+  --pane-header-height: 34px; /* Document tabs and all adjacent pane headers */
+  --space-label: 8px;    /* between a label and its content */
+}
+@media (max-width: 1100px) { .kestrel { --pad: 24px; } }
+@media (max-width: 760px) { .kestrel { --pad: 16px; } }
+
+/* One centered column. Headings, filters, cards and lists inside share its left and right edges. */
+.kestrel .column { box-sizing: border-box; width: 100%; max-width: calc(var(--col-wide) + 2 * var(--pad)); margin-inline: auto; padding: var(--pad); }
+.kestrel .column.narrow { max-width: calc(var(--col-narrow) + 2 * var(--pad)); }

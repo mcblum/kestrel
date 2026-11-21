@@ -1,0 +1,38 @@
+/* Several projects from one folder: Create project's two ways in, the folder list with checkboxes,
+   and the first-run offer on the Overview. Grey chrome; colour only for an error. */
+
+/* Create project's local tabs and panels, inside the form column. */
+.kestrel .form-page .create-tabs { margin-top: -12px; }
+.kestrel .create-panel { display: grid; gap: 28px; }
+.kestrel .create-panel[hidden] { display: none; }
+
+/* Above the list: how many folders, where, and All / None. */
+.kestrel .pick-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.kestrel .pick-where { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .pick-where span { color: var(--s-ink); }
+.kestrel .pick-all { flex: none; display: inline-flex; gap: 2px; }
+.kestrel .form-page .pick-all .quiet-button { height: 28px; padding: 0 8px; font-size: 12px; }
+
+/* The rows: a checkbox, the folder, git or plain. A row that cannot be added is quieter and says why. */
+.kestrel .pick-list { max-height: min(56vh, 520px); overflow-y: auto; }
+.kestrel .pick-row .dir-line { cursor: pointer; }
+.kestrel .pick-row.unavailable .dir-line { cursor: default; }
+/* Wide enough for "worktree", so the tags line up down the list. */
+.kestrel .pick-row .dir-kind { width: 50px; text-align: right; }
+.kestrel .pick-row.unavailable .dir-name { color: var(--s-muted); font-weight: 400; }
+.kestrel .pick-check { flex: none; width: 14px; height: 14px; margin: 0; accent-color: var(--s-ink); }
+.kestrel .pick-as { font-size: 11px; font-weight: 400; color: var(--s-muted); }
+.kestrel .pick-why { font-size: 11px; color: var(--s-muted); }
+.kestrel .pick-summary { margin: 0; color: var(--s-ink); }
+
+/* The Overview's first-run offer, above the starter. */
+.kestrel .onboard-projects { display: flex; align-items: center; gap: var(--space-block); padding: var(--space-block); background: var(--s-paper); border: 1px solid var(--s-line); border-radius: 12px; }
+.kestrel .onboard-icon { flex: none; width: 20px; height: 20px; color: var(--s-muted); }
+.kestrel .onboard-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.kestrel .onboard-text h2 { margin: 0; font-size: 14px; font-weight: 600; color: var(--s-ink); }
+.kestrel .onboard-text p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--s-muted); }
+.kestrel .onboard-actions { flex: none; display: inline-flex; align-items: center; gap: 4px; }
+.kestrel .onboard-actions .quiet-button { height: 32px; padding: 0 10px; font-size: 12px; }
+@media (max-width: 640px) {
+  .kestrel .onboard-projects { flex-wrap: wrap; }
+}

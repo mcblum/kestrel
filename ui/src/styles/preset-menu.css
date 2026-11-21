@@ -1,0 +1,14 @@
+/* The Preset menu under the message box (PresetControl.tsx): two lines a preset, on one grid, so
+   every name starts at the same place whether or not the row has a tick or can be chosen. */
+.kestrel .preset-menu { position: fixed; z-index: 40; width: max-content; min-width: 280px; max-width: 380px; padding: 6px; }
+.kestrel .preset-row-item { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: start; gap: 10px; width: 100%; padding: 8px 10px; background: none; border: 0; border-radius: 6px; font: inherit; text-align: left; color: var(--s-ink); cursor: pointer; }
+.kestrel .preset-row-item:hover, .kestrel .preset-row-item:focus-visible, .kestrel .preset-row-item:focus { background: var(--s-soft); outline: none; }
+.kestrel .preset-row-item.locked { cursor: default; }
+.kestrel .preset-row-item.locked:hover, .kestrel .preset-row-item.locked:focus { background: none; }
+.kestrel .preset-row-item.locked .preset-name { color: var(--s-muted); }
+.kestrel .preset-tick { display: grid; place-items: center; width: 16px; height: 18px; color: var(--s-muted); }
+.kestrel .preset-tick svg { width: 13px; height: 13px; }
+.kestrel .preset-text { display: grid; gap: 2px; min-width: 0; }
+.kestrel .preset-name { font-size: 12px; line-height: 18px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.kestrel .preset-detail { font-size: 11px; line-height: 15px; color: var(--s-muted); white-space: normal; }
+.kestrel .preset-menu .menu-sep { margin: 4px 0; }

@@ -1,0 +1,131 @@
+/* Shared settings rhythm. Keep controls compact and aligned, with whitespace instead of rules. */
+.kestrel .settings { grid-template-columns: 210px minmax(0, 1fr); }
+.kestrel .settings-nav { padding: 24px 12px; gap: 3px; }
+.kestrel .settings-nav-title { padding: 0 10px 6px; }
+.kestrel .settings-nav-group { margin: 18px 10px 5px; color: var(--s-muted); font-size: 10px; font-weight: 500; letter-spacing: .04em; }
+.kestrel .settings-nav .side-link { min-height: 32px; padding: 7px 10px; font-size: 12px; }
+.kestrel .settings-body { padding: 32px 36px 64px; container-type: inline-size; }
+.kestrel .settings-body > * { max-width: 680px; }
+.kestrel .settings-body > h1, .kestrel .settings-body > .setting-heading { margin-bottom: 28px; }
+.kestrel .settings-body .settings-section { max-width: 680px; margin-top: 32px; gap: 14px; }
+.kestrel .settings-body > h1 + .settings-section, .kestrel .settings-body > .setting-heading + .setting-help-content + .settings-section { margin-top: 0; }
+.kestrel .settings-body .settings-section h2 { font-size: 13px; line-height: 20px; font-weight: 600; }
+.kestrel .settings-body .settings-section > .setting-heading { margin-bottom: 2px; }
+.kestrel .settings-body .settings-page-section { margin-top: 0; }
+.kestrel .settings-page-section > .setting-heading { margin-bottom: 14px !important; }
+.kestrel :is(.settings-body, .project-settings) .settings-section > button { justify-self: start; }
+.kestrel :is(.settings-body, .project-settings) :is(.secondary-button, .delegation-limits-actions button, .notify-sound button) { min-height: 32px; padding: 6px 12px; font-size: 12px; }
+.kestrel :is(.settings-body, .project-settings) .delegation-limits-actions { flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.kestrel :is(.settings-body, .project-settings) :is(select.form-control, input.form-control) { min-width: 0; height: 34px; font-size: 12px; }
+.kestrel :is(.settings-body, .project-settings) .tag-rule-switch { align-items: center; min-height: 28px; line-height: 1.5; }
+.kestrel .settings-body .setting-row { padding: 8px 0; }
+.kestrel .settings-body .setup { background: none; border: 0; padding: 0; }
+.kestrel .settings-body .setup-row { border: 0; padding: 10px 0; }
+.kestrel .settings-defaults { width: fit-content; max-width: 100%; box-sizing: border-box; }
+.kestrel .settings-defaults .ctl-set { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.kestrel .settings-defaults .ctl-right { flex-wrap: wrap; margin-left: 0; min-width: 0; max-width: 100%; }
+.kestrel .appearance { grid-template-columns: 180px minmax(0, 1fr); gap: 18px 24px; }
+.kestrel .appearance-font { flex-wrap: wrap; }
+.kestrel .appearance-font select { flex: 1; min-width: 0; }
+.kestrel .appearance-font input:not(.appearance-number) { flex-basis: 100%; }
+.kestrel .appearance-sample { grid-column: 2; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; line-height: 1.6; margin-top: -8px; }
+.kestrel .appearance-wide.tag-rule-switch { margin-top: 4px; }
+.kestrel .notify-events { gap: 8px; margin-bottom: 8px; }
+.kestrel .notify-events legend { margin-bottom: 12px; font-weight: 500; }
+.kestrel .notify-sound { gap: 12px; }
+.kestrel .notify-sound select { flex: 1; max-width: 240px; }
+.kestrel .settings-body .delegation-limit { grid-template-columns: minmax(0, 1fr) 250px; gap: 8px 24px; align-items: center; padding: 4px 0; }
+.kestrel .settings-body .delegation-limit-problem { grid-column: 1 / -1; }
+.kestrel .who-role { grid-template-columns: 150px minmax(0, 1fr) 140px; align-items: start; gap: 12px; }
+.kestrel .who-role label { padding-top: 6px; gap: 5px; }
+.kestrel .who-roles { gap: 20px; margin-bottom: 6px; }
+.kestrel .who-reviewer-list { grid-column: 2 / -1; }
+.kestrel .who-instruction-label { margin-top: 8px; }
+.kestrel .shortcut-row { border: 0; padding: 10px 0; grid-template-columns: minmax(0, 1fr) 120px minmax(150px, max-content); }
+.kestrel .project-settings .saved-action { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 28px; gap: 12px; padding: 12px 0; }
+.kestrel .project-settings .saved-action-remove { grid-column: 3; grid-row: 1; }
+@container (max-width: 580px) {
+  .kestrel .appearance { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .kestrel .appearance > label:not(:first-child) { margin-top: 12px; }
+  .kestrel .appearance-sample { grid-column: 1; margin-top: 0; }
+  .kestrel .settings-body .delegation-limit { grid-template-columns: minmax(0, 1fr); }
+  .kestrel .who-role { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .kestrel .who-role > label { grid-column: 1 / -1; }
+  .kestrel .who-reviewer-list { grid-column: 1 / -1; }
+  .kestrel .shortcut-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+  .kestrel .shortcut-actions { grid-column: 1 / -1; justify-content: flex-start; }
+}
+@media (max-width: 1000px) {
+  .kestrel .settings { grid-template-columns: 180px minmax(0, 1fr); }
+  .kestrel .settings-body { padding: 24px 20px 48px; }
+}
+
+.kestrel .who-role-name { display: contents; }
+.kestrel .who-role-name > .setting-heading { grid-column: 1; grid-row: 1; align-self: center; }
+.kestrel .who-role-name h3, .kestrel .who-role-name label { margin: 0; padding: 0; font-size: 12px; font-weight: 500; }
+.kestrel .who-role-name > .setting-help-content { grid-column: 1 / -1; grid-row: 2; }
+.kestrel .who-role > select { grid-column: 2; grid-row: 1; }
+.kestrel .who-role > select.who-mode { grid-column: 3; }
+.kestrel .who-reviewer-list { grid-row: 1; }
+@container (max-width: 580px) {
+  .kestrel .who-role-name > .setting-heading { grid-column: 1 / -1; }
+  .kestrel .who-role > select { grid-column: 1; grid-row: 3; }
+  .kestrel .who-role > select.who-mode { grid-column: 2; }
+  .kestrel .who-reviewer-list { grid-row: 3; }
+  .kestrel .project-settings .saved-action { grid-template-columns: minmax(0, 1fr) 28px; }
+  .kestrel .project-settings .saved-action-field { grid-column: 1; }
+  .kestrel .project-settings .saved-action-remove { grid-column: 2; }
+}
+
+/* Presets are a small editable table, with the same columns for suggestions and saved rows. */
+.kestrel .preset-editor { --preset-columns: minmax(180px, 1.25fr) 100px minmax(0, 1fr) 28px; }
+.kestrel .preset-column-headings, .kestrel .preset-list .preset-row { display: grid; grid-template-columns: var(--preset-columns); gap: 12px; }
+.kestrel .preset-column-headings { color: var(--s-muted); font-size: 11px; }
+.kestrel .preset-list { display: grid; gap: 16px; padding: 0; margin: 0; list-style: none; }
+.kestrel .preset-list .preset-row { align-items: start; padding: 0; }
+.kestrel .preset-mobile-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.kestrel .preset-agent-field, .kestrel .preset-model-field { display: grid; gap: 6px; min-width: 0; }
+.kestrel .preset-list .ctl { display: block; min-width: 0; }
+.kestrel .preset-list .ctl-button { display: flex; align-items: center; width: 100%; height: 34px; box-sizing: border-box; padding: 0 10px; font-size: 12px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-bg); }
+.kestrel .preset-list .ctl-button::after { content: ''; flex: none; width: 5px; height: 5px; margin-left: auto; border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; transform: translateY(-2px) rotate(45deg); }
+.kestrel .preset-list .ctl-button:hover { background: var(--s-soft); }
+.kestrel .preset-list .ctl-button:focus-visible { outline: 2px solid var(--s-accent); outline-offset: 2px; }
+.kestrel .preset-list .ctl-model-name { min-width: 0; white-space: nowrap; }
+.kestrel .preset-list .saved-action-remove { height: 34px; }
+.kestrel .preset-use-default { justify-self: start; padding: 0; font-size: 11px; color: var(--s-muted); }
+.kestrel .preset-use-default:hover { color: var(--s-ink); }
+.kestrel .preset-actions { align-items: center; padding-top: 12px; }
+.kestrel .preset-save-status { margin-left: auto; font-size: 11px; color: var(--s-muted); }
+@container (max-width: 580px) {
+  .kestrel .preset-column-headings { display: none; }
+  .kestrel .preset-list .preset-row { grid-template-columns: 100px minmax(0, 1fr) 28px; gap: 10px; }
+  .kestrel .preset-list .saved-action-field { grid-column: 1 / 3; }
+  .kestrel .preset-list .saved-action-remove { grid-column: 3; grid-row: 1; align-self: end; }
+  .kestrel .preset-agent-field { grid-column: 1; grid-row: 2; }
+  .kestrel .preset-model-field { grid-column: 2; grid-row: 2; }
+  .kestrel .preset-mobile-label { position: static; width: auto; height: auto; clip-path: none; font-size: 11px; color: var(--s-muted); }
+  .kestrel .preset-list { gap: 24px; }
+}
+
+/* The role picker names the preset; its model stays readable on a second line. */
+.kestrel .preset-editor > .settings-section { margin-top: 32px; }
+.kestrel .who-preset-choice { min-width: 0; display: grid; gap: 6px; }
+.kestrel .who-role > .who-preset-choice { grid-column: 2; grid-row: 1; }
+.kestrel .who-preset-choice select { width: 100%; }
+.kestrel .who-preset-detail { margin: 0; color: var(--s-muted); font-size: 11px; line-height: 1.5; }
+.kestrel .who-role-name > .setting-heading { align-self: start; padding-top: 8px; }
+@container (max-width: 580px) {
+  .kestrel .who-role > .who-preset-choice { grid-column: 1; grid-row: 3; }
+}
+
+/* Who does what: Orchestrate above Design and Build, which sit under it; a role's fallbacks under its first choice. */
+.kestrel .who-under .who-role-name > .setting-heading { padding-left: 18px; }
+.kestrel .who-fallbacks { display: grid; gap: 6px; margin-top: 4px; }
+.kestrel .who-fallbacks-label { font-size: 11px; color: var(--s-muted); padding-left: 13px; }
+.kestrel .who-unavailable { display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: center; gap: 12px; margin: 14px 0 10px; font-size: 12px; font-weight: 500; color: var(--s-ink); }
+.kestrel .who-unavailable select { height: 30px; font-size: 12px; font-weight: 400; max-width: 280px; }
+/* The model and effort under a select start where the select's own text starts (Matt, 2026-11-20). */
+.kestrel .who-preset-detail { padding-left: 13px; }
+
+/* Settings → Notifications: the test button with what it did beside it. */
+.kestrel .notify-test { display: flex; align-items: center; gap: 10px; }

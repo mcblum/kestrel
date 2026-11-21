@@ -1,0 +1,18 @@
+/* The project, group and tag page header (pages/PageHeader.tsx): the primary action and the … at the
+   right of the title; one quiet line under it; the quiet empty state. */
+/* A grid item: without this a long path would widen the whole page past the window. */
+.kestrel .page-head, .kestrel .page-head > * { min-width: 0; }
+.kestrel .page-head-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+.kestrel .page-head-top h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .header-more { display: inline-flex; align-items: center; justify-content: center; padding: 0 6px; }
+.kestrel .header-more svg { width: 14px; height: 14px; }
+.kestrel .page-head-line { justify-content: flex-start; }
+.kestrel .page-head-text { display: flex; min-width: 0; }
+.kestrel .page-head-text .path-detail { display: flex; min-width: 0; font-size: inherit; color: inherit; }
+.kestrel .page-head-text .path-note { white-space: pre; }
+
+/* No sessions yet: a line and a sentence, no box and no second button. */
+.kestrel .empty-quiet { padding: 28px 0; color: var(--s-muted); font-size: 12px; line-height: 1.6; }
+.kestrel .empty-quiet p { margin: 0; }
+.kestrel .local-panel .empty-quiet { padding-top: 6px; }
+.kestrel .empty-quiet .empty-quiet-title { color: var(--s-ink); font-weight: 500; }

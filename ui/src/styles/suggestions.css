@@ -1,0 +1,36 @@
+/* Optional actions the agent suggested (SuggestionCard.tsx): the open one as a small card just above
+   the message box, and the quiet line an answered one leaves in the conversation. Grey chrome; the
+   primary button is the only filled thing. The tag rules on the Settings page (TagSuggestionSettings.tsx). */
+
+/* ---- the card, above the message box (and above queued messages) ---- */
+.kestrel .suggestion-card { display: grid; gap: 4px; margin-bottom: 8px; padding: 8px 8px 8px 10px; background: var(--s-paper); border: 1px solid var(--s-line); border-radius: 10px; font-size: 12px; }
+.kestrel .suggestion-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.kestrel .suggestion-icon { flex: none; width: 13px; height: 13px; color: var(--s-muted); }
+.kestrel .suggestion-title { flex: 1; min-width: 0; color: var(--s-ink); font-weight: 500; overflow-wrap: anywhere; }
+.kestrel .suggestion-more { flex: none; font-size: 10.5px; color: var(--s-muted); }
+.kestrel .suggestion-x { display: grid; place-items: center; flex: none; width: 22px; height: 22px; padding: 0; background: transparent; border: 0; border-radius: 6px; color: var(--s-muted); cursor: pointer; }
+.kestrel .suggestion-x:hover { background: var(--s-soft); color: var(--s-ink); }
+.kestrel .suggestion-x svg { width: 13px; height: 13px; }
+.kestrel .suggestion-reason { margin: 0 0 0 21px; font-size: 11px; line-height: 1.5; color: var(--s-muted); }
+.kestrel .suggestion-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 0 21px; }
+.kestrel .suggestion-buttons button { padding: 4px 10px; border-radius: 6px; font: inherit; font-size: 11px; line-height: 1.4; cursor: pointer; }
+.kestrel .suggestion-primary { background: var(--s-ink); color: var(--s-bg); border: 1px solid var(--s-ink); }
+.kestrel .suggestion-quiet { background: transparent; color: var(--s-muted); border: 1px solid var(--s-line); }
+.kestrel .suggestion-quiet:hover { color: var(--s-ink); background: var(--s-soft); }
+.kestrel .suggestion-buttons button:disabled, .kestrel .suggestion-x:disabled { opacity: .5; cursor: default; }
+
+/* ---- the line an answered suggestion leaves in the conversation ---- */
+.kestrel .suggestion-line { display: flex; align-items: center; gap: 6px; margin: 2px 0; font-size: 11px; color: var(--s-muted); }
+.kestrel .suggestion-line svg { flex: none; width: 12px; height: 12px; }
+.kestrel .suggestion-undo { padding: 0 2px; background: none; border: 0; font: inherit; font-size: 11px; color: var(--s-ink); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.kestrel .suggestion-undo:disabled { opacity: .5; cursor: default; }
+
+/* ---- Settings: tag suggestions ---- */
+.kestrel .tag-rule-switch { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--s-ink); cursor: pointer; }
+.kestrel .tag-rules { display: grid; margin: 0; padding: 0; list-style: none; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-paper); }
+.kestrel .tag-rules li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 10px; font-size: 12px; }
+.kestrel .tag-rules li + li { border-top: 1px solid var(--s-line); }
+.kestrel .tag-rule-values { display: flex; gap: 2px; }
+.kestrel .tag-rule-values button { padding: 3px 9px; background: none; border: 0; border-radius: 6px; font: inherit; font-size: 11px; color: var(--s-muted); cursor: pointer; }
+.kestrel .tag-rule-values button:hover { background: var(--s-soft); }
+.kestrel .tag-rule-values button[aria-pressed='true'] { background: var(--s-soft); color: var(--s-ink); font-weight: 500; }

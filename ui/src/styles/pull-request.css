@@ -1,0 +1,170 @@
+.kestrel .pr-tone-muted { color: var(--s-muted); }
+.kestrel .pr-tone-red { color: light-dark(#b33832, #ed8b84); }
+.kestrel .pr-tone-green { color: light-dark(#287344, #8bc99d); }
+.kestrel .pr-tone-amber { color: light-dark(#946019, #ddad67); }
+.kestrel .pr-tone-purple { color: light-dark(#8054b0, #bf9de8); }
+.kestrel .pr-summary { display: inline-flex; align-items: center; flex: 0 1 auto; gap: 0; min-width: 0; max-width: 100%; font-size: 11px; border: 1px solid color-mix(in srgb, currentColor 24%, transparent); border-radius: 5px; }
+.kestrel .pr-number { display: inline-flex; align-items: center; gap: 4px; flex: none; padding: 4px 6px; text-decoration: none; color: inherit; }
+.kestrel .pr-number svg { width: 12px; height: 12px; }
+.kestrel .pr-number + .pr-status-button { border-left: 1px solid color-mix(in srgb, currentColor 24%, transparent); }
+.kestrel .pr-status-button { display: inline-flex; align-items: center; gap: 6px; background: none; color: inherit; padding: 4px 10px; box-sizing: border-box; font: inherit; white-space: nowrap; min-width: 0; }
+.kestrel .pr-number:hover, .kestrel .pr-status-button:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
+.kestrel .session-content { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.kestrel .session-content > .conversation { flex: 1; min-height: 0; border: 0; }
+.kestrel .session-content > .conversation[hidden] { display: none; }
+.kestrel .session-view-tabs { display: flex; flex: none; border-bottom: 1px solid var(--s-line); height: var(--pane-header-height); box-sizing: border-box; padding: 0; gap: 0; background: var(--s-bg); }
+.kestrel .session-view-tabs button { background: none; color: var(--s-muted); font-size: 11px; padding: 0; border-bottom: 2px solid transparent; }
+.kestrel .session-view-tabs button[aria-selected='true'] { color: var(--s-ink); }
+.kestrel .pr-page { flex: 1; min-height: 0; overflow: auto; background: var(--s-paper); padding: 28px; }
+.kestrel .pr-page-inner { max-width: 800px; margin-inline: auto; }
+.kestrel .pr-page-top { display: flex; align-items: center; justify-content: space-between; color: var(--s-muted); font-size: 11px; margin-bottom: 24px; }
+.kestrel .pr-refresh { display: inline-flex; gap: 6px; align-items: center; background: none; color: var(--s-muted); padding: 5px; }
+.kestrel .pr-refresh svg { width: 13px; height: 13px; }
+.kestrel .pr-empty h2 { font-size: 18px; margin: 0 0 8px; }
+.kestrel .pr-empty p { color: var(--s-muted); max-width: 520px; line-height: 1.65; }
+.kestrel .pr-article + .pr-article { margin-top: 40px; padding-top: 24px; border-top: 1px solid var(--s-line); }
+.kestrel .pr-article > h1 { font-family: inherit; font-size: 23px; font-weight: 600; line-height: 1.35; letter-spacing: -.5px; margin: 0 0 14px; overflow-wrap: anywhere; }
+.kestrel .pr-title-number { color: var(--s-muted); font-weight: 400; }
+.kestrel .pr-byline { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; color: var(--s-muted); font-size: 11px; }
+.kestrel .pr-byline a, .kestrel .pr-state { display: inline-flex; align-items: center; gap: 6px; }
+.kestrel .pr-byline a { color: var(--s-ink); text-underline-offset: 3px; }
+.kestrel .pr-byline svg { width: 12px; height: 12px; }
+.kestrel .pr-facts { margin: 24px 0 30px; border: 1px solid var(--s-line); border-radius: 8px; overflow: hidden; }
+.kestrel .pr-facts > div { display: grid; grid-template-columns: 75px minmax(0, 1fr); gap: 16px; padding: 11px 14px; font-size: 12px; }
+.kestrel .pr-facts > div + div { border-top: 1px solid var(--s-line); }
+.kestrel .pr-facts dt { color: var(--s-muted); }
+.kestrel .pr-facts dd { margin: 0; overflow-wrap: anywhere; }
+.kestrel .pr-facts code { font-size: 11px; }
+.kestrel .pr-arrow { color: var(--s-muted); margin-inline: 6px; }
+.kestrel .pr-description-heading { color: var(--s-muted); font-size: 11px; font-weight: 500; margin: 0 0 16px; }
+.kestrel .trow-title-button { background: none; color: inherit; padding: 0; text-align: left; width: fit-content; max-width: 100%; }
+.kestrel .tcell-pr { min-width: 0; }
+.kestrel .trow-pr { display: flex; min-width: 0; }
+.kestrel .tcell-pr .pr-summary { white-space: nowrap; }
+.kestrel .tcell-pr .pr-status-button { overflow: hidden; }
+.kestrel .tcell-pr .pr-status-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.kestrel .session-view-body { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.kestrel .session-view-body > .conversation { flex: 1; min-height: 0; border: 0; }
+.kestrel .session-view-body > .conversation[data-parked='true'] { position: absolute; inset: 0; visibility: hidden; pointer-events: none; }
+.kestrel .pr-panel { display: flex; flex: 1; min-height: 0; }
+.kestrel .session-head .bar-pr { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; min-width: 0; }
+@media (max-width: 1000px) { .kestrel .session-head .pr-summary { max-width: 220px; } .kestrel .session-head .pr-status-button { overflow: hidden; text-overflow: ellipsis; } }
+.kestrel .session-head .bar-pr + .pane-icons { margin-left: 0; }
+/* An extensible document strip within each session, not a pair of view modes. */
+.kestrel .session-view-tabs { overflow-x: auto; gap: 0; scrollbar-width: none; }
+.kestrel .session-document-tab { display: inline-flex; align-items: center; flex: none; position: relative; }
+.kestrel .session-document-tab > [role='tab'] { height: 100%; padding-inline: 16px; border: 0; white-space: nowrap; }
+.kestrel .session-document-tab:has([aria-selected='true']) { background: var(--s-soft); }
+.kestrel .session-document-tab:has([aria-selected='true'])::after { content: ''; position: absolute; inset: auto 0 0; height: 2px; background: var(--s-ink); pointer-events: none; }
+.kestrel .session-document-tab .session-document-close { padding: 4px; margin-right: 4px; border: 0; display: inline-flex; border-radius: 4px; }
+.kestrel .session-document-close svg { width: 12px; height: 12px; }
+.kestrel .session-document-close:hover { background: var(--s-line); }
+
+/* Create PR: a grey chip in the pull request chip's place, opening the Manually / Generated menu. */
+.kestrel .pr-create-button { display: inline-flex; align-items: center; gap: 5px; flex: none; padding: 4px 6px 4px 7px; font-size: 11px; color: var(--s-ink); background: none; border: 1px solid var(--s-line); border-radius: 5px; white-space: nowrap; }
+.kestrel .pr-create-button:hover { background: var(--s-soft); }
+.kestrel .pr-create-button svg { width: 12px; height: 12px; }
+.kestrel .pr-create-button .pr-create-chevron { width: 11px; height: 11px; color: var(--s-muted); }
+
+/* The New PR tab: the form-page column (form-page.css) on the pull request page's paper. */
+.kestrel .pr-form { display: grid; gap: 22px; }
+.kestrel .pr-form h1 { font-size: 23px; }
+.kestrel .pr-form code { font-size: 12px; }
+.kestrel .pr-form-fields { display: grid; gap: 18px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.kestrel .pr-form-fields:disabled { opacity: .55; }
+.kestrel .pr-form .form-control { width: 100%; }
+.kestrel .pr-form .form-control[readonly] { color: var(--s-muted); background: var(--s-soft); }
+.kestrel .pr-form .pr-form-body { display: block; height: auto; margin: 0; padding: 10px 12px; field-sizing: content; min-height: 180px; max-height: 60vh; overflow-y: auto; resize: vertical; font-family: var(--diff-font-family); font-size: 12px; line-height: 1.55; }
+.kestrel .pr-form-branches { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+.kestrel .pr-form-check { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; width: fit-content; cursor: pointer; }
+.kestrel .pr-form-fields:disabled .pr-form-check { cursor: default; }
+.kestrel .pr-form-notes { display: grid; gap: 4px; }
+.kestrel .pr-form-notes .form-note { margin: 0; }
+.kestrel .pr-form-status { display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px 12px; font-size: 13px; color: var(--s-ink); background: var(--s-soft); border-radius: 8px; }
+.kestrel .pr-form-error { margin: 0; padding: 10px 12px; font-size: 12px; line-height: 1.5; color: light-dark(#b3403a, #e07b74); border: 1px solid color-mix(in srgb, currentColor 30%, transparent); border-radius: 8px; overflow-wrap: anywhere; }
+
+.kestrel .pr-create-button:disabled { color: var(--s-muted); }
+.kestrel .pr-create-button:disabled:hover { background: none; }
+
+/* Uncommitted changes: a grey notice at the top of the form, and the question that takes the button row's place. */
+.kestrel .pr-form-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; background: var(--s-soft); border: 1px solid var(--s-line); border-radius: 8px; }
+.kestrel .pr-form-notice p { margin: 0; font-size: 13px; color: var(--s-ink); line-height: 1.5; }
+.kestrel .pr-form-notice .secondary-button { flex: none; }
+.kestrel .pr-form .secondary-button:disabled { opacity: .6; }
+.kestrel .pr-form-confirm { flex-wrap: wrap; justify-content: space-between; gap: 10px 16px; padding: 10px 12px; background: var(--s-soft); border-radius: 8px; }
+.kestrel .pr-form-confirm-text { flex: 1 1 260px; margin: 0; font-size: 13px; color: var(--s-ink); line-height: 1.5; }
+.kestrel .pr-form-confirm-buttons { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+
+/* Let the label shrink inside its padding when the session toolbar is crowded. */
+.kestrel .pr-status-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.pr-number { border: 0; background: transparent; font: inherit; cursor: pointer; }
+.pr-external { display: inline-flex; align-items: center; padding: 4px 6px; color: inherit; border-left: 1px solid color-mix(in srgb, currentColor 24%, transparent); }
+.pr-external svg, .pr-merge-now svg { width: 12px; height: 12px; flex: none; }
+.pr-summary > .pr-status-button { border-left: 1px solid color-mix(in srgb, currentColor 24%, transparent); text-decoration: none; }
+.pr-summary .pr-merge-now { background: color-mix(in srgb, currentColor 12%, transparent); }
+.pr-summary > :is(button, a):hover { background: color-mix(in srgb, currentColor 18%, transparent); }
+.pr-summary > :is(button, a):focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+/* The dialog is a themed portal root; scope every control to beat app-wide resets. */
+.kestrel.pr-merge-dialog { position: fixed; inset: 0; margin: auto; height: fit-content; width: min(440px, calc(100vw - 40px)); max-height: calc(100dvh - 48px); box-sizing: border-box; padding: 0; overflow: auto; border: 1px solid var(--s-line); border-radius: 14px; background: var(--s-paper); color: var(--s-ink); box-shadow: 0 24px 80px #0005; font-size: 13px; line-height: 1.5; }
+.kestrel.pr-merge-dialog::backdrop { background: #0006; backdrop-filter: blur(4px); }
+.pr-merge-dialog .pr-merge-header { display: flex; align-items: center; gap: 12px; padding: 22px 24px 0; }
+.pr-merge-dialog .pr-merge-emblem { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 11px; color: var(--s-green); background: color-mix(in srgb, var(--s-green) 12%, transparent); }
+.pr-merge-dialog .pr-merge-eyebrow { color: var(--s-muted); font-size: 10px; letter-spacing: .09em; font-weight: 600; }
+.pr-merge-dialog h2 { margin: 1px 0 0; font-size: 18px; line-height: 1.3; font-weight: 600; letter-spacing: -.02em; }
+.pr-merge-dialog .pr-merge-close { display: grid; place-items: center; margin-left: auto; align-self: flex-start; padding: 5px; border: 0; border-radius: 5px; background: transparent; color: var(--s-muted); }
+.pr-merge-dialog .pr-merge-close:hover { background: var(--s-soft); }
+.pr-merge-dialog .pr-merge-body { padding: 20px 24px 22px; }
+.pr-merge-dialog .pr-merge-title { margin: 0 0 14px; font-size: 14px; line-height: 1.5; font-weight: 500; overflow-wrap: anywhere; }
+.pr-merge-dialog .pr-merge-branches { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 7px; background: var(--s-side); color: var(--s-muted); }
+.pr-merge-dialog .pr-merge-branches svg { flex: none; }
+.pr-merge-dialog .pr-merge-branches code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--s-ink); }
+.pr-merge-dialog .pr-merge-method { display: grid; gap: 6px; margin: 20px 0 0; padding: 0; border: 0; min-width: 0; }
+.pr-merge-dialog legend { margin-bottom: 8px; padding: 0; font-size: 12px; font-weight: 500; color: var(--s-muted); }
+.pr-merge-dialog .pr-merge-option { display: flex; align-items: center; gap: 9px; padding: 10px 12px; border: 1px solid var(--s-line); border-radius: 7px; cursor: pointer; }
+.pr-merge-dialog .pr-merge-option.selected { border-color: color-mix(in srgb, var(--s-green) 50%, var(--s-line)); background: color-mix(in srgb, var(--s-green) 6%, transparent); }
+.pr-merge-dialog .pr-merge-option input { margin: 0; width: 13px; height: 13px; accent-color: var(--s-green); }
+.pr-merge-dialog .pr-merge-option svg { margin-left: auto; color: var(--s-green); flex: none; }
+.pr-merge-dialog .pr-merge-note { margin: 14px 0 0; color: var(--s-muted); font-size: 11px; line-height: 1.6; }
+.pr-merge-dialog .pr-merge-loading { display: flex; align-items: center; gap: 10px; padding: 10px 0; color: var(--s-muted); }
+.pr-merge-dialog .pr-merge-loading svg { animation: pr-merge-spin 1.4s linear infinite; }
+@keyframes pr-merge-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .pr-merge-dialog .pr-merge-loading svg { animation: none; } }
+.pr-merge-dialog .pr-merge-error { padding: 12px 14px; border-radius: 8px; background: var(--s-warm); color: var(--s-ink); }
+.pr-merge-dialog .pr-merge-error strong { font-size: 13px; font-weight: 600; }
+.pr-merge-dialog .pr-merge-error p { margin: 5px 0 0; color: var(--s-muted); overflow-wrap: anywhere; }
+.pr-merge-dialog .pr-merge-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 24px; border-top: 1px solid var(--s-line); background: var(--s-side); }
+.pr-merge-dialog .pr-merge-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 34px; padding: 7px 13px; border: 1px solid var(--s-line); border-radius: 6px; font: inherit; font-weight: 500; background: var(--s-paper); color: var(--s-ink); }
+.pr-merge-dialog .pr-merge-actions .pr-merge-cancel { background: transparent; border-color: transparent; color: var(--s-muted); }
+.pr-merge-dialog .pr-merge-actions .pr-merge-confirm { background: light-dark(#267047, #326e4b); color: #fff; border-color: transparent; }
+.pr-merge-dialog .pr-merge-actions button:hover:not(:disabled) { filter: brightness(.94); }
+.pr-merge-dialog button:disabled { opacity: .45; cursor: default; }
+
+/* The worktree confirmations (WorktreeConfirmations.tsx) share the merge dialog above. */
+.pr-merge-dialog .worktree-summary { margin: 14px 0 0; line-height: 1.55; overflow-wrap: anywhere; }
+.pr-merge-dialog .worktree-summary:first-child { margin-top: 0; }
+.pr-merge-dialog .worktree-label { margin: 14px 0 0; font-size: 12px; font-weight: 500; color: var(--s-muted); }
+.pr-merge-dialog .worktree-commits { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 3px; max-height: 180px; overflow: auto; font-size: 12px; }
+.pr-merge-dialog .worktree-commits li { display: flex; gap: 8px; min-width: 0; }
+.pr-merge-dialog .worktree-commits li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-merge-dialog .worktree-commits code { flex: none; color: var(--s-muted); font-size: 11px; }
+.pr-merge-dialog .worktree-more { color: var(--s-muted); }
+.pr-merge-dialog .worktree-warning { margin: 14px 0 0; color: light-dark(#b3403a, #e07b74); font-size: 12px; }
+.pr-merge-dialog .worktree-check { display: flex; align-items: flex-start; gap: 8px; margin: 16px 0 0; cursor: pointer; overflow-wrap: anywhere; }
+.pr-merge-dialog .worktree-check input { margin: 3px 0 0; flex: none; }
+.pr-merge-dialog .pr-merge-body .pr-merge-error { margin-top: 14px; }
+.pr-merge-dialog .pr-merge-body .pr-merge-error:first-child { margin-top: 0; }
+.kestrel.pr-merge-dialog.worktree-danger .pr-merge-emblem { color: light-dark(#b3403a, #e07b74); background: color-mix(in srgb, light-dark(#b3403a, #e07b74) 12%, transparent); }
+.pr-merge-dialog .pr-merge-actions .pr-merge-confirm.worktree-discard { background: light-dark(#b3403a, #9c3b35); }
+/* "Where should this session start?" (StartBaseDialog.tsx): the merge dialog's parts, with a hint and a remember switch. */
+.pr-merge-dialog .pr-merge-note.start-base-note { margin: 0 0 6px; }
+.pr-merge-dialog .pr-merge-title + .pr-merge-method, .pr-merge-dialog .start-base-note + .pr-merge-method { margin-top: 14px; }
+.pr-merge-dialog .pr-merge-option .start-base-hint { margin-left: auto; color: var(--s-muted); font-size: 11px; }
+.pr-merge-dialog .pr-merge-option .start-base-hint + svg { margin-left: 8px; }
+.pr-merge-dialog .start-base-remember { margin-top: 16px; }
+
+/* The review choice on the New PR form (NewPullRequestView.tsx `ReviewRow`). */
+.kestrel .pr-form-review { display: grid; gap: 6px; }
+.kestrel .pr-form-review select { max-width: 320px; }
+.kestrel .pr-form-review .quiet-button { justify-self: start; }

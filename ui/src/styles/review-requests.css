@@ -1,0 +1,72 @@
+/* CODE REVIEWS in the sidebar: a request row has two lines (its title, then repository, number and
+   author), as a workstream's top row does. Grey like every other row: no colour of its own. */
+/* (The extra class is to win over the one-line row height in sidebar-rhythm.css.) */
+.kestrel .studio-sidebar .side-link.review-link { height: auto; min-height: 40px; padding-top: 5px; padding-bottom: 5px; align-items: center; }
+.kestrel .studio-sidebar .review-label { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; text-align: left; }
+.kestrel .studio-sidebar .review-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .studio-sidebar .review-detail { font-size: 10.5px; line-height: 1.3; color: var(--s-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The request's page. */
+.kestrel .review-page .page-head-actions a.secondary-button { text-decoration: none; color: var(--s-ink); border-color: var(--s-line); }
+.kestrel .review-page .page-head-actions svg, .kestrel .review-no-project svg { width: 12px; height: 12px; }
+.kestrel .review-project { padding: 0; background: none; border: 0; font: inherit; font-size: 12px; color: var(--s-ink); cursor: pointer; text-decoration: underline; text-decoration-color: var(--s-line); text-underline-offset: 3px; }
+.kestrel .review-project:hover { text-decoration-color: var(--s-muted); }
+.kestrel .review-no-project { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; font-size: 12px; color: var(--s-muted); }
+.kestrel .review-body { max-width: 720px; font-size: 13px; }
+
+/* A session reviewing somebody else's request: the eye its request row had, in the icon slot to the
+   left of its title, so both kinds of row in CODE REVIEWS line up. */
+.kestrel .studio-sidebar .tree-row > .review-mark { width: var(--slot); height: var(--slot); padding: 1px; box-sizing: border-box; flex: none; margin-left: calc(-1 * (var(--slot) + 8px)); margin-right: 0; color: var(--s-muted); }
+
+/* Settings → Git → Review requests. */
+.kestrel .review-setting-mode { width: auto; min-width: 240px; margin-bottom: 6px; }
+.kestrel .review-setting-projects { margin-top: 14px; }
+.kestrel .review-setting-list { display: grid; gap: 4px; margin: 2px 0 0 22px; }
+.kestrel .review-not-started { margin: 0; font-size: 12px; line-height: 1.5; color: var(--s-ink); }
+
+/* A review handed over with post_review: a card in the conversation. Grey like the file card. */
+.kestrel .review-reply { margin: 0 0 10px; padding: 10px 12px; background: var(--s-paper); border: 1px solid var(--s-line); border-radius: 8px; }
+.kestrel .review-reply-head { display: flex; align-items: center; gap: 8px; min-width: 0; margin-bottom: 8px; font-size: 12px; }
+.kestrel .review-reply-head > svg { flex: none; width: 14px; height: 14px; color: var(--s-muted); }
+.kestrel .review-reply-title { flex: 1; min-width: 0; font-weight: 500; color: var(--s-ink); }
+.kestrel .review-reply-verdict { width: auto; flex: none; }
+.kestrel .review-reply-posted { display: inline-flex; align-items: center; gap: 4px; flex: none; color: var(--s-muted); }
+.kestrel .review-reply-posted svg { width: 13px; height: 13px; }
+.kestrel .review-reply-summary { font-size: 12.5px; }
+.kestrel .review-reply-edit { width: 100%; font: inherit; font-size: 12.5px; line-height: 1.5; resize: vertical; }
+.kestrel .review-reply-comments { display: grid; gap: 8px; margin: 10px 0 0; padding: 10px 0 0; list-style: none; border-top: 1px solid var(--s-line); }
+.kestrel .review-reply-comments code { font-size: 11px; color: var(--s-muted); }
+.kestrel .review-reply-comments .prose { font-size: 12.5px; }
+.kestrel .review-reply-foot { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.kestrel .review-reply-note { flex: 1; margin: 8px 0 0; font-size: 11px; line-height: 1.5; color: var(--s-muted); }
+.kestrel .review-reply-foot .review-reply-note { margin: 0; }
+.kestrel .review-setting-warning { display: grid; gap: 8px; max-width: 560px; margin: 10px 0 0; padding: 10px 12px; border: 1px solid var(--s-line); border-radius: 8px; font-size: 12px; line-height: 1.5; color: var(--s-ink); }
+.kestrel .review-setting-warning p { margin: 0; }
+.kestrel .review-setting-warning div { display: flex; gap: 8px; }
+
+/* A review session's row is two lines, like its request row was. */
+.kestrel .studio-sidebar .tree-row.review-row { height: auto; min-height: 40px; padding-top: 5px; padding-bottom: 5px; }
+.kestrel .studio-sidebar .tree-row.review-row .tree-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; white-space: normal; }
+.kestrel .studio-sidebar .tree-row.review-row .tree-main { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .studio-sidebar .side-link.review-link > .status-dot.row-dot { margin-left: 8px; }
+
+/* A comment's place in the code: a button that opens the file at that line, under it. */
+.kestrel .review-reply-where { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px 2px 2px; margin-left: -2px; border: 0; border-radius: 5px; background: none; color: var(--s-muted); font: inherit; cursor: pointer; }
+.kestrel .review-reply-where:hover { background: var(--s-soft); color: var(--s-ink); }
+.kestrel .review-reply-where:hover code { color: var(--s-ink); }
+.kestrel .review-reply-where:focus-visible { outline: 2px solid var(--s-muted); outline-offset: 1px; }
+.kestrel .review-reply-where svg { width: 12px; height: 12px; flex: none; }
+.kestrel .review-code { margin: 6px 0 8px; }
+.kestrel .review-code-body { position: relative; display: flex; overflow: auto; border: 1px solid var(--s-line); border-radius: 8px; background: color-mix(in srgb, var(--s-side) 65%, var(--s-bg)); font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 8px 0; }
+.kestrel .review-code-body.whole { max-height: 420px; }
+/* The band behind the line the comment is on: one line tall, as far down as the line is. */
+.kestrel .review-code-mark { position: absolute; left: 0; right: 0; top: calc(8px + var(--marked) * 1lh); height: 1lh; min-width: 100%; background: color-mix(in srgb, var(--s-ink) 9%, transparent); pointer-events: none; }
+.kestrel .review-code-numbers { display: flex; flex-direction: column; flex: none; padding: 0 10px 0 12px; text-align: right; color: var(--s-muted); user-select: none; -webkit-user-select: none; position: sticky; left: 0; }
+.kestrel .review-code-numbers .on { color: var(--s-ink); font-weight: 600; }
+.kestrel .review-code-body pre { margin: 0; padding: 0 14px 0 0; background: none; border: 0; font: inherit; white-space: pre; tab-size: 4; position: relative; user-select: text; -webkit-user-select: text; }
+.kestrel .review-code-body pre code { padding: 0; background: none; font: inherit; white-space: inherit; }
+.kestrel .review-code-foot { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; font-size: 11px; color: var(--s-muted); }
+.kestrel .review-code-note { margin: 4px 0 8px; font-size: 11px; color: var(--s-muted); }
+/* The arrow at the excerpt's top right: the same button a code block has, laid over the corner. */
+.kestrel .review-code { position: relative; }
+.kestrel .review-code-head { position: absolute; top: 4px; right: 6px; z-index: 1; }

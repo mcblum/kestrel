@@ -1,0 +1,30 @@
+/* The sidebar in a window too narrow for it (SidebarRail.tsx, SidebarFloat.tsx): a narrow rail of
+   grey icon buttons, and the full sidebar opened over the content from it. --rail-width is set on
+   .kestrel from RAIL_WIDTH (shared/sidebar-mode.ts). The rail keeps the same top strip as the
+   sidebar for the toggle button; on the Mac the traffic lights and the toggle reach past it, so
+   the tab strip starts after them, as it does with the sidebar hidden. Colour only for the dots. */
+
+.kestrel .sidebar-rail-bar { display: flex; flex-direction: column; align-items: center; min-width: 0; min-height: 0; box-sizing: border-box; padding: 44px 0 10px; background: var(--s-side); border-right: 1px solid var(--s-line); overflow: hidden; }
+.kestrel.mac-chrome .sidebar-rail-bar { -webkit-app-region: drag; }
+.kestrel.mac-chrome .sidebar-rail-bar button { -webkit-app-region: no-drag; }
+.kestrel.mac-chrome:not(.full-screen).sidebar-rail .tab-strip { padding-left: calc(var(--toggle-x) + var(--toggle-size) + 6px - var(--rail-width)); }
+
+.kestrel .rail-top { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: none; }
+.kestrel .rail-sessions { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 0 1 auto; width: 100%; min-height: 0; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--s-line); overflow-y: auto; scrollbar-width: none; }
+
+/* The whole button is the target; its icon or initial sits in the middle. */
+.kestrel .rail-button { position: relative; display: grid; place-items: center; flex: none; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--s-label); font: inherit; cursor: pointer; }
+.kestrel .rail-button svg { width: 16px; height: 16px; }
+.kestrel .rail-button:hover, .kestrel .rail-button:focus-visible, .kestrel .rail-button.active, .kestrel .rail-button.selected { background: var(--s-soft); color: var(--s-ink); }
+.kestrel .rail-settings { margin-top: auto; }
+
+/* A session: its initial in the project-icon box, and the row's dot at the corner. */
+.kestrel .rail-initial { display: grid; place-items: center; box-sizing: border-box; width: 20px; height: 20px; border: 1px solid var(--s-line); border-radius: 5px; background: var(--s-paper); font-size: 10px; font-weight: 500; line-height: 1; }
+.kestrel .rail-dot { position: absolute; top: 4px; right: 4px; }
+
+/* The full sidebar over the content, at the window's left; under the toggle, menus and cards. */
+.kestrel .sidebar-float { position: fixed; top: 0; bottom: 0; left: 0; z-index: 50; display: flex; max-width: calc(100vw - var(--rail-width)); box-shadow: 0 16px 44px rgba(0, 0, 0, .35); }
+.kestrel .sidebar-float > .studio-sidebar { flex: 1; min-width: 0; height: 100%; box-sizing: border-box; }
+
+/* The update toast floats beside the rail instead of over its Settings button. */
+.kestrel.sidebar-rail .update-toast.floating { left: calc(var(--rail-width) + 12px); }

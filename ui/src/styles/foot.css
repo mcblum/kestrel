@@ -1,0 +1,23 @@
+/* The foot of the window: the row under the message box and the Settings row beside it are one
+   band. Its top edge is the message box's bottom outline on one side and the rule above Settings
+   on the other, so the two strokes sit on one line. */
+.kestrel { --foot: 37px; }
+
+/* The model and permission controls end 10px above the window's bottom edge. */
+.kestrel .composer-dock .composer-wrap { padding-bottom: 0; }
+.kestrel .composer-dock .composer-under { box-sizing: border-box; min-height: var(--foot); padding: 4px 4px 10px; align-content: flex-end; }
+
+/* Settings is centred in the band; its rule overlaps the message box's bottom outline (1px). */
+.kestrel .studio-sidebar { padding-bottom: 0; }
+.kestrel .settings-link { box-sizing: border-box; flex: none; height: calc(var(--foot) + 1px); margin-bottom: 0; padding-top: 0; padding-bottom: 0; align-items: center; }
+/* Under the status row the rule is the status row's own; keep the band the same height. */
+.kestrel .status-area + .settings-link { height: var(--foot); }
+
+/* The session's top lines are in details.css (always two lines: title, then where it works). */
+.kestrel .session-bar .pane-icons { flex: none; }
+
+/* A tab with nothing new to read: a faint ring where the dot goes. */
+.kestrel .tab .status-dot.read { background: transparent; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--s-muted) 45%, transparent); }
+/* Settings never takes a background: hovered or selected, its text and icon just turn brighter. */
+.kestrel .settings-link:hover, .kestrel .settings-link.active { background: transparent; color: var(--s-ink); font-weight: inherit; }
+.kestrel .settings-link:hover > svg, .kestrel .settings-link.active > svg { color: var(--s-ink); }

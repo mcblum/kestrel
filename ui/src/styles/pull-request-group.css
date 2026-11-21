@@ -1,0 +1,24 @@
+/* The group pill for a session with several pull or merge requests (PullRequestGroup.tsx): grey
+   chrome, a thin strip of one segment per request in its status colour along the bottom, and a
+   popover listing them. Colour only for the tones (pull-request.css `pr-tone-*`). */
+.kestrel .pr-group { display: inline-flex; flex: none; min-width: 0; }
+.kestrel .pr-group-pill { position: relative; display: inline-flex; align-items: center; gap: 5px; padding: 4px 6px 5px 7px; font: inherit; font-size: 11px; color: var(--s-ink); background: none; border: 1px solid var(--s-line); border-radius: 5px; white-space: nowrap; overflow: hidden; cursor: pointer; }
+.kestrel .pr-group-pill:hover, .kestrel .pr-group-pill[aria-expanded='true'] { background: var(--s-soft); }
+.kestrel .pr-group-pill:focus-visible { outline: 2px solid var(--s-ink); outline-offset: 2px; }
+.kestrel .pr-group-pill svg { width: 12px; height: 12px; flex: none; }
+.kestrel .pr-group-pill .pr-group-chevron { width: 11px; height: 11px; color: var(--s-muted); }
+.kestrel .pr-group-strip { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 1px; height: 2px; pointer-events: none; }
+.kestrel .pr-group-strip > span { flex: 1 1 0; background: currentColor; }
+
+.kestrel .pr-group-popover { position: fixed; z-index: 40; box-sizing: border-box; width: min(440px, calc(100vw - 16px)); padding: 4px; background: var(--s-paper); color: var(--s-ink); border: 1px solid var(--s-line); border-radius: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, .28); font-size: 11px; white-space: normal; cursor: default; }
+.kestrel .pr-group-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.kestrel .pr-group-row { display: flex; align-items: center; gap: 2px; min-width: 0; padding: 2px; border-radius: 5px; }
+.kestrel .pr-group-row:hover, .kestrel .pr-group-row:focus-within { background: var(--s-soft); }
+.kestrel .pr-group-row .pr-number { color: var(--s-muted); border-radius: 4px; }
+.kestrel .pr-group-title { flex: 1 1 auto; min-width: 0; padding: 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .pr-group-row .pr-external { border-left: 0; color: var(--s-muted); border-radius: 4px; }
+.kestrel .pr-group-status { display: inline-flex; flex: none; }
+.kestrel .pr-group-status .pr-status-button { padding: 4px 8px; border: 1px solid color-mix(in srgb, currentColor 24%, transparent); border-radius: 5px; text-decoration: none; overflow: hidden; }
+.kestrel .pr-group-status .pr-merge-now { background: color-mix(in srgb, currentColor 12%, transparent); }
+.kestrel .pr-group-row :is(.pr-number, .pr-external, .pr-status-button):hover { background: color-mix(in srgb, currentColor 14%, transparent); }
+.kestrel .pr-group-row :is(.pr-number, .pr-external, .pr-status-button):focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }

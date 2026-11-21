@@ -1,0 +1,32 @@
+/* The code palette: syntax colours for code blocks in the conversation, the code block in the
+   message box, and diffs (highlight/, @kestrel/server/code-highlight roles). Defined once here.
+   Restrained on purpose: colour in Kestrel means something (status dots, diffs, errors), so the
+   roles keep to blue-violet-teal-rose hues that are not the status green or yellow, nor the error
+   or diff red, and none is loud. Comments are the quietest. Every role keeps at least 4.5:1 against
+   the code background and both diff backgrounds in both themes (comments at least 3.5:1).
+   Colour only: no weight or style, so a coloured block is laid out exactly as a plain one. */
+.kestrel {
+  --code-comment: light-dark(#747a76, #858b87);
+  --code-string: light-dark(#1d6b78, #80c2cc);
+  --code-keyword: light-dark(#7c4a9e, #c7a5e0);
+  --code-constant: light-dark(#a03f78, #e39cc6);
+  --code-name: light-dark(#2f63a8, #8fb4e6);
+  --code-type: light-dark(#4b4fa8, #a6a9ea);
+  --code-punct: light-dark(#5f6561, #a3aaa5);
+  /* A ```diff block's lines, in the Changes pane's diff text colours. */
+  --code-inserted: light-dark(#34593a, #bbdabb);
+  --code-deleted: light-dark(#925b4d, #e5b2a6);
+}
+.kestrel .tok-comment { color: var(--code-comment); }
+.kestrel .tok-string { color: var(--code-string); }
+.kestrel .tok-keyword { color: var(--code-keyword); }
+.kestrel .tok-constant { color: var(--code-constant); }
+.kestrel .tok-name { color: var(--code-name); }
+.kestrel .tok-type { color: var(--code-type); }
+.kestrel .tok-punct { color: var(--code-punct); }
+.kestrel .tok-inserted { color: var(--code-inserted); }
+.kestrel .tok-deleted { color: var(--code-deleted); }
+/* A coloured diff: added and removed lines keep their backgrounds (that is what says added or
+   removed), and their uncoloured text is ink, so the tokens read as one palette on both. */
+.kestrel .diff-highlighted td.diff-code-insert,
+.kestrel .diff-highlighted td.diff-code-delete { color: var(--s-ink); }

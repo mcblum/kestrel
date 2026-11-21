@@ -1,0 +1,41 @@
+/* ---- every side pane's head and close button (PaneHead.tsx) ------------------------------------
+   Shared header height, the same height and bottom rule as the browser, simulator and terminal bars. The name is
+   quiet on the left; the X sits at the far right, in the same spot in every pane. Grey only. */
+.kestrel .pane-head { display: flex; align-items: center; gap: 6px; flex: none; box-sizing: border-box; height: var(--pane-header-height); padding: 0 6px 0 12px; border-bottom: 1px solid var(--s-line); font-size: 11px; color: var(--s-muted); }
+.kestrel .pane-head-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .pane-close { flex: none; margin-left: auto; }
+
+/* The terminal's tabs (or its menu) and the + sit at the start of the bar; its X stays put at the end. */
+.kestrel .term-bar { display: flex; align-items: center; flex: none; box-sizing: border-box; height: var(--pane-header-height); padding-right: 6px; border-bottom: 1px solid var(--s-line); }
+.kestrel .term-bar > .term-tabs { flex: 0 1 auto; min-width: 0; border-bottom: 0; }
+.kestrel .term-bar > .term-tab-new { flex: none; margin-right: 6px; }
+
+/* Details / Context: the head stays while the content scrolls under it, in the column and the card. */
+.kestrel .inspection.context-column { overflow: hidden; }
+.kestrel .pane-main > .context-card { display: flex; flex-direction: column; overflow: hidden; }
+.kestrel .context-column > .pane-body, .kestrel .context-card > .pane-body { flex: 1; min-height: 0; overflow-y: auto; }
+/* The sub-agent view's X lines up with the others. */
+.kestrel .agent-view-head { padding-right: 6px; }
+
+/* Changes: the uncommitted line and its button share the 28px bar, so the button is bar-sized. */
+.kestrel .changes-uncommitted .secondary-button { flex: none; padding: 2px 8px; line-height: 16px; }
+/* Changes: git's own words when the list could not be read, kept selectable for copying. */
+.kestrel .changes-problem { font-family: var(--mono, ui-monospace, monospace); font-size: 11px; overflow-wrap: anywhere; user-select: text; }
+.kestrel .changes-stale { margin: 0; padding: 6px 12px; border-bottom: 1px solid var(--s-line); font-size: 11px; color: var(--s-amber); overflow-wrap: anywhere; }
+
+/* "Open in" in a pane's header, before its X: one bordered button in two parts, like Create PR. The
+   first part names the default app with its icon; the arrow opens the menu of the others. */
+.kestrel .pane-open-in { flex: none; display: inline-flex; align-items: stretch; height: 22px; border: 1px solid var(--s-line); border-radius: 5px; overflow: hidden; }
+.kestrel .pane-open-in button { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: var(--s-ink); font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer; }
+.kestrel .pane-open-in button:hover:not(:disabled) { background: var(--s-soft); }
+.kestrel .pane-open-in button:disabled { color: var(--s-muted); cursor: default; }
+.kestrel .pane-open-in button:focus-visible { outline: 1px solid var(--s-muted); outline-offset: -1px; }
+.kestrel .pane-open-in-app { padding: 0 7px 0 6px; }
+.kestrel .pane-open-in-app img, .kestrel .pane-open-in-app svg { width: 14px; height: 14px; flex: none; }
+.kestrel .pane-open-in-more { padding: 0 4px; border-left: 1px solid var(--s-line) !important; color: var(--s-muted) !important; }
+.kestrel .pane-open-in-more svg { width: 11px; height: 11px; }
+/* An app's icon in a menu row. */
+.kestrel .menu-item .menu-icon { flex: none; width: 16px; height: 16px; }
+/* A labelled choice in Settings (the default Open in app). */
+.kestrel .settings-choice { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--s-ink); }
+.kestrel .settings-choice select { font: inherit; font-size: 12px; padding: 3px 6px; border: 1px solid var(--s-line); border-radius: 5px; background: var(--s-paper); color: var(--s-ink); }

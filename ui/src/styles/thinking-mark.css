@@ -1,0 +1,8 @@
+.kestrel .thinking-mark { width: 20px; height: 20px; flex: none; color: var(--s-git-blue, light-dark(#527d87, #8fbac3)); overflow: visible; }
+.kestrel .thinking-tracks { opacity: .28; }
+.kestrel .thinking-flow { stroke-dasharray: .3 .7; }
+.kestrel .thinking-node { fill: currentColor; stroke: none; }
+.kestrel .to-bottom.working .thinking-mark { width: 22px; height: 22px; animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .kestrel .thinking-flow { stroke-dasharray: none; opacity: .8; }
+}

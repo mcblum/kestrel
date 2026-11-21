@@ -1,0 +1,21 @@
+{
+  "name": "@kestrel/app",
+  "private": true,
+  "version": "0.0.21",
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "start": "electron .",
+    "test": "node --test folder-chooser.test.mjs open-folders.test.mjs server-log.test.mjs",
+    "build:simhelper": "mkdir -p native/build && xcrun swiftc -O -swift-version 5 native/simhelper/*.swift -o native/build/kestrel-sim"
+  },
+  "devDependencies": {
+    "electron": "45.3.2",
+    "electron-builder": "26.18.0",
+    "esbuild": "0.25.12"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.11"
+  }
+}

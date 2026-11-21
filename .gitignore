@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.sqlite
+*.sqlite-*
+.kestrel-data/
+spike/.scratch/
+.DS_Store
+app/native/build/

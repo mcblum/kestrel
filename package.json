@@ -1,0 +1,16 @@
+{
+  "name": "kestrel",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "version": "0.0.0",
+  "packageManager": "pnpm@12.3.4",
+  "scripts": {
+    "dev:server": "pnpm --filter @kestrel/server dev",
+    "dev:ui": "pnpm --filter @kestrel/ui dev",
+    "dev:app": "pnpm --filter @kestrel/app dev",
+    "dev:restart": "scripts/dev-restart.sh",
+    "demo": "scripts/demo.sh",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm --filter @kestrel/server --filter @kestrel/app test"
+  }
+}

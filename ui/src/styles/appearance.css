@@ -1,0 +1,60 @@
+/* Appearance (ui/src/appearance.ts puts these on the root element; shared/appearance.ts).
+   The colour scheme is the root's, so a theme chosen in Settings moves every light-dark() colour;
+   the code font is one variable, used wherever code, diffs and the terminal are drawn. */
+:root { color-scheme: light dark; --mono: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+/* Higher contrast: every code role at least 7:1 (comments 6:1) against the code background and
+   every diff background, in both themes; quieter text and lines are brought up with them. */
+:root[data-contrast='high'] .kestrel {
+  --s-muted: light-dark(#525a54, #bcc5be);
+  --s-line: light-dark(#b9c0b8, #5a665d);
+  --code-comment: light-dark(#4f5551, #b3b9b5);
+  --code-string: light-dark(#0d4f5a, #a9dde6);
+  --code-keyword: light-dark(#5c2e80, #dcc4f0);
+  --code-constant: light-dark(#7d2459, #f2c0de);
+  --code-name: light-dark(#1a4585, #b9d2f3);
+  --code-type: light-dark(#2f3385, #c9cbf5);
+  --code-punct: light-dark(#3f4541, #c9cfca);
+  --code-inserted: light-dark(#1f4226, #d9eed9);
+  --code-deleted: light-dark(#6e3a2c, #f3cfc6);
+}
+:root[data-contrast='high'] .kestrel .diff {
+  --diff-code-insert-text-color: light-dark(#1f4226, #d9eed9);
+  --diff-code-delete-text-color: light-dark(#6e3a2c, #f3cfc6);
+  --diff-gutter-insert-text-color: var(--s-ink);
+  --diff-gutter-delete-text-color: var(--s-ink);
+}
+
+/* Blue and orange diffs, for people who do not tell red from green: added is blue, removed orange. */
+:root[data-diff='blue-orange'] .kestrel {
+  --code-inserted: light-dark(#143a6b, #c6dcf7);
+  --code-deleted: light-dark(#6b3d0a, #f6d9b0);
+}
+:root[data-diff='blue-orange'] .kestrel .diff {
+  --diff-gutter-insert-background-color: light-dark(#d3e3f8, #26426a);
+  --diff-gutter-delete-background-color: light-dark(#fae2c3, #5a3f20);
+  --diff-code-insert-background-color: light-dark(#e4eefb, #1f3350);
+  --diff-code-insert-text-color: light-dark(#143a6b, #c6dcf7);
+  --diff-code-delete-background-color: light-dark(#fdefdc, #46311a);
+  --diff-code-delete-text-color: light-dark(#6b3d0a, #f6d9b0);
+}
+
+/* Settings → General → Appearance (AppearanceSetting.tsx): labels beside their controls. */
+.kestrel .appearance { display: grid; grid-template-columns: minmax(130px, max-content) minmax(0, 320px); align-items: center; gap: 8px 14px; font-size: 12px; color: var(--s-ink); }
+.kestrel .appearance select, .kestrel .appearance input.form-control { height: 30px; font-size: 12px; min-width: 0; }
+.kestrel .appearance-font { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.kestrel .appearance-font input.form-control { flex: 1; }
+.kestrel .appearance-number { flex: none !important; width: 72px; }
+.kestrel .appearance-wide { grid-column: 1 / -1; }
+.kestrel .appearance-sample { padding: 8px 10px; border: 1px solid var(--s-line); border-radius: 6px; background: var(--s-paper); font-family: var(--mono); font-size: 12px; color: var(--s-ink); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+/* Settings → Keyboard shortcuts (ShortcutsSetting.tsx). */
+.kestrel .shortcut-search { box-sizing: border-box; width: 100%; max-width: 420px; height: 30px; margin-bottom: 8px; font-size: 12px; }
+.kestrel .shortcut-list { display: grid; margin: 0 0 8px; padding: 0; list-style: none; max-width: 720px; }
+.kestrel .shortcut-row { display: grid; grid-template-columns: minmax(0, 1fr) 140px minmax(190px, max-content); align-items: center; gap: 4px 12px; padding: 6px 0; border-bottom: 1px solid var(--s-line); font-size: 12px; color: var(--s-ink); }
+.kestrel .shortcut-keys kbd { padding: 2px 6px; border: 1px solid var(--s-line); border-radius: 5px; background: var(--s-paper); font: inherit; font-size: 11px; color: var(--s-ink); white-space: nowrap; }
+.kestrel .shortcut-keys em, .kestrel .shortcut-fixed { font-style: normal; font-size: 11px; color: var(--s-muted); }
+.kestrel .shortcut-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.kestrel .shortcut-actions button { padding: 3px 10px; font: inherit; font-size: 11px; border: 1px solid var(--s-line); border-radius: 6px; background: var(--s-paper); color: var(--s-ink); cursor: pointer; }
+.kestrel .shortcut-actions button:hover { background: var(--s-soft); }
+.kestrel .shortcut-problem { grid-column: 1 / -1; }

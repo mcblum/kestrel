@@ -1,0 +1,27 @@
+.kestrel.markdown-studio { height: auto; min-height: 100vh; background: var(--s-bg); }
+.kestrel .specimen-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px; padding: 20px 32px; border-bottom: 1px solid var(--s-line); }
+.kestrel .specimen-brand { display: flex; align-items: baseline; gap: 16px; }
+.kestrel .specimen-brand strong { font-size: 17px; font-weight: 600; letter-spacing: -.5px; }
+.kestrel .specimen-brand span { color: var(--s-muted); font-size: 12px; }
+.kestrel .specimen-controls { display: flex; gap: 18px; flex-wrap: wrap; }
+.kestrel .specimen-controls label { display: flex; align-items: center; gap: 8px; color: var(--s-muted); font-size: 11px; }
+.kestrel .specimen-controls select { padding: 6px 9px; border: 1px solid var(--s-line); border-radius: 6px; color: var(--s-ink); background: var(--s-paper); }
+.kestrel .specimen-main { padding: 48px 24px 32px; }
+.kestrel .specimen-intro { max-width: 690px; margin: 0 auto 30px; }
+.kestrel .specimen-kicker { font-size: 10px; font-weight: 600; letter-spacing: 1.8px; color: var(--s-muted); }
+.kestrel .specimen-intro h1 { font-family: inherit; font-size: 30px; font-weight: 550; letter-spacing: -.9px; margin: 12px 0; }
+.kestrel .specimen-intro > p:last-of-type { color: var(--s-muted); font-size: 13px; }
+.kestrel .specimen-tabs { display: flex; gap: 4px; margin-top: 24px; border-bottom: 1px solid var(--s-line); }
+.kestrel .specimen-tabs button { background: transparent; padding: 10px 12px; color: var(--s-muted); border-bottom: 2px solid transparent; font-size: 12px; }
+.kestrel .specimen-tabs button[aria-pressed='true'] { color: var(--s-ink); border-bottom-color: var(--s-ink); }
+.kestrel .specimen-tabs button:hover { color: var(--s-ink); }
+.kestrel .specimen-sheet { max-width: 690px; margin: 0 auto; transition: max-width .2s ease; }
+.kestrel .specimen-sheet.specimen-narrow { max-width: 360px; }
+.kestrel .specimen-message-label { display: flex; align-items: center; gap: 8px; color: var(--s-muted); font-size: 11px; margin-bottom: 24px; }
+.kestrel .specimen-message-label > span:last-child { opacity: .7; }
+.kestrel .specimen-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--s-muted); }
+.kestrel .specimen-editor { display: block; max-width: 690px; margin: 0 auto 32px; color: var(--s-muted); font-size: 12px; }
+.kestrel .specimen-editor textarea { display: block; width: 100%; min-height: 240px; resize: vertical; margin-top: 8px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-paper); color: var(--s-ink); padding: 14px; font: 12px/1.6 ui-monospace, monospace; }
+.kestrel .specimen-footer { max-width: 690px; margin: 40px auto 0; padding-top: 20px; border-top: 1px solid var(--s-line); font-size: 11px; color: var(--s-muted); }
+@media (max-width: 600px) { .kestrel .specimen-toolbar { padding: 16px 20px; } .kestrel .specimen-main { padding: 28px 20px; } }
+@media (prefers-reduced-motion: reduce) { .kestrel .specimen-sheet { transition: none; } }

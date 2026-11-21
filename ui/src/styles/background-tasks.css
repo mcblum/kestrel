@@ -1,0 +1,26 @@
+/* Work the agent left running in the background (BackgroundTasks.tsx): a compact strip just above
+   the message box. Grey chrome, like the queued messages beside it; the only colour is the amber of
+   a refused Stop. */
+.kestrel .bg-tasks { display: grid; gap: 2px; margin-bottom: 8px; padding: 4px 4px 4px 6px; background: var(--s-bg); border: 1px solid var(--s-line); border-radius: 10px; font-size: 12px; }
+.kestrel .bg-tasks-head { padding: 2px 4px 0; font-size: 10.5px; line-height: 18px; color: var(--s-muted); }
+.kestrel .bg-task { display: grid; gap: 4px; min-width: 0; }
+.kestrel .bg-task-line { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 26px; padding: 0 0 0 4px; }
+.kestrel .bg-task-line > .working-pulse { flex: none; }
+.kestrel .bg-task.stopping .working-pulse { animation: none; opacity: .4; }
+.kestrel .bg-task-text { flex: 1; display: grid; min-width: 0; }
+/* The name, then the full command on one line in small muted monospace, cut with an ellipsis; the tooltip has all of it. */
+.kestrel .bg-task-name, .kestrel .bg-task-command { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.kestrel .bg-task-name { font-size: 12px; color: var(--s-ink); }
+.kestrel .bg-task-command { font-family: var(--mono); font-size: 10.5px; line-height: 15px; color: var(--s-muted); }
+.kestrel .bg-task.stopping .bg-task-name { color: var(--s-muted); }
+.kestrel .bg-task-time { flex: none; font-size: 10.5px; font-variant-numeric: tabular-nums; color: var(--s-muted); }
+.kestrel .bg-task-stop { flex: none; padding: 3px 9px; background: transparent; border: 1px solid var(--s-line); border-radius: 6px; font: inherit; font-size: 11px; color: var(--s-label); cursor: pointer; }
+.kestrel .bg-task-stop:hover:not(:disabled) { background: var(--s-soft); color: var(--s-ink); }
+.kestrel .bg-task-stop:disabled { color: var(--s-muted); cursor: default; }
+.kestrel .bg-task-error { display: flex; align-items: flex-start; gap: 6px; margin: 0 0 4px 18px; padding: 5px 8px; background: var(--s-warm); border: 1px solid color-mix(in srgb, var(--s-amber) 40%, var(--s-line)); border-radius: 6px; font-size: 11px; line-height: 1.45; color: var(--s-ink); }
+.kestrel .bg-task-error svg { flex: none; width: 12px; height: 12px; margin-top: 2px; color: var(--s-amber); }
+/* A row whose command is in the Commands pane opens it there. */
+.kestrel .bg-task-open { padding: 2px 4px; margin: -2px -4px; background: transparent; border: 0; border-radius: 4px; font: inherit; text-align: start; cursor: pointer; }
+.kestrel .bg-task-open:hover { background: var(--s-soft); }
+/* The dot sits beside the name, not between the name and the command line under it. */
+.kestrel .bg-task-line:has(.bg-task-command) > .working-pulse { align-self: flex-start; margin-top: 6px; }

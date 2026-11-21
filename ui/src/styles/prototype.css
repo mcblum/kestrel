@@ -1,0 +1,257 @@
+/* The prototype's visual language, lifted as-is (selectors rescoped to .kestrel).
+   App-specific additions and overrides live in app.css. The prototype's hand-drawn diff rules
+   (.diff-code, .diff-line, .diff-hunk) are removed: react-diff-view owns those class names. */
+/* ---- from design/prototype/source/overview.html ---- */
+.kestrel{--s-bg:light-dark(#fafbf9,#171a19);--s-side:light-dark(#f1f3ef,#141715);--s-paper:light-dark(#fff,#1d211f);--s-ink:light-dark(#26352f,#ecf0e9);--s-muted:light-dark(#778078,#9aa59d);--s-line:light-dark(#e3e7df,#303a32);--s-accent:light-dark(#315b48,#9bc9ac);--s-soft:light-dark(#e6ede3,#2a382e);--s-green:light-dark(#42785c,#87ba95);--s-amber:light-dark(#a06a28,#ddad67);--s-warm:light-dark(#fbf7ee,#28251e);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--s-ink);font-size:13px;line-height:1.5;position:relative}
+.kestrel *{box-sizing:border-box}
+.kestrel button,.kestrel input,.kestrel select,.kestrel textarea{font:inherit}
+.kestrel button{color:inherit}
+.kestrel button:focus-visible,.kestrel input:focus-visible,.kestrel select:focus-visible,.kestrel textarea:focus-visible{outline:2px solid var(--s-accent);outline-offset:3px}
+.kestrel button{border:0}
+.kestrel h1,.kestrel h2,.kestrel h3,.kestrel p{margin:0}
+.kestrel svg{width:16px;height:16px;flex-shrink:0}
+.kestrel .studio-shell{display:grid;grid-template-columns:214px minmax(0,1fr);background:var(--s-bg);border:1px solid var(--s-line);border-radius:14px;overflow:hidden;min-height:850px}
+.kestrel .studio-sidebar{background:var(--s-side);border-right:1px solid var(--s-line);padding:25px 14px 16px;display:flex;flex-direction:column}
+.kestrel .studio-brand{font-size:25px;font-weight:650;letter-spacing:-1px;display:flex;gap:9px;align-items:center;padding:0 8px 27px}
+.kestrel .brandmark{display:flex;color:var(--s-accent)}
+.kestrel .brandmark svg{width:27px;height:27px}
+.kestrel .preview-label{font-size:8px;letter-spacing:1px;font-weight:500;color:var(--s-muted);margin-left:8px}
+.kestrel .studio-new{display:flex;align-items:center;gap:8px;width:100%;background:var(--s-paper);border:1px solid var(--s-line);border-radius:7px;padding:9px 10px;margin-bottom:22px;box-shadow:0 2px 3px #00000004}
+.kestrel kbd{font-family:inherit;font-size:10px;margin-left:auto;color:var(--s-muted)}
+.kestrel .side-link{display:flex;align-items:center;gap:9px;background:transparent;width:100%;padding:8px 9px;text-align:left;border-radius:6px;margin-bottom:3px;font-size:12px}
+.kestrel .side-link.active{background:var(--s-soft);color:var(--s-accent);font-weight:600}
+.kestrel .side-link:hover,.kestrel .folder-preview button:hover{background:var(--s-soft)}
+.kestrel .nav-count{margin-left:auto;color:var(--s-muted);font-size:11px}
+.kestrel .warm-count{color:var(--s-amber);background:var(--s-warm);padding:0 5px;border-radius:3px}
+.kestrel .side-heading{display:flex;align-items:center;justify-content:space-between;font-size:9px;letter-spacing:1.2px;color:var(--s-muted);padding:23px 9px 9px}
+.kestrel .icon-button{display:inline-flex;align-items:center;justify-content:center;background:transparent;padding:2px;color:var(--s-muted)}
+.kestrel .icon-button svg{width:13px;height:13px}
+.kestrel .folder-preview{border-left:1px solid var(--s-line);margin:4px 0 10px 17px;padding-left:11px}
+.kestrel .folder-preview button{display:flex;gap:7px;align-items:center;background:transparent;text-align:left;padding:6px 3px;font-size:11px;width:100%;border-radius:4px}
+.kestrel .folder-more{display:block;font-size:10px;color:var(--s-muted);padding:6px 3px}
+.kestrel .status-dot{width:6px;height:6px;display:inline-block;border-radius:50%;flex-shrink:0}
+.kestrel .green{background:var(--s-green)}
+.kestrel .amber{background:var(--s-amber)}
+.kestrel .side-link>.status-dot{margin-left:auto}
+.kestrel .repo-icon,.kestrel .mini-repo{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--s-line);background:var(--s-paper);border-radius:4px;width:18px;height:18px;font-size:9px;color:var(--s-muted)}
+.kestrel .sidebar-bottom{border-top:1px solid var(--s-line);margin-top:auto;padding:17px 4px 0;display:flex;align-items:center;gap:9px;font-size:11px}
+.kestrel .sidebar-bottom small{display:block;color:var(--s-muted);font-size:10px}
+.kestrel .sidebar-bottom>svg{margin-left:auto;color:var(--s-muted);width:12px}
+.kestrel .avatar{display:flex;align-items:center;justify-content:center;background:var(--s-soft);color:var(--s-accent);width:29px;height:29px;border-radius:50%;font-size:11px}
+.kestrel .studio-topbar{display:flex;justify-content:space-between;gap:12px;align-items:center;min-height:58px;border-bottom:1px solid var(--s-line);padding:15px 30px;font-size:10px;color:var(--s-muted)}
+.kestrel .slash{margin:0 10px;color:var(--s-line)}
+.kestrel #studio-breadcrumb{color:var(--s-ink)}
+.kestrel .local-indicator{display:flex;gap:6px;align-items:center}
+.kestrel .studio-content{padding:33px 30px 20px}
+.kestrel .page-intro{display:flex;align-items:center;justify-content:space-between;gap:20px}
+.kestrel .eyebrow{font-size:9px;letter-spacing:1.5px;color:var(--s-accent);margin-bottom:14px;font-weight:600}
+.kestrel h1{font-family:Georgia,"Times New Roman",serif;font-size:37px;line-height:1.12;letter-spacing:-1.2px;font-weight:400}
+.kestrel .page-intro p{font-size:11px;color:var(--s-muted);margin-top:13px}
+.kestrel .intro-symbol{width:105px;height:105px;background:radial-gradient(circle,var(--s-soft),transparent 72%);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--s-accent)}
+.kestrel .intro-symbol svg{width:76px;height:76px;stroke-width:.65;transform:rotate(-20deg)}
+.kestrel .pulse-strip{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--s-line);margin:28px 0 26px;padding-bottom:22px}
+.kestrel .pulse-item{display:flex;flex-direction:column;align-items:flex-start;background:transparent;padding:0 16px;border-right:1px solid var(--s-line)}
+.kestrel .pulse-item:first-child{padding-left:0}
+.kestrel .pulse-item:last-child{border:0}
+.kestrel .pulse-item strong{font-weight:400;font-size:26px;letter-spacing:-1px;display:flex;gap:8px;align-items:center}
+.kestrel .pulse-item>span{font-size:10px;color:var(--s-muted);margin-top:2px}
+.kestrel .tiny-dot{width:5px;height:5px;border-radius:50%}
+.kestrel .section-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:13px}
+.kestrel h2{font-weight:600;font-size:13px}
+.kestrel h2>span{font-weight:400;font-size:10px;color:var(--s-amber);margin-left:7px}
+.kestrel .small{font-size:10px}
+.kestrel .muted{color:var(--s-muted)}
+.kestrel .attention-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.kestrel .attention-card{background:var(--s-warm);border:1px solid color-mix(in srgb,var(--s-amber) 18%,var(--s-line));border-radius:9px;padding:16px;text-align:left;transition:transform .15s}
+.kestrel .attention-card:hover{transform:translateY(-2px)}
+.kestrel .card-topline{display:flex;justify-content:space-between;gap:8px;font-size:9px;margin-bottom:13px}
+.kestrel .state-label{color:var(--s-amber);display:flex;gap:6px;align-items:center}
+.kestrel h3{font-size:14px;font-weight:550;letter-spacing:-.2px}
+.kestrel .attention-card p{font-size:11px;line-height:1.7;color:var(--s-muted);margin-top:7px}
+.kestrel .card-footer{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:18px;font-size:9px}
+.kestrel .mini-repo{width:15px;height:15px;font-size:8px;margin-right:4px}
+.kestrel .arrow-circle{display:flex;align-items:center;justify-content:center;border:1px solid var(--s-line);width:24px;height:24px;border-radius:50%;flex-shrink:0}
+.kestrel .arrow-circle svg{width:12px;height:12px}
+.kestrel .session-section{margin-top:27px}
+.kestrel .session-toolbar{display:flex;justify-content:space-between;align-items:center;gap:8px;border-bottom:1px solid var(--s-line);padding-bottom:10px}
+.kestrel .filter-tabs{display:flex;gap:3px;flex-wrap:wrap}
+.kestrel .filter-tabs button{font-size:10px;background:transparent;color:var(--s-muted);padding:5px 9px;border-radius:5px}
+.kestrel .filter-tabs button.selected{background:var(--s-soft);color:var(--s-accent)}
+.kestrel .session-search{display:flex;gap:6px;align-items:center;color:var(--s-muted);max-width:145px}
+.kestrel .session-search svg{width:12px;height:12px}
+.kestrel input{color:var(--s-ink)}
+.kestrel .session-search input{width:100%;min-width:0;background:transparent;border:0;font-size:10px}
+.kestrel .session-row{display:grid;grid-template-columns:29px minmax(0,1fr) 105px 28px;gap:10px;align-items:center;padding:13px 0;border-bottom:1px solid var(--s-line);width:100%;background:transparent;text-align:left}
+.kestrel .session-row:hover{background:var(--s-side)}
+.kestrel .session-icon{width:28px;height:28px;border:1px solid var(--s-line);background:var(--s-paper);border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--s-muted)}
+.kestrel .session-icon svg{width:13px;height:13px}
+.kestrel .session-name{font-size:11px;font-weight:500}
+.kestrel .session-meta{font-size:9px;color:var(--s-muted);margin-top:3px;display:flex;gap:6px;flex-wrap:wrap}
+.kestrel .session-state{font-size:9px;display:flex;align-items:center;gap:5px;white-space:nowrap}
+.kestrel .session-state.running{color:var(--s-green)}
+.kestrel .session-state.attention{color:var(--s-amber)}
+.kestrel .session-state.done{color:var(--s-muted)}
+.kestrel .session-state svg{width:11px;height:11px}
+.kestrel .session-age{font-size:9px;color:var(--s-muted);text-align:right}
+.kestrel .workspace-footer{display:flex;justify-content:space-between;gap:15px;flex-wrap:wrap;color:var(--s-muted);font-size:9px;margin-top:19px}
+.kestrel .workspace-footer span{display:flex;gap:5px;align-items:center}
+.kestrel .workspace-footer svg{width:11px;height:11px}
+.kestrel #studio-overlay:not([hidden]){position:absolute;inset:0;background:#14221c65;z-index:5;display:flex;justify-content:flex-end;border-radius:14px;overflow:hidden}
+.kestrel .detail-panel{background:var(--s-paper);width:min(520px,100%);padding:30px;box-shadow:-20px 0 80px #00000013;align-self:stretch}
+.kestrel .detail-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:30px}
+.kestrel .detail-panel h2{font-size:25px;letter-spacing:-.6px;font-weight:500}
+.kestrel .detail-panel p{color:var(--s-muted);margin-top:10px;font-size:12px}
+.kestrel .detail-tags{display:flex;flex-wrap:wrap;gap:6px;margin:15px 0 27px}
+.kestrel .detail-tags span{background:var(--s-side);border:1px solid var(--s-line);border-radius:4px;padding:4px 8px;font-size:10px}
+.kestrel .message-block{background:var(--s-side);border:1px solid var(--s-line);border-radius:10px;padding:18px;margin:20px 0}
+.kestrel .message-block p{line-height:1.8;color:var(--s-ink)}
+.kestrel .primary-button{background:var(--s-accent);color:var(--s-bg);border-radius:6px;padding:9px 15px;font-size:11px}
+.kestrel .secondary-button{background:var(--s-side);border:1px solid var(--s-line);border-radius:6px;padding:9px 15px;font-size:11px}
+.kestrel .detail-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+.kestrel .detail-label{display:block;margin-top:18px;font-size:11px;color:var(--s-muted)}
+.kestrel .detail-label input,.kestrel .detail-label select,.kestrel textarea{display:block;width:100%;margin-top:7px;background:var(--s-bg);border:1px solid var(--s-line);color:var(--s-ink);padding:10px;border-radius:6px;font-size:12px}
+.kestrel textarea{resize:vertical;min-height:100px}
+.kestrel .detail-caption{font-size:10px;margin-top:10px;color:var(--s-muted)}
+.kestrel .empty-list{padding:25px 0;color:var(--s-muted);font-size:12px}
+.kestrel .preview-notice{font-size:10px;color:var(--s-muted);margin-top:20px}
+.kestrel.compact .session-row{padding:8px 0}
+@media(max-width:800px){.kestrel .studio-shell{grid-template-columns:184px minmax(0,1fr)}
+.kestrel .studio-content{padding:26px 20px 20px}
+.kestrel .studio-topbar{padding:15px 20px}
+.kestrel h1{font-size:32px}
+.kestrel .intro-symbol{width:65px;height:65px}
+.kestrel .intro-symbol svg{width:60px;height:60px}
+.kestrel .attention-grid{grid-template-columns:1fr}
+.kestrel .card-footer{margin-top:10px}
+.kestrel .section-heading>.small{display:none}
+.kestrel .session-search{max-width:110px}
+.kestrel .session-row{grid-template-columns:25px minmax(0,1fr) 85px}
+.kestrel .session-age{display:none}
+.kestrel .pulse-item{padding:0 10px}
+.kestrel .pulse-item>span{font-size:9px}}
+@media(max-width:560px){.kestrel .studio-shell{grid-template-columns:1fr}
+.kestrel .studio-sidebar{padding:14px;border-right:0;border-bottom:1px solid var(--s-line)}
+.kestrel .studio-brand{padding:0 4px 12px;font-size:21px}
+.kestrel .studio-new{margin-bottom:10px}
+.kestrel .studio-sidebar nav{display:flex;flex-wrap:wrap;gap:3px}
+.kestrel .side-link{width:auto;font-size:10px;padding:5px}
+.kestrel .side-heading,.kestrel .folder-preview,.kestrel .sidebar-bottom{display:none}
+.kestrel .side-link .nav-count{margin-left:0}
+.kestrel .studio-topbar{padding:12px 16px;min-height:40px}
+.kestrel .local-indicator{display:none}
+.kestrel .studio-content{padding:23px 16px}
+.kestrel h1{font-size:31px}
+.kestrel .intro-symbol{display:none}
+.kestrel .session-toolbar{flex-wrap:wrap}
+.kestrel .session-search{max-width:none;width:100%;padding:8px 0}
+.kestrel .session-row{grid-template-columns:25px minmax(0,1fr) 82px;gap:7px}
+.kestrel .detail-panel{padding:22px}
+.kestrel .workspace-footer{font-size:8px}}
+@media(prefers-reduced-motion:reduce){.kestrel *{transition:none!important}}
+
+/* ---- from design/prototype/source/session.html ---- */
+.kestrel{color-scheme:light dark}
+.kestrel [hidden]{display:none!important}
+.kestrel .studio-brand{font-size:23px;letter-spacing:-.8px;gap:7px}
+.kestrel .preview-label{font-size:7px;margin-left:0}
+.kestrel .session-workspace{min-width:0}
+.kestrel .work-header{padding:25px 25px 18px;border-bottom:1px solid var(--s-line)}
+.kestrel .work-breadcrumb{display:flex;gap:7px;align-items:center;font-size:10px;color:var(--s-muted);margin-bottom:12px}
+.kestrel .work-title{display:flex;gap:15px;align-items:center;justify-content:space-between}
+.kestrel .work-title h1{font-family:inherit;font-size:23px;font-weight:550;letter-spacing:-.6px;line-height:1.25}
+.kestrel .work-meta{display:flex;align-items:center;flex-wrap:wrap;gap:10px;font-size:10px;color:var(--s-muted);margin-top:12px}
+.kestrel .work-meta span{display:inline-flex;gap:5px;align-items:center}
+.kestrel .work-meta svg{width:12px;height:12px}
+.kestrel .conversation{display:flex;flex-direction:column;border-right:1px solid var(--s-line);min-width:0;background:var(--s-paper)}
+.kestrel .pane-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:13px 18px;border-bottom:1px solid var(--s-line);font-size:11px;font-weight:500}
+.kestrel .pane-heading small{font-size:9px;font-weight:400;color:var(--s-muted)}
+.kestrel .conversation-body{padding:22px 20px;flex:1}
+.kestrel .day-divider{font-size:9px;color:var(--s-muted);text-align:center;margin-bottom:23px;letter-spacing:.5px}
+.kestrel .chat-message{margin-bottom:25px;font-size:12px;line-height:1.8}
+.kestrel .chat-author{font-size:10px;display:flex;align-items:center;gap:7px;margin-bottom:9px;font-weight:600}
+.kestrel .chat-author small{margin-left:auto;font-weight:400;font-size:9px;color:var(--s-muted)}
+.kestrel .chat-avatar{display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;background:var(--s-soft);color:var(--s-accent);font-size:10px}
+.kestrel .chat-avatar svg{width:12px;height:12px}
+.kestrel .tool-activity{border-left:1px solid var(--s-line);margin:14px 0 17px 10px;padding-left:14px;display:grid;gap:10px;font-size:10px;color:var(--s-muted)}
+.kestrel .tool-activity span{display:flex;align-items:center;gap:6px}
+.kestrel .tool-activity svg{width:12px;height:12px}
+.kestrel .decision-box{padding:15px;background:var(--s-warm);border:1px solid color-mix(in srgb,var(--s-amber) 25%,var(--s-line));border-radius:8px;margin-top:15px}
+.kestrel .decision-box strong{font-size:11px;font-weight:500;color:var(--s-amber)}
+/* Only the card's own lines: markdown inside a card is sized by markdown.css. */
+.kestrel .decision-box > p{font-size:11px;margin-top:7px}
+.kestrel .decision-options{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.kestrel .decision-options button{background:var(--s-paper);border:1px solid var(--s-line);border-radius:5px;padding:6px 8px;font-size:10px}
+.kestrel .decision-options button:first-child{color:var(--s-accent);border-color:var(--s-accent)}
+.kestrel .composer-wrap{padding:0 16px 15px}
+.kestrel .composer-box{background:var(--s-bg);border:1px solid var(--s-line);border-radius:10px;padding:11px}
+.kestrel .composer-box .composer-input{min-height:68px;margin:0;padding:0;background:transparent;border:0;font-size:11px;line-height:1.7}
+.kestrel .composer-tools{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:9px;font-size:9px;color:var(--s-muted)}
+.kestrel .send-button{background:var(--s-accent);color:var(--s-bg);border-radius:5px;padding:6px 10px;display:flex;align-items:center;gap:5px;font-size:10px}
+.kestrel .composer-caption{font-size:9px;color:var(--s-muted);padding-top:7px;text-align:center}
+.kestrel .inspection{min-width:0;display:flex;flex-direction:column}
+.kestrel .inspector-tabs{display:flex;align-items:center;gap:14px;padding:0 15px;border-bottom:1px solid var(--s-line);min-height:44px}
+.kestrel .inspector-tabs button{background:transparent;font-size:10px;padding:13px 0;color:var(--s-muted);border-bottom:2px solid transparent;display:flex;gap:5px;align-items:center}
+.kestrel .inspector-tabs button.selected{color:var(--s-ink);border-color:var(--s-accent)}
+.kestrel .inspector-tabs button svg{width:12px;height:12px}
+.kestrel .change-total{margin-left:auto;font-size:9px;color:var(--s-green);white-space:nowrap}
+.kestrel .file-list{padding:8px 10px;border-bottom:1px solid var(--s-line)}
+.kestrel .file-button{background:transparent;display:flex;align-items:center;width:100%;gap:6px;border-radius:4px;padding:7px 6px;text-align:left;font-size:10px}
+.kestrel .file-button.selected{background:var(--s-soft)}
+.kestrel .file-button svg{width:12px;height:12px;color:var(--s-muted)}
+.kestrel .file-button span:first-of-type{overflow-wrap:anywhere}
+.kestrel .file-stat{margin-left:auto;font-size:9px;color:var(--s-green);white-space:nowrap}
+.kestrel .diff-header{display:flex;justify-content:space-between;gap:8px;padding:12px 15px;font-size:9px;color:var(--s-muted);border-bottom:1px solid var(--s-line);overflow-wrap:anywhere}
+.kestrel .terminal-pane{margin-top:auto;background:light-dark(#242e29,#111813);color:#c1d0c3;min-height:225px}
+.kestrel .terminal-pane .pane-heading{border-color:#ffffff12;color:#e4ece5}
+.kestrel .terminal-pane .pane-heading small{color:#a4b1a7}
+.kestrel .terminal-tabs{display:flex;gap:12px}
+.kestrel .terminal-tabs button{background:transparent;color:#93a397;padding:0;font-size:10px}
+.kestrel .terminal-tabs button.selected{color:#e2eee4}
+.kestrel .terminal-body{padding:15px;font:10px/1.9 "SFMono-Regular",Consolas,monospace;overflow-wrap:anywhere}
+.kestrel .terminal-body pre{font:inherit;margin:0;white-space:pre-wrap}
+.kestrel .terminal-prompt{display:flex;align-items:center;gap:7px;border-top:1px solid #ffffff12;margin-top:12px;padding-top:9px;color:#99c6a6}
+.kestrel .terminal-prompt input{background:transparent;border:0;min-width:0;width:100%;font:inherit;color:#e4ece5}
+.kestrel .terminal-note{font-size:8px;color:#9cac9e;margin-top:9px}
+.kestrel .context-content{padding:18px;font-size:11px;line-height:1.8}
+.kestrel .context-content dt{font-size:9px;color:var(--s-muted);margin-top:15px}
+.kestrel .context-content dd{margin:4px 0;overflow-wrap:anywhere}
+.kestrel .session-switcher{border-top:1px solid var(--s-line);margin-top:18px;padding-top:8px}
+.kestrel .session-switcher .side-heading{padding-top:8px}
+.kestrel .switch-row{width:100%;background:transparent;text-align:left;padding:8px;border-radius:5px;display:flex;gap:7px;align-items:flex-start;margin-bottom:3px}
+.kestrel .switch-row .status-dot{margin-top:6px}
+.kestrel .switch-row strong{font-size:10px;font-weight:500;display:block}
+.kestrel .switch-row small{font-size:9px;color:var(--s-muted);display:block;margin-top:2px}
+.kestrel .switch-row.selected{background:var(--s-soft)}
+.kestrel .switch-row:hover{background:var(--s-soft)}
+.kestrel.session-open .studio-shell{min-height:900px}
+.kestrel.session-open .folder-preview{display:none}
+.kestrel.session-open .studio-sidebar .side-heading{padding-top:14px}
+.kestrel .work-footer{border-top:1px solid var(--s-line);padding:10px 18px;font-size:9px;color:var(--s-muted);display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.kestrel .work-footer span{display:flex;align-items:center;gap:5px}
+.kestrel .work-footer svg{width:11px;height:11px}
+.kestrel .work-folder{background:transparent;color:var(--s-muted);border:0;font:inherit;max-width:180px}
+.kestrel .work-folder option{background:var(--s-paper);color:var(--s-ink)}
+.kestrel .terminal-collapsed .terminal-body{display:none}
+.kestrel .terminal-collapsed{min-height:0}
+.kestrel .focus-conversation .inspection{display:none}
+.kestrel .focus-conversation .conversation{border-right:0}
+.kestrel .focus-conversation .conversation-body{max-width:650px;width:100%;align-self:center}
+.kestrel .draft-message{border-top:1px solid var(--s-line);padding-top:15px}
+.kestrel .shortcut-label{font-size:9px;color:var(--s-muted)}
+@media(max-width:850px){.kestrel .work-header{padding:20px 17px}
+.kestrel .conversation{border-right:0;border-bottom:1px solid var(--s-line)}
+.kestrel .work-title h1{font-size:21px}
+.kestrel .conversation-body{padding:20px}
+.kestrel .inspection{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.kestrel .inspector-tabs{grid-column:1/-1}
+.kestrel .terminal-pane{margin-top:0;height:100%;border-left:1px solid var(--s-line)}
+.kestrel .session-switcher{margin-bottom:18px}}
+@media(max-width:560px){.kestrel .inspection{display:block}
+.kestrel .session-switcher{display:flex;gap:5px;flex-wrap:wrap;margin:8px 0 0;padding-top:8px}
+.kestrel .session-switcher .side-heading{display:none}
+.kestrel .switch-row{width:auto;flex:1 1 130px;padding:7px}
+.kestrel .work-title{align-items:flex-start}
+.kestrel .work-title h1{font-size:20px}
+.kestrel .work-title .secondary-button{font-size:9px;padding:7px}
+.kestrel .terminal-pane{border-left:0}}
+@media(pointer:coarse){.kestrel .switch-row,.kestrel .file-button,.kestrel .inspector-tabs button{min-height:44px}}

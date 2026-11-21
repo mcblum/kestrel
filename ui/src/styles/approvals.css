@@ -1,0 +1,17 @@
+/* ---- approvals you have answered: one quiet line, like the steps line (ApprovalRun.tsx) --------
+   Grey like the rest; a denial keeps the meaning colour, and so does one nobody answered, in the
+   closed line and in the list. Outcomes are plain words, never anything that looks like a button. */
+.kestrel .approval-list { display: grid; gap: 2px; margin: 6px 0 4px 5px; padding: 0 0 0 12px; list-style: none; border-left: 1px solid var(--s-line); }
+.kestrel .approval-list li { margin: 0; min-width: 0; }
+.kestrel .approval-row { display: flex; align-items: baseline; gap: 10px; min-width: 0; padding: 2px 0; font-size: 10.5px; line-height: 1.5; color: var(--s-muted); list-style: none; }
+.kestrel .approval-row::-webkit-details-marker { display: none; }
+.kestrel details.tool-activity summary.approval-row { display: flex; max-width: none; padding: 2px 0; gap: 10px; cursor: pointer; }
+.kestrel summary.approval-row:hover .approval-asked { color: var(--s-ink); }
+.kestrel .approval-list .approval-asked { flex: 0 1 auto; min-width: 0; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); color: var(--s-label, var(--s-ink)); }
+.kestrel .approval-list .approval-outcome { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; color: var(--s-muted); }
+.kestrel .approval-detail { margin: 4px 0 8px; padding: 8px 10px; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word; background: var(--s-bg); border: 1px solid var(--s-line); border-radius: 6px; font-size: 10.5px; line-height: 1.55; color: var(--s-ink); }
+/* A fold's parts sit close: the strip, then its two quiet lines. */
+.kestrel .chat-fold > details.tool-activity { margin-bottom: 4px; }
+.kestrel .chat-fold > :last-child { margin-bottom: 0; }
+.kestrel .approval-run .outcome-denied, .kestrel .approval-list .approval-outcome.outcome-denied { color: light-dark(#b3403a, #e07b74); }
+.kestrel .approval-run .outcome-other, .kestrel .approval-list .approval-outcome.outcome-other { color: var(--s-amber); }

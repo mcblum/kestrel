@@ -1,0 +1,3 @@
+/* Focus rings only while the user moves focus with the keyboard (focusRing.ts). Backgrounds that
+   mark a focused menu row stay; only the outline goes. */
+html:not([data-focus-ring]) :focus-visible { outline: none !important; }

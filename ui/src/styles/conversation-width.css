@@ -1,0 +1,19 @@
+/* ---- the conversation's text column and the message box: one axis, one width ------------------
+   The message box is as wide as the reading measure allows, with a gutter on each side when the
+   pane is narrower (side panes open, a small window). The conversation's text column is the same
+   width less --column-inset on each side (15px: 30px narrower in total), centred on the same axis.
+   Both are computed here from the conversation pane's own width (it is a size container), so they
+   cannot drift apart. Everything in the column (bubbles, cards, pictures, the next step) sits
+   inside .conversation-inner; queued messages above the box line up with the column too. */
+.kestrel .conversation {
+  container-type: inline-size;
+  --composer-gutter: 16px;
+  --column-inset: 15px;
+  --composer-width: min(var(--measure), 100cqw - 2 * var(--composer-gutter));
+  --column-width: calc(var(--composer-width) - 2 * var(--column-inset));
+}
+/* The scroll bar (where it takes room) is reserved on both sides, so the column stays centred on the box's axis. */
+.kestrel .conversation .conversation-body { padding-inline: 0; scrollbar-gutter: stable both-edges; }
+.kestrel .conversation .conversation-inner { width: var(--column-width); max-width: none; margin-inline: auto; }
+.kestrel .conversation .composer-dock .composer-wrap { width: var(--composer-width); max-width: none; margin-inline: auto; padding-inline: 0; }
+.kestrel .conversation .composer-dock .queued { margin-inline: var(--column-inset); }

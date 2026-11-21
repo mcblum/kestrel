@@ -1,0 +1,1 @@
+{"type": "system", "subtype": "init", "session_id": "s1", "model": "m", "cwd": "/w", "tools": ["mcp__kestrel__list_projects", "mcp__claude_ai_Gmail__send"], "mcp_servers": [{"name": "kestrel", "status": "connected"}, {"name": "claude_ai_Gmail", "status": "connected"}]}

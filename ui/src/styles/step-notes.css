@@ -1,0 +1,13 @@
+/* Kestrel's own notes on a conversation's steps (0.0.17): why it refused one, or that one went
+   through although it would have refused it. Loaded after app.css. */
+
+/* A step line with Kestrel's reason under it (a refused edit, or one made that Kestrel would have refused). */
+.kestrel .step-list .step-line { display: grid; gap: 2px; }
+.kestrel .step-list .step-reason { display: block; padding-left: 17px; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 11px; line-height: 1.45; color: var(--s-ink); white-space: pre-wrap; }
+/* The folded row's one line of that reason, under the summary; hidden while the row is open, where each step shows it whole. */
+.kestrel details.tool-activity summary.with-note { flex-wrap: wrap; row-gap: 1px; }
+.kestrel details.tool-activity .step-note { flex-basis: 100%; min-width: 0; padding-left: 19px; font-size: 11px; line-height: 1.45; color: var(--s-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel details.tool-activity[open] > summary .step-note { display: none; }
+
+/* Made, though Kestrel would have refused it: the error-class colour, never the done tick. */
+.kestrel .tool-activity .activity-warning { color: var(--s-amber); }

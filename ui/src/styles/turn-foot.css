@@ -1,0 +1,13 @@
+/* The line under a finished turn (components/TurnFoot.tsx): grey and small, always shown, never
+   competing with the response. The text in it can be selected. */
+/* One fixed box for both states (working, finished), so the change from one to the other and the
+   words changing while it works never move the text around it. */
+.kestrel .turn-foot { display: flex; align-items: center; gap: 6px; height: 20px; margin: -6px 0 14px; font-size: 11px; line-height: 1.4; color: var(--s-muted); user-select: text; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kestrel .turn-foot .working-pulse { flex: none; }
+.kestrel .turn-time { font-variant-numeric: tabular-nums; }
+/* Under the user's own message (components/SentFoot.tsx): the same line, on the right. The bubble's
+   column already has a 6px gap, so the pull-up is undone here; the message's own margin follows. */
+.kestrel .turn-foot.sent-foot { justify-content: flex-end; margin: 0; overflow: visible; }
+/* A message sent into a running turn says how far it got ("Sent while it worked", "Read by the
+   agent"): grey words like the time beside it, never a chip or a colour (shared/mid-turn.ts). */
+.kestrel .sent-foot .mid-turn + .turn-time::before { content: '·'; margin-right: 6px; }

@@ -1,0 +1,69 @@
+/* Files attached to a message (components/attachments/). Grey like the rest of the chrome; amber
+   only for an upload that failed. Tile heights match TILE_HEIGHT / SMALL_TILE_HEIGHT in AttachmentTile.tsx. */
+.kestrel { --att-tile: 104px; --att-tile-small: 64px; --att-gap: 8px; }
+
+/* The message box takes the tiles above the text and grows upwards (it is docked to the bottom). */
+.kestrel .composer-box.has-attachments { flex-wrap: wrap; }
+.kestrel .composer-box.has-attachments > .att-tiles { flex: 0 0 100%; order: -1; }
+.kestrel .att-button { margin-left: 2px; }
+
+.kestrel .att-tiles { display: flex; flex-wrap: wrap; gap: var(--att-gap); padding: 2px 0 6px; max-height: calc(var(--att-tile) * 2 + var(--att-gap) + 10px); overflow-y: auto; }
+.kestrel .att-tiles-small { max-height: none; padding: 4px 0 0; }
+
+.kestrel .att-tile { position: relative; flex: none; height: var(--att-tile); border: 1px solid var(--s-line); border-radius: 10px; background: var(--s-paper); box-sizing: border-box; }
+.kestrel .att-tile.att-image { width: var(--att-tile); overflow: hidden; }
+.kestrel .att-tile.att-doc { width: 148px; }
+.kestrel .att-tile.att-small { height: var(--att-tile-small); }
+.kestrel .att-tile.att-small.att-image { width: var(--att-tile-small); }
+.kestrel .att-tile.att-small.att-doc { width: 120px; }
+.kestrel .att-tile[draggable='true'] { cursor: grab; }
+
+.kestrel .att-face { display: block; width: 100%; height: 100%; padding: 0; margin: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; border-radius: inherit; }
+.kestrel button.att-face { cursor: pointer; }
+.kestrel .att-face img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 9px; }
+.kestrel .att-file { display: flex; flex-direction: column; gap: 4px; padding: 10px; box-sizing: border-box; overflow: hidden; }
+.kestrel .att-file svg { width: 18px; height: 18px; flex: none; color: var(--s-label); }
+.kestrel .att-name { font-size: 11.5px; line-height: 1.35; color: var(--s-ink); word-break: break-all; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.kestrel .att-size { margin-top: auto; font-size: 10.5px; color: var(--s-muted); }
+.kestrel .att-small .att-file { padding: 6px 8px; gap: 2px; }
+.kestrel .att-small .att-name { -webkit-line-clamp: 1; }
+.kestrel .att-small .att-file svg { width: 14px; height: 14px; }
+
+/* Remove: top right, shown on hover or focus. */
+.kestrel .att-remove { position: absolute; top: 4px; right: 4px; display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; background: color-mix(in srgb, var(--s-ink) 72%, transparent); color: var(--s-paper); cursor: pointer; opacity: 0; transition: opacity .12s; }
+.kestrel .att-remove svg { width: 12px; height: 12px; }
+.kestrel .att-tile:hover .att-remove, .kestrel .att-tile:focus-within .att-remove, .kestrel .att-error .att-remove { opacity: 1; }
+
+/* Uploading: dimmed, with a thin moving bar along the bottom. */
+.kestrel .att-uploading .att-face { opacity: .55; }
+.kestrel .att-progress { position: absolute; left: 8px; right: 8px; bottom: 8px; height: 3px; border-radius: 2px; background: var(--s-line); overflow: hidden; }
+.kestrel .att-progress::after { content: ''; position: absolute; inset: 0; width: 40%; border-radius: 2px; background: var(--s-label); animation: att-slide 1.1s ease-in-out infinite; }
+@keyframes att-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+
+/* Failed: amber edge, the reason, and Retry. */
+.kestrel .att-tile.att-error { width: 180px; border-color: color-mix(in srgb, var(--s-amber) 55%, var(--s-line)); background: var(--s-warm); }
+.kestrel .att-problem { display: flex; flex-direction: column; gap: 3px; height: 100%; padding: 8px 26px 8px 10px; box-sizing: border-box; font-size: 11px; line-height: 1.35; color: var(--s-ink); }
+.kestrel .att-problem-text { color: var(--s-label); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.kestrel .att-retry { align-self: flex-start; margin-top: auto; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid var(--s-line); border-radius: 6px; background: var(--s-paper); color: var(--s-ink); font: inherit; cursor: pointer; }
+.kestrel .att-retry svg { width: 11px; height: 11px; }
+
+/* Drag to reorder: a drop line on the side the tile will land. */
+.kestrel .att-tile.drop-before::before, .kestrel .att-tile.drop-after::after { content: ''; position: absolute; top: 4px; bottom: 4px; width: 2px; border-radius: 1px; background: var(--s-ink); z-index: 2; }
+.kestrel .att-tile.drop-before::before { left: calc(var(--att-gap) / -2 - 1px); }
+.kestrel .att-tile.drop-after::after { right: calc(var(--att-gap) / -2 - 1px); }
+
+/* In the conversation: your message's files sit above its text, on the right. */
+.kestrel .chat-message.mine { flex-direction: column; align-items: flex-end; gap: 6px; }
+.kestrel .att-sent { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; max-width: min(78%, 520px); }
+.kestrel .att-sent .att-tiles { justify-content: flex-end; padding: 0; max-height: none; }
+
+/* A queued message: its text, then its files, small. */
+.kestrel .queued-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.kestrel .queued-body .queued-text { flex: none; }
+
+/* The drop zone over the page's main area while files are dragged over it. */
+.kestrel .att-dropzone { position: fixed; z-index: 60; box-sizing: border-box; padding: 12px; pointer-events: none; background: color-mix(in srgb, var(--s-paper) 90%, transparent); }
+.kestrel .att-dropzone-inner { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; height: 100%; border: 2px dashed var(--s-label); border-radius: 14px; color: var(--s-ink); }
+.kestrel .att-dropzone-inner svg { width: 26px; height: 26px; color: var(--s-label); }
+.kestrel .att-dropzone-inner strong { font-size: 15px; font-weight: 600; }
+.kestrel .att-dropzone-inner span { font-size: 12px; color: var(--s-muted); }

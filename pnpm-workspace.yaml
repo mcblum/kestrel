@@ -1,0 +1,13 @@
+packages:
+  - server
+  - ui
+  - app
+  - spike
+allowBuilds:
+  esbuild: true
+  better-sqlite3: true
+  node-pty: true
+  electron: true
+  electron-winstaller: false
+minimumReleaseAgeExclude:
+  - electron@45.3.2

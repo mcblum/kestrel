@@ -1,0 +1,62 @@
+/* A project's folders (Create project and a project page), and the folder choice beside the project
+   picker. The form itself is styles/form-page.css. Grey chrome, few borders; colour only for meaning
+   (an error, the drop line). */
+.kestrel .form-field { display: grid; gap: 6px; }
+.kestrel .form-field > label, .kestrel .form-label { font-size: 11px; color: var(--s-muted); }
+.kestrel .form-field > input[aria-invalid='true'] { border-color: light-dark(#b3403a, #e07b74); }
+.kestrel .form-note { margin: 0; font-size: 11px; color: var(--s-muted); }
+.kestrel .field-error { margin: 2px 0 0; font-size: 11px; line-height: 1.45; color: light-dark(#b3403a, #e07b74); }
+
+/* Folder rows: identity above the path and its reveal action; management at the right. */
+.kestrel .dir-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.kestrel .dir-row { position: relative; }
+.kestrel .dir-row .field-error { padding: 0 10px 4px; }
+.kestrel .dir-line { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 4px 6px 4px 10px; border-radius: 8px; }
+.kestrel .dir-line[draggable='true'] { cursor: grab; }
+.kestrel .dir-line:hover, .kestrel .dir-line:focus-within { background: var(--s-soft); }
+.kestrel .dir-text { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.kestrel .dir-name { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; font-weight: 500; color: var(--s-ink); white-space: nowrap; }
+.kestrel .dir-text .path-detail { display: flex; min-width: 0; font-size: 11px; color: var(--s-muted); }
+.kestrel .dir-default { font-size: 10px; font-weight: 500; color: var(--s-muted); background: var(--s-line); border-radius: 4px; padding: 1px 6px; }
+.kestrel .dir-kind { flex: none; width: 32px; font-size: 10px; color: var(--s-muted); opacity: .8; }
+.kestrel .dir-actions { flex: none; display: inline-flex; align-items: center; gap: 2px; }
+.kestrel .dir-actions .quiet-button.dir-hover-action { height: 28px; padding: 0 8px; font-size: 11px; }
+.kestrel .dir-hover-action { opacity: 0; }
+.kestrel .dir-line:hover .dir-hover-action, .kestrel .dir-line:focus-within .dir-hover-action { opacity: 1; }
+.kestrel .dir-line .dir-hover-action.slot-only { visibility: hidden; }
+.kestrel .dir-name .dir-kind { width: auto; font-weight: 400; }
+.kestrel .dir-path-line { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.kestrel .dir-path-action { flex: none; padding: 2px 0; border: 0; background: none; color: var(--s-muted); font: inherit; font-size: 11px; cursor: pointer; }
+.kestrel .dir-path-action:hover { color: var(--s-ink); text-decoration: underline; text-underline-offset: 2px; }
+.kestrel .dir-path-action:focus-visible { outline: 2px solid var(--s-accent); outline-offset: 2px; border-radius: 2px; }
+@media (hover: none) {
+  .kestrel .dir-hover-action { opacity: 1; }
+}
+.kestrel .dir-remove { display: inline-flex; padding: 6px; border: 0; background: none; color: var(--s-muted); border-radius: 6px; cursor: pointer; }
+.kestrel .dir-remove:hover:not(:disabled) { color: var(--s-ink); background: var(--s-line); }
+.kestrel .dir-remove svg { width: 12px; height: 12px; }
+.kestrel .dir-row.drop-before::before, .kestrel .dir-row.drop-after::after { content: ''; position: absolute; left: 4px; right: 4px; height: 2px; border-radius: 1px; background: var(--s-accent); }
+.kestrel .dir-row.drop-before::before { top: -1px; }
+.kestrel .dir-row.drop-after::after { bottom: -1px; }
+
+/* Adding: Choose folder… and Enter path manually; the path field with its own Add. */
+.kestrel .dir-add { display: grid; gap: 6px; width: 100%; }
+.kestrel .dir-add-row { display: flex; gap: 8px; align-items: center; }
+.kestrel .dir-add-row .secondary-button { white-space: nowrap; }
+.kestrel .dir-path { flex: 1; min-width: 0; }
+.kestrel .project-dirs .secondary-button, .kestrel .project-dirs .quiet-button:not(.dir-hover-action) { box-sizing: border-box; height: var(--form-control); padding: 0 14px; border-radius: 8px; font-size: 12px; }
+
+.kestrel .project-dirs { display: grid; gap: 8px; width: 100%; max-width: var(--form-width); justify-self: start; text-align: left; margin-bottom: var(--space-block); }
+.kestrel .project-dirs-head { display: flex; align-items: baseline; gap: 10px; }
+.kestrel .project-dirs-head h2 { margin: 0; font-size: 13px; font-weight: 600; }
+.kestrel .project-dirs-head .link-button { margin-left: auto; }
+.kestrel .dir-rename { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; }
+.kestrel .dir-rename .form-control { height: 32px; font-size: 13px; }
+
+.kestrel .folder-switch { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--s-line); }
+.kestrel .project-dirs > *, .kestrel .dir-list, .kestrel .dir-row, .kestrel .dir-line { min-width: 0; }
+
+/* A path in a picker row: the start gives way first; its last part and the note always show. */
+.kestrel .picker-text small.path-detail { display: flex; min-width: 0; overflow: visible; }
+.kestrel .path-detail .path-head { min-width: 1.5em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .path-detail .path-tail, .kestrel .path-detail .path-note { flex: none; white-space: nowrap; }

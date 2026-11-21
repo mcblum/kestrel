@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Kestrel app icon master. 1024 grid, macOS tile: 824x824 at (100,100), corner radius 185.
+       The bird is the mark the UI draws beside the "kestrel" wordmark (Lucide "bird", ISC),
+       redrawn at 24x on this grid: about 60% of the tile, centred a little above the middle. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="100" x2="0" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2c2c2d"/>
+      <stop offset="1" stop-color="#161617"/>
+    </linearGradient>
+  </defs>
+  <rect id="tile-shape" x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#tile)"/>
+  <rect x="101" y="101" width="822" height="822" rx="184" ry="184" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="2"/>
+  <g id="bird" fill="none" stroke="#e6e6e6" stroke-width="48" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M608 380h0.24"/>
+    <path d="M305.6 644H512a192 192 0 0 0 192-192V380a96 96 0 0 0-174.72-55.2L272 692"/>
+    <path d="M704 380l48 12l-48 12"/>
+    <path d="M464 644v72"/>
+    <path d="M560 638V716"/>
+    <path d="M392 644a144 144 0 0 0 92.16-254.64"/>
+  </g>
+</svg>

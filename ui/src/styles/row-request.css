@@ -1,0 +1,18 @@
+/* The icons in a session row's dot slot (RowIcons.tsx) and a rail button's corner (RowRequest.tsx).
+   Each keeps the dot's own box (6px, `.status-dot`), so a row never shifts when one replaces the
+   dot; the icon is centred on that box and drawn larger than it. In a row they stand together in
+   `.row-icons`, placed by `.row-dot` like the dot: the changed-files icon first, then the request.
+   Grey chrome: the only colour is the tone, amber like the Changes button while files are
+   uncommitted (`.changes-tone-*`, here) or the request's (`.pr-tone-*`, pull-request.css). */
+.kestrel { --row-request-size: 12px; --row-icon-gap: 10px; }
+.kestrel .status-dot.row-icon { position: relative; flex: none; background: transparent; box-shadow: none; overflow: visible; }
+.kestrel .status-dot.row-icon.rail-dot { position: absolute; }
+.kestrel .status-dot.row-icon > svg { position: absolute; left: 50%; top: 50%; width: var(--row-request-size); height: var(--row-request-size); transform: translate(-50%, -50%); stroke-width: 2; }
+/* Two 6px boxes 10px apart: the 12px icons drawn on them sit 4px apart. */
+.kestrel .row-icons { display: inline-flex; flex: none; align-items: center; gap: var(--row-icon-gap); }
+.kestrel .row-icons.row-dot { margin-left: auto; margin-right: 5px; }
+.kestrel .changes-tone-amber { color: var(--s-amber); }
+.kestrel .changes-tone-muted { color: var(--s-muted); }
+/* A folded workstream's dots: one per kind of state among its sessions, side by side, placed as one dot is. */
+.kestrel .row-dots { display: inline-flex; flex: none; align-items: center; gap: 4px; }
+.kestrel .row-dots.row-dot { margin-left: auto; margin-right: 5px; }

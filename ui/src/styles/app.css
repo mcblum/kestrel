@@ -1,0 +1,1033 @@
+/* App-level additions on top of the prototype's styles: a full-window shell with panes that
+   scroll on their own, the tree sidebar, the handoff trail, drag and drop, and diff colours. */
+html, body, #root { height: 100%; margin: 0; }
+body { background: light-dark(#fafbf9, #171a19); }
+/* The colour scheme is the root's (styles/appearance.css), so a theme chosen in Settings applies here; this undoes the prototype's own. */
+.kestrel { height: 100%; color-scheme: inherit; }
+.kestrel svg.lucide { stroke-width: 1.75; }
+
+/* ---- shell: fills the window; sidebar and main scroll independently ---- */
+.kestrel .studio-shell { grid-template-columns: 252px minmax(0, 1fr); height: 100%; min-height: 0; border: 0; border-radius: 0; }
+.kestrel.session-open .studio-shell { min-height: 0; }
+.kestrel .studio-sidebar { min-height: 0; padding: 20px 10px 14px; }
+.kestrel .studio-brand { padding: 0 8px 18px; }
+.kestrel .studio-new { margin-bottom: 14px; }
+.kestrel .side-scroll { flex: 1; min-height: 0; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+/* The tab strip stays put; what is below it scrolls (a page with panes scrolls its own main column). */
+.kestrel .studio-main { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.kestrel .studio-content { max-width: 1080px; width: 100%; }
+.kestrel .switch-link { margin-top: 8px; color: var(--s-muted); }
+/* Sidebar foot: one status line ruled above and below, then Settings. */
+.kestrel .status-area { position: relative; margin-top: auto; border-top: 1px solid var(--s-line); border-bottom: 1px solid var(--s-line); }
+.kestrel .status-line { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px; background: transparent; border: 0; font: inherit; font-size: 11px; color: var(--s-ink); text-align: left; }
+.kestrel .status-line:hover { background: var(--s-soft); }
+.kestrel .status-pop { position: fixed; z-index: 40; width: 220px; padding: 6px; background: var(--s-paper); border: 1px solid var(--s-line); border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, .28); }
+.kestrel .connection-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.kestrel .connection-list li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; font-size: 11px; color: var(--s-ink); }
+.kestrel .connection-list small { margin-left: auto; font-size: 10px; color: var(--s-muted); }
+.kestrel .settings-link { margin: 6px 0 0; color: var(--s-muted); }
+.kestrel .settings-link svg { width: 13px; height: 13px; }
+.kestrel .settings-section { display: grid; gap: var(--space-label); margin-top: var(--space-section); max-width: 520px; }
+/* Section titles should read distinctly from the 12px control labels below them. */
+.kestrel .settings-section h2 { margin: 0; font-size: 14px; line-height: 1.4; font-weight: 700; color: var(--s-ink); }
+.kestrel .settings-choices { display: grid; gap: 6px; }
+.kestrel .settings-choice { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--s-ink); cursor: pointer; }
+.kestrel .settings-help { margin: 0; font-size: 11px; line-height: 1.5; color: var(--s-muted); }
+/* Long explanations stay available without competing with the controls. */
+.kestrel .setting-heading { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.kestrel .settings-section > .setting-heading, .kestrel .settings-block > .setting-heading { margin-bottom: 4px; }
+.kestrel .setting-heading > :is(h1, h2, h3) { min-width: 0; }
+.kestrel .setting-help-toggle { display: inline-grid; place-items: center; width: 20px; height: 20px; flex-shrink: 0; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--s-muted); cursor: pointer; }
+.kestrel .setting-help-toggle:hover, .kestrel .setting-help-toggle.open { color: var(--s-ink); background: var(--s-soft); }
+.kestrel .setting-help-toggle svg { width: 13px; height: 13px; }
+.kestrel .setting-help-content { display: grid; gap: 8px; padding: 2px 12px; border-left: 2px solid var(--s-line); font-size: 11px; line-height: 1.5; color: var(--s-muted); overflow-wrap: anywhere; }
+.kestrel .setting-help-content[hidden] { display: none; }
+.kestrel .setting-help-content > p { margin: 0; font-size: inherit; line-height: inherit; color: inherit; }
+.kestrel .settings-choice.disabled { color: var(--s-muted); cursor: default; }
+.kestrel .settings-choice-why { font-size: 11px; color: var(--s-muted); }
+.kestrel .branch-prefix-custom { display: grid; gap: 2px; padding-left: 21px; }
+.kestrel .branch-prefix-custom .form-control { height: 30px; max-width: 260px; font-size: 12px; }
+.kestrel .settings .connection-list, .kestrel .settings-defaults { border: 1px solid var(--s-line); border-radius: 8px; padding: 6px; background: var(--s-paper); }
+.kestrel .status-dot.idle { background: var(--s-line); }
+.kestrel .status-dot.inline { margin-left: 6px; vertical-align: middle; }
+.kestrel .side-link > svg { width: 14px; height: 14px; color: var(--s-muted); }
+.kestrel .side-link.active > svg { color: var(--s-accent); }
+.kestrel .side-heading { padding: 18px 9px 7px; }
+.kestrel button { cursor: pointer; }
+.kestrel button:disabled { cursor: default; }
+.kestrel .pad { padding: 30px; }
+
+/* ---- folders as trees ---- */
+.kestrel .folder-block { border-radius: 7px; margin-bottom: 2px; border: 1px solid transparent; }
+.kestrel .folder-block.drop-over { background: var(--s-soft); border-color: var(--s-accent); }
+.kestrel .folder-row { padding: 3px 6px 3px 2px; gap: 2px; margin-bottom: 0; }
+.kestrel .folder-row .icon-button svg { width: 12px; height: 12px; }
+.kestrel .folder-name { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0; background: transparent; padding: 5px 2px; text-align: left; font-size: 12px; }
+.kestrel .folder-name > span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .folder-name svg { width: 14px; height: 14px; color: var(--s-muted); }
+.kestrel .folder-row.active .folder-name svg { color: var(--s-accent); }
+.kestrel .folder-actions { display: none; gap: 1px; }
+.kestrel .folder-row:hover .folder-actions, .kestrel .folder-row:focus-within .folder-actions { display: inline-flex; }
+.kestrel .auto-tag { font-size: 8px; letter-spacing: .6px; text-transform: uppercase; color: var(--s-accent); background: var(--s-soft); border-radius: 3px; padding: 1px 4px; flex-shrink: 0; font-weight: 600; }
+.kestrel .inline-input { flex: 1; min-width: 0; background: var(--s-paper); border: 1px solid var(--s-accent); border-radius: 4px; padding: 4px 6px; font-size: 12px; }
+.kestrel .tree, .kestrel .tree-children { list-style: none; margin: 0; padding: 0; }
+.kestrel .tree { margin: 1px 0 6px 13px; border-left: 1px solid var(--s-line); padding-left: 4px; }
+.kestrel .tree-row { display: flex; gap: 7px; align-items: flex-start; width: 100%; background: transparent; text-align: left; padding: 5px 6px; border-radius: 5px; }
+.kestrel .tree-row:hover { background: var(--s-soft); }
+.kestrel .tree-row.selected { background: var(--s-soft); }
+/* Where a session is filed, when it is not simply where its work landed: grey, information only (yellow means waiting on you). */
+.kestrel .tree-mark { font-style: normal; font-size: 8px; letter-spacing: .4px; text-transform: uppercase; color: var(--s-muted); background: var(--s-soft); border-radius: 3px; padding: 0 4px; margin-left: 5px; cursor: help; }
+.kestrel [draggable="true"] { -webkit-user-drag: element; }
+
+/* ---- overview ---- */
+.kestrel .session-row { grid-template-columns: 29px minmax(0, 1fr) 105px 34px; cursor: pointer; }
+.kestrel .session-state.interrupted { color: var(--s-muted); }
+.kestrel .filter-tabs button, .kestrel .pulse-item, .kestrel .attention-card { cursor: pointer; }
+
+/* ---- session workspace: fixed header, panes scroll ---- */
+.kestrel .session-workspace { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.kestrel .conversation, .kestrel .inspection { min-height: 0; }
+.kestrel .conversation-body { overflow-y: auto; min-height: 0; }
+.kestrel .inspector-content { flex: 1; min-height: 0; overflow-y: auto; }
+.kestrel .terminal-pane { margin-top: 0; flex-shrink: 0; max-height: 40%; overflow-y: auto; }
+.kestrel .work-meta .tools-missing { color: var(--s-amber); }
+.kestrel .trail-count { font-size: 8px; background: var(--s-soft); color: var(--s-accent); border-radius: 8px; padding: 1px 5px; }
+.kestrel .focus-conversation .composer-wrap { max-width: 650px; width: 100%; align-self: center; }
+
+/* ---- handoff trail (Context tab) ---- */
+.kestrel .context-content h3 { margin-bottom: 10px; }
+.kestrel .context-heading { margin-top: 24px; }
+.kestrel .trail { list-style: none; margin: 0; padding: 0; }
+.kestrel .trail li { position: relative; padding-left: 16px; border-left: 1px solid var(--s-line); margin-left: 4px; padding-bottom: 6px; }
+.kestrel .trail li:last-child { padding-bottom: 0; }
+.kestrel .trail-via { display: block; font-size: 9px; color: var(--s-muted); letter-spacing: .3px; padding: 2px 0 4px 8px; }
+.kestrel .trail-entry { display: flex; gap: 8px; align-items: flex-start; width: 100%; text-align: left; background: transparent; border: 1px solid transparent; border-radius: 7px; padding: 7px 8px; }
+.kestrel .trail-entry:not(:disabled):hover { background: var(--s-soft); }
+.kestrel .trail li.current .trail-entry { background: var(--s-warm); border-color: color-mix(in srgb, var(--s-amber) 25%, var(--s-line)); }
+.kestrel .trail-entry .status-dot { margin-top: 6px; }
+.kestrel .trail-entry strong { display: block; font-size: 11px; font-weight: 500; }
+.kestrel .trail-entry small { display: block; font-size: 9px; color: var(--s-muted); margin-top: 1px; }
+.kestrel .trail-none { font-size: 10px; }
+
+/* ---- diff: react-diff-view, in the prototype's colours ---- */
+.kestrel .diff-wrap { padding: 6px 0 14px; background: var(--s-paper); overflow-x: auto; }
+.kestrel .diff {
+  --diff-background-color: var(--s-paper);
+  --diff-text-color: var(--s-ink);
+  --diff-font-family: var(--mono);
+  --diff-selection-background-color: var(--s-soft);
+  --diff-selection-text-color: var(--s-ink);
+  --diff-gutter-insert-background-color: light-dark(#e2efe0, #2a4530);
+  --diff-gutter-insert-text-color: var(--s-muted);
+  --diff-gutter-delete-background-color: light-dark(#f8e6e1, #46302c);
+  --diff-gutter-delete-text-color: var(--s-muted);
+  --diff-gutter-selected-background-color: var(--s-soft);
+  --diff-gutter-selected-text-color: var(--s-ink);
+  --diff-code-insert-background-color: light-dark(#edf5eb, #243a29);
+  --diff-code-insert-text-color: light-dark(#34593a, #bbdabb);
+  --diff-code-delete-background-color: light-dark(#fcf0ed, #3b2926);
+  --diff-code-delete-text-color: light-dark(#925b4d, #e5b2a6);
+  --diff-code-selected-background-color: var(--s-soft);
+  --diff-code-selected-text-color: var(--s-ink);
+  --diff-omit-gutter-line-color: var(--s-line);
+  font-size: 10px; line-height: 1.9; width: 100%;
+}
+.kestrel .diff-gutter { color: var(--s-muted); font-size: 9px; padding: 0 7px; width: 34px; }
+.kestrel td.diff-code { padding: 0 11px; min-height: 0; font-size: 10px; line-height: 1.9; background: var(--diff-background-color); }
+.kestrel td.diff-code-insert { background: var(--diff-code-insert-background-color); color: var(--diff-code-insert-text-color); }
+.kestrel td.diff-code-delete { background: var(--diff-code-delete-background-color); color: var(--diff-code-delete-text-color); }
+.kestrel .diff-decoration-content { font-size: 9px; color: var(--s-muted); padding: 2px 14px; }
+
+/* ---- panels, toast, boot ---- */
+.kestrel #studio-overlay { position: fixed; inset: 0; background: #14221c65; z-index: 5; display: flex; justify-content: flex-end; border-radius: 0; }
+.kestrel .detail-panel { overflow-y: auto; }
+.kestrel .switch-results { margin-top: 14px; }
+.kestrel .primary-button { display: inline-flex; align-items: center; gap: 6px; }
+.kestrel .primary-button svg { width: 12px; height: 12px; }
+.kestrel .toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 6; box-sizing: border-box; max-width: calc(100vw - 16px); display: flex; align-items: center; gap: 10px; background: var(--s-warm); color: var(--s-ink); border: 1px solid color-mix(in srgb, var(--s-amber) 40%, var(--s-line)); border-radius: 8px; padding: 9px 12px; font-size: 11px; box-shadow: 0 8px 30px #0000001f; }
+.kestrel .settings-version { color: var(--s-muted); font-size: 11px; }
+.kestrel .boot-message { padding: 60px 40px; max-width: 560px; }
+.kestrel .boot-message h1 { font-size: 26px; margin-bottom: 12px; }
+.kestrel .boot-message code { font-family: "SFMono-Regular", Consolas, monospace; background: var(--s-soft); padding: 1px 5px; border-radius: 4px; }
+
+@media (max-width: 850px) {
+  .kestrel .terminal-pane { max-height: none; }
+}
+
+/* Cards in a row share a height; the footer sits on the bottom edge. */
+.kestrel .attention-card { display: flex; flex-direction: column; height: 100%; }
+.kestrel .attention-card .card-footer { margin-top: auto; padding-top: 18px; }
+
+/* ---- live sessions ------------------------------------------------------------------ */
+.kestrel .chat-message.mine .chat-text { white-space: pre-wrap; }
+/* Agent markdown typography lives in markdown.css. */
+/* Tool steps fold to one quiet line. */
+.kestrel details.tool-activity { display: block; margin: 0 0 10px; padding: 0; border: 0; font-size: 11px; color: var(--s-muted); }
+.kestrel details.tool-activity summary { display: inline-flex; align-items: center; gap: 7px; padding: 2px 6px 2px 0; cursor: pointer; list-style: none; border-radius: 5px; max-width: 100%; }
+.kestrel details.tool-activity summary::-webkit-details-marker { display: none; }
+.kestrel details.tool-activity summary:hover { color: var(--s-ink); }
+.kestrel details.tool-activity summary svg { width: 12px; height: 12px; flex: none; }
+.kestrel .step-summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .step-list { display: grid; gap: 6px; margin: 6px 0 4px 5px; padding-left: 12px; border-left: 1px solid var(--s-line); }
+.kestrel .step-list span { display: flex; align-items: flex-start; gap: 6px; font-family: var(--mono); font-size: 10.5px; line-height: 1.5; word-break: break-word; }
+.kestrel .step-list svg { width: 11px; height: 11px; flex: none; margin-top: 3px; }
+/* The streaming caret: at the end of the last line of text, inside that line, so it adds no line
+   and no height, and nothing moves when the message finishes. It takes no width either (the
+   negative margin), so it never pushes a full line to wrap. A message ending in a code block or a
+   table shows none; the turn's working line says the agent is busy. */
+.kestrel .prose.streaming > :is(p, h1, h2, h3, h4, h5, h6, blockquote > p):last-child::after,
+.kestrel .prose.streaming > :is(ul, ol):last-child > li:last-child:not(:has(> ul, > ol, > p))::after,
+.kestrel .prose.streaming > :is(ul, ol):last-child > li:last-child > p:last-child::after,
+.kestrel .prose.streaming > :is(ul, ol):last-child > li:last-child > :is(ul, ol):last-child > li:last-child:not(:has(> ul, > ol, > p))::after {
+  content: ''; display: inline-block; width: 6px; height: 12px; margin: 0 -8px 0 2px; background: var(--s-muted); vertical-align: -2px; animation: kestrel-blink 1s steps(2) infinite;
+}
+@keyframes kestrel-blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .kestrel .prose.streaming ::after { animation: none; } }
+.kestrel .chat-error { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--s-amber) 40%, var(--s-line)); border-radius: 8px; background: var(--s-warm); color: var(--s-ink); }
+.kestrel .chat-error svg { width: 14px; height: 14px; flex: none; margin-top: 4px; color: var(--s-amber); }
+.kestrel .tool-activity .activity-failed { color: var(--s-amber); }
+/* Stopped before it finished: grey, never the done tick. */
+.kestrel .tool-activity .activity-stopped { color: var(--s-muted); }
+.kestrel .tool-activity .activity-state { font-style: normal; opacity: .7; }
+.kestrel .decision-title { font-weight: 500; }
+.kestrel .decision-detail { margin: 10px 0 0; padding: 10px; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word; background: var(--s-bg); border: 1px solid var(--s-line); border-radius: 6px; font-size: 10.5px; line-height: 1.6; }
+.kestrel .decision-options button.deny { color: var(--s-ink); border-color: var(--s-line); }
+.kestrel .decision-options button:not(.deny):first-child { background: var(--s-accent); color: #fff; }
+.kestrel .decision-free input { width: 100%; margin-top: 10px; background: var(--s-bg); border: 1px solid var(--s-line); color: var(--s-ink); padding: 8px; border-radius: 6px; font-size: 11px; }
+.kestrel .decision-box.resolved { background: transparent; border-color: var(--s-line); }
+.kestrel .decision-box.resolved strong { color: var(--s-muted); }
+.kestrel .working-pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--s-accent); animation: kestrel-pulse 1.2s ease-in-out infinite; }
+@keyframes kestrel-pulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .kestrel .working-pulse { animation: none; } }
+/* Your messages sit on the right in a bubble; the agent's run down the left with no label. */
+.kestrel .chat-message.mine { display: flex; justify-content: flex-end; }
+.kestrel .chat-message.mine .chat-text { max-width: min(78%, 520px); margin: 0; padding: 8px 12px; background: var(--s-soft); border-radius: 12px 12px 3px 12px; }
+.kestrel .chat-message.theirs .chat-text { margin: 0 0 8px; }
+.kestrel .chat-message { margin-bottom: 14px; }
+.kestrel .stop-button svg { width: 10px; height: 10px; }
+.kestrel .composer-box .composer-input:disabled, .kestrel .composer-box .composer-input[aria-disabled] { opacity: .6; }
+.kestrel .link-button { background: none; border: 0; padding: 8px 0 0; font-size: 11px; color: var(--s-accent); cursor: pointer; }
+.kestrel .chat-warning { background: transparent; }
+
+/* ---- tabs ------------------------------------------------------------------------------ */
+.kestrel .tab-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
+/* One fixed-height row that never shows a scroll bar: too many tabs scroll sideways without one.
+   The bottom rule is an inset shadow, not a border, so the active tab covers it from inside the
+   strip; a negative margin reaching into a border would overflow the strip and show a bar. */
+.kestrel .tab-strip { display: flex; align-items: stretch; box-sizing: border-box; height: 40px; padding: 6px 8px 0; box-shadow: inset 0 -1px 0 var(--s-line); background: var(--s-bg); flex: none; }
+/* The tabs scroll inside their own row; the + after them stays in view. A tab shrinks to a
+   readable minimum before the row scrolls. */
+.kestrel .tab-scroll { display: flex; align-items: stretch; gap: 1px; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.kestrel .tab-scroll::-webkit-scrollbar { display: none; }
+.kestrel .tab { display: flex; flex: 0 1 auto; align-items: center; min-width: 120px; max-width: 220px; border: 1px solid transparent; border-bottom: 0; border-radius: 7px 7px 0 0; color: var(--s-muted); font-size: 11px; }
+.kestrel .tab:hover { background: color-mix(in srgb, var(--s-ink) 5%, transparent); }
+/* The tab in front is the colour of the page under it, so the two read as one surface. */
+.kestrel .tab.active { background: var(--s-bg); border-color: var(--s-line); color: var(--s-ink); }
+.kestrel .tab.drop-over { box-shadow: inset 2px 0 0 var(--s-accent); }
+.kestrel .tab-main { display: flex; flex: 1; align-items: center; align-self: stretch; gap: 7px; min-width: 0; padding: 0 4px 0 11px; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; }
+.kestrel .tab-main svg { width: 12px; height: 12px; flex: none; }
+.kestrel .tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .tab-unsent { width: 5px; height: 5px; border-radius: 50%; background: var(--s-amber); flex: none; }
+.kestrel .tab-close, .kestrel .tab-new { display: grid; place-items: center; background: none; border: 0; color: var(--s-muted); cursor: pointer; border-radius: 5px; }
+.kestrel .tab-close { width: 20px; height: 20px; margin-right: 6px; opacity: 0; }
+.kestrel .tab:hover .tab-close, .kestrel .tab.active .tab-close, .kestrel .tab-close:focus-visible { opacity: 1; }
+.kestrel .tab-close:hover, .kestrel .tab-new:hover { background: color-mix(in srgb, var(--s-ink) 10%, transparent); color: var(--s-ink); }
+.kestrel .tab-close svg, .kestrel .tab-new svg { width: 12px; height: 12px; }
+.kestrel .tab-new { width: 28px; margin: 0 0 2px 4px; flex: none; }
+
+/* ---- new session tab and composer controls ---------------------------------------------- */
+.kestrel .composer-tools { align-items: flex-end; }
+.kestrel .composer-controls { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; min-width: 0; flex: 1; }
+/* Controls are one quiet row of text labels inside the message box, new tab and running alike. */
+.kestrel .ctl-set { display: flex; flex-wrap: wrap; gap: 2px 4px; align-items: center; }
+.kestrel .ctl { display: inline-flex; align-items: center; min-width: 0; font-size: 11px; color: var(--s-muted); }
+.kestrel .ctl select, .kestrel .ctl .picker-button { appearance: none; -webkit-appearance: none; field-sizing: content; width: auto; max-width: 220px; margin: 0; padding: 3px 5px 3px 7px; font: inherit; font-size: 11px; color: var(--s-muted); background: transparent; border: 0; border-radius: 5px; cursor: pointer; text-overflow: ellipsis; }
+.kestrel .ctl select:hover:not(:disabled), .kestrel .ctl .picker-button:hover { color: var(--s-ink); background: var(--s-soft); }
+.kestrel .ctl select:disabled { opacity: .6; cursor: default; }
+.kestrel .ctl:has(select:not(:disabled))::after, .kestrel .ctl:has(.picker-button)::after { content: '▾'; font-size: 9px; margin: 0 6px 0 -2px; pointer-events: none; }
+.kestrel .ctl-fixed { display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; font-size: 11px; color: var(--s-muted); }
+.kestrel .ctl-fixed svg { width: 11px; height: 11px; }
+
+.kestrel .ctl .picker-button svg { display: none; }
+
+/* ---- new session: the message box sits at the bottom, as it does once the session runs ----- */
+.kestrel .new-session { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.kestrel .new-session-space { flex: 1; min-height: 0; display: grid; place-items: center; padding: var(--pad); }
+.kestrel .new-session-space:has(.new-session-note) { align-content: center; }
+.kestrel .new-session-note { margin: 8px 0 0; font-size: 12px; }
+.kestrel .new-session h1 { font-family: Georgia, 'Times New Roman', serif; font-size: 24px; font-weight: 500; letter-spacing: -.01em; margin: 0; color: var(--s-muted); }
+.kestrel .new-session .composer-box .composer-input { font-size: 13px; }
+
+
+/* ---- project picker -------------------------------------------------------------------- */
+.kestrel .picker { position: relative; }
+.kestrel .picker-button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 8px; font: inherit; font-size: 12px; color: var(--s-ink); background: var(--s-paper); border: 1px solid var(--s-line); border-radius: 6px; text-align: left; }
+.kestrel .picker-button svg { width: 12px; height: 12px; color: var(--s-muted); flex: none; }
+.kestrel .picker-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Popups hanging from a control are placed by usePopupPlacement: fixed, kept inside the window. */
+.kestrel .picker-pop { position: fixed; z-index: 40; width: min(380px, 92vw); background: var(--s-paper); border: 1px solid var(--s-line); border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, .28); padding: 6px; }
+.kestrel .picker-search { box-sizing: border-box; width: 100%; margin: 0 0 4px; padding: 8px; font-size: 12px; background: var(--s-bg); border: 1px solid var(--s-line); border-radius: 6px; color: var(--s-ink); }
+.kestrel .picker-list { max-height: 260px; overflow-y: auto; display: grid; }
+.kestrel .picker-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; background: none; border: 0; border-radius: 6px; color: var(--s-ink); font: inherit; font-size: 12px; text-align: left; }
+.kestrel .picker-row:hover:not(:disabled), .kestrel .picker-row:focus-visible { background: color-mix(in srgb, var(--s-accent) 16%, transparent); outline: 0; }
+.kestrel .picker-row.selected { background: var(--s-soft); }
+.kestrel .picker-mark { display: grid; place-items: center; width: 22px; height: 22px; flex: none; border-radius: 6px; background: var(--s-soft); color: var(--s-accent); font-size: 11px; font-weight: 600; }
+.kestrel .picker-mark svg, .kestrel .picker-row.browse svg { width: 13px; height: 13px; }
+.kestrel .picker-text { display: grid; min-width: 0; }
+.kestrel .picker-text strong { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .picker-text small { font-size: 10.5px; color: var(--s-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .picker-foot { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--s-line); }
+.kestrel .picker-row.browse { color: var(--s-accent); }
+.kestrel .picker-none { margin: 0; padding: 8px; font-size: 11px; color: var(--s-muted); }
+.kestrel .add-project { display: flex; gap: 8px; margin-top: 8px; }
+.kestrel .add-project input { flex: 1; background: var(--s-bg); border: 1px solid var(--s-line); color: var(--s-ink); padding: 9px; border-radius: 6px; font-size: 12px; }
+
+/* ---- context menu ----------------------------------------------------------------------- */
+.kestrel .context-menu-host { position: fixed; z-index: 60; }
+.kestrel .context-menu { min-width: 190px; padding: 4px; background: var(--s-paper); border: 1px solid var(--s-line); border-radius: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, .28); font-size: 12px; }
+.kestrel .menu-slot { position: relative; }
+.kestrel .menu-sep { height: 1px; margin: 4px 2px; background: var(--s-line); }
+.kestrel .menu-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 9px; background: none; border: 0; border-radius: 5px; color: var(--s-ink); font: inherit; text-align: left; cursor: pointer; }
+.kestrel .menu-item span { flex: 1; }
+.kestrel .menu-item small { color: var(--s-muted); font-size: 10px; }
+.kestrel .menu-item svg { width: 12px; height: 12px; color: var(--s-muted); }
+.kestrel .menu-item:hover:not(.disabled), .kestrel .menu-item:focus-visible { background: color-mix(in srgb, var(--s-accent) 18%, transparent); outline: 0; }
+.kestrel .menu-item.disabled { color: var(--s-muted); cursor: default; }
+/* A disabled item's hint is the reason, which can be a sentence: it goes under the label and wraps. */
+.kestrel .context-menu { max-width: 380px; }
+.kestrel .menu-item.disabled:has(small) { flex-wrap: wrap; row-gap: 2px; }
+.kestrel .menu-item.disabled small { flex-basis: 100%; line-height: 1.4; }
+.kestrel .submenu { position: fixed; }
+
+/* ---- delegation ------------------------------------------------------------------------ */
+.kestrel .lineage { display: grid; gap: 8px; margin: 6px 0 18px; }
+.kestrel .lineage-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-paper); font-size: 11px; }
+.kestrel .lineage-row > svg { width: 14px; height: 14px; color: var(--s-accent); flex: none; }
+.kestrel .lineage-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.kestrel .lineage-text strong { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .lineage-text small { color: var(--s-muted); font-size: 10px; }
+.kestrel .chat-info { border-color: var(--s-line); color: var(--s-muted); font-size: 11px; background: transparent; }
+.kestrel .chat-info svg { color: var(--s-accent); }
+.kestrel .move-summary { min-height: 220px; width: 100%; }
+
+/* ---- pages: compact headers, one table, queue (design doc 2026-11-13, "Page hierarchy") ------ */
+.kestrel .page { display: grid; gap: var(--space-section); align-content: start; }
+.kestrel .page-head { display: grid; gap: 2px; }
+.kestrel .page-head-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 30px; }
+.kestrel .page-head h1 { font-family: inherit; font-size: 19px; line-height: 26px; font-weight: 600; letter-spacing: -.01em; margin: 0; }
+.kestrel .page-head-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 11px; color: var(--s-muted); min-height: 18px; }
+.kestrel .primary-button.small { padding: 6px 11px; font-size: 11px; }
+.kestrel .link-button { background: none; border: 0; padding: 0; color: var(--s-accent); font-size: 11px; cursor: pointer; }
+.kestrel .filter-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0 8px; }
+.kestrel .chips { display: flex; flex-wrap: wrap; gap: 2px; }
+.kestrel .chip { background: none; border: 0; border-radius: 6px; padding: 5px 9px; font-size: 11px; color: var(--s-muted); cursor: pointer; }
+.kestrel .chip:hover { background: color-mix(in srgb, var(--s-ink) 6%, transparent); }
+/* Selected by its background and ink, never by weight: a bolder label is wider and would move the chips after it. */
+.kestrel .chip.selected { background: var(--s-soft); color: var(--s-accent); }
+.kestrel .chip-count { opacity: .75; font-variant-numeric: tabular-nums; margin-left: 2px; }
+.kestrel .filter-row .session-search { max-width: 190px; border-bottom: 1px solid var(--s-line); padding: 3px 2px; }
+.kestrel .filter-note { font-size: 10px; color: var(--s-muted); padding: 8px 4px; }
+
+.kestrel .stable { display: block; container: session-list / inline-size; }
+.kestrel .thead, .kestrel .trow { display: grid; grid-template-columns: minmax(0, 1fr) 130px minmax(110px, 230px) 64px; align-items: center; gap: 12px; }
+.kestrel .stable.with-project .thead, .kestrel .stable.with-project .trow { grid-template-columns: minmax(0, 1fr) 130px 130px minmax(110px, 230px) 64px; }
+/* No Status column (an Overview section whose heading says it): the other columns keep their widths. */
+.kestrel .stable.no-status .thead, .kestrel .stable.no-status .trow { grid-template-columns: minmax(0, 1fr) minmax(110px, 230px) 64px; }
+.kestrel .stable.with-project.no-status .thead, .kestrel .stable.with-project.no-status .trow { grid-template-columns: minmax(0, 1fr) 130px minmax(110px, 230px) 64px; }
+.kestrel .thead { border-bottom: 1px solid var(--s-line); padding: 0 8px; height: 28px; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--s-muted); }
+.kestrel .thead-cell { background: none; border: 0; padding: 0; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; text-align: left; display: inline-flex; align-items: center; gap: 3px; }
+.kestrel button.thead-cell { cursor: pointer; }
+.kestrel .thead-cell.sorted { color: var(--s-ink); }
+.kestrel .thead-cell svg { width: 10px; height: 10px; }
+.kestrel .tcell-age { text-align: right; justify-content: flex-end; color: var(--s-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.kestrel .trow { width: 100%; padding: 9px 8px; background: none; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--s-line) 60%, transparent); color: var(--s-ink); font: inherit; text-align: left; cursor: pointer; }
+.kestrel .trow:hover { background: color-mix(in srgb, var(--s-ink) 4%, transparent); }
+/* Overview lists share the headings' left edge; project metadata stays with its session. */
+.kestrel .stable.compact .trow { box-sizing: border-box; width: calc(100% + 16px); margin-inline: -8px; padding: 13px 8px; align-items: center; }
+.kestrel .stable.compact.with-project .trow { grid-template-columns: minmax(0, 1fr) 130px minmax(110px, 230px) 64px; }
+.kestrel .stable.compact.with-project.no-status .trow { grid-template-columns: minmax(0, 1fr) minmax(110px, 230px) 64px; }
+.kestrel .stable.compact .tcell-age { line-height: 18px; }
+.kestrel .trow-inline-project::before { content: '·'; margin-right: 8px; }
+
+.kestrel .tcell-main { display: grid; gap: 2px; min-width: 0; }
+.kestrel .trow-title { font-size: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .trow-sub { display: flex; align-items: center; gap: 8px; font-size: 10px; color: var(--s-muted); min-width: 0; overflow: hidden; white-space: nowrap; }
+.kestrel .trow-sub > span { overflow: hidden; text-overflow: ellipsis; }
+.kestrel .trow-update { color: var(--s-ink); opacity: .8; min-width: 0; }
+.kestrel .tcell-status { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; }
+.kestrel .tcell-project, .kestrel .tcell-group { font-size: 11px; color: var(--s-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A Group column (list pages where some session is in a group), after Project. */
+.kestrel .stable.with-group .thead, .kestrel .stable.with-group .trow { grid-template-columns: minmax(0, 1fr) 130px 130px minmax(110px, 230px) 64px; }
+/* With Project too, the side columns narrow so the title keeps room in a page-wide table (~720px). */
+.kestrel .stable.with-group.with-project .thead, .kestrel .stable.with-group.with-project .trow { grid-template-columns: minmax(180px, 1fr) 110px 100px 100px minmax(80px, 180px) 56px; }
+
+.kestrel .page-section { margin: 0; }
+.kestrel .page-section h2 { font-family: inherit; font-size: 12px; font-weight: 600; margin: 0 0 var(--space-label); }
+.kestrel .section-count { color: var(--s-muted); font-weight: 400; }
+.kestrel .queue { display: grid; gap: var(--space-label); }
+.kestrel .qrow { display: flex; align-items: stretch; gap: 10px; background: var(--s-paper); border: 1px solid color-mix(in srgb, var(--s-amber) 28%, var(--s-line)); border-radius: 8px; padding: 10px 12px; }
+.kestrel .qrow-main { flex: 1; min-width: 0; display: grid; gap: 5px; background: none; border: 0; padding: 0; text-align: left; color: inherit; font: inherit; cursor: pointer; }
+.kestrel .qrow-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 12px; }
+.kestrel .qrow-top strong { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .qrow-top .muted { font-size: 10px; white-space: nowrap; }
+.kestrel .qrow-reason { display: flex; align-items: flex-start; gap: 7px; font-size: 12px; line-height: 1.5; }
+.kestrel .qrow-reason .status-dot { margin-top: 6px; }
+.kestrel .qrow-detail { display: block; font-size: 10.5px; color: var(--s-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .qrow-action { align-self: center; display: inline-flex; align-items: center; gap: 5px; flex: none; }
+.kestrel .qrow-action svg { width: 12px; height: 12px; }
+
+.kestrel .empty { display: grid; justify-items: center; gap: 8px; text-align: center; padding: 56px 20px; color: var(--s-muted); font-size: 12px; }
+.kestrel .empty h2 { font-family: inherit; font-size: 14px; font-weight: 500; color: var(--s-ink); margin: 0; }
+.kestrel .empty p { max-width: 420px; line-height: 1.6; margin: 0; }
+.kestrel .empty-icon { width: 22px; height: 22px; color: var(--s-accent); }
+.kestrel .empty-actions { display: flex; gap: 8px; margin-top: 6px; }
+.kestrel .empty-actions svg { width: 12px; height: 12px; }
+.kestrel .empty.first-run { padding-top: 12vh; }
+.kestrel .empty.first-run h1 { font-family: Georgia, 'Times New Roman', serif; font-size: 30px; font-weight: 500; color: var(--s-ink); margin: 4px 0 0; }
+.kestrel .empty-bird { width: 48px; height: 48px; color: var(--s-accent); }
+
+/* ---- sidebar status area --------------------------------------------------------------- */
+
+/* ---- conversation measure: the pane may be wide, the text is not ------------------------- */
+.kestrel .conversation-body > *, .kestrel .composer-wrap { max-width: var(--measure); margin-inline: auto; }
+.kestrel .composer-wrap { width: 100%; box-sizing: border-box; }
+
+/* ---- overview introduction, starter surface, project tiles ------------------------------- */
+.kestrel .intro { display: flex; align-items: center; gap: var(--space-block); min-height: 72px; max-height: 140px; }
+.kestrel .intro-text { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.kestrel .intro h1 { font-family: Georgia, 'Times New Roman', serif; font-size: 28px; line-height: 1.15; font-weight: 500; letter-spacing: -.01em; margin: 0; color: var(--s-ink); }
+.kestrel .intro p { margin: 0; font-size: 13px; color: var(--s-muted); }
+.kestrel .starter { display: grid; gap: var(--space-block); padding: var(--space-block); background: var(--s-paper); border: 1px solid var(--s-line); border-radius: 12px; }
+.kestrel .starter textarea { box-sizing: border-box; width: 100%; min-height: 84px; resize: vertical; margin: 0; padding: 0; background: transparent; border: 0; outline: 0; color: var(--s-ink); font: inherit; font-size: 13px; line-height: 1.6; }
+.kestrel .starter-row { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-block); }
+.kestrel .starter-where { display: grid; gap: var(--space-label); width: min(260px, 100%); }
+.kestrel .starter-where .ctl-label { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--s-muted); }
+.kestrel .starter-row .primary-button svg { width: 13px; height: 13px; }
+.kestrel .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-label); }
+.kestrel .tile { display: flex; align-items: center; justify-content: space-between; gap: var(--space-block); padding: 12px; background: var(--s-paper); border: 1px solid var(--s-line); border-radius: 10px; }
+.kestrel .tile-text { display: grid; gap: 2px; min-width: 0; }
+.kestrel .tile-text strong { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .tile-text small { font-size: 11px; color: var(--s-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .tile .secondary-button.small { flex: none; padding: 5px 9px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; }
+.kestrel .tile .secondary-button.small svg, .kestrel .tile-add svg { width: 12px; height: 12px; }
+.kestrel .tile-add { justify-content: center; gap: 6px; border-style: dashed; background: transparent; color: var(--s-muted); font: inherit; font-size: 12px; }
+.kestrel .tile-add:hover { color: var(--s-accent); border-color: var(--s-accent); }
+
+.kestrel .work-title .secondary-button { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.kestrel .work-title .secondary-button svg { width: 13px; height: 13px; }
+
+/* ---- session: one line at the top, then the conversation --------------------------------- */
+.kestrel .session-bar { display: flex; align-items: center; gap: 12px; min-height: 36px; padding: 0 16px; border-bottom: 1px solid var(--s-line); font-size: 11px; color: var(--s-muted); white-space: nowrap; overflow: hidden; }
+.kestrel .bar-item { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.kestrel .bar-item svg, .kestrel .bar-button svg { width: 12px; height: 12px; flex: none; }
+.kestrel .bar-project { color: var(--s-ink); font-weight: 500; }
+.kestrel .bar-branch > span { overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
+.kestrel .bar-sep { opacity: .5; margin: 0 -6px; }
+.kestrel .session-bar .tools-missing { color: var(--s-amber); }
+.kestrel .bar-button { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; background: transparent; border: 0; border-radius: 5px; font: inherit; font-size: 11px; color: var(--s-muted); }
+.kestrel .bar-button:hover, .kestrel .bar-button[aria-pressed='true'] { color: var(--s-ink); background: var(--s-soft); }
+.kestrel .conversation-body { padding-top: 20px; }
+
+/* ---- Mac window without a title bar: the page reaches the top edge ------------------------ */
+.kestrel.mac-chrome .studio-sidebar { padding-top: 44px; -webkit-app-region: drag; }
+.kestrel.mac-chrome .studio-sidebar > * { -webkit-app-region: no-drag; }
+.kestrel.mac-chrome .studio-brand { -webkit-app-region: drag; }
+.kestrel.mac-chrome .tab-strip { -webkit-app-region: drag; }
+.kestrel.mac-chrome .tab-strip .tab, .kestrel.mac-chrome .tab-strip button { -webkit-app-region: no-drag; }
+
+.kestrel .ctl select.ctl-danger { color: var(--s-amber); }
+
+/* Ungrouped sessions sit directly under the Sessions heading. */
+.kestrel .ungrouped .tree.flat { margin-left: 0; padding-left: 0; border-left: 0; }
+.kestrel .ungrouped.drop-over { outline: 1px dashed var(--s-accent); outline-offset: 2px; border-radius: 6px; }
+
+/* The only tab has no close button, so its label needs its own right padding. */
+.kestrel .tab.pinned .tab-main { padding-right: 12px; }
+
+/* ---- sidebar density: one line per row, for a long list of sessions ----------------------- */
+.kestrel .side-link { padding: 4px 8px; margin-bottom: 1px; font-size: 12px; gap: 8px; }
+.kestrel .studio-new { padding: 6px 9px; margin-bottom: 8px; }
+.kestrel .side-heading, .kestrel.session-open .studio-sidebar .side-heading { padding: 12px 4px 3px 2px; }
+.kestrel .heading-toggle { display: inline-flex; align-items: center; gap: 3px; padding: 2px 4px 2px 0; background: none; border: 0; font: inherit; letter-spacing: inherit; color: inherit; cursor: pointer; }
+.kestrel .heading-toggle svg { width: 11px; height: 11px; }
+.kestrel .heading-toggle:hover { color: var(--s-ink); }
+.kestrel .folder-row { padding: 0 6px 0 2px; }
+.kestrel .folder-name { padding: 4px 2px; }
+.kestrel .folder-block { margin-bottom: 0; }
+.kestrel .tree { margin: 0 0 2px 13px; }
+.kestrel .tree.flat { margin: 0; padding-left: 0; border-left: 0; }
+.kestrel .tree-row { align-items: center; gap: 7px; padding: 3px 6px; min-height: 24px; position: relative; }
+.kestrel .tree-title { flex: 1; min-width: 0; font-size: 12px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .tree-row.selected .tree-title { color: var(--s-ink); font-weight: 600; }
+.kestrel .tree-row.dimmed .tree-title { color: var(--s-muted); }
+.kestrel .tree-mark { margin-left: 0; flex: none; }
+.kestrel .repo-icon { width: 16px; height: 16px; }
+/* Where a dragged session, group or project will land. */
+.kestrel .tree-row.drop-before::before, .kestrel .tree-row.drop-after::after, .kestrel .folder-row.drop-before::before,
+.kestrel .folder-block.drop-before::before, .kestrel .folder-block.drop-after::after,
+.kestrel .project-block.drop-before::before, .kestrel .project-block.drop-after::after { content: ''; position: absolute; left: 4px; right: 4px; height: 2px; border-radius: 1px; background: var(--s-accent); }
+.kestrel .tree-row.drop-before::before, .kestrel .folder-row.drop-before::before, .kestrel .folder-block.drop-before::before, .kestrel .project-block.drop-before::before { top: -1px; }
+.kestrel .tree-row.drop-after::after, .kestrel .folder-block.drop-after::after, .kestrel .project-block.drop-after::after { bottom: -1px; }
+.kestrel .folder-row, .kestrel .folder-block, .kestrel .project-block { position: relative; }
+.kestrel .list-end { height: 10px; }
+
+/* ---- colour: neutral greys; the accent is kept for status and the one main action --------- */
+.kestrel {
+  --s-bg: light-dark(#fafafa, #1c1c1d);
+  --s-side: light-dark(#f2f2f2, #161617);
+  --s-paper: light-dark(#ffffff, #232324);
+  --s-ink: light-dark(#1f1f1f, #e6e6e6);
+  --s-muted: light-dark(#6f6f6f, #9a9a9b);
+  --s-line: light-dark(#e3e3e3, #303031);
+  --s-soft: light-dark(#eaeaea, #2c2c2d);
+  --s-warm: light-dark(#f6f4ef, #272624);
+}
+.kestrel .brandmark, .kestrel .empty-bird, .kestrel .empty-icon, .kestrel .lineage-row > svg, .kestrel .chat-info svg { color: var(--s-muted); }
+.kestrel .side-link.active { color: var(--s-ink); }
+.kestrel .side-link.active > svg, .kestrel .folder-row.active .folder-name svg { color: var(--s-ink); }
+.kestrel .auto-tag, .kestrel .trail-count, .kestrel .picker-mark { color: var(--s-muted); }
+.kestrel .chip.selected, .kestrel .filter-tabs button.selected { color: var(--s-ink); }
+.kestrel .picker-row:hover:not(:disabled), .kestrel .picker-row:focus-visible, .kestrel .menu-item:hover:not(.disabled), .kestrel .menu-item:focus-visible { background: var(--s-soft); }
+.kestrel .picker-row.browse, .kestrel .link-button { color: var(--s-ink); }
+.kestrel .link-button { text-decoration: underline; text-underline-offset: 2px; }
+.kestrel .inline-input { border-color: var(--s-muted); }
+.kestrel .inspector-tabs button.selected { border-color: var(--s-ink); }
+.kestrel .tile-add:hover { color: var(--s-ink); border-color: var(--s-muted); }
+.kestrel .primary-button, .kestrel .send-button, .kestrel .decision-options button:not(.deny):first-child { background: var(--s-ink); color: var(--s-bg); border-color: var(--s-ink); }
+.kestrel .working-pulse { background: var(--s-muted); }
+.kestrel .session-list.drop-over { background: transparent; }
+
+/* ---- sidebar grid: one left column for icons, one right column for counts and + ----------- */
+.kestrel .studio-sidebar { --slot: 16px; --edge: 8px; }
+.kestrel .side-link, .kestrel .side-heading, .kestrel.session-open .studio-sidebar .side-heading { padding-left: var(--edge); padding-right: var(--edge); }
+.kestrel .side-link { gap: 8px; }
+.kestrel .side-link > svg:first-child, .kestrel .repo-icon { width: var(--slot); height: var(--slot); flex: none; box-sizing: border-box; }
+.kestrel .side-link > svg:first-child { padding: 1px; }
+.kestrel .link-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.kestrel .heading-toggle { gap: 8px; padding: 2px 0; }
+.kestrel .heading-toggle svg { width: var(--slot); height: var(--slot); padding: 3px; box-sizing: border-box; flex: none; }
+/* Right column: the + of a heading and the count of a row share one centre line. */
+.kestrel .side-heading .icon-button { width: var(--slot); flex: none; margin-left: 0; padding: 0; text-align: center; justify-content: center; }
+.kestrel .side-heading .icon-button svg { width: 12px; height: 12px; }
+.kestrel .side-link > .status-dot { margin-left: 0; }
+.kestrel .tree-row { gap: 8px; padding-right: var(--edge); }
+.kestrel .tree.flat .tree-row { border-radius: 6px; }
+/* The group block has a 1px border for its drop highlight; its row gives that pixel back. */
+.kestrel .folder-row { padding: 0 calc(var(--edge) - 1px); gap: 8px; }
+.kestrel .folder-row > .icon-button:first-child { width: var(--slot); height: var(--slot); padding: 0; flex: none; }
+.kestrel .folder-name { gap: 6px; }
+.kestrel .tree { margin-left: 0; padding-left: 0; border-left: 0; }
+/* A session that is not working still shows a dot. */
+.kestrel .status-dot.idle { background: transparent; box-shadow: inset 0 0 0 1px var(--s-muted); }
+
+/* ---- search: a box in the middle of the window ------------------------------------------- */
+.kestrel .search-overlay { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: center; align-items: flex-start; padding-top: 14vh; background: rgba(0, 0, 0, .32); }
+.kestrel .search-box { width: min(620px, 92vw); max-height: 60vh; display: flex; flex-direction: column; background: var(--s-paper); border: 1px solid var(--s-line); border-radius: 12px; box-shadow: 0 24px 70px rgba(0, 0, 0, .35); overflow: hidden; }
+.kestrel .search-input { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--s-line); }
+.kestrel .search-input svg { width: 15px; height: 15px; flex: none; color: var(--s-muted); }
+.kestrel .search-input input { flex: 1; min-width: 0; margin: 0; padding: 0; background: transparent; border: 0; outline: 0; font: inherit; font-size: 14px; color: var(--s-ink); }
+.kestrel .search-results { overflow-y: auto; padding: 6px; }
+.kestrel .search-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; background: transparent; border: 0; border-radius: 6px; font: inherit; font-size: 12px; color: var(--s-ink); text-align: left; }
+.kestrel .search-row.selected { background: var(--s-soft); }
+.kestrel .search-row svg { width: 13px; height: 13px; flex: none; color: var(--s-muted); }
+.kestrel .search-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .search-row small { flex: none; max-width: 45%; font-size: 10.5px; color: var(--s-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .search-none { margin: 0; padding: 14px 8px; font-size: 12px; color: var(--s-muted); }
+
+/* ---- dots: what is waiting for you -------------------------------------------------------- */
+.kestrel .status-dot.none { background: transparent; box-shadow: none; }
+.kestrel .status-dot.working { background: var(--s-muted); animation: kestrel-pulse 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .kestrel .status-dot.working { animation: none; opacity: .6; } }
+/* With no status row above it, Settings carries the rule itself. */
+.kestrel .settings-link { margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--s-line); border-radius: 0; }
+.kestrel .status-area + .settings-link { border-top: 0; margin-top: 0; }
+.kestrel .switch-link kbd { margin-left: auto; }
+
+/* ---- top menu: Overview, New session, Search; then a gap before the lists ----------------- */
+.kestrel .top-menu { display: grid; margin-bottom: 14px; }
+.kestrel .top-menu kbd { flex: none; width: auto; font: inherit; font-size: 10px; color: var(--s-muted); background: none; border: 0; padding: 0; }
+.kestrel .side-scroll > .side-heading:first-child, .kestrel.session-open .studio-sidebar .side-scroll > .side-heading:first-child { padding-top: 0; }
+.kestrel .studio-brand { padding-bottom: 12px; }
+
+/* ---- sidebar text: labels a step down from white, sessions regular weight and quieter ----- */
+.kestrel { --s-label: light-dark(#454545, #c2c2c3); --s-row: light-dark(#5a5a5a, #adadae); }
+.kestrel .studio-sidebar .side-link, .kestrel .studio-sidebar .folder-name { color: var(--s-label); font-weight: 400; }
+.kestrel .studio-sidebar .side-link.active { color: var(--s-ink); font-weight: 500; }
+.kestrel .tree-title { color: var(--s-row); font-weight: 400; }
+.kestrel .tree-row:hover .tree-title { color: var(--s-label); }
+.kestrel .tree-row.selected .tree-title { color: var(--s-ink); font-weight: 500; }
+/* Session rows are the title alone, indented by nesting; their dot shares the right-hand column
+   with the dots of group and project rows (`.row-dot`). */
+.kestrel .folder-row > .status-dot { flex: none; }
+
+/* ---- project and group rows: icon, name, chevron; the dot at the right edge --------------- */
+.kestrel .fold-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .side-link > svg.fold-chevron, .kestrel .folder-name svg.fold-chevron { width: 11px; height: 11px; padding: 0; flex: none; margin-left: -3px; color: var(--s-muted); opacity: .7; }
+.kestrel .status-dot.row-dot { margin-left: auto; margin-right: 5px; flex: none; }
+.kestrel .folder-name { flex: 0 1 auto; gap: 8px; padding: 3px 0; }
+/* Group and project rows are as tall as session rows (24px). */
+.kestrel .project-block > .side-link { padding-top: 3px; padding-bottom: 3px; }
+.kestrel .folder-name > svg:first-child { width: var(--slot); height: var(--slot); padding: 1px; box-sizing: border-box; flex: none; }
+.kestrel .folder-row .folder-actions { margin-left: auto; }
+.kestrel .folder-row:hover .row-dot, .kestrel .folder-row:focus-within .row-dot { display: none; }
+
+/* Inside a group the 1px drop border would push rows in by a pixel: the group's own row and its
+   sessions reach back over it, so every row's hover and selection spans the same width. */
+.kestrel .folder-block > .tree { margin-left: -1px; margin-right: -1px; }
+.kestrel .folder-block > .folder-row { width: auto; margin-left: -1px; margin-right: -1px; padding: 0 var(--edge); }
+
+/* ---- resizable sidebar -------------------------------------------------------------------- */
+.kestrel .studio-sidebar { position: relative; min-width: 0; }
+.kestrel .sidebar-resize { position: absolute; top: 0; bottom: 0; right: -3px; width: 7px; z-index: 30; cursor: col-resize; -webkit-app-region: no-drag; touch-action: none; }
+.kestrel .sidebar-resize::after { content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: transparent; transition: background .12s; }
+.kestrel .sidebar-resize:hover::after, .kestrel .sidebar-resize:active::after, .kestrel .sidebar-resize:focus-visible::after { background: var(--s-muted); }
+.kestrel .sidebar-resize:focus-visible { outline: 0; }
+.kestrel .studio-brand { white-space: nowrap; overflow: hidden; }
+
+
+/* ---- session side pane: four icons in the top line, one view at a time, resizable -------- */
+.kestrel .pane-icons { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; }
+.kestrel .pane-icons .bar-button { margin-left: 0; padding: 5px 6px; gap: 4px; }
+.kestrel .pane-icons .bar-button svg { width: 14px; height: 14px; }
+.kestrel .bar-count { font-size: 10px; }
+.kestrel .pane-icons .bar-button.has-changes { color: var(--s-amber); }
+.kestrel .pane-icons .bar-button.has-changes[aria-pressed="true"] { background: var(--s-warm); }
+.kestrel .inspection { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; border-left: 1px solid var(--s-line); background: var(--s-bg); }
+.kestrel .focus-conversation .conversation-body, .kestrel .focus-conversation .composer-wrap { max-width: var(--measure); }
+.kestrel .pane-resize { position: absolute; top: 0; bottom: 0; left: -3px; width: 7px; z-index: 30; cursor: col-resize; touch-action: none; }
+.kestrel .pane-resize::after { content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: transparent; transition: background .12s; }
+.kestrel .pane-resize:hover::after, .kestrel .pane-resize:active::after, .kestrel .pane-resize:focus-visible::after { background: var(--s-muted); }
+.kestrel .pane-resize:focus-visible { outline: 0; }
+
+/* Copy buttons sit beside the text they copy. */
+.kestrel .copy-button { display: inline-grid; place-items: center; width: 20px; height: 20px; flex: none; padding: 0; background: transparent; border: 0; border-radius: 4px; color: var(--s-muted); cursor: pointer; }
+.kestrel .copy-button:hover { background: var(--s-soft); color: var(--s-ink); }
+.kestrel .copy-button svg { width: 12px; height: 12px; }
+
+/* Context: label, value, copy. */
+.kestrel .context-content { padding: 14px 16px; font-size: 12px; line-height: 1.5; }
+.kestrel .facts { margin: 0; display: grid; gap: 10px; }
+.kestrel .fact dt, .kestrel .context-content .fact dt { margin: 0 0 2px; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--s-muted); }
+.kestrel .fact dd, .kestrel .context-content .fact dd { margin: 0; display: flex; align-items: flex-start; gap: 6px; color: var(--s-ink); }
+.kestrel .fact dd > span { min-width: 0; overflow-wrap: anywhere; }
+.kestrel .fact dd.mono > span { font-family: var(--mono); font-size: 11px; }
+.kestrel .fact .copy-button { margin-top: -2px; }
+.kestrel .context-heading { margin: 20px 0 8px; font-size: 12px; font-weight: 600; }
+
+/* Files: a tree above, the chosen file below. */
+.kestrel .files { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.kestrel .files-tree { flex: 1 1 45%; min-height: 80px; overflow: auto; padding: 6px 0; }
+.kestrel .files-list { list-style: none; margin: 0; padding: 0; }
+.kestrel .file-row { display: flex; align-items: center; gap: 4px; padding-right: 8px; min-height: 22px; }
+.kestrel .file-row:hover, .kestrel .file-row.selected { background: var(--s-soft); }
+.kestrel .file-row .copy-button { visibility: hidden; }
+.kestrel .file-row:hover .copy-button, .kestrel .file-row:focus-within .copy-button { visibility: visible; }
+.kestrel .file-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 5px; padding: 2px 0; background: transparent; border: 0; font: inherit; font-size: 12px; color: var(--s-label); text-align: left; cursor: pointer; }
+.kestrel .file-name > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .file-name svg { width: 12px; height: 12px; flex: none; color: var(--s-muted); }
+.kestrel .file-gap { width: 12px; flex: none; }
+.kestrel .files-note { margin: 0; padding: 6px 10px; font-size: 11px; color: var(--s-muted); }
+.kestrel .file-view { flex: 1 1 55%; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--s-line); }
+.kestrel .file-view-head { display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-bottom: 1px solid var(--s-line); font-family: var(--mono); font-size: 11px; color: var(--s-muted); }
+.kestrel .file-view-head > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .file-view pre, .kestrel .terminal-view pre { flex: 1; min-height: 0; margin: 0; padding: 10px 12px; overflow: auto; font: 11px/1.6 var(--mono); color: var(--s-ink); white-space: pre; }
+.kestrel .terminal-view { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.kestrel .terminal-view pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ---- tooltips and pressed buttons --------------------------------------------------------- */
+.kestrel .tooltip { position: fixed; z-index: 100; max-width: 320px; padding: 4px 8px; border-radius: 6px; background: light-dark(#2a2a2b, #e8e8e8); color: light-dark(#f2f2f2, #1c1c1d); font-size: 11px; line-height: 1.4; white-space: normal; overflow-wrap: anywhere; pointer-events: none; box-shadow: 0 4px 14px rgba(0, 0, 0, .25); }
+/* A pane icon that is on shows it with a filled background. */
+.kestrel .bar-button[aria-pressed='true'] { background: color-mix(in srgb, var(--s-ink) 16%, transparent); color: var(--s-ink); }
+
+/* ---- columns beside the conversation ------------------------------------------------------ */
+.kestrel .conversation { position: relative; min-width: 0; }
+.kestrel .inspection.context-column { overflow-y: auto; }
+/* Both other columns are open: context floats over the conversation's top-right corner. */
+.kestrel .context-card { position: absolute; z-index: 35; top: 8px; left: calc(100% - 0px); transform: translateX(-100%); }
+
+/* Context, kept short: an icon, the thing, a quiet detail. */
+.kestrel .context-content { padding: 12px 14px; font-size: 12px; line-height: 1.4; }
+.kestrel .context-content h3 { margin: 0 0 6px; font-size: 11px; font-weight: 500; color: var(--s-muted); letter-spacing: 0; }
+.kestrel .ctx-line { display: flex; align-items: center; gap: 8px; min-height: 26px; color: var(--s-ink); }
+.kestrel .ctx-line > svg { width: 14px; height: 14px; flex: none; color: var(--s-muted); }
+.kestrel .ctx-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .ctx-detail { flex: 1; min-width: 0; color: var(--s-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .ctx-line .copy-button { margin-left: auto; visibility: hidden; }
+.kestrel .ctx-line:hover .copy-button, .kestrel .ctx-line:focus-within .copy-button { visibility: visible; }
+.kestrel .ctx-added { color: var(--s-green); }
+.kestrel .ctx-removed { color: light-dark(#b3403a, #e07b74); }
+.kestrel .ctx-rule { height: 1px; margin: 10px 0; background: var(--s-line); }
+
+/* The terminal fills its column. */
+.kestrel .terminal-view { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--s-bg); }
+.kestrel .terminal-host { flex: 1; min-height: 0; overflow: hidden; }
+.kestrel .terminal-host .xterm { height: 100%; }
+.kestrel .terminal-host .xterm-viewport { background: transparent !important; }
+
+/* ---- go to the latest --------------------------------------------------------------------- */
+.kestrel .conversation-inner { width: 100%; }
+.kestrel .to-bottom { position: absolute; left: 50%; bottom: 150px; transform: translateX(-50%); z-index: 20; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border-radius: 50%; background: var(--s-paper); border: 1px solid var(--s-line); color: var(--s-label); box-shadow: 0 6px 18px rgba(0, 0, 0, .28); cursor: pointer; }
+.kestrel .to-bottom:hover { color: var(--s-ink); }
+.kestrel .to-bottom svg { width: 16px; height: 16px; }
+.kestrel .to-bottom.working svg { animation: kestrel-hover 1.1s ease-in-out infinite; transform-origin: 50% 60%; }
+@keyframes kestrel-hover { 0%, 100% { transform: translateY(1.5px) rotate(-6deg); } 50% { transform: translateY(-2px) rotate(6deg); } }
+@media (prefers-reduced-motion: reduce) { .kestrel .to-bottom.working svg { animation: none; } }
+
+/* Room between the last message and the message box. */
+.kestrel .conversation-inner { padding-bottom: 120px; box-sizing: border-box; }
+/* The conversation scrolls across the whole pane, so its scroll bar sits at the pane's right
+   edge; only the text inside is held to the reading column. */
+.kestrel .conversation-body, .kestrel .focus-conversation .conversation-body { max-width: none; width: 100%; align-self: stretch; box-sizing: border-box; }
+.kestrel .conversation-inner { max-width: var(--measure); margin-inline: auto; }
+
+/* ---- go to the latest: in the gap above the message box, never over it -------------------- */
+.kestrel .to-bottom-anchor { position: relative; height: 0; flex: none; z-index: 20; }
+.kestrel .to-bottom { bottom: 12px; }
+
+/* ---- sub-agents: a small card at the foot of the conversation ----------------------------- */
+.kestrel .agent-card { display: grid; margin: 4px 0 14px; padding: 4px; border: 1px solid var(--s-line); border-radius: 10px; }
+.kestrel .agent-row { display: flex; align-items: center; gap: 9px; width: 100%; padding: 6px 8px; background: transparent; border: 0; border-radius: 6px; font: inherit; font-size: 12px; color: var(--s-label); text-align: left; cursor: pointer; }
+.kestrel .agent-row:hover, .kestrel .agent-row.selected { background: var(--s-soft); color: var(--s-ink); }
+.kestrel .agent-row > svg { width: 14px; height: 14px; flex: none; color: var(--s-muted); }
+.kestrel .agent-row > .working-pulse { margin: 0 4px; flex: none; }
+.kestrel .agent-row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .agent-row small { flex: none; font-size: 10.5px; color: var(--s-muted); }
+.kestrel .agent-row > svg.agent-row-open { width: 12px; height: 12px; opacity: .6; }
+.kestrel .agent-view { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.kestrel .agent-view-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--s-line); font-size: 12px; }
+.kestrel .agent-view-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--s-ink); }
+.kestrel .agent-view-head small { flex: none; font-size: 10.5px; color: var(--s-muted); }
+.kestrel .agent-view pre { flex: 1; min-height: 0; margin: 0; padding: 12px 14px; overflow: auto; font: 11.5px/1.6 var(--mono); color: var(--s-ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ---- the message box floats over the foot of the conversation ----------------------------- */
+/* The conversation scrolls the full height of its pane, so its scroll bar does too. The box sits
+   over the bottom of it, in the reading column; text scrolling behind fades out under it. */
+.kestrel .conversation { position: relative; display: flex; flex-direction: column; }
+/* The panel takes the focus when the transcript is clicked (it is a tab panel), and a key pressed
+   after that (Escape, say) made the browser draw its blue ring round the whole conversation. A
+   region this size is never outlined; the controls inside it keep their own. */
+.kestrel .conversation:focus, .kestrel .conversation:focus-visible { outline: 0; }
+.kestrel .conversation-body { flex: 1; min-height: 0; }
+.kestrel .composer-dock { position: absolute; left: 0; right: 0; bottom: 0; z-index: 15; pointer-events: none; }
+.kestrel .composer-dock .composer-wrap { pointer-events: auto; position: relative; padding-top: 0; background: var(--s-paper); }
+.kestrel .composer-dock .composer-wrap::before { content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 28px; background: linear-gradient(to bottom, transparent, var(--s-paper)); pointer-events: none; }
+.kestrel .to-bottom-anchor { position: absolute; left: 0; right: 0; height: 0; }
+
+/* ---- the message box: as wide as the text column, no focus ring, grows as you type -------- */
+.kestrel .composer-wrap { padding-left: 0; padding-right: 0; }
+.kestrel .composer-box .composer-input { field-sizing: content; min-height: 44px; max-height: 240px; overflow-y: auto; resize: none; outline: 0; box-shadow: none; }
+.kestrel .composer-box .composer-input:focus, .kestrel .composer-box .composer-input:focus-visible { outline: 0; box-shadow: none; }
+
+/* ---- message box: the text and a return key; the session's settings sit under it ---------- */
+.kestrel .composer-box { display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 14px; border-radius: 14px; }
+.kestrel .composer-box .composer-input { flex: 1; min-width: 0; min-height: 28px; padding: 5px 0; }
+.kestrel .new-session .composer-box .composer-input { font-size: 13px; }
+.kestrel .send-icon { display: grid; place-items: center; width: 28px; height: 28px; flex: none; padding: 0; background: transparent; border: 0; border-radius: 7px; color: var(--s-label); cursor: pointer; }
+.kestrel .send-icon:hover:not(:disabled) { background: var(--s-soft); color: var(--s-ink); }
+.kestrel .send-icon:disabled { opacity: .35; cursor: default; }
+.kestrel .send-icon svg { width: 16px; height: 16px; }
+.kestrel .send-icon.stop svg { width: 12px; height: 12px; fill: currentColor; }
+.kestrel .composer-under { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 2px 4px; min-height: 26px; padding: 4px 4px 10px; }
+.kestrel .composer-under .ctl-note { font-size: 10.5px; color: var(--s-muted); padding: 0 7px; }
+
+/* ---- rename in place, and the archive list ------------------------------------------------ */
+.kestrel .tree-row .inline-input, .kestrel .side-link .inline-input { flex: 1; min-width: 0; padding: 1px 5px; font: inherit; font-size: 12px; color: var(--s-ink); background: var(--s-paper); border: 1px solid var(--s-muted); border-radius: 4px; outline: 0; }
+.kestrel .settings-section.wide { max-width: 760px; }
+.kestrel .archive-list { list-style: none; margin: 0; padding: 4px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-paper); }
+.kestrel .archive-list li { display: flex; align-items: center; gap: 10px; padding: 6px 8px; font-size: 12px; border-radius: 6px; }
+.kestrel .archive-list li:hover { background: var(--s-soft); }
+.kestrel .archive-kind { flex: none; width: 78px; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--s-muted); }
+.kestrel .archive-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--s-ink); }
+.kestrel .archive-list small { flex: none; max-width: 30%; font-size: 10.5px; color: var(--s-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .archive-list .link-button { padding: 0; flex: none; }
+/* An archived workstream's archived sessions, under it. The chevron after the name is the fold. */
+.kestrel .archive-list li.archive-child { padding-left: 30px; }
+.kestrel .archive-list li.archive-child .archive-kind { width: 56px; }
+.kestrel .archive-list:has(.archive-fold) .archive-name { flex: 0 1 auto; }
+.kestrel .archive-list:has(.archive-fold) li > small:first-of-type { margin-left: auto; }
+.kestrel .archive-fold { flex: none; display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--s-muted); cursor: pointer; }
+.kestrel .archive-fold:hover { background: var(--s-line); color: var(--s-ink); }
+.kestrel .archive-fold svg { width: 12px; height: 12px; transition: transform .12s; }
+.kestrel .archive-fold[aria-expanded="true"] svg { transform: rotate(90deg); }
+.kestrel .link-button.danger { color: light-dark(#b3403a, #e07b74); }
+
+/* ---- agent setup for a project ------------------------------------------------------------ */
+.kestrel .setup-row { display: flex; align-items: flex-start; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--s-line); cursor: pointer; }
+.kestrel .setup-row input { margin: 3px 0 0; flex: none; accent-color: var(--s-ink); }
+.kestrel .setup-row span { display: grid; gap: 2px; min-width: 0; }
+.kestrel .setup-row strong { font-size: 12px; font-weight: 500; color: var(--s-ink); }
+.kestrel .setup-row small { font-size: 11px; line-height: 1.45; color: var(--s-muted); overflow-wrap: anywhere; }
+.kestrel .setup-heading { margin: 22px 0 2px; font-size: 12px; font-weight: 600; color: var(--s-ink); }
+.kestrel .setting-heading:has(> .setup-heading) { margin: 22px 0 2px; }
+.kestrel .setting-heading > .setup-heading { margin: 0; }
+.kestrel .setup-none, .kestrel .detail-panel .setup-none { margin: 6px 0 0; font-size: 11px; color: var(--s-muted); }
+.kestrel .setup-problem, .kestrel .detail-panel .setup-problem { color: var(--s-amber); }
+
+/* ---- no accent colour in the chrome -------------------------------------------------------
+   The app is grey. `--s-accent` used to be green and coloured buttons, labels, hovers, focus
+   rings and overlays; it is now the ink colour, so everything that used it reads as neutral.
+   Colour is kept for meaning only: status dots (`--s-green`, `--s-amber`), diffs, and errors. */
+.kestrel {
+  --s-accent: var(--s-ink);
+  accent-color: var(--s-ink);
+}
+.kestrel #studio-overlay, .kestrel #studio-overlay:not([hidden]) { background: rgba(0, 0, 0, .4); }
+.kestrel .eyebrow { color: var(--s-muted); }
+.kestrel ::selection { background: color-mix(in srgb, var(--s-ink) 24%, transparent); }
+/* Where a dragged item will land is the one place a line needs to stand out. */
+.kestrel .tree-row.drop-before::before, .kestrel .tree-row.drop-after::after, .kestrel .folder-row.drop-before::before,
+.kestrel .folder-block.drop-before::before, .kestrel .folder-block.drop-after::after,
+.kestrel .project-block.drop-before::before, .kestrel .project-block.drop-after::after { background: var(--s-ink); }
+.kestrel .folder-block.drop-over { border-color: var(--s-muted); }
+
+/* ---- settings: sections on the left, the chosen one beside them, all in the main canvas --- */
+.kestrel .settings { display: grid; grid-template-columns: 220px minmax(0, 1fr); flex: 1; min-height: 0; height: 100%; }
+.kestrel .settings-nav { display: flex; flex-direction: column; gap: 1px; padding: 20px 10px; border-right: 1px solid var(--s-line); overflow-y: auto; }
+.kestrel .settings-nav-title { padding: 0 8px 12px; font-size: 13px; font-weight: 600; color: var(--s-ink); }
+.kestrel .settings-nav .side-link { color: var(--s-label); }
+.kestrel .settings-nav .side-link.active { color: var(--s-ink); font-weight: 500; }
+.kestrel .settings-nav .side-heading { padding: 16px 8px 4px; }
+.kestrel .settings-body { min-width: 0; overflow-y: auto; padding: var(--pad); }
+.kestrel .settings-body > * { max-width: 720px; }
+.kestrel .settings-body h1 { margin: 0; font-family: inherit; font-size: 20px; font-weight: 600; letter-spacing: -.01em; color: var(--s-ink); }
+.kestrel .settings-body .settings-section { margin-top: 24px; max-width: 720px; }
+.kestrel .settings-path { display: flex; align-items: center; gap: 6px; margin: 6px 0 0; font-family: var(--mono); font-size: 11px; color: var(--s-muted); }
+.kestrel .setup { border: 1px solid var(--s-line); border-radius: 8px; padding: 2px 14px 10px; background: var(--s-paper); }
+.kestrel .setup .setup-row:last-child { border-bottom: 0; }
+.kestrel .setup .settings-help { margin-bottom: 4px; }
+@media (max-width: 900px) { .kestrel .settings { grid-template-columns: 170px minmax(0, 1fr); } }
+
+/* ---- move to project, as a page ----------------------------------------------------------- */
+.kestrel .move-page .move-summary { box-sizing: border-box; width: 100%; min-height: 220px; margin: 0; padding: 12px; background: var(--s-bg); border: 1px solid var(--s-line); border-radius: 10px; color: var(--s-ink); font: inherit; font-size: 13px; line-height: 1.6; resize: vertical; }
+
+/* The icon and edge sizes belong to the whole app, so the settings list lines up like the sidebar. */
+.kestrel { --slot: 16px; --edge: 8px; }
+.kestrel .settings-nav .side-link { padding: 5px 8px; }
+
+/* Agent setup: a project following the defaults shows them, greyed, so it is clear what it gets. */
+.kestrel .setup-fields { margin: 0; padding: 0; border: 0; min-width: 0; }
+.kestrel .setup-fields:disabled { opacity: .55; }
+.kestrel .setup-fields:disabled .setup-row { cursor: default; }
+.kestrel .setup-inherit small .link-button { padding: 0; font-size: 11px; }
+
+/* ---- the Mode menu ------------------------------------------------------------------------ */
+.kestrel .ctl .mode-pop { width: 320px; padding: 8px; }
+.kestrel .mode-title { padding: 4px 8px 6px; font-size: 11px; color: var(--s-muted); }
+.kestrel .mode-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; background: transparent; border: 0; border-radius: 7px; font: inherit; color: var(--s-ink); text-align: left; cursor: pointer; }
+.kestrel button.mode-row:hover, .kestrel button.mode-row:focus-visible { background: var(--s-soft); outline: 0; }
+.kestrel .mode-text { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.kestrel .mode-text strong { font-size: 13px; font-weight: 500; }
+.kestrel .mode-text small { font-size: 11.5px; color: var(--s-muted); }
+.kestrel .mode-check { width: 15px; height: 15px; flex: none; color: light-dark(#2f6fd6, #6aa5ff); }
+.kestrel .mode-row kbd { flex: none; width: 14px; text-align: right; font: inherit; font-size: 11px; color: var(--s-muted); background: none; border: 0; padding: 0; }
+.kestrel .mode-bypass { cursor: default; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--s-line); border-radius: 0; }
+.kestrel .mode-enable { flex: none; padding: 3px 9px; background: transparent; border: 0; border-radius: 6px; font: inherit; font-size: 12px; color: var(--s-ink); cursor: pointer; }
+.kestrel .mode-enable:hover { background: var(--s-soft); }
+.kestrel .ctl .picker-button.ctl-danger { color: var(--s-amber); }
+
+/* ---- rich rendering: tasks, plans, questions, widgets, files, next step, pictures ---------- */
+.kestrel .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* The agent's task list: one quiet card while it works, one folded line once it is all done. */
+.kestrel .todo-card { margin: 0 0 10px; padding: 10px 12px; background: var(--s-paper); border: 1px solid var(--s-line); border-radius: 8px; }
+.kestrel .todo-head { margin-bottom: 6px; font-size: 11px; color: var(--s-muted); }
+.kestrel .todo-list { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; }
+.kestrel .todo-list li { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: 12px; line-height: 1.5; color: var(--s-ink); }
+.kestrel .todo-slot { display: inline-grid; place-items: center; width: 12px; height: 18px; flex: none; }
+.kestrel .todo-slot svg { width: 12px; height: 12px; color: var(--s-muted); }
+.kestrel .todo-circle { width: 9px; height: 9px; box-sizing: border-box; border: 1px solid var(--s-muted); border-radius: 50%; }
+.kestrel .todo-text { min-width: 0; overflow-wrap: anywhere; }
+.kestrel .todo-completed .todo-text { color: var(--s-muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--s-muted) 50%, transparent); }
+.kestrel details.todo-folded { display: block; margin: 0 0 10px; font-size: 11px; color: var(--s-muted); }
+.kestrel details.todo-folded summary { display: inline-flex; align-items: center; gap: 7px; padding: 2px 6px 2px 0; border-radius: 5px; list-style: none; cursor: pointer; }
+.kestrel details.todo-folded summary::-webkit-details-marker { display: none; }
+.kestrel details.todo-folded summary:hover { color: var(--s-ink); }
+.kestrel details.todo-folded summary svg { width: 12px; height: 12px; flex: none; }
+.kestrel details.todo-folded .todo-list { margin: 6px 0 4px 5px; padding-left: 12px; border-left: 1px solid var(--s-line); }
+.kestrel details.todo-folded .todo-list li { font-size: 11px; }
+
+/* Buttons whose main one is chosen by role, not by position. */
+.kestrel .decision-options.explicit button:not(.primary):first-child { background: var(--s-paper); color: var(--s-ink); border-color: var(--s-line); }
+.kestrel .decision-options.explicit button.primary { background: var(--s-ink); color: var(--s-bg); border-color: var(--s-ink); }
+.kestrel .decision-options button { cursor: pointer; }
+.kestrel .decision-options button:disabled { opacity: .45; cursor: default; }
+
+/* A plan to accept: markdown in a scrolling box; folded away once answered. */
+.kestrel .plan-body { margin-top: 10px; padding: 12px 14px; max-height: 50vh; overflow: auto; background: var(--s-paper); border: 1px solid var(--s-line); border-radius: 6px; }
+.kestrel .plan-fold { margin-top: 8px; }
+.kestrel .plan-fold summary { display: inline-block; font-size: 11px; color: var(--s-muted); list-style: none; cursor: pointer; }
+.kestrel .plan-fold summary::-webkit-details-marker { display: none; }
+.kestrel .plan-fold summary:hover { color: var(--s-ink); }
+
+/* Questions: each choice is a row with its meaning under it. */
+.kestrel .choice-list { display: grid; gap: 4px; margin-top: 10px; }
+.kestrel .choice-row { display: flex; align-items: flex-start; gap: 9px; width: 100%; box-sizing: border-box; padding: 7px 10px; background: var(--s-paper); border: 1px solid var(--s-line); border-radius: 6px; font: inherit; color: var(--s-ink); text-align: left; cursor: pointer; }
+.kestrel .choice-row:hover, .kestrel .choice-row:focus-visible { border-color: var(--s-muted); outline: 0; }
+.kestrel .choice-row.picked { border-color: var(--s-ink); }
+.kestrel .choice-mark { display: inline-grid; place-items: center; width: 14px; height: 14px; margin-top: 1px; flex: none; box-sizing: border-box; border: 1px solid var(--s-muted); border-radius: 4px; }
+.kestrel .choice-list.single .choice-mark { border-radius: 50%; }
+.kestrel .choice-row.picked .choice-mark { background: var(--s-ink); border-color: var(--s-ink); color: var(--s-bg); }
+.kestrel .choice-mark svg { width: 10px; height: 10px; }
+.kestrel .choice-text { display: grid; gap: 1px; min-width: 0; }
+.kestrel .choice-label { font-size: 12px; line-height: 1.4; }
+.kestrel .choice-desc { font-size: 11px; line-height: 1.45; color: var(--s-muted); }
+.kestrel .question-block { margin-top: 14px; }
+.kestrel .question-block + .question-block { padding-top: 14px; border-top: 1px solid var(--s-line); }
+.kestrel .question-header { font-size: 10.5px; color: var(--s-muted); }
+.kestrel .decision-box .question-header + .decision-title { margin-top: 2px; }
+.kestrel .question-hint { margin-top: 2px; font-size: 10.5px; color: var(--s-muted); }
+.kestrel .question-other { width: 100%; box-sizing: border-box; margin-top: 6px; padding: 7px 10px; background: var(--s-bg); border: 1px solid var(--s-line); border-radius: 6px; font: inherit; font-size: 11px; color: var(--s-ink); }
+.kestrel .question-other:focus, .kestrel .decision-free input:focus { outline: 0; border-color: var(--s-muted); }
+.kestrel .decision-free input { box-sizing: border-box; }
+.kestrel .question-form .decision-options { margin-top: 14px; }
+
+/* Something the agent drew: flush with the column, its title a quiet caption. */
+.kestrel .widget-card { margin: 0 0 12px; padding: 0; }
+.kestrel .widget-card figcaption { margin-bottom: 6px; font-size: 11px; color: var(--s-muted); }
+.kestrel .widget-card iframe { display: block; width: 100%; border: 0; background: transparent; }
+
+/* A file the agent made for you: one row, actions on the right. */
+.kestrel .file-card { margin: 0 0 10px; padding: 7px 8px 7px 10px; background: var(--s-paper); border: 1px solid var(--s-line); border-radius: 8px; }
+.kestrel .file-card-row { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; }
+.kestrel .file-card-icon { width: 14px; height: 14px; flex: none; color: var(--s-muted); }
+.kestrel .file-card-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--s-ink); }
+.kestrel .file-card-note { flex: 0 10 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--s-muted); }
+.kestrel .file-card-actions { display: flex; gap: 2px; margin-left: auto; flex: none; }
+.kestrel .file-card .thumb-row { margin: 8px 0 0; }
+
+/* Where the turn left things, and the replies to pick from. */
+.kestrel .next-step { margin: 6px 0 10px; padding-top: 12px; border-top: 1px solid var(--s-line); }
+.kestrel .next-step .next-recap.prose { font-size: 12.5px; color: var(--s-muted); }
+.kestrel .next-step .next-ask { margin: 10px 0 0; font-size: 13px; line-height: 1.5; color: var(--s-ink); }
+.kestrel .next-step .decision-options { margin-top: 10px; }
+/* Suggested replies are a distinct prompt, rather than another paragraph in the answer. */
+.kestrel .next-step.next-step-prompt { margin: 18px 0; padding: 18px 20px; border: 1px solid color-mix(in srgb, var(--s-git-blue) 35%, var(--s-line)); border-left: 3px solid var(--s-git-blue); border-radius: 10px; background: color-mix(in srgb, var(--s-git-blue) 5%, var(--s-paper)); }
+.kestrel .next-step-heading { display: flex; align-items: center; gap: 7px; margin-bottom: 12px; color: var(--s-git-blue); font-size: 11px; font-weight: 600; }
+.kestrel .next-step-heading svg { flex: none; }
+.kestrel .next-step-prompt .next-recap.prose { color: var(--s-label); line-height: 1.6; }
+.kestrel .next-step-prompt .next-ask { margin-top: 14px; font-size: 13px; font-weight: 600; }
+.kestrel .next-step-prompt .decision-options { margin-top: 14px; gap: 8px; }
+.kestrel .next-step-prompt .decision-options button { padding: 8px 12px; font-size: 12px; line-height: 1.4; border-radius: 6px; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
+@media (max-width: 560px) { .kestrel .next-step.next-step-prompt { padding: 14px; } }
+
+
+/* Pictures: thumbnails in a wrapping row; groups and the viewer are in pictures.css. */
+.kestrel .thumb-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+.kestrel .thumb { display: inline-block; max-width: 100%; padding: 0; background: var(--s-soft); border: 1px solid var(--s-line); border-radius: 6px; overflow: hidden; line-height: 0; vertical-align: top; cursor: zoom-in; }
+/* No percentage width on the picture: inside a shrink-to-fit button it would size the button to the
+   picture's natural width. The button's own max-width keeps a wide one inside the column. */
+.kestrel .thumb img, .kestrel .prose .thumb img { display: block; width: auto; height: auto; max-width: none; max-height: 160px; }
+/* A paragraph of pictures (markdown puts each in its own) flows beside the next one, 8px apart. */
+.kestrel .prose p:has(> .thumb) { display: inline-flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; max-width: 100%; margin: 0 8px 8px 0; vertical-align: top; }
+.kestrel .thumb:focus-visible { outline: 2px solid var(--s-muted); outline-offset: 2px; }
+.kestrel .thumb-loading { width: 160px; height: 110px; cursor: default; }
+.kestrel .thumb-missing { display: inline-grid; place-items: center; width: 64px; height: 48px; color: var(--s-muted); cursor: default; }
+.kestrel .thumb-missing svg { width: 16px; height: 16px; }
+.kestrel .prose img { max-width: 100%; border-radius: 6px; }
+
+/* Bold in a card's markdown is ordinary ink; only the card's own label is amber. */
+.kestrel .decision-box .prose strong { color: var(--s-ink); font-size: inherit; font-weight: 600; }
+
+/* Tags belong to the session title, separate from project metadata. */
+.kestrel .trow-title-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.kestrel .trow-title-line .trow-title { min-width: 0; flex: 0 1 auto; }
+.kestrel .trow .tcell-age { line-height: 18px; }
+.kestrel .trow-tags { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 40%; flex-shrink: 0; overflow: hidden; font-size: 10px; }
+.kestrel .trow-tag { flex: 0 1 auto; min-width: 0; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid var(--s-line); border-radius: 4px; background: var(--s-soft); color: var(--s-muted); font: inherit; line-height: 14px; padding: 0 5px; }
+.kestrel .trow-tag:hover { color: var(--s-ink); border-color: var(--s-muted); }
+
+.kestrel .trow-tag-more { flex-shrink: 0; }
+/* Compact cards: title and PR above, metadata and age below. */
+@container session-list (max-width: 680px) {
+  .kestrel .stable.compact .trow,
+  .kestrel .stable.compact.with-project .trow,
+  .kestrel .stable.compact.with-project.no-status .trow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    grid-template-rows: 36px 18px;
+    gap: 4px 14px;
+    box-sizing: border-box; height: 84px;
+    width: 100%; margin: 0 0 10px; padding: 12px 16px;
+    border: 1px solid var(--s-line); border-radius: 9px;
+    background: var(--s-paper); align-items: center;
+  }
+  .kestrel .stable.compact .trow:hover { background: color-mix(in srgb, var(--s-ink) 4%, var(--s-paper)); }
+  .kestrel .stable.compact .tcell-main, .kestrel .stable.compact .trow-title-line { display: contents; }
+  .kestrel .stable.compact .trow-title { grid-column: 1 / 4; grid-row: 1; align-self: start; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; width: 100%; line-height: 18px; }
+  .kestrel .stable.compact .trow-sub { grid-column: 1; grid-row: 2; }
+  .kestrel .stable.compact .tcell-age { grid-column: 4; grid-row: 2; justify-self: end; }
+  .kestrel .stable.compact .trow-tags { grid-column: 2; grid-row: 2; max-width: 120px; }
+  .kestrel .stable.compact .tcell-pr { grid-column: 4; grid-row: 1; align-self: start; justify-self: end; max-width: 200px; }
+  .kestrel .stable.compact .tcell-pr:not(:has(.pr-summary)) { display: none; }
+  .kestrel .stable.compact .tcell-status { grid-column: 3; grid-row: 2; justify-self: end; }
+  .kestrel .stable.compact .trow:not(:has(.pr-summary)) .trow-title { grid-column: 1 / -1; }
+}
+
+/* The diff header's layout toggle (Changes.tsx, diffView.ts), and the split view's two columns. */
+.kestrel .diff-header { align-items: center; }
+.kestrel .diff-header-side { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.kestrel .diff-view-toggle { display: inline-flex; gap: 2px; }
+.kestrel .diff-view-toggle .chip { padding: 3px 7px; font-size: 10px; }
+.kestrel .diff-split .diff { table-layout: fixed; }
+.kestrel .diff-split td.diff-code { word-break: break-all; white-space: pre-wrap; }
+
+/* An edit line in the conversation that opens the file's diff (Conversation.tsx, changesFocus.ts). */
+.kestrel .step-list .step-file { padding: 0; margin: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--s-muted) 50%, transparent); text-underline-offset: 2px; word-break: break-word; }
+.kestrel .step-list .step-file:hover { text-decoration-color: currentColor; }
+.kestrel .lineage-from { margin: 0 0 18px; }
+/* A session started here, in the conversation where it happened: one row, spaced like a card. */
+.kestrel .lineage-inline { margin: 4px 0 10px; }
+
+/* No ring around a field that is being typed in, anywhere in the app (Matt, 2026-11-18): the caret
+   already says where the typing goes. This undoes the prototype's focus outline for text fields,
+   selects and editable text only. Buttons, links, checkboxes and radio buttons keep theirs, since
+   nothing else shows which one the keyboard is on. */
+.kestrel input:not([type='checkbox']):not([type='radio']):focus-visible,
+.kestrel textarea:focus-visible,
+.kestrel select:focus-visible,
+.kestrel [contenteditable]:focus-visible { outline: 0; }
+
+/* Settings → Archived: the search box above the list, the same quiet field the session tables use. */
+.kestrel .archive-search { max-width: 260px; margin-bottom: 10px; padding: 4px 2px; border-bottom: 1px solid var(--s-line); }
+.kestrel .archive-search input { font-size: 12px; color: var(--s-ink); }
+
+/* ---- Settings → Worktrees, and the Overview's line -------------------------------------------- */
+.kestrel .worktree-list { margin-bottom: 10px; }
+.kestrel .worktree-size { flex: none; width: 58px; font-size: 11px; color: var(--s-label); font-variant-numeric: tabular-nums; text-align: right; }
+.kestrel .worktree-name { display: grid; gap: 1px; }
+.kestrel .worktree-name .link-button { justify-self: start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--s-ink); font-size: 12px; }
+.kestrel .archive-list .worktree-name small { max-width: 100%; }
+/* What would be lost is the one thing here that is a warning: the error colour, as elsewhere. */
+.kestrel .archive-list .worktree-loss { color: var(--command-error, var(--s-red)); }
+.kestrel .worktree-bulk { display: flex; align-items: center; gap: 10px; margin: 0 0 18px; }
+.kestrel .worktree-bulk small { font-size: 11px; color: var(--s-muted); }
+.kestrel .overview-notices { margin: 0; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-side); }
+.kestrel .overview-notice { display: flex; align-items: center; gap: 10px; padding: 12px 14px; font-size: 13px; color: var(--s-ink); }
+.kestrel .overview-notice + .overview-notice { border-top: 1px solid var(--s-line); }
+.kestrel .overview-notice-icon { width: 16px; height: 16px; flex: none; color: var(--s-muted); }
+.kestrel .overview-notice-message { flex: 1; min-width: 0; margin: 0; }
+.kestrel .overview-notice-detail { color: var(--s-muted); white-space: nowrap; }
+.kestrel .overview-notice-action { display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 2px 0; font-size: 12px; color: light-dark(#315b48, #9bc9ac); text-decoration: none; }
+.kestrel .overview-notice-action svg { width: 14px; height: 14px; }
+.kestrel .overview-notice-action:hover { text-decoration: underline; }
+.kestrel .overview-notice-action:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; border-radius: 2px; }
+.kestrel .worktree-bulk .link-button { padding: 0; font-size: 12px; }
+/* "Remove all", confirmed in place: what it loses, then the button. Not a dialog. */
+.kestrel .worktree-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 18px; padding: 10px 12px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-side); font-size: 12px; color: var(--s-label); }
+.kestrel .worktree-confirm p { flex: 1 1 100%; margin: 0; line-height: 1.5; }
+.kestrel .worktree-confirm strong { font-weight: 500; color: var(--command-error, var(--s-red)); }
+
+.kestrel .overview-view-all { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 12px; }
+.kestrel .overview-view-all svg { width: 14px; height: 14px; }
+
+/* Bordered dropdowns: one caret for all of them, drawn in the text colour with room on its right,
+   instead of the browser's own, which sits against the edge. */
+.kestrel :is(select.form-control, .settings-choice select, .sandbox-allow-add select, .detail-label select):not([multiple]) {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 30px;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 17px) 55%, calc(100% - 12px) 55%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}

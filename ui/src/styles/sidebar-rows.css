@@ -1,0 +1,97 @@
+/* Container rows in the sidebar (groups, projects, tags), the Archive button on session rows, and
+   the project hover card.
+   - A project or tag row is a `.fold-row`: the row's button, with its … and + laid over its right
+     end. They show on hover or keyboard focus in place of the row's dot, so nothing shifts: the +
+     takes the dot's place and the … sits just left of it (at the far right on a tag, which has no +).
+     Left of the … is the arrow that opens the container's page (`.row-open`).
+     A group row keeps its buttons inline (`.folder-actions`), the arrow first, then the ….
+   - A click anywhere on a group's name row folds it, as on a project row: the name button takes the
+     row's width up to its buttons.
+   - A session row is a `.tree-row-box`: the row's button, with its Archive button (RowArchive.tsx)
+     laid over its right end in the place of the + on a project row. It shows on hover or keyboard
+     focus and hides the row's dot or icons meanwhile; a session that cannot be archived has no
+     button, and keeps its dot.
+   - The hover card (ProjectCard.tsx) wears the context menu's surface. */
+.kestrel .studio-sidebar .row-more { width: var(--slot); height: var(--slot); flex: none; padding: 0; justify-content: center; align-items: center; border-radius: 4px; }
+.kestrel .studio-sidebar .row-more svg { width: 12px; height: 12px; }
+.kestrel .studio-sidebar .row-more:hover, .kestrel .studio-sidebar .row-plus:hover { color: var(--s-ink); }
+
+.kestrel .studio-sidebar .fold-row { position: relative; }
+.kestrel .studio-sidebar .fold-row > .row-more, .kestrel .studio-sidebar .fold-row > .row-plus { display: none; position: absolute; top: calc((var(--side-row) - var(--slot)) / 2); }
+.kestrel .studio-sidebar .fold-row > .row-plus { right: var(--edge); }
+.kestrel .studio-sidebar .fold-row > .row-more { right: calc(var(--edge) + var(--slot) + 2px); }
+.kestrel .studio-sidebar .fold-row > .row-more:last-child { right: var(--edge); }
+.kestrel .studio-sidebar .fold-row > .row-open { right: calc(var(--edge) + var(--slot) + 2px); }
+.kestrel .studio-sidebar .fold-row:has(> .row-plus) > .row-open { right: calc(var(--edge) + 2 * (var(--slot) + 2px)); }
+.kestrel .studio-sidebar .fold-row:is(:hover, :has(> :focus-visible)) > :is(.row-more, .row-plus) { display: inline-flex; }
+.kestrel .studio-sidebar .fold-row:is(:hover, :has(> :focus-visible)) > .side-link .row-dot { visibility: hidden; }
+
+.kestrel .studio-sidebar .tree-row-box { position: relative; }
+.kestrel .studio-sidebar .tree-row-box > .row-archive { display: none; position: absolute; top: calc((var(--side-row) - var(--slot)) / 2); right: var(--edge); }
+.kestrel .studio-sidebar .tree-row-box:is(:hover, :has(> :focus-visible)) > .row-archive { display: inline-flex; }
+/* It lies over the end of a long title: it wears the hovered row's colour, solid, and fades the
+   text out to its left so the two never overlap. */
+.kestrel .studio-sidebar .tree-row-box > .row-archive { background: var(--s-soft); box-shadow: -8px 0 6px -2px var(--s-soft); }
+/* Over the button the row still reads as hovered. */
+.kestrel .studio-sidebar .tree-row-box:has(> .row-archive:hover) > .tree-row { background: var(--s-soft); }
+.kestrel .studio-sidebar .tree-row-box:has(> .row-archive:hover) > .tree-row .tree-title { color: var(--s-label); }
+.kestrel .studio-sidebar .tree-row-box:has(> .row-archive):is(:hover, :has(> :focus-visible)) > .tree-row .row-dot { visibility: hidden; }
+
+.kestrel .studio-sidebar .folder-name { flex: 1 1 auto; }
+.kestrel .studio-sidebar .tag-link .fold-label { min-width: 0; }
+
+/* ---- the project hover card ---------------------------------------------------------------- */
+.kestrel .hover-card { position: fixed; z-index: 55; box-sizing: border-box; width: 264px; min-width: 0; }
+/* The card's hover area reaches past its edges and across the gap to the sidebar, so a pointer that
+   comes in a little high, low or slow is still on the card. Nothing is drawn. */
+.kestrel .hover-card::before { content: ''; position: absolute; inset: -12px -12px -12px -6px; z-index: -1; }
+.kestrel .hover-card .card-line { display: flex; align-items: center; gap: 8px; min-height: 26px; padding: 4px 9px; font-size: 12px; color: var(--s-ink); }
+.kestrel .hover-card .card-line > svg { width: 13px; height: 13px; flex: none; color: var(--s-muted); }
+.kestrel .hover-card .card-head { padding-right: 4px; }
+.kestrel .hover-card .card-head strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.kestrel .hover-card .card-pin { width: 22px; height: 22px; flex: none; padding: 0; border-radius: 5px; }
+.kestrel .hover-card .card-pin svg { width: 13px; height: 13px; }
+.kestrel .hover-card .card-pin:hover { background: var(--s-soft); color: var(--s-ink); }
+.kestrel .hover-card .card-pin.pinned { color: var(--s-ink); }
+.kestrel .hover-card .card-pin.pinned svg { fill: currentColor; }
+.kestrel .hover-card .card-muted { color: var(--s-muted); }
+.kestrel .hover-card .card-path .path-detail { display: flex; flex: 1; min-width: 0; font-size: 11px; color: var(--s-muted); }
+.kestrel .hover-card .card-path:hover .path-detail { color: var(--s-ink); }
+/* A menu item stretches its spans; a path's parts keep their own widths, the head giving way. */
+.kestrel .hover-card .path-detail .path-head { flex: 0 1 auto; }
+.kestrel .hover-card .path-detail .path-tail, .kestrel .hover-card .path-detail .path-note { flex: none; }
+.kestrel .hover-card .path-detail .path-note { white-space: pre; }
+/* A session's card (SessionCard.tsx): long lines end in an ellipsis; the dot sits after the title;
+   a changes or request line takes its tone on the icon alone. */
+.kestrel .hover-card .card-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .hover-card code.card-text { font-size: 11px; }
+.kestrel .hover-card .card-head .status-dot { flex: none; margin-right: 5px; }
+.kestrel .hover-card .card-line.card-tone > svg { color: inherit; }
+.kestrel .hover-card .card-line.card-tone > span { color: var(--s-ink); }
+.kestrel .hover-card .card-copy { padding-right: 4px; }
+.kestrel .hover-card .card-copy .copy-button { flex: none; }
+.kestrel .hover-card button.card-line { width: 100%; text-align: left; }
+
+/* A group row, like a project row: on hover or focus its + takes the dot's place. */
+.kestrel .studio-sidebar .folder-row:is(:hover, :has(:focus-visible)) > .row-dot { display: none; }
+
+/* ---- renaming in the row --------------------------------------------------------------------
+   Every row with a name of its own is renamed in place on a double-click (a session, a project, a
+   group, a workstream) or from its menu. The edit box sits inside the name's own element and takes
+   exactly the name's place: the name's font and line height, no border and no padding, as wide as
+   what is typed. So the icon, the chevron, the dot, the row's height and every row below stay
+   where they were. What says "this is being edited" is a faint fill and a line under the text,
+   both drawn inside the box (the name's element clips anything drawn outside it). */
+.kestrel .studio-sidebar .inline-input {
+  flex: 0 1 auto; field-sizing: content; box-sizing: content-box; min-width: 3ch; max-width: 100%;
+  height: 1lh; margin: 0; padding: 0; border: 0; border-radius: 2px; outline: 0;
+  font: inherit; line-height: inherit; letter-spacing: inherit; color: var(--s-ink);
+  background: color-mix(in srgb, var(--s-muted) 16%, transparent); box-shadow: inset 0 -1px 0 var(--s-muted);
+}
+.kestrel .studio-sidebar :is(.tree-title, .fold-label, .tree-main) > .inline-input { display: block; }
+/* A group's name while it is renamed: the same box as its button, without the whole-row click target. */
+.kestrel .studio-sidebar .folder-row > .folder-name.renaming { cursor: text; }
+.kestrel .studio-sidebar .folder-row > .folder-name.renaming::after { content: none; }
+
+/* The hover card's changed-files line ends with the lines added and removed, pushed to the right. */
+.kestrel .hover-card .card-line-counts { margin-left: auto; padding-left: 10px; flex: none; }

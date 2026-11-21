@@ -1,0 +1,118 @@
+/* Shared by conversation messages, plans, recaps, and the Markdown specimen.
+
+   ONE text size. .prose sets it and every block inside inherits it: paragraphs, lists, quotes and
+   tables are all the same size. The inherit rule below uses :where(), which has no specificity, so
+   any rule elsewhere that sizes a bare `p` or `li` inside a container that can hold markdown would
+   win and split the sizes (it did: `.chat-message p` made paragraphs 12px beside 14px lists). Size
+   such things by their own class or with a child selector, never by element inside a container. */
+.kestrel { --prose-size: 14px; --prose-leading: 1.7; }
+.kestrel .prose {
+  font-size: var(--prose-size);
+  line-height: var(--prose-leading);
+  color: var(--s-ink);
+  overflow-wrap: anywhere;
+  word-break: normal;
+  min-width: 0;
+}
+.kestrel .prose :where(p, ul, ol, pre, table, blockquote) { margin: 0 0 1em; font-size: inherit; line-height: inherit; }
+.kestrel .prose :where(h1, h2, h3, h4, h5, h6) {
+  margin: calc(var(--prose-size) * 1.5) 0 calc(var(--prose-size) * .55);
+  font-family: inherit;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -.015em;
+  color: var(--s-ink);
+}
+.kestrel .prose h1 { font-size: 1.43em; }
+.kestrel .prose h2 { font-size: 1.28em; }
+.kestrel .prose h3 { font-size: 1.12em; }
+/* A title followed by a subtitle is one group, not two new sections. */
+.kestrel .prose :is(h1, h2, h3, h4, h5, h6) + :is(h1, h2, h3, h4, h5, h6) { margin-top: calc(var(--prose-size) * .65); }
+.kestrel .prose :where(h4, h5, h6) { font-size: 1em; letter-spacing: 0; }
+.kestrel .prose h5 { color: var(--s-muted); }
+.kestrel .prose h6 { color: var(--s-muted); font-weight: 500; }
+.kestrel .prose strong { font-weight: 600; }
+/* Keep wrapped lines on the text axis. Tight lists stay tight; paragraphs within loose lists
+   get a smaller rhythm, and a nested list belongs visually to its parent item. */
+.kestrel .prose :where(ul, ol) { padding-inline-start: 1.65em; list-style-position: outside; }
+.kestrel .prose li { padding-inline-start: .25em; margin: 0; }
+.kestrel .prose li + li { margin-top: .45em; }
+.kestrel .prose li::marker { color: var(--s-muted); font-variant-numeric: tabular-nums; }
+.kestrel .prose li > :where(ul, ol) { margin-top: .45em; margin-bottom: 0; }
+.kestrel .prose li > p { margin: .55em 0; }
+.kestrel .prose li > :first-child { margin-top: 0; }
+.kestrel .prose li > :last-child { margin-bottom: 0; }
+.kestrel .prose li:has(> p) + li { margin-top: .9em; }
+.kestrel .prose ul ul { list-style-type: circle; }
+.kestrel .prose ul ul ul { list-style-type: square; }
+.kestrel .prose .task-list-item { list-style: none; position: relative; }
+.kestrel .prose .task-list-item > input[type='checkbox'],
+.kestrel .prose .task-list-item > p > input[type='checkbox'] {
+  position: absolute; inset-inline-start: -1.4em; top: .4em;
+  width: .95em; height: .95em; margin: 0; accent-color: var(--s-muted);
+}
+.kestrel .prose code {
+  padding: .12em .35em;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--s-ink) 6%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .86em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+.kestrel .prose pre {
+  padding: 14px 16px;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--s-line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--s-side) 65%, var(--s-bg));
+  line-height: 1.65;
+  tab-size: 2;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.kestrel .prose pre code { padding: 0; border-radius: 0; background: none; font-size: .86em; }
+/* A code block (CodeBlock.tsx): the frame is the wrapper's, so the slim row with the language and
+   the Copy / Run buttons sits above the code and never covers it; the code scrolls on its own. */
+.kestrel .prose .code-block {
+  margin: 0 0 1em;
+  max-width: 100%;
+  border: 1px solid var(--s-line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--s-side) 65%, var(--s-bg));
+}
+.kestrel .prose .code-block > pre { margin: 0; padding: 0 16px 12px; border: 0; border-radius: 0 0 8px 8px; background: none; }
+.kestrel .prose .code-head { display: flex; align-items: center; gap: 8px; min-height: 26px; padding: 3px 6px 0 16px; user-select: none; -webkit-user-select: none; }
+.kestrel .prose .code-lang { color: var(--s-muted); font: 11px/1 var(--mono); }
+.kestrel .prose .code-tools { display: flex; gap: 2px; margin-left: auto; visibility: hidden; }
+.kestrel .prose .code-block:hover .code-tools,
+.kestrel .prose .code-block:focus-within .code-tools,
+.kestrel .prose .code-tools:has(.is-running) { visibility: visible; }
+.kestrel .prose .code-run[aria-disabled='true'] { opacity: .4; cursor: default; }
+.kestrel .prose .code-run[aria-disabled='true']:hover { background: transparent; color: var(--s-muted); }
+@media (hover: none) { .kestrel .prose .code-tools { visibility: visible; } }
+.kestrel .prose blockquote {
+  padding: .15em 0 .15em 1em;
+  border-inline-start: 2px solid var(--s-line);
+  color: var(--s-muted);
+}
+.kestrel .prose blockquote > :last-child { margin-bottom: 0; }
+.kestrel .prose a { color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: .2em; text-decoration-thickness: 1px; }
+.kestrel .prose a:hover { text-decoration-color: currentColor; }
+.kestrel .prose a:focus-visible { outline: 2px solid var(--s-muted); outline-offset: 3px; border-radius: 2px; }
+.kestrel .prose hr { border: 0; border-top: 1px solid var(--s-line); margin: 1.75em 0; }
+/* Inline code may break anywhere: nowrap signatures otherwise steal the description column.
+   Plain words keep their width (break-word does not shrink min-content); the region scrolls instead. */
+.kestrel .prose .markdown-table { max-width: 100%; overflow-x: auto; margin: 0 0 1em; border: 1px solid var(--s-line); border-radius: 8px; }
+.kestrel .prose .markdown-table:focus-visible { outline: 2px solid var(--s-muted); outline-offset: 3px; }
+.kestrel .prose table { display: table; width: 100%; margin: 0; border-collapse: collapse; table-layout: auto; font-size: .93em; line-height: 1.55; overflow-wrap: break-word; }
+.kestrel .prose :where(th, td) { padding: .75em 1em; border-bottom: 1px solid var(--s-line); text-align: start; vertical-align: top; min-width: 7em; }
+.kestrel .prose th { font-weight: 600; background: color-mix(in srgb, var(--s-soft) 55%, var(--s-bg)); white-space: normal; }
+.kestrel .prose tbody tr:last-child td { border-bottom: 0; }
+.kestrel .prose :where(th, td) code { white-space: normal; overflow-wrap: anywhere; word-break: normal; }
+.kestrel .prose img { max-width: 100%; height: auto; border-radius: 6px; }
+.kestrel .prose .footnotes { margin-top: 2em; padding-top: 1em; border-top: 1px solid var(--s-line); color: var(--s-muted); font-size: .85em; }
+.kestrel .prose .footnotes h2 { font-size: 1em; margin-top: 0; }
+.kestrel .prose > :first-child { margin-top: 0; }
+.kestrel .prose > :last-child { margin-bottom: 0; }

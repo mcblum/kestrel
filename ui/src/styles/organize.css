@@ -1,0 +1,111 @@
+/* Tags and pins. Tags: quiet grey chips in a session's top line, and the TAGS list in the sidebar. No colour:
+   a tag is a label, not a status. */
+.kestrel .bar-tags { flex-wrap: wrap; gap: 4px; }
+.kestrel .tag-chip { display: inline-flex; align-items: center; height: 18px; border-radius: 9px; background: color-mix(in srgb, var(--s-muted) 13%, transparent); color: var(--s-label, var(--s-muted)); font-size: 11px; line-height: 18px; }
+.kestrel .tag-chip button { background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; }
+.kestrel .tag-chip-name { padding: 0 2px 0 8px !important; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .tag-chip-name:hover { color: var(--s-ink); text-decoration: underline; text-underline-offset: 2px; }
+.kestrel .tag-chip-remove { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 18px; margin-right: 2px; opacity: .55; }
+.kestrel .tag-chip-remove:hover { opacity: 1; color: var(--s-ink); }
+.kestrel .tag-chip-remove svg { width: 10px !important; height: 10px !important; }
+.kestrel .tag-add { display: inline-flex; align-items: center; gap: 2px; height: 18px; padding: 0 6px; border: 1px dashed color-mix(in srgb, var(--s-muted) 45%, transparent); border-radius: 9px; background: none; color: var(--s-muted); font: inherit; font-size: 11px; cursor: pointer; }
+.kestrel .tag-add:hover { color: var(--s-ink); border-color: var(--s-muted); }
+.kestrel .tag-add svg { width: 10px !important; height: 10px !important; }
+.kestrel .tag-input-wrap { display: inline-flex; }
+.kestrel .session-bar .tag-input { flex: none; width: 140px; height: 20px; box-sizing: border-box; padding: 0 6px; font: inherit; font-size: 11px; color: var(--s-ink); background: var(--s-paper); border: 1px solid var(--s-muted); border-radius: 9px; outline: 0; }
+
+.kestrel .studio-sidebar .tag-link { padding-top: 3px; padding-bottom: 3px; }
+/* PINNED: each pinned item is drawn as in its own list; the slot around it shows where a drop lands,
+   with the same line as the other sidebar lists. */
+.kestrel .pin-slot { position: relative; }
+/* Nothing pinned yet, a row being dragged: one empty slot to drop it in. */
+.kestrel .studio-sidebar .tag-link { position: relative; }
+/* A tag and, folded open, its sessions. The block shows where a dragged tag lands; the row lights
+   up when a session dropped on it would get the tag. The row itself is laid out as a project row
+   (sidebar-rows.css). */
+.kestrel .tag-block { position: relative; }
+.kestrel .tag-block.drop-before::before, .kestrel .tag-block.drop-after::after { content: ''; position: absolute; z-index: 1; left: 4px; right: 4px; height: 2px; border-radius: 1px; background: var(--s-accent); }
+.kestrel .tag-block.drop-before::before { top: -1px; }
+.kestrel .tag-block.drop-after::after { bottom: -1px; }
+.kestrel .studio-sidebar .tag-link { cursor: pointer; }
+.kestrel .studio-sidebar .tag-link.drop-over { background: var(--s-soft); box-shadow: inset 0 0 0 1px var(--s-muted); }
+.kestrel .pin-slot.drop-before::before, .kestrel .pin-slot.drop-after::after { content: ''; position: absolute; z-index: 1; left: 4px; right: 4px; height: 2px; border-radius: 1px; background: var(--s-accent); }
+.kestrel .pin-slot.drop-before::before { top: -1px; }
+/* Most recent first: a row dropped on PINNED gets pinned and sorted, so the whole list lights up. */
+.kestrel .pin-list.drop-over { background: var(--s-soft); border-radius: 6px; }
+.kestrel .pin-slot.drop-after::after { bottom: -1px; }
+
+/* Hiding the sidebar (⌘B): one grey button fixed on the window's top line, in the same place whether
+   the sidebar is shown or hidden. On the Mac it sits just right of the traffic lights (main.mjs puts
+   them at x 14, y 14; as drawn the last one ends near x 74), centred on them, in the strip
+   above the wordmark; in full screen (no lights) and outside the Mac it sits at the far left, and
+   the sidebar keeps a top strip of the same height for it. With the sidebar hidden, the tab strip
+   starts after it. */
+.kestrel { --toggle-x: 8px; --toggle-y: 11px; --toggle-size: 24px; }
+.kestrel.mac-chrome:not(.full-screen) { --toggle-x: 80px; --toggle-y: 8px; }
+.kestrel .window-toggle { position: fixed; z-index: 60; left: var(--toggle-x); top: var(--toggle-y); width: var(--toggle-size); height: var(--toggle-size); flex: none; border: 0; border-radius: 5px; cursor: pointer; letter-spacing: 0; -webkit-app-region: no-drag; }
+.kestrel .window-toggle svg { width: 15px; height: 15px; }
+.kestrel .window-toggle:hover { background: color-mix(in srgb, var(--s-ink) 10%, transparent); color: var(--s-ink); }
+.kestrel:not(.mac-chrome) .studio-sidebar { padding-top: 44px; }
+.kestrel.sidebar-hidden .tab-strip { padding-left: calc(var(--toggle-x) + var(--toggle-size) + 6px); }
+
+/* A workstream row is a tag row with its own icon (SidebarWorkstreams.tsx). The rows under it are
+   references: each names the project its session is in, quietly, before the title. */
+/* Two lines: the session's title, then the project it is in, smaller and quieter. The row is taller
+   than the sidebar's one-line rows, on purpose: it is what tells a reference from a session listed
+   in its own home. */
+.kestrel .studio-sidebar .tree-row.reference { height: auto; min-height: 46px; padding-top: 7px; padding-bottom: 7px; }
+.kestrel .studio-sidebar .tree-row.reference .tree-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; white-space: normal; }
+.kestrel .studio-sidebar .tree-row.reference .tree-main { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .studio-sidebar .tree-row .tree-where { display: block; font-size: 10.5px; line-height: 1.3; color: var(--s-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* One highlighted row for the open session: the row it was opened from. Its other row (its home,
+   or a reference to it) only marks that the session is open: a short bar at the row's left edge and
+   the title in ink, no filled background. */
+/* A short straight bar, drawn as a background so the row's rounded corners cannot bend it (an inset
+   shadow followed them and read as a bracket). */
+.kestrel .studio-sidebar .tree-row.open-elsewhere { background-image: linear-gradient(var(--s-muted), var(--s-muted)); background-repeat: no-repeat; background-position: left center; background-size: 2px 14px; }
+.kestrel .studio-sidebar .tree-row.open-elsewhere .tree-title { color: var(--s-ink); }
+
+/* The workstream page (WorkstreamPage.tsx): its objective, read or edited in place. */
+.kestrel .workstream-objective { display: flex; align-items: flex-start; gap: 12px; }
+.kestrel .workstream-objective p { margin: 0; flex: 1; min-width: 0; line-height: 1.5; white-space: pre-wrap; }
+.kestrel .workstream-objective.editing { flex-direction: column; align-items: stretch; gap: 8px; }
+.kestrel .workstream-objective textarea { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--s-line); border-radius: 6px; background: var(--s-paper); color: var(--s-ink); font: inherit; line-height: 1.5; resize: vertical; }
+.kestrel .workstream-objective-actions { display: flex; gap: 8px; }
+.kestrel .page .quiet { margin: 0; color: var(--s-muted); }
+.kestrel .workstream-wait { margin-top: 8px; }
+.kestrel .workstream-wait .link-button { padding: 0; font-size: inherit; }
+
+/* The workstream chip on a session (WorkstreamChip.tsx): a tag chip that is a button, with the
+   workstream's icon. The count is quieter than the name. */
+.kestrel .workstream-chip { gap: 5px; padding: 0 8px; border: 0; cursor: pointer; font: inherit; font-size: 11px; max-width: 260px; }
+.kestrel .workstream-chip svg { width: 11px; height: 11px; flex: none; }
+.kestrel .workstream-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .workstream-chip-count { flex: none; color: var(--s-muted); }
+.kestrel .workstream-chip:hover { background: color-mix(in srgb, var(--s-muted) 22%, transparent); }
+
+/* The top row of a workstream stands for its lead session: two lines (the workstream's name, then
+   the lead's project and how many sessions it delegated to), so it is as tall as the rows under it.
+   The chevron after the name is the fold, a target of its own; the rest of the row opens the lead. */
+/* Room above and below the two lines, so the hover fill does not sit against the text. */
+/* (The extra class in the selector is to win over the one-line row height in sidebar-rhythm.css, which loads later.) */
+.kestrel .studio-sidebar .workstream-block .side-link.workstream-link { height: auto; min-height: 46px; padding-top: 7px; padding-bottom: 7px; align-items: center; }
+.kestrel .studio-sidebar .workstream-label { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 0 1 auto; text-align: left; }
+.kestrel .studio-sidebar .workstream-label .tree-main { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .studio-sidebar .workstream-label .tree-where { display: block; font-size: 10.5px; line-height: 1.3; color: var(--s-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kestrel .studio-sidebar .fold-toggle { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; flex: none; width: 16px; height: 16px; margin-left: -4px; border-radius: 4px; cursor: pointer; }
+.kestrel .studio-sidebar .fold-toggle:hover { background: color-mix(in srgb, var(--s-muted) 22%, transparent); }
+.kestrel .studio-sidebar .fold-toggle:focus-visible { outline: 1px solid var(--s-muted); outline-offset: 0; }
+.kestrel .studio-sidebar .fold-toggle svg.fold-chevron { width: 11px; height: 11px; color: var(--s-muted); opacity: .7; }
+.kestrel .studio-sidebar .workstream-link.open-elsewhere { background-image: linear-gradient(var(--s-muted), var(--s-muted)); background-repeat: no-repeat; background-position: left center; background-size: 2px 30px; }
+/* A two-line row (a workstream's lead, a session listed under one) marks "open elsewhere" over both its lines. */
+.kestrel .studio-sidebar .tree-row.reference.open-elsewhere { background-size: 2px 30px; }
+/* The workstream's second line while its name is edited in place. */
+.kestrel .studio-sidebar .workstream-label .tree-where .inline-input { font-size: 10.5px; height: 16px; }
+/* An archived workstream's page says so, with the way back. Grey, like the rest of the chrome. */
+.kestrel .workstream-archived { display: flex; align-items: center; gap: 12px; margin: 0 0 18px; padding: 10px 12px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-side); color: var(--s-label); font-size: 12px; }
+.kestrel .workstream-archived button { flex: none; margin-left: auto; }
+/* A session list drawn as a tree (a workstream's page): each level is indented, with the line from its parent, as in the sidebar. */
+.kestrel .trow.nested .tcell-main { position: relative; padding-left: calc(var(--depth) * 22px); }
+.kestrel .trow.nested .tcell-main::before { content: ''; position: absolute; left: calc((var(--depth) - 1) * 22px + 6px); top: -10px; bottom: 50%; width: 9px; border-left: 1px solid var(--s-line); border-bottom: 1px solid var(--s-line); border-bottom-left-radius: 4px; }

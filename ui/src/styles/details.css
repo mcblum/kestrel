@@ -1,0 +1,98 @@
+/* ---- a session's Details pane ------------------------------------------------------------------
+   The layout rule is in components/details/Rows.tsx: quiet section labels, no dividers; lines across
+   the pane (long values cut in the middle, never wrapped) and aligned label/value facts. Grey
+   throughout; colour only where it says something (changes, behind). */
+.kestrel {
+  --details-line: 22px;
+}
+.kestrel .details-content { display: grid; gap: 22px; align-content: start; }
+.kestrel .details-section { min-width: 0; }
+.kestrel .details-content .details-head { margin: 0 0 6px; font-size: 11px; font-weight: 500; letter-spacing: 0; color: var(--s-muted); }
+.kestrel .details-lines { display: grid; min-width: 0; }
+.kestrel .details-quiet { color: var(--s-muted); }
+.kestrel .details-mono { font-family: var(--mono); font-size: 10.5px; }
+/* The server predates the Details routes: said once, at the top. */
+.kestrel .details-notice { margin: 0; padding: 6px 8px; border-radius: 5px; background: var(--s-soft); color: var(--s-ink); font-size: 11px; }
+
+/* A line across the pane: one line, its actions at the right. Text stays selectable. */
+.kestrel .details-line { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: var(--details-line); }
+.kestrel .details-line.details-group { margin-top: 6px; }
+.kestrel .details-line-value { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; -webkit-user-select: text; cursor: auto; }
+.kestrel .details-actions { flex: none; display: inline-flex; gap: 2px; }
+.kestrel .details-actions .copy-button { opacity: 0; }
+.kestrel .details-line:hover .copy-button, .kestrel .details-line:focus-within .copy-button { opacity: 1; }
+/* The refresh button is the only way to ask again, so it is always there. */
+.kestrel .details-actions .details-refresh { opacity: 1; }
+.kestrel .details-refresh:disabled { opacity: .4; cursor: default; }
+.kestrel .details-primary { color: var(--s-ink); font-size: 13px; font-weight: 600; }
+.kestrel .details-clip { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* A value cut in the middle: the head gives way first and ends in an ellipsis, down to a few
+   characters; only in a line too narrow even for that does the tail give way, losing its start
+   (right-to-left box, the text inside isolated left-to-right), so the very end always shows. */
+.kestrel .middle { display: inline-flex; max-width: 100%; min-width: 0; vertical-align: bottom; white-space: nowrap; overflow: hidden; }
+.kestrel .middle-head { flex: 0 1000 auto; min-width: 3ch; overflow: hidden; text-overflow: ellipsis; }
+.kestrel .middle-tail { flex: 0 1 auto; min-width: 0; overflow: hidden; direction: rtl; }
+.kestrel .middle-tail > bdi { direction: ltr; unicode-bidi: isolate; }
+.kestrel .details-line-value > .middle { display: flex; }
+
+/* Git state. */
+.kestrel .details-counts { margin-left: 6px; font-variant-numeric: tabular-nums; }
+.kestrel .sync-behind, .kestrel .sync-diverged { color: var(--s-amber); }
+.kestrel .details-line-value > .details-base { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
+.kestrel .details-base-word, .kestrel .details-base-commit { flex: none; }
+
+/* Something in a value that does something when pressed: it looks like text until hovered. */
+.kestrel .details-link { display: inline; padding: 0; margin: 0; background: none; border: 0; font: inherit; color: var(--s-ink); text-align: left; cursor: pointer; text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--s-muted) 50%, transparent); text-underline-offset: 2px; }
+.kestrel .details-link:hover { text-decoration-color: currentColor; }
+
+/* Main checkout: a native disclosure, closed until asked for. */
+.kestrel .details-disclosure > summary { display: flex; align-items: center; gap: 3px; min-height: var(--details-line); list-style: none; color: var(--s-muted); cursor: pointer; width: fit-content; border-radius: 4px; }
+.kestrel .details-disclosure > summary::-webkit-details-marker { display: none; }
+.kestrel .details-disclosure > summary:hover { color: var(--s-ink); }
+.kestrel .details-disclosure > summary:focus-visible { outline: 2px solid var(--s-focus, var(--s-muted)); outline-offset: 1px; }
+.kestrel .details-chevron { width: 12px; height: 12px; margin-left: -1px; transition: transform .12s ease; }
+.kestrel .details-disclosure[open] .details-chevron { transform: rotate(90deg); }
+.kestrel .details-disclosure > .details-line { padding-left: 14px; }
+
+/* Facts: one label column for the section, as narrow as its longest label; every row alike. */
+.kestrel .details-facts { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 12px; }
+.kestrel .details-row { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: baseline; min-height: var(--details-line); padding: 2px 0; box-sizing: border-box; }
+/* Separate configuration, usage, and timing without introducing more headings or rules. */
+.kestrel .details-row.details-fact-group { margin-top: 8px; }
+.kestrel .details-row time { color: var(--s-muted); font-variant-numeric: tabular-nums; }
+/* Opacity keeps actions reachable with Tab; focus reveals the whole action group. */
+@media (hover: none) { .kestrel .details-actions .copy-button { opacity: 1; } }
+.kestrel .details-content .details-row dt { margin: 0; font-size: 11px; color: var(--s-muted); }
+.kestrel .details-row dd { margin: 0; min-width: 0; color: var(--s-ink); overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; cursor: auto; }
+.kestrel .details-row .tag-input { width: 120px; height: 20px; box-sizing: border-box; padding: 0 6px; font: inherit; font-size: 11px; color: var(--s-ink); background: var(--s-paper); border: 1px solid var(--s-muted); border-radius: 9px; outline: 0; }
+/* The Details tag editor is the top line's, laid out for a column. */
+.kestrel .details-row .bar-tags { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+
+/* ---- the session's top lines: always two ------------------------------------------------------
+   One: the title, the most prominent text, cut with an ellipsis; the pane icons on the right.
+   Two, smaller and quieter: group, project, git summary. Never wraps into a third. */
+.kestrel .session-bar.session-head { flex-direction: column; align-items: stretch; gap: 0; padding: 5px 16px 6px; }
+.kestrel .session-head .bar-line { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.kestrel .session-head .bar-line-title { min-height: 26px; }
+.kestrel .session-head .bar-line-where { min-height: 18px; gap: 10px; font-size: 10.5px; overflow: hidden; }
+.kestrel .session-head .bar-line-where > * { flex: none; }
+.kestrel .session-head .bar-line-where > .bar-project { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.kestrel .session-head .bar-line-where .bar-project { font-weight: 500; color: var(--s-label, var(--s-muted)); }
+.kestrel .session-head .bar-none { font-weight: 400; color: var(--s-muted); }
+.kestrel .session-head .bar-title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--s-ink); font-size: 13px; font-weight: 600; }
+.kestrel .session-head .tools-missing { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.kestrel .git-summary { gap: 5px; padding: 1px 6px; margin: 0 -6px; background: transparent; border: 0; border-radius: 5px; font: inherit; color: var(--s-muted); cursor: pointer; }
+.kestrel .git-summary:hover { background: var(--s-soft); color: var(--s-ink); }
+.kestrel .git-summary-branch { white-space: nowrap; }
+.kestrel .git-summary-counts { display: inline-flex; gap: 4px; font-variant-numeric: tabular-nums; }
+
+/* Named destinations: labels explain the path; underlining signals the action. */
+.kestrel .details-field { min-width: 0; margin-top: 12px; }
+.kestrel .details-field-label { margin: 0 0 3px; font-size: 11px; font-weight: 500; color: var(--s-muted); }
+.kestrel .details-path-link { display: block; width: 100%; min-width: 0; }
+.kestrel .details-path-link .middle { display: flex; }
+.kestrel .details-repository-link { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; }
+.kestrel .details-repository-link svg { width: 12px; height: 12px; color: var(--s-muted); }
+.kestrel .details-status-group { min-width: 0; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--s-line); }
+.kestrel .details-status-group > .details-line.details-group:first-of-type { margin-top: 0; }

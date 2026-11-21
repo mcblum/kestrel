@@ -1,0 +1,37 @@
+/* ---- Settings → Workflow: delegation limits (DelegationLimitsSetting.tsx) ---- */
+.kestrel .delegation-limit { --limit-error: light-dark(#b3403a, #e07b74); display: grid; gap: 4px; }
+.kestrel .delegation-limit label { font-size: 12px; color: var(--s-ink); }
+.kestrel .delegation-limit-field { display: flex; align-items: center; gap: 10px; }
+.kestrel .delegation-limit-field input { width: 72px; padding: 4px 8px; font: inherit; font-size: 12px; border: 1px solid var(--s-line); border-radius: 5px; background: var(--s-paper); color: var(--s-ink); }
+.kestrel .delegation-limit-field input[aria-invalid='true'] { border-color: var(--limit-error); }
+.kestrel .delegation-limit-default { font-size: 11px; color: var(--s-muted); }
+.kestrel .delegation-limit-problem { font-size: 11px; line-height: 1.45; color: var(--limit-error); }
+.kestrel .delegation-limits-actions { display: flex; gap: 6px; }
+.kestrel .delegation-limits-actions button { padding: 4px 12px; font: inherit; font-size: 12px; border: 1px solid var(--s-line); border-radius: 6px; background: var(--s-paper); color: var(--s-ink); cursor: pointer; }
+.kestrel .delegation-limits-actions button:hover:not(:disabled) { background: var(--s-soft); }
+.kestrel .delegation-limits-actions button:disabled { opacity: .5; cursor: default; }
+
+/* Settings → Workflow → Notifications (NotificationsSetting.tsx). */
+.kestrel .notify-events { display: grid; gap: 4px; margin: 0 0 6px; padding: 0; border: 0; }
+.kestrel .notify-events legend { padding: 0; margin-bottom: 4px; font-size: 12px; color: var(--s-ink); }
+.kestrel .notify-sound { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--s-ink); }
+.kestrel .notify-sound select { height: 28px; max-width: 160px; font-size: 12px; }
+.kestrel .notify-sound button { padding: 4px 12px; font: inherit; font-size: 12px; border: 1px solid var(--s-line); border-radius: 6px; background: var(--s-paper); color: var(--s-ink); cursor: pointer; }
+.kestrel .notify-sound button:hover:not(:disabled) { background: var(--s-soft); }
+.kestrel .notify-sound button:disabled { opacity: .5; cursor: default; }
+
+/* Model presets (PresetsSetting.tsx) and Who does what (WhoDoesWhatSetting.tsx). */
+.kestrel .preset-row { display: grid; grid-template-columns: minmax(120px, 220px) minmax(0, 1fr) 28px; align-items: end; gap: 10px; }
+.kestrel .preset-row-controls { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 30px; }
+.kestrel .who-roles { display: grid; gap: 8px; margin-bottom: 10px; }
+.kestrel .who-role { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(0, 1.4fr) 150px; align-items: center; gap: 12px; }
+.kestrel .who-role label { display: grid; gap: 1px; font-size: 12px; color: var(--s-ink); }
+.kestrel .who-role label span { font-size: 11px; color: var(--s-muted); }
+.kestrel .who-role select { height: 30px; font-size: 12px; min-width: 0; }
+.kestrel .who-instruction-label { display: block; margin-bottom: 4px; font-size: 12px; color: var(--s-ink); }
+
+.kestrel .who-reviewers { align-items: start; grid-template-columns: minmax(160px, 1fr) minmax(0, 1.4fr) 150px; }
+.kestrel .who-reviewer-list { display: grid; gap: 6px; min-width: 0; }
+
+.kestrel .preset-unchosen { font-size: 11px; color: var(--s-muted); }
+.kestrel .preset-unchosen .link-button { padding: 0; font-size: 11px; }

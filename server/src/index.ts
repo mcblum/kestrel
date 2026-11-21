@@ -1,0 +1,185 @@
+// Kestrel server entry point.
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { claudeAdapter } from './agents/claude/index.ts';
+import { codexAdapter } from './agents/codex/index.ts';
+import { opencodeAdapter } from './agents/opencode/index.ts';
+import { scriptedAdapter } from './agents/scripted.ts';
+import { titleProviders } from './agents/title-providers.ts';
+import { dataDir as resolveDataDir } from './data-dir.ts';
+import { createKestrelServer } from './http.ts';
+import { detailsSources } from './details-api.ts';
+import { syncPullRequests } from './pull-request-sync.ts';
+import { originUrl } from './git.ts';
+import { sharedGlabSignIn } from './pull-requests/glab.ts';
+import { sampleReviewRequests, storyReviewRequests } from './review-requests/fake.ts';
+import { githubReviewRequests } from './review-requests/github.ts';
+import { gitlabReviewRequests } from './review-requests/gitlab.ts';
+import { ReviewRequestStore } from './review-requests/store.ts';
+import { REVIEW_CHECK_MS, syncReviewRequests } from './review-requests/sync.ts';
+import { reviewStarter } from './review-requests/auto.ts';
+import { asReviewOrder, reviewSessionTitle } from './shared/review-requests.ts';
+import { ready } from './shared/sourced.ts';
+import { SHUTDOWN_DEADLINE_MS, timedSteps } from './shared/shutdown.ts';
+import { SessionRuntime } from './runtime.ts';
+import { memoryPersistence } from './persistence/memory.ts';
+import { sqlitePersistence } from './persistence/sqlite.ts';
+import type { Persistence } from './persistence/types.ts';
+import { sampleBackgroundTasks, sampleCommands, seedFakeWorkspace } from './seed.ts';
+import { makeDemoProjects, makeStoryProjects, seedDemoExtras } from './seed-demo.ts';
+import { seedStory } from './seed-story.ts';
+import { LOOPBACK_HOST, newLaunchToken, sessionToken } from './security.ts';
+import { mcpUrl } from './kestrel-mcp.ts';
+import { Workspace } from './workspace.ts';
+import { sampleUsername } from './git-settings/github-login.ts';
+
+// Outside any repository, so worktrees never sit inside another project's tree.
+const dataDir = resolveDataDir();
+const port = Number(process.env.KESTREL_PORT ?? 4317);
+const uiOrigins = (process.env.KESTREL_UI_ORIGINS ?? 'http://localhost:5173,http://127.0.0.1:5173').split(',').map((s) => s.trim());
+// KESTREL_DEMO=1 (`pnpm demo`) is the demo workspace: fake data with the rest of the app filled in
+// and the scripted agent, in a store of its own (seed-demo.ts).
+const demo = process.env.KESTREL_DEMO === '1';
+// KESTREL_DEMO_SCENE=story (`pnpm demo --story`) is the demo cut down to one moment: one task across
+// three projects, one question waiting, nothing else asking for the eye (seed-story.ts).
+// KESTREL_DEMO_SCENE=story-reviews is the same moment with two review requests waiting in CODE REVIEWS.
+const storyReviews = demo && process.env.KESTREL_DEMO_SCENE === 'story-reviews';
+const story = storyReviews || (demo && process.env.KESTREL_DEMO_SCENE === 'story');
+// KESTREL_FAKE=1 opens the separate seeded fake store. Real sessions work in both.
+const fake = demo || process.env.KESTREL_FAKE === '1';
+
+mkdirSync(dataDir, { recursive: true });
+
+// The one place a provider is chosen. Everything else sees only `Persistence`.
+function openPersistence(): Persistence {
+  if (process.env.KESTREL_PERSISTENCE === 'memory') return memoryPersistence();
+  return sqlitePersistence(join(dataDir, demo ? 'kestrel-demo.sqlite' : fake ? 'kestrel-fake.sqlite' : 'kestrel.sqlite'));
+}
+
+const db = openPersistence();
+const workspace = new Workspace(db);
+const seeded = fake && (await db.isEmpty());
+if (seeded && story) await seedStory(workspace, makeStoryProjects(dataDir));
+else if (seeded) await seedFakeWorkspace(workspace, demo ? makeDemoProjects(dataDir) : {});
+// KESTREL_SCRIPTED_AGENT=1 (with fake data only) puts a scripted stand-in behind "Claude", for
+// trying the UI by hand: turns that last, approvals, failures (agents/scripted.ts).
+const scripted = demo || (fake && process.env.KESTREL_SCRIPTED_AGENT === '1');
+// Titles come from the real CLIs (Claude, then Codex), the scripted stand-in, or, with fake data
+// alone, nobody: no real calls.
+const titles = titleProviders(scripted ? 'scripted' : fake ? 'none' : 'real');
+// Tag rules and Settings → Git live in the store's settings; with fake data a sample GitHub login stands in for gh. The test-only `note` suggestion kind is offered to the scripted stand-in alone.
+// Codex is the user's own `codex app-server` (agents/codex/), OpenCode the user's own `opencode serve`
+// (agents/opencode/); the scripted stand-in replaces Claude only.
+const runtime = new SessionRuntime(workspace, scripted ? { claude: scriptedAdapter() } : { claude: claudeAdapter(), codex: codexAdapter(), opencode: opencodeAdapter() }, dataDir, { titleProviders: titles, suggestions: { settings: db, testKinds: scripted }, git: { settings: db, username: fake ? sampleUsername : undefined }, projectEdits: { settings: db }, startBase: { settings: db }, projectScripts: { settings: db }, projectEnv: { settings: db }, savedActions: { settings: db }, gitDefaults: { settings: db }, notifications: { settings: db }, cleanup: { settings: db }, whoDoesWhat: { settings: db }, keepAwake: { settings: db }, commandsKept: { settings: db }, openIn: { settings: db }, sandboxAllow: { settings: db }, commitSigning: { settings: db }, reviewPrefs: { settings: db }, ...(fake ? { reviewRunner: async () => ({ stdout: '' }) } : {}) });
+if (demo && seeded && !story) await seedDemoExtras(workspace, runtime.savedActions);
+// SAMPLE: with fake data, one running session shows background work left running (seed.ts).
+if (fake && !story) {
+  const sample = sampleBackgroundTasks(Date.now());
+  runtime.background.showSample(sample.sessionId, sample.tasks);
+  const commands = sampleCommands(Date.now());
+  runtime.commands.showSample(commands.sessionId, commands.commands, commands.outputs);
+}
+const interrupted = await runtime.recoverAfterRestart();
+// Worktree folders removed by hand since the last run: their sessions say so, then their
+// repositories forget them. Not waited for.
+void runtime.markLostWorktrees().then(() => runtime.pruneWorktrees()).catch((error) => console.error('[kestrel] worktree check failed', error));
+// Files attached in a composer and never sent: no window from before this start can send them.
+runtime.attachments.cleanDrafts();
+if (interrupted > 0) console.log(`[kestrel] ${interrupted} running session(s) marked interrupted after restart`);
+
+// The Electron shell makes the token itself and passes it in; otherwise the server makes one.
+const suppliedToken = process.env.KESTREL_TOKEN;
+if (suppliedToken !== undefined && suppliedToken.length < 32) throw new Error('KESTREL_TOKEN must be at least 32 characters.');
+const token = suppliedToken ?? newLaunchToken();
+// An out-of-process agent (Codex) reaches its session's Kestrel tools here, with a token for that session only.
+runtime.setMcpAccess((sessionId) => ({ url: mcpUrl(port, sessionId), token: sessionToken(token, sessionId) }));
+// With fake data, the Details pane's pull requests are sample data (pull-requests/fake.ts). A
+// generated pull request's text comes from the same providers as titles.
+const details = detailsSources(fake);
+// The order the user dragged the CODE REVIEWS rows into is kept with the app's settings.
+const REVIEW_ORDER_KEY = 'review-order';
+const storedReviewOrder = await db.getSetting(REVIEW_ORDER_KEY).then((raw) => (raw ? asReviewOrder(JSON.parse(raw)) : null)).catch(() => null);
+const reviewRequests = new ReviewRequestStore({
+  order: storedReviewOrder ?? [],
+  saveOrder: (order) => void db.putSetting(REVIEW_ORDER_KEY, JSON.stringify(order)).catch((error: unknown) => console.error('[kestrel] could not store the review order', error)),
+});
+// Settings → Git → Review requests: off, listed, or started on their own, and in which projects.
+const reviewPrefs = runtime.reviewPrefs;
+let reviewSettings = await reviewPrefs.current();
+const app = createKestrelServer(workspace, { token, allowedOrigins: uiOrigins, port }, runtime, { details: { sources: details, sample: fake }, writers: titles, reviewRequests });
+await app.listen();
+// The one copy of every session's pull requests, kept current and pushed to every window.
+const pullRequestSync = syncPullRequests(workspace, details, fake, () => app.watched(), (sessionId) => app.watching(sessionId));
+// The requests the user was asked to review, asked of each host the projects are on and pushed.
+// With fake data they are samples, and no host is asked.
+const seedSampleReviews = async (): Promise<void> => {
+  if (story) {
+    if (storyReviews) reviewRequests.set('github.com', ready(storyReviewRequests(Date.now())));
+    return;
+  }
+  const state = await workspace.state();
+  const samples = sampleReviewRequests(state.projects.map((p) => p.id), Date.now());
+  reviewRequests.set('github.com', ready(samples));
+  // SAMPLE: the second request has a review session, so CODE REVIEWS shows both kinds of row.
+  const reviewed = samples[1];
+  if (reviewed?.projectId && !state.sessions.some((s) => s.review?.key === reviewed.key)) {
+    await workspace.addSession({ title: reviewSessionTitle(reviewed.title), agent: 'claude', startedIn: reviewed.projectId, state: 'done', note: 'Finished', review: { key: reviewed.key, host: reviewed.host, number: reviewed.number, sha: '4f9c2ab81d3e5f60718293a4b5c6d7e8f9a0b1c2', url: reviewed.url } });
+  }
+  // SAMPLE: with the scripted agent the third request has a review that really ran (a scripted turn
+  // that hands over a sample review), so the review card can be seen. It has no project or worktree.
+  const scriptedReview = samples[2];
+  if (scripted && scriptedReview && !state.sessions.some((s) => s.review?.key === scriptedReview.key)) {
+    await runtime.start({ agent: 'claude', projectId: null, prompt: '/review', title: reviewSessionTitle(scriptedReview.title), review: { key: scriptedReview.key, host: scriptedReview.host, number: scriptedReview.number, sha: '9ab3c1d27e4f5a60b1c2d3e4f5a6b7c8d9e0f1a2', url: scriptedReview.url } });
+  }
+};
+if (fake && reviewSettings.mode !== 'off') await seedSampleReviews();
+const reviewRequestSync = fake ? null : syncReviewRequests(workspace, { github: githubReviewRequests(), gitlab: gitlabReviewRequests(), glabSignIn: sharedGlabSignIn, originOf: originUrl }, reviewRequests, () => app.watched() && reviewSettings.mode !== 'off');
+// Reviews that start on their own: whenever the list changes, and every few seconds, since a
+// review that finishes frees a place for one that waited.
+const reviewStarts = reviewStarter({ settings: () => reviewPrefs.current(), sessions: async () => (await workspace.state()).sessions, start: (request) => runtime.startReview(request) }, reviewRequests);
+reviewRequests.onChange(() => void reviewStarts.run());
+const reviewStartTimer = setInterval(() => void reviewStarts.run(), REVIEW_CHECK_MS);
+reviewPrefs.onChange((next) => {
+  reviewSettings = next;
+  reviewRequests.clearNotes(); // a start that was refused may be tried again under the new setting
+  if (next.mode === 'off') reviewRequests.keep([]);
+  else if (fake) void seedSampleReviews();
+  else void reviewRequestSync?.check();
+  void reviewStarts.run();
+});
+
+// Stands in for the Electron shell handing the token to the UI: the Vite dev server reads this
+// file (owner-only) and injects it into the page it serves. It is rewritten on every launch.
+// (The Electron shell hands the token over directly and sets KESTREL_NO_LAUNCH_FILE.)
+if (process.env.KESTREL_NO_LAUNCH_FILE !== '1') writeFileSync(join(dataDir, 'launch.json'), JSON.stringify({ port, token }), { mode: 0o600 });
+
+console.log(`[kestrel] server on http://${LOOPBACK_HOST}:${port} (loopback only) · ${fake ? (scripted ? 'fake data, scripted agent' : 'fake data') : 'real store'} · UI origins: ${uiOrigins.join(', ')}`);
+
+// Stopping is asked for twice by the shell (it closes the pipe and sends SIGTERM): it runs once.
+// Each step is timed into the log, and the whole thing has a deadline, so a quit is never held up
+// by one agent or one connection that will not let go.
+let stopping = false;
+const shutdown = async () => {
+  if (stopping) return;
+  stopping = true;
+  setTimeout(() => process.exit(0), SHUTDOWN_DEADLINE_MS).unref();
+  const took = await timedSteps([
+    ['agents', () => runtime.shutdown()],
+    ['pull requests', async () => pullRequestSync.stop()],
+    ['review requests', async () => {
+      reviewRequestSync?.stop();
+      clearInterval(reviewStartTimer);
+    }],
+    ['http', () => app.close()],
+    ['store', () => db.close()],
+  ]);
+  console.log(`[kestrel] stopped (${took})`);
+  process.exit(0);
+};
+process.on('SIGINT', shutdown);
+// A shell that started this process over a pipe stops it by closing that pipe, even if it crashes.
+if (process.env.KESTREL_EXIT_ON_STDIN_CLOSE === '1') {
+  process.stdin.resume();
+  process.stdin.on('end', shutdown);
+}
+process.on('SIGTERM', shutdown);

@@ -1,0 +1,101 @@
+/* Project, group and tag pages: one narrower column for header and list; a project page's local tabs
+   (Sessions, Settings) and its Settings tab. The tabs are quiet underlined labels, sections of this
+   project, nothing like the workspace tab strip at the top. */
+.kestrel { --col-collection: 960px; }
+.kestrel .page.column.collection { max-width: calc(var(--col-collection) + 2 * var(--pad)); }
+
+.kestrel .local-tabs { display: flex; gap: 20px; border-bottom: 1px solid var(--s-line); margin-top: calc(var(--space-section) * -0.5); }
+.kestrel .local-tab { position: relative; background: none; border: 0; padding: 6px 0 8px; font: inherit; font-size: 12px; color: var(--s-muted); cursor: pointer; }
+.kestrel .local-tab:hover { color: var(--s-ink); }
+.kestrel .local-tab.selected { color: var(--s-ink); font-weight: 500; }
+.kestrel .local-tab.selected::after { content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; border-radius: 1px; background: var(--s-ink); }
+.kestrel .local-tab:focus-visible { outline: 2px solid var(--s-accent); outline-offset: 2px; border-radius: 3px; }
+.kestrel .local-panel { display: grid; gap: var(--space-section); align-content: start; min-width: 0; margin-top: calc(var(--space-section) * -0.4); }
+.kestrel .local-panel[hidden] { display: none; }
+
+/* The folder count under the title: a link, but as quiet as the line it sits in. */
+.kestrel .page-head-line .quiet-link { flex: none; padding: 0; font-size: inherit; color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 2px; }
+.kestrel .page-head-line .quiet-link:hover { color: var(--s-ink); text-decoration-color: currentColor; }
+
+/* Project settings use a local section menu, with room for more categories. */
+.kestrel .project-settings { --form-control: 36px; min-width: 0; padding-top: 4px; container-type: inline-size; }
+.kestrel .settings-block { display: grid; gap: 8px; margin: 0; min-width: 0; }
+.kestrel .settings-block h2 { margin: 0; font-family: inherit; font-size: 14px; line-height: 1.4; font-weight: 700; color: var(--s-ink); }
+.kestrel .settings-block-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.kestrel .settings-block-head .link-button { font-size: 12px; }
+.kestrel .project-settings .form-note { font-size: 12px; color: var(--s-muted); margin: 0; }
+.kestrel .project-settings .project-dirs { margin-bottom: 0; }
+.kestrel .name-row { display: flex; align-items: center; gap: 8px; }
+.kestrel .name-row .form-control { flex: 1; min-width: 0; }
+.kestrel .name-row .form-control[aria-invalid='true'] { border-color: light-dark(#b3403a, #e07b74); }
+.kestrel .name-row .secondary-button { box-sizing: border-box; height: var(--form-control); padding: 0 16px; border-radius: 8px; font-size: 12px; }
+.kestrel .name-saved { font-size: 11px; color: var(--s-muted); }
+
+/* Shared settings layout and rows. Narrow panes turn the menu into a wrapping row. */
+.kestrel .settings-layout { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 32px; align-items: start; }
+.kestrel .settings-layout-nav { display: grid; gap: 4px; }
+.kestrel .settings-layout-nav button { padding: 8px 12px; border: 0; border-radius: 6px; background: none; color: var(--s-muted); font: inherit; font-size: 12px; text-align: left; }
+.kestrel .settings-layout-nav button:hover { background: var(--s-soft); color: var(--s-ink); }
+.kestrel .settings-layout-nav button[aria-current="page"] { background: var(--s-soft); color: var(--s-ink); font-weight: 600; }
+.kestrel .settings-layout-nav button:focus-visible { outline: 2px solid var(--s-accent); outline-offset: 2px; }
+.kestrel .settings-layout-body { min-width: 0; max-width: 720px; }
+.kestrel .settings-layout-body > [hidden] { display: none; }
+.kestrel .settings-layout-body .settings-block { gap: 16px; }
+/* Match the menu's first row, while distinguishing content titles from field labels. */
+.kestrel .settings-layout-body .settings-block h2 { font-size: 16px; line-height: 24px; font-weight: 600; }
+.kestrel .settings-layout-body .settings-block > :is(h2, .setting-heading, .settings-block-head) { display: flex; align-items: center; min-height: 34px; margin: 0; }
+
+.kestrel .setting-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(0, 2fr); align-items: start; gap: 16px; padding: 16px 0; }
+.kestrel .setting-row-label { padding-top: 8px; min-width: 0; font-size: 12px; color: var(--s-ink); }
+.kestrel .setting-row-label h3 { margin: 0; font-size: 12px; font-weight: 500; }
+.kestrel .setting-row-control { display: grid; gap: 8px; min-width: 0; }
+.kestrel textarea.project-script { box-sizing: border-box; width: 100%; min-height: 96px; padding: 8px 10px; resize: vertical; font-family: var(--mono); font-size: 12px; line-height: 1.5; }
+.kestrel textarea.project-script[aria-invalid='true'] { border-color: light-dark(#b3403a, #e07b74); }
+.kestrel .setting-row.stacked { grid-template-columns: minmax(0, 1fr); }
+.kestrel .setting-row.stacked .setting-row-label { padding-top: 0; }
+.kestrel .project-settings .setup { padding: 0; border: 0; border-radius: 0; background: none; }
+.kestrel .project-settings .setup-row { border-bottom: 0; }
+.kestrel .setup-source { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 20px; padding: 8px 0 16px; }
+.kestrel .setup-source-options { display: flex; gap: 2px; min-width: 0; margin: 0; padding: 3px; border: 1px solid var(--s-line); border-radius: 8px; }
+.kestrel .setup-source-options label { position: relative; cursor: pointer; }
+.kestrel .setup-source-options input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.kestrel .setup-source-options input + span { display: inline-grid; padding: 6px 14px; border-radius: 5px; font-size: 12px; color: var(--s-muted); }
+/* Overlay an invisible bold label to reserve the selected width in both states. */
+.kestrel .setup-source-options input + span > span { grid-area: 1 / 1; text-align: center; }
+.kestrel .setup-source-options input + span > [aria-hidden="true"] { visibility: hidden; font-weight: 600; }
+.kestrel .setup-source-options label:hover span { color: var(--s-ink); }
+.kestrel .setup-source-options input:checked + span { background: var(--s-soft); color: var(--s-ink); font-weight: 600; }
+.kestrel .setup-source-options input:focus-visible + span { outline: 2px solid var(--s-accent); outline-offset: 2px; }
+.kestrel .setup-source > .link-button { font-size: 11px; }
+@container (max-width: 640px) {
+  .kestrel .settings-layout { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .kestrel .settings-layout-nav { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--s-line); padding-bottom: 12px; }
+  .kestrel .setting-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .kestrel .setting-row-label { padding-top: 0; }
+}
+/* A row with help: the ? stays beside the label, and the help opens under the whole row, not
+   squeezed into the label's column. */
+.kestrel .setting-row-label:has(> .setting-heading) { display: contents; }
+.kestrel .setting-row-label > .setting-heading { grid-column: 1; grid-row: 1; padding-top: 8px; font-size: 12px; }
+.kestrel .setting-row-label > .setting-help-content { grid-column: 1 / -1; grid-row: 2; }
+.kestrel .setting-row:has(> .setting-row-label > .setting-heading) > .setting-row-control { grid-column: 2; grid-row: 1; }
+.kestrel .setting-row.stacked:has(> .setting-row-label > .setting-heading) > .setting-row-control { grid-column: 1; grid-row: 3; }
+@container (max-width: 640px) {
+  .kestrel .setting-row:has(> .setting-row-label > .setting-heading) > .setting-row-control { grid-column: 1; grid-row: 3; }
+  .kestrel .setting-row-label > .setting-heading { padding-top: 0; }
+}
+
+/* A project's saved actions (SavedActionsSetting.tsx): one row of fields per action. */
+.kestrel .saved-actions { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.kestrel .saved-action { display: grid; grid-template-columns: minmax(110px, 1fr) minmax(160px, 2fr) minmax(90px, 1fr) minmax(130px, 1.4fr) 28px; align-items: end; gap: 8px; }
+.kestrel .saved-action-field { display: grid; gap: 4px; min-width: 0; font-size: 11px; color: var(--s-muted); }
+.kestrel .saved-action-field .form-control { box-sizing: border-box; width: 100%; min-width: 0; height: 30px; font-size: 12px; }
+.kestrel .saved-action-field .form-control.mono { font-family: var(--mono); }
+.kestrel .saved-action-remove { width: 28px; height: 30px; }
+.kestrel .saved-action-remove svg { width: 14px; height: 14px; }
+.kestrel .delegation-limits-actions button svg { width: 12px; height: 12px; vertical-align: -1px; }
+@container (max-width: 640px) {
+  .kestrel .saved-action { grid-template-columns: minmax(0, 1fr) 28px; }
+  .kestrel .saved-action-field { grid-column: 1; }
+  .kestrel .saved-action-remove { grid-column: 2; grid-row: 1; }
+}

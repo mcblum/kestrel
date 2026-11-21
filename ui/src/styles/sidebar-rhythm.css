@@ -1,0 +1,81 @@
+/* The sidebar's vertical rhythm and indent, in one place for every section (PINNED, SESSIONS,
+   PROJECTS, TAGS) so they cannot drift. Loaded after app.css and organize.css, which hold the
+   older per-section rules this overrides.
+   - Every item row is --side-row tall: top menu, group, session, project, tag and pinned rows.
+   - A heading sits --side-section-gap below an open section's last row, --side-section-gap-folded
+     below a folded heading, and --side-heading-gap above its own first row.
+   - A title starts at --side-label-x (after the icon slot); a child of a project, group or pinned
+     item starts there too, and each level of delegation or handoff is --side-indent further in.
+   - An empty list is one short quiet row whose text starts where a child's title would. */
+.kestrel .studio-sidebar {
+  --side-row: 28px;
+  --side-empty-row: 22px;
+  --side-heading-gap: 6px;
+  --side-section-gap: 16px;
+  --side-section-gap-folded: 8px;
+  --side-label-x: calc(var(--edge) + var(--slot) + 8px);
+  --side-indent: 14px;
+}
+
+.kestrel .studio-sidebar .side-link:not(.settings-link),
+.kestrel .studio-sidebar .folder-row,
+.kestrel .studio-sidebar .tree-row { box-sizing: border-box; height: var(--side-row); min-height: var(--side-row); margin: 0; padding-top: 0; padding-bottom: 0; align-items: center; }
+.kestrel .studio-sidebar .tree-row { padding-left: calc(var(--side-label-x) + var(--depth, 0) * var(--side-indent)); }
+
+/* Headings: the gap above belongs to the heading, so an empty or folded section adds nothing. */
+.kestrel .studio-sidebar .side-heading, .kestrel.session-open .studio-sidebar .side-heading { padding-top: var(--side-section-gap); padding-bottom: 0; margin-bottom: var(--side-heading-gap); }
+.kestrel .studio-sidebar .side-heading:has(> .heading-toggle[aria-expanded='false']) { margin-bottom: 0; }
+.kestrel .studio-sidebar .side-heading:has(> .heading-toggle[aria-expanded='false']) + .side-heading { padding-top: var(--side-section-gap-folded); }
+
+/* No stray space inside the lists. A group's drop outline does not take room. */
+.kestrel .studio-sidebar .tree,
+.kestrel .studio-sidebar .tree-children,
+.kestrel .studio-sidebar .folder-block > .tree,
+.kestrel .studio-sidebar .folder-block > .folder-row { margin: 0; }
+.kestrel .studio-sidebar .folder-block { margin: 0; border: 0; outline: 1px solid transparent; outline-offset: -1px; }
+.kestrel .studio-sidebar .folder-block.drop-over { outline-color: var(--s-muted); }
+.kestrel .studio-sidebar .list-end { height: 0; }
+
+.kestrel .studio-sidebar .tree-empty,
+.kestrel .studio-sidebar .side-empty { display: flex; align-items: center; box-sizing: border-box; height: var(--side-empty-row); margin: 0; padding: 0 var(--edge) 0 var(--side-label-x); overflow: hidden; color: var(--s-muted); font-size: 11px; white-space: nowrap; text-overflow: ellipsis; }
+
+/* ---- the whole row is the target ----------------------------------------------------------
+   A container row (group, project, tag) and a section heading are a box holding a name button and
+   small action buttons. The name button's hit area is stretched over the entire row, padding and
+   status dot included, so a click anywhere on the row does what a click on its name does. The
+   action buttons (…, +) sit above that area and keep their own clicks. */
+.kestrel .folder-row, .kestrel .side-heading { position: relative; }
+.kestrel .folder-row > .folder-name::after, .kestrel .side-heading > .heading-toggle::after { content: ''; position: absolute; inset: 0; }
+.kestrel .folder-row > .folder-actions, .kestrel .folder-row > .icon-button, .kestrel .side-heading > .icon-button { position: relative; z-index: 1; }
+.kestrel .folder-row, .kestrel .side-heading { cursor: pointer; }
+
+/* A section heading's + shows only while the heading is hovered or holds keyboard focus, like the
+   + of a group or project row. It keeps its place, so nothing moves when it appears. */
+.kestrel .side-heading > .icon-button { visibility: hidden; }
+/* Hover, or keyboard focus only: clicking the heading leaves focus on it (:focus-within), which
+   kept the + showing after the pointer had left. */
+.kestrel .side-heading:hover > .icon-button, .kestrel .side-heading:has(:focus-visible) > .icon-button { visibility: visible; }
+/* A larger target and mark than the 16px slot, centred where the slot was (the negative margins
+   give back the extra size, so the heading's height and the column the dots sit in do not move). */
+.kestrel .studio-sidebar .side-heading > .icon-button { width: 22px; height: 22px; margin: -5px -3px; border-radius: 5px; }
+.kestrel .studio-sidebar .side-heading > .icon-button svg { width: 14px; height: 14px; }
+.kestrel .studio-sidebar .side-heading > .icon-button:hover { background: var(--s-soft); color: var(--s-ink); }
+
+/* A project's own groups sit one --side-indent in, under the project's name, and so does what is in them. */
+.kestrel .studio-sidebar .project-block .folder-block > .folder-row { padding-left: calc(var(--edge) + var(--side-indent)); }
+.kestrel .studio-sidebar .project-block .folder-block .tree-row { padding-left: calc(var(--side-label-x) + (var(--depth, 0) + 1) * var(--side-indent)); }
+.kestrel .studio-sidebar .project-block { outline: 1px solid transparent; outline-offset: -1px; }
+.kestrel .studio-sidebar .project-block.drop-over { outline-color: var(--s-muted); }
+
+/* ---- a line from a session to the sessions it started ---------------------------------------
+   A session nested under the one that started it (a delegate, or a handed-off child that is
+   listed under its parent) is joined to it: a line comes down from under the parent's title and
+   turns in to the child's. Between children the line carries on down, through a child's own
+   children too, and stops at the last one. Grey, like the rest of the chrome; it takes no clicks.
+   The line sits 4px in from where the parent's title starts and stops 5px short of the child's. */
+.kestrel .studio-sidebar .tree-children > li { position: relative; --elbow-x: calc(var(--side-label-x) + (var(--depth, 1) - 1) * var(--side-indent) + 4px); --elbow-line: color-mix(in srgb, var(--s-muted) 45%, transparent); }
+.kestrel .studio-sidebar .project-block .folder-block .tree-children > li { --elbow-x: calc(var(--side-label-x) + var(--depth, 1) * var(--side-indent) + 4px); }
+.kestrel .studio-sidebar .tree-children > li::before,
+.kestrel .studio-sidebar .tree-children > li:not(:last-child)::after { content: ''; position: absolute; z-index: 1; left: var(--elbow-x); top: 0; border-left: 1px solid var(--elbow-line); pointer-events: none; }
+.kestrel .studio-sidebar .tree-children > li::before { width: calc(var(--side-indent) - 9px); height: calc(var(--side-row) / 2); border-bottom: 1px solid var(--elbow-line); border-bottom-left-radius: 4px; }
+.kestrel .studio-sidebar .tree-children > li:not(:last-child)::after { bottom: 0; }

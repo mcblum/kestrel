@@ -1,0 +1,105 @@
+// SAMPLE DATA, for KESTREL_FAKE=1 only: made-up pull requests for some of the seeded sessions'
+// branches (seed.ts), so the Details pane can be looked at without a hosting service. Every other
+// branch has none until "Create pull request" adds a made-up one, kept in memory for this run only.
+// "Billing migration" also has two requests from branches it was on before (`SAMPLE_EARLIER_LINKS`,
+// linked by the seed), so a session with several requests in different states can be seen. The seed
+// links every seeded session's sample requests in the state they are in (`sampleLinksOn`), so the
+// sample's statuses show both outcomes before any Details pane is opened: "Fix partial writes in the
+// search index" is Ready to review (its request is open), "Keyboard shortcuts" is Done (its newest
+// request is a draft), and "Draft release notes" is Done though it changed files (it has no request).
+// The New PR form's pre-fill is made up here too (never with inherited commits): no model, no gh,
+// no git. Never used with a real store. Between them the sample requests give every filter of the
+// Pull requests page a row: needing attention (#406), ready (#419, #421), draft (#398), merged (#377,
+// #388), and #406 is linked to two sessions (`SAMPLE_SHARED_LINKS`).
+import type { PullRequest } from '../shared/details.ts';
+import { ready } from '../shared/sourced.ts';
+import type { ByNumberProvider } from './by-number.ts';
+import type { PRForm } from './create.ts';
+import type { NewRequestLink } from './session-requests.ts';
+import type { PullRequestProvider } from './types.ts';
+
+const SAMPLE: Readonly<Record<string, readonly PullRequest[]>> = {
+  // "Make search feel instant": one open pull request, checks still running.
+  'feat/instant-search': [{ number: 412, title: 'Make search feel instant', state: 'open', checks: 'running', review: 'review-required', url: 'https://github.com/example/bellbird/pull/412' }],
+  // "Keyboard shortcuts": an earlier one merged, a follow-up still a draft.
+  'feat/shortcuts': [
+    { number: 398, title: 'Keyboard shortcuts: follow-up for the command palette', state: 'draft', checks: 'failing', review: 'none', url: 'https://github.com/example/bellbird/pull/398' },
+    { number: 377, title: 'Keyboard shortcuts for switching sessions', state: 'merged', checks: 'passing', review: 'approved', url: 'https://github.com/example/bellbird/pull/377' },
+  ],
+  // "Fix partial writes in the search index" (done, so no dot once looked at): open and ready to
+  // merge, so the sidebar's request icon can be seen, in green.
+  'kestrel/index-atomic-writes': [{ number: 419, title: 'Fix partial writes in the search index', state: 'open', checks: 'passing', review: 'approved', readiness: 'ready', url: 'https://github.com/example/platform/pull/419' }],
+  // "Billing migration": open and ready on its current branch; the two below came from earlier branches.
+  'feat/billing-v2': [{ number: 421, title: 'Billing v2: switch reads behind the flag', state: 'open', checks: 'passing', review: 'approved', readiness: 'ready', url: 'https://github.com/example/platform/pull/421' }],
+  'feat/billing-backfill': [{ number: 406, title: 'Billing v2: backfill existing accounts', state: 'open', checks: 'failing', review: 'review-required', readiness: 'blocked', url: 'https://github.com/example/platform/pull/406' }],
+  'feat/billing-schema': [{ number: 388, title: 'Billing v2: add the billing tables', state: 'merged', checks: 'passing', review: 'approved', url: 'https://github.com/example/platform/pull/388' }],
+};
+
+/** The sample session that has requests from branches it is no longer on, and the earlier branches. */
+export const SAMPLE_LINKED_SESSION = 'billing';
+const EARLIER_BRANCHES = ['feat/billing-schema', 'feat/billing-backfill'] as const;
+
+/** The sample requests on `branch` as links, each in the state it is in, as a lookup would record them. */
+export function sampleLinksOn(branch: string): NewRequestLink[] {
+  return (SAMPLE[branch] ?? []).map((pr) => ({ host: 'github' as const, number: pr.number, url: pr.url, branch, state: pr.state }));
+}
+
+/** Links for the requests "Billing migration" opened on its earlier branches, as the seed stores them. */
+export const SAMPLE_EARLIER_LINKS: readonly NewRequestLink[] = EARLIER_BRANCHES.flatMap(sampleLinksOn);
+
+/**
+ * "Background job retries" also works on "Billing migration"'s backfill request (#406), so one
+ * request is linked to two sessions and the Pull requests page shows it once, naming both.
+ */
+export const SAMPLE_SHARED_SESSION = 'queue';
+export const SAMPLE_SHARED_LINKS: readonly NewRequestLink[] = sampleLinksOn('feat/billing-backfill');
+
+/** The first number a made-up pull request gets; above every number in SAMPLE. */
+const FIRST_MADE_UP_NUMBER = 501;
+const SAMPLE_REPOSITORY_URL = 'https://github.com/example/sample';
+/** The default branch the sample pre-fill offers. */
+export const SAMPLE_BASE = 'main';
+
+export interface SamplePullRequests extends PullRequestProvider, ByNumberProvider {
+  /** Opens a made-up pull request for `branch`, or returns the open one it already has. */
+  create(branch: string, form: PRForm): PullRequest;
+}
+
+const isActive = (pr: PullRequest) => pr.state === 'open' || pr.state === 'draft';
+
+/** A fresh in-memory sample provider: what one server run has made up is never seen by another. */
+export function samplePullRequests(): SamplePullRequests {
+  let made: Readonly<Record<string, readonly PullRequest[]>> = {};
+  let next = FIRST_MADE_UP_NUMBER;
+  const all = (branch: string): PullRequest[] => [...(made[branch] ?? []), ...(SAMPLE[branch] ?? [])];
+  return {
+    pullRequestsFor: async (_repoPath, branch) => ready(all(branch)),
+    pullRequestByNumber: async (_repoPath, number) => {
+      const everyBranch = [...Object.values(made), ...Object.values(SAMPLE)].flat();
+      return ready(everyBranch.find((pr) => pr.number === number) ?? null);
+    },
+    create(branch, form) {
+      const existing = all(branch).find(isActive);
+      if (existing) return existing;
+      const pr: PullRequest = { number: next, title: form.title, body: form.body, state: form.draft ? 'draft' : 'open', checks: 'none', review: 'review-required', url: `${SAMPLE_REPOSITORY_URL}/pull/${next}`, headBranch: branch, baseBranch: form.base, author: 'sample-user' };
+      next += 1;
+      made = { ...made, [branch]: [pr, ...(made[branch] ?? [])] };
+      return pr;
+    },
+  };
+}
+
+/** The New PR form's sample pre-fill: blank for "Manually", made-up text for "Generated"; no inherited commits. Deterministic. */
+export function samplePrefill(sessionTitle: string, branch: string, generated: boolean): Omit<PRForm, 'draft'> & { inherited: number } {
+  if (!generated) return { title: '', body: '', base: SAMPLE_BASE, inherited: 0 };
+  const body = [
+    '## Summary',
+    '',
+    `- Sample text for \`${branch}\`: with real data this is written from the branch's commits and diff.`,
+    '',
+    '## Testing',
+    '',
+    'Not recorded.',
+  ].join('\n');
+  return { title: sessionTitle, body, base: SAMPLE_BASE, inherited: 0 };
+}

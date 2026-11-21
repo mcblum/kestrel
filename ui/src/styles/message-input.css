@@ -1,0 +1,58 @@
+/* The message box's text (components/MessageInput.tsx): an editable block that shows inline code
+   and code blocks in the code styles of markdown.css while the user types. Each line of the text
+   is a block of its own (messageInputDom.ts); a code block's fence lines are hidden. */
+.kestrel .message-input { position: relative; box-sizing: border-box; color: var(--s-ink); white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; cursor: text; caret-color: var(--s-ink); }
+.kestrel .message-input[aria-disabled] { opacity: .6; cursor: default; }
+.kestrel .message-input.is-empty::before { content: attr(data-placeholder); position: absolute; left: 0; top: 5px; color: var(--s-muted); pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.kestrel .message-input .mi-line { display: block; min-height: 1lh; }
+.kestrel .message-input code {
+  padding: .12em .2em;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--s-ink) 6%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .9em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+/* A code block: its lines of code on the code-block background, as one rounded box, the same frame
+   as the sent message's (markdown.css .code-block). */
+.kestrel .message-input .mi-fence { padding: 0 10px; background: color-mix(in srgb, var(--s-side) 65%, var(--s-bg)); border-inline: 1px solid var(--s-line); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9em; }
+.kestrel .message-input .mi-fence-first { padding-top: 4px; border-top: 1px solid var(--s-line); border-radius: 8px 8px 0 0; }
+.kestrel .message-input .mi-fence-last { padding-bottom: 4px; border-bottom: 1px solid var(--s-line); border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; }
+.kestrel .message-input .mi-fence-first.mi-fence-last { border-radius: 8px; }
+/* The fence lines of a block with code (shared/fence-blocks.ts): in the text, so the agent gets
+   markdown, but not laid out: no caret, no selection highlight, nothing read aloud. */
+.kestrel .message-input .mi-fence-hidden { display: none; }
+/* The language the block was given, quiet in a row of its own above the code, as the sent message
+   shows it. Drawn by CSS: it is not text, so it is never edited, selected or sent twice. */
+.kestrel .message-input .mi-fence-first[data-lang]::before { content: attr(data-lang); display: block; padding: 2px 0 4px; color: var(--s-muted); font: 11px/1 var(--mono); user-select: none; -webkit-user-select: none; pointer-events: none; }
+/* A fence line still in view (a fence left open, or ``` being typed): quiet. */
+.kestrel .message-input .mi-fence-mark { color: var(--s-muted); font-size: .72em; line-height: 1.6; letter-spacing: .04em; opacity: .7; }
+/* The backticks of inline code: they are the text, so they stay, but quiet. */
+.kestrel .message-input code .mi-tick { color: var(--s-muted); opacity: .6; }
+
+/* The user's sent message (components/UserText.tsx): inline code and fenced blocks in the same
+   code styles; the rest stays plain text with its line breaks. */
+/* The same size as the agent's text (markdown.css). */
+.kestrel .chat-message.mine .user-text { font-size: var(--prose-size); line-height: var(--prose-leading); }
+.kestrel .user-text .user-prose { margin: 0; font-size: inherit; line-height: inherit; }
+.kestrel .user-text .user-prose + .user-code, .kestrel .user-text .user-code + .user-prose, .kestrel .user-text .user-code + .user-code { margin-top: 6px; }
+.kestrel .user-text code { padding: .12em .35em; border-radius: 4px; background: color-mix(in srgb, var(--s-ink) 6%, transparent); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .86em; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.kestrel .user-text .user-code { font-size: inherit; line-height: inherit; white-space: normal; }
+.kestrel .user-text .user-code .code-block { margin: 0; }
+.kestrel .user-text .user-code pre code { padding: 0; background: none; white-space: pre; }
+/* Web addresses in a sent message: the same quiet underline as the agent's links (markdown.css). */
+.kestrel .user-text a { color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: .2em; text-decoration-thickness: 1px; overflow-wrap: anywhere; }
+.kestrel .user-text a:hover { text-decoration-color: currentColor; }
+.kestrel .user-text a:focus-visible { outline: 2px solid var(--s-muted); outline-offset: 3px; border-radius: 2px; }
+
+/* ---- list items ---------------------------------------------------------------------------------
+   A line that starts with "- " or "1. " (shared/list-lines.ts) is laid out as a list item: the
+   marker sits in a column as wide as `--mi-marker`, and the item's wrapped lines hang under its
+   text, not under the marker. The characters are the ones typed; only where they sit changes. */
+.kestrel :is(.message-input, .user-text) .mi-list { padding-left: var(--mi-marker); text-indent: calc(var(--mi-marker) * -1); }
+.kestrel .user-text .mi-list { display: block; }
+.kestrel :is(.message-input, .user-text) .mi-marker { display: inline-block; box-sizing: border-box; width: var(--mi-marker); text-indent: 0; text-align: right; white-space: pre; color: var(--s-muted); font-variant-numeric: tabular-nums; }
+/* A bullet is drawn as a dot over the "-", "*" or "+" that was typed, which stays there to edit. */
+.kestrel :is(.message-input, .user-text) .mi-bullet { position: relative; color: transparent; }
+.kestrel :is(.message-input, .user-text) .mi-bullet::after { content: '•'; position: absolute; right: 0.45em; top: 0; color: var(--s-muted); text-indent: 0; pointer-events: none; }

@@ -1,0 +1,22 @@
+/* A code block whole, in a tab of its own (pages/CodePage.tsx): the block's own surface and
+   type, as wide as the page; long lines scroll sideways instead of wrapping. */
+.kestrel .page.column.code-page { max-width: none; }
+.kestrel .code-page > * { min-width: 0; }
+.kestrel .code-page-body {
+  margin: 0;
+  padding: 14px 16px;
+  min-width: 0;
+  overflow: auto;
+  border: 1px solid var(--s-line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--s-side) 65%, var(--s-bg));
+  font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre;
+  tab-size: 4;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.kestrel .code-page-body code { padding: 0; background: none; font: inherit; white-space: inherit; }
+.kestrel .code-page-from { padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .code-page-from:hover { color: var(--s-ink); text-decoration: underline; }
+.kestrel .code-page-from:focus-visible { outline: 2px solid var(--s-muted); outline-offset: 2px; border-radius: 2px; }

@@ -1,0 +1,45 @@
+/* ---- simulator pane: one line of controls over the device's screen --------------------------
+   Same bar as the browser pane (Shared header height, 11px type, grey buttons). The screen is drawn as large as
+   the column allows, centred on the pane's grey, with the device's rounded corners. */
+.kestrel .simulator-column { overflow: hidden; }
+.kestrel .sim-view { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--s-soft); }
+
+.kestrel .sim-bar { display: flex; align-items: center; gap: 2px; flex: none; box-sizing: border-box; height: var(--pane-header-height); padding: 0 6px; border-bottom: 1px solid var(--s-line); background: var(--s-bg); font-size: 11px; }
+.kestrel .sim-spacer { flex: 1; }
+.kestrel .sim-button { display: grid; place-items: center; flex: none; width: 22px; height: 20px; padding: 0; background: transparent; border: 0; border-radius: 5px; color: var(--s-muted); cursor: pointer; }
+.kestrel .sim-button:hover:not(:disabled) { background: var(--s-soft); color: var(--s-ink); }
+.kestrel .sim-button:disabled { opacity: .4; cursor: default; }
+.kestrel .sim-button:focus-visible { outline: 1px solid var(--s-muted); outline-offset: -1px; }
+.kestrel .sim-button svg { width: 13px; height: 13px; }
+
+/* The device picker: a quiet filled field like the browser's address. */
+.kestrel .sim-device { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 5px; height: 20px; margin-right: 4px; padding: 0 2px 0 7px; box-sizing: border-box; border-radius: 5px; background: var(--s-soft); color: var(--s-muted); }
+.kestrel .sim-device svg { width: 11px; height: 11px; flex: none; }
+.kestrel .sim-device select { min-width: 0; max-width: 220px; height: 100%; padding: 0; background: transparent; border: 0; outline: 0; font: inherit; font-size: 11px; color: var(--s-ink); text-overflow: ellipsis; cursor: pointer; }
+.kestrel .sim-device:focus-within { background: color-mix(in srgb, var(--s-ink) 10%, transparent); }
+
+.kestrel .sim-note { display: flex; align-items: center; gap: 6px; flex: none; margin: 0; padding: 4px 6px 4px 10px; border-bottom: 1px solid var(--s-line); background: var(--s-bg); font-size: 11px; color: var(--s-muted); overflow-wrap: anywhere; }
+.kestrel .sim-note > span { flex: 1; min-width: 0; }
+
+.kestrel .sim-stage { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; padding: 12px; box-sizing: border-box; overflow: hidden; }
+.kestrel .sim-screen { display: block; max-width: 100%; max-height: 100%; outline: 0; cursor: pointer; touch-action: none; image-rendering: auto; }
+.kestrel .sim-screen.view-only { cursor: default; }
+/* Focused: keys go to the device. A quiet 1px ink line around the device, no glow. */
+.kestrel .sim-screen:focus { box-shadow: 0 0 0 1px var(--s-ink); }
+/* The picture and, while Option is held over it, where the two fingers of a pinch would land. */
+.kestrel .sim-frame { position: relative; display: block; }
+.kestrel .sim-frame .sim-screen { width: 100%; height: 100%; }
+.kestrel .sim-finger { position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border: 1px solid color-mix(in srgb, var(--s-ink) 55%, transparent); border-radius: 50%; background: color-mix(in srgb, var(--s-bg) 45%, transparent); pointer-events: none; }
+
+/* The "more" menu: anchored under its button, the bar stays one line. */
+.kestrel .sim-more { position: relative; flex: none; }
+.kestrel .sim-more-menu { position: fixed; z-index: 20; display: flex; flex-direction: column; min-width: 140px; padding: 4px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-bg); box-shadow: 0 6px 20px rgb(0 0 0 / .12); }
+.kestrel .sim-more-menu button { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px; border: 0; border-radius: 5px; background: transparent; color: var(--s-ink); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.kestrel .sim-more-menu button:hover:not(:disabled) { background: var(--s-soft); }
+.kestrel .sim-more-menu button:disabled { opacity: .4; cursor: default; }
+.kestrel .sim-more-menu svg { width: 13px; height: 13px; color: var(--s-muted); }
+
+.kestrel .sim-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; margin: 0; padding: 16px; font-size: 12px; color: var(--s-muted); text-align: center; }
+.kestrel .sim-empty.overlay { position: absolute; inset: 0; pointer-events: none; }
+.kestrel .sim-boot { height: 24px; padding: 0 10px; border: 1px solid var(--s-line); border-radius: 6px; background: var(--s-bg); color: var(--s-ink); font: inherit; font-size: 12px; cursor: pointer; }
+.kestrel .sim-boot:hover { background: var(--s-soft); }

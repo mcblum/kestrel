@@ -1,0 +1,9 @@
+# What the public copy on GitHub leaves out (scripts/public/sync-github.sh). One path per line,
+# from the repository's root; a trailing slash is a folder. These stay on GitLab only: they were
+# written for the people building Kestrel, not for readers of the source.
+CLAUDE.md
+.claude/
+.gitlab-ci.yml
+docs/
+spike/
+design/

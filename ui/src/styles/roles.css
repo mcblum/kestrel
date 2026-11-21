@@ -1,0 +1,35 @@
+/* Who does what (WhoDoesWhatSetting.tsx): one grid for every row, so the labels end on one line
+   (right-aligned, Matt 2026-11-20) and every box starts on the next. A row is its label, its
+   presets in order with the box that adds another, and how its work is sent where that applies. */
+.kestrel .roles { display: grid; grid-template-columns: 132px minmax(0, 1fr) 210px; column-gap: 16px; row-gap: 18px; align-items: start; margin: 14px 0 6px; }
+.kestrel .roles-label { grid-column: 1; display: flex; justify-content: flex-end; align-items: center; gap: 4px; min-height: 48px; text-align: right; font-size: 12px; font-weight: 500; color: var(--s-ink); }
+/* Every box is as tall as a two-line one, so a label sits on the middle of its row's first box either way. */
+/* A label with no ? after it leaves the same room, so every label's text ends on one line. */
+.kestrel .roles-label.plain { padding-right: 24px; min-height: 34px; }
+.kestrel .roles-label label { margin: 0; padding: 0; font: inherit; color: inherit; }
+.kestrel .roles-list { grid-column: 2; display: grid; gap: 6px; min-width: 0; }
+.kestrel .roles-side { grid-column: 3; }
+.kestrel .roles-wide select { width: 100%; height: 34px; font-size: 12px; }
+.kestrel .roles-pick:disabled { opacity: .45; cursor: default; }
+.kestrel .roles-wide { grid-column: 2 / -1; min-width: 0; }
+.kestrel .roles-wide select { max-width: 300px; }
+.kestrel .roles-wide textarea { width: 100%; }
+.kestrel .roles-help { grid-column: 2 / -1; margin: -10px 0 0; }
+.kestrel .roles-apart { grid-column: 1 / -1; height: 1px; margin: 2px 0; background: var(--s-line, var(--s-border)); }
+
+/* A box: the preset's name over what it is, drawn like the app's dropdowns, caret included. */
+.kestrel .roles-pick-host { position: relative; min-width: 0; }
+.kestrel .settings-body .roles .roles-pick { display: grid; justify-content: stretch; justify-items: start; align-content: center; gap: 1px; width: 100%; height: auto; min-height: 48px; padding: 6px 30px 6px 12px; text-align: left; cursor: pointer; font-size: 12px;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 17px) 50%, calc(100% - 12px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
+.kestrel .roles-pick-name { line-height: 18px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.kestrel .roles-pick-detail { font-size: 11px; line-height: 15px; color: var(--s-muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.kestrel .settings-body .roles .roles-pick.empty { color: var(--s-muted); }
+.kestrel .roles-pick-none { margin: 0; padding: 8px 10px; font-size: 12px; color: var(--s-muted); }
+
+@container (max-width: 580px) {
+  .kestrel .roles { grid-template-columns: minmax(0, 1fr); row-gap: 8px; }
+  .kestrel .roles-label, .kestrel .roles-list, .kestrel .roles-side, .kestrel .roles-wide, .kestrel .roles-help { grid-column: 1; }
+  .kestrel .roles-label { justify-content: flex-start; min-height: 0; margin-top: 10px; }
+  .kestrel .roles-help { margin: 0; }
+}

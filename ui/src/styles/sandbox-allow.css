@@ -1,0 +1,15 @@
+/* ---- Settings → Workflow: always allowed outside the sandbox (SandboxAllowSetting.tsx) ---- */
+.kestrel .sandbox-allow-list code { font-size: 11px; color: var(--s-ink); }
+.kestrel .sandbox-allow-kind { display: inline-block; min-width: 58px; margin-right: 8px; font-size: 11px; color: var(--s-muted); }
+.kestrel .sandbox-allow-remove { padding: 3px 9px; background: none; border: 0; border-radius: 6px; font: inherit; font-size: 11px; color: var(--s-muted); cursor: pointer; }
+.kestrel .sandbox-allow-remove:hover { background: var(--s-soft); color: var(--s-ink); }
+.kestrel .sandbox-allow-add { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.kestrel .sandbox-allow-add input { flex: 1 1 200px; min-width: 0; padding: 4px 8px; font: inherit; font-size: 12px; border: 1px solid var(--s-line); border-radius: 5px; background: var(--s-paper); color: var(--s-ink); }
+.kestrel .sandbox-allow-add select { font: inherit; font-size: 12px; padding: 3px 6px; border: 1px solid var(--s-line); border-radius: 5px; background: var(--s-paper); color: var(--s-ink); }
+.kestrel .sandbox-allow-add button { padding: 4px 12px; font: inherit; font-size: 12px; border: 1px solid var(--s-line); border-radius: 6px; background: var(--s-paper); color: var(--s-ink); cursor: pointer; }
+.kestrel .sandbox-allow-add button:hover:not(:disabled) { background: var(--s-soft); }
+.kestrel .sandbox-allow-add button:disabled { opacity: .5; cursor: default; }
+.kestrel .sandbox-allow-entry { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.kestrel .sandbox-allow-inactive code { text-decoration: line-through; color: var(--s-muted); }
+.kestrel .sandbox-allow-reason { font-size: 11px; line-height: 1.45; color: var(--s-muted); }
+.kestrel .sandbox-offer-note { margin: 6px 0 0; font-size: 11px; line-height: 1.5; color: var(--s-muted); }

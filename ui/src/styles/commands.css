@@ -1,0 +1,51 @@
+/* The Commands pane (CommandsPane.tsx): the session's commands on top, the chosen one's details and
+   output underneath. Grey chrome; colour only for meaning: the running pulse, red for a failed
+   command, amber for a refused Stop. */
+/* The red the app uses for errors elsewhere. */
+.kestrel .commands-pane { --command-error: light-dark(#b3403a, #e07b74); display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.kestrel .commands-running { flex: none; font-variant-numeric: tabular-nums; }
+/* A set height (10 rows to begin with, then wherever the line under it was dragged) however few
+   there are, so the list does not jump as commands come and go; the output keeps at least 120px. */
+.kestrel .commands-list { flex: none; box-sizing: border-box; max-height: calc(100% - 160px); min-height: 64px; overflow-y: auto; padding: 4px; }
+/* The line under the list, with a taller grab area than it looks; like the tools column's own dividers. */
+.kestrel .commands-divider { position: relative; flex: none; height: 1px; background: var(--s-line); cursor: row-resize; touch-action: none; }
+.kestrel .commands-divider::before { content: ''; position: absolute; left: 0; right: 0; top: -4px; height: 9px; z-index: 1; }
+.kestrel .commands-divider:hover, .kestrel .commands-divider:active, .kestrel .commands-divider:focus-visible { background: var(--s-muted); outline: 0; }
+.kestrel .command-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 28px; padding: 0 8px; background: transparent; border: 0; border-radius: 6px; font: inherit; font-size: 12px; color: var(--s-ink); text-align: start; cursor: pointer; }
+.kestrel .command-row:hover { background: var(--s-soft); }
+.kestrel .command-row.selected { background: var(--s-soft); }
+.kestrel .command-row > .working-pulse { flex: none; }
+.kestrel .command-row-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.kestrel .command-row-time { flex: none; font-size: 10.5px; font-variant-numeric: tabular-nums; color: var(--s-muted); }
+/* An ended command: green when it is done, red when it ended with an error, a grey ring when it was stopped. */
+.kestrel .command-mark { flex: none; box-sizing: border-box; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--s-muted); }
+.kestrel .command-mark.completed { border-color: var(--s-green); background: var(--s-green); }
+.kestrel .command-mark.failed { border-color: var(--command-error); background: var(--command-error); }
+.kestrel .command-row-time.completed { color: var(--s-green); }
+.kestrel .command-row-time.failed { color: var(--command-error); }
+.kestrel :is(.command-line, .command-output):focus-visible { outline: 0; }
+/* In a short pane (stacked with others in a small window) the details scroll rather than hide the
+   output below what fits. */
+.kestrel .command-detail { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow: hidden auto; padding: 10px 12px; }
+.kestrel .command-head, .kestrel .command-detail > .command-note, .kestrel .command-detail > .bg-task-error { flex: none; }
+.kestrel .command-head { display: flex; align-items: flex-start; gap: 10px; }
+.kestrel .command-title { flex: 1; display: grid; gap: 3px; min-width: 0; }
+/* At most two lines: a command with no label is named by its whole text, which the command below
+   shows in full (and the tooltip). */
+.kestrel .command-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: 13px; font-weight: 600; color: var(--s-ink); overflow-wrap: anywhere; }
+/* It runs into the details' right padding, so its scroll bar sits on the pane's right edge. */
+.kestrel .command-source { position: relative; flex: none; display: flex; min-height: 0; max-height: calc(16px * 6); margin-right: -12px; }
+.kestrel .command-source .command-line { padding-right: 12px; }
+.kestrel .command-source[style] { max-height: none; }
+.kestrel .command-line { flex: 1; min-width: 0; font-family: var(--mono, ui-monospace, monospace); font-size: 11px; line-height: 16px; color: var(--s-label); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; overflow-y: auto; cursor: pointer; border-radius: 4px; }
+.kestrel .command-source:hover .command-line { color: var(--s-ink); }
+/* "Click to copy" in the lower right of the command while it is hovered or focused; "Copied" after
+   a click. Filled with the accent (the ink colour) so it is seen against the command text. */
+.kestrel .command-copy-hint { position: absolute; bottom: 2px; right: 16px; padding: 2px 7px; border-radius: 5px; background: var(--s-accent); color: var(--s-paper); font-size: 10.5px; font-weight: 600; line-height: 14px; pointer-events: none; opacity: 0; transition: opacity 0.12s; }
+.kestrel .command-source:is(:hover, :focus-within) .command-copy-hint { opacity: 1; }
+/* The line under the command: it sits in the details' padding, so it runs the pane's whole width. */
+.kestrel .source-divider { margin: 0 -12px; }
+.kestrel .command-facts { font-size: 11px; color: var(--s-muted); }
+.kestrel .command-note { margin: 0; font-size: 11.5px; line-height: 1.45; color: var(--s-muted); }
+.kestrel .command-detail > .bg-task-error { margin: 0; }
+.kestrel .command-output { flex: 1; min-height: 64px; overflow-y: auto; margin: 0; padding: 8px 10px; background: var(--s-side); border: 1px solid var(--s-line); border-radius: 6px; font-family: var(--mono, ui-monospace, monospace); font-size: 11px; line-height: 1.5; color: var(--s-ink); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }

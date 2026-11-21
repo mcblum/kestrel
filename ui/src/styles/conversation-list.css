@@ -1,0 +1,7 @@
+/* The conversation's rows (components/MessageList.tsx): only those near the screen are on the page,
+   each measured as it is drawn. A row holds its children's margins (flow-root), so its measured
+   height is the room it takes and the rows after it are placed where they would have been. */
+.kestrel .message-row { display: flow-root; }
+/* The list keeps the reading position itself when a row above the screen changes height; the
+   browser's own scroll anchoring would move it a second time. */
+.kestrel .conversation .conversation-body { overflow-anchor: none; }

@@ -1,0 +1,43 @@
+/* ---- pictures: a group of them, and the viewer (PictureGroup.tsx, PictureViewer.tsx) ----------
+   Grey chrome only; the pictures are the colour. The viewer covers the conversation it was opened
+   from (or the window, for a picture outside one), never slides in from a side. */
+.kestrel .thumb img { -webkit-user-drag: none; user-select: none; }
+
+.kestrel .picture-group { margin: 0 0 10px; }
+.kestrel .picture-group-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 12px; color: var(--s-muted); }
+.kestrel .picture-group-head svg { width: 13px; height: 13px; }
+.kestrel .picture-group-strip { display: flex; flex-wrap: wrap; gap: 6px; }
+/* Every thumbnail in a group is the same height, whatever its shape; a wide one is capped. */
+.kestrel .group-thumb img { height: 96px; max-height: 96px; width: auto; max-width: 220px; object-fit: cover; }
+.kestrel .group-thumb.thumb-loading { width: 48px; height: 96px; }
+.kestrel .group-more { display: inline-grid; place-items: center; min-width: 56px; height: 98px; padding: 0 12px; font: inherit; font-size: 13px; font-weight: 600; line-height: 1; color: var(--s-ink); cursor: pointer; }
+.kestrel .group-more:hover, .kestrel .group-thumb:hover { border-color: var(--s-muted); }
+
+.kestrel .viewer { position: absolute; inset: 0; z-index: 40; display: flex; flex-direction: column; box-sizing: border-box; padding: 10px 12px 12px; background: color-mix(in srgb, var(--s-bg) 94%, transparent); outline: 0; }
+.kestrel .viewer.viewer-window { position: fixed; z-index: 90; }
+.kestrel .viewer-top { flex: none; display: flex; align-items: center; gap: 10px; min-height: 28px; font-size: 12px; color: var(--s-muted); }
+.kestrel .viewer-count { flex: none; color: var(--s-ink); font-variant-numeric: tabular-nums; }
+.kestrel .viewer-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .viewer-button { flex: none; display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-paper); color: var(--s-ink); cursor: pointer; }
+.kestrel .viewer-button:hover:not(:disabled) { border-color: var(--s-muted); }
+.kestrel .viewer-button:disabled { opacity: .35; cursor: default; }
+.kestrel .viewer-button:focus-visible, .kestrel .viewer-film:focus-visible { outline: 2px solid var(--s-muted); outline-offset: 2px; }
+.kestrel .viewer-button svg { width: 16px; height: 16px; }
+/* The picture takes all the room left, keeping its shape: a tall phone screenshot fits the height,
+   a wide browser one the width. */
+.kestrel .viewer-stage { flex: 1; min-height: 0; display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+.kestrel .viewer-frame { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; justify-content: center; }
+.kestrel .viewer-image { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; border-radius: 6px; box-shadow: 0 8px 30px rgba(0, 0, 0, .18); user-select: none; -webkit-user-drag: none; }
+.kestrel .viewer-loading { width: 40px; height: 40px; border-radius: 50%; background: var(--s-soft); }
+.kestrel .viewer-missing { display: flex; align-items: center; gap: 8px; color: var(--s-muted); }
+.kestrel .viewer-missing svg { width: 16px; height: 16px; }
+
+.kestrel .viewer-strip { flex: none; display: flex; gap: 6px; justify-content: safe center; overflow-x: auto; padding: 4px 2px 2px; scrollbar-width: thin; }
+.kestrel .viewer-film { flex: none; height: 52px; min-width: 24px; padding: 0; border: 1px solid var(--s-line); border-radius: 5px; background: var(--s-soft); overflow: hidden; line-height: 0; cursor: pointer; opacity: .6; }
+.kestrel .viewer-film:hover { opacity: .85; }
+.kestrel .viewer-film.current { opacity: 1; border-color: var(--s-ink); }
+.kestrel .viewer-film img { height: 50px; width: auto; max-width: 120px; object-fit: cover; -webkit-user-drag: none; }
+.kestrel .viewer-film-empty { display: block; width: 24px; height: 50px; }
+
+/* A picture that could not be loaded does nothing on a click: drawn as an empty outline, not as a thumbnail to press. */
+.kestrel .thumb.thumb-missing { background: transparent; border-style: dashed; }

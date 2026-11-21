@@ -1,0 +1,84 @@
+/* The controls row under the message box (components/ComposerControls.tsx, components/controls/)
+   and what the model menu adds to the context menu (components/ContextMenu.tsx). */
+
+/* Provider colours: the one sanctioned use of brand colour, for the provider's name only.
+   Claude: its orange (#D97757) on dark, a deeper shade of it on light so small text keeps a
+   contrast of 5:1. Codex: the blue-violet of OpenAI's Codex mark (its gradient runs #B1A7FF ->
+   #7A9DFF -> #3941FF): the deep end on light, the middle on dark, both above 6:1. */
+.kestrel {
+  --provider-claude: light-dark(#b5502c, #d97757);
+  --provider-codex: light-dark(#3941ff, #7a9dff);
+  --provider-opencode: var(--s-label);
+}
+
+/* ---- the row: left-justified, one line; labels shorten before anything wraps ---------------- */
+.kestrel .composer-under { justify-content: flex-start; flex-wrap: nowrap; min-width: 0; container-type: inline-size; }
+/* What gives way as the row narrows, in order: the note after the controls, then where it works
+   (project, folder), then the effort word; the provider, model and mode keep their size. */
+.kestrel .composer-under .ctl-note { flex: 0 1000 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* Two groups on one line: the provider and where it works (project, folder) on the left; the
+   model with its effort, the mode and the context ring on the right. The row's own note, when
+   there is one, sits between them. */
+.kestrel .ctl-set { display: contents; }
+.kestrel .ctl-right { display: inline-flex; align-items: center; flex: none; gap: 0 2px; margin-left: auto; order: 2; }
+.kestrel .composer-under .ctl-note { order: 1; }
+.kestrel .ctl-right > .ctl { flex-shrink: 0; }
+.kestrel .ctl-set > .ctl { flex-shrink: 0; }
+.kestrel .ctl-set .picker { min-width: 0; }
+.kestrel .ctl-set .ctl::after { content: none; }
+.kestrel .ctl-set .picker-button, .kestrel .ctl-set .ctl-button { max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.kestrel .ctl-set .picker-button { color: var(--s-label); }
+.kestrel .ctl-where { display: inline-flex; align-items: center; min-width: 52px; flex-shrink: 1; gap: 2px; }
+.kestrel .ctl-where .ctl { min-width: 0; flex-shrink: 1; }
+
+.kestrel .ctl-button { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; margin: 0; padding: 3px 6px; font: inherit; font-size: 11px; color: var(--s-label); background: transparent; border: 0; border-radius: 5px; cursor: pointer; }
+.kestrel .ctl-button:hover { color: var(--s-ink); background: var(--s-soft); }
+.kestrel .ctl-set .ctl-button:focus-visible, .kestrel .ctl-set .picker-button:focus-visible { outline: 2px solid color-mix(in srgb, var(--s-accent) 60%, transparent); outline-offset: -1px; }
+.kestrel .ctl-model-name { overflow: hidden; text-overflow: ellipsis; }
+.kestrel .ctl-effort { flex: none; color: var(--s-muted); }
+
+.kestrel .ctl-provider { flex-shrink: 0 !important; font-weight: 500; }
+.kestrel .ctl-provider.provider-claude, .kestrel .ctl-provider.provider-claude .ctl-button { color: var(--provider-claude); }
+.kestrel .ctl-provider.provider-codex, .kestrel .ctl-provider.provider-codex .ctl-button { color: var(--provider-codex); }
+.kestrel .ctl-provider.provider-opencode, .kestrel .ctl-provider.provider-opencode .ctl-button { color: var(--provider-opencode); }
+.kestrel .ctl-provider.ctl-fixed { padding: 3px 6px; }
+
+/* Narrow: the effort word and where-it-works give way first; the model name shortens. */
+@container (max-width: 520px) {
+  .kestrel .composer-under .ctl-note { display: none; }
+}
+@container (max-width: 400px) {
+  .kestrel .ctl-effort { display: none; }
+}
+
+/* ---- the context ring and its popup ----------------------------------------------------------- */
+.kestrel .ctl-context { position: relative; flex-shrink: 0 !important; }
+.kestrel .ctx-button { align-items: center; padding: 3px 5px; }
+.kestrel .ctx-ring { width: 13px; height: 13px; display: block; }
+/* The track has to be seen on the window's background at 13px: the line colour was too faint. */
+.kestrel .ctx-track { fill: none; stroke: color-mix(in srgb, var(--s-muted) 50%, transparent); stroke-width: 2; }
+.kestrel .ctx-fill { fill: none; stroke: var(--s-label); stroke-width: 2; stroke-linecap: round; }
+.kestrel .ctx-button:hover .ctx-fill { stroke: var(--s-ink); }
+.kestrel .ctx-button.nearly-full .ctx-fill { stroke: var(--s-amber); }
+.kestrel .ctx-pop { position: fixed; z-index: 40; width: 250px; padding: 10px 12px; background: var(--s-paper); border: 1px solid var(--s-line); border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, .28); font-size: 11px; color: var(--s-ink); cursor: default; }
+.kestrel .ctx-title { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--s-muted); margin-bottom: 4px; }
+.kestrel .ctx-total { font-size: 12px; margin-bottom: 6px; }
+.kestrel .ctx-total strong { font-weight: 600; }
+.kestrel .ctx-rows { margin: 0; display: grid; gap: 1px; }
+.kestrel .ctx-row { display: flex; justify-content: space-between; gap: 10px; }
+.kestrel .ctx-row dt { color: var(--s-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .ctx-row dd { margin: 0; color: var(--s-muted); font-variant-numeric: tabular-nums; }
+.kestrel .ctx-row.free dt, .kestrel .ctx-row.buffer dt, .kestrel .ctx-row.deferred dt { color: var(--s-muted); }
+.kestrel .ctx-sub { margin: 8px 0 2px; font-size: 10px; color: var(--s-muted); }
+.kestrel .ctx-foot { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--s-line); font-size: 10px; color: var(--s-muted); }
+.kestrel .ctx-none { margin: 0; color: var(--s-muted); }
+
+/* ---- menu rows the model menu uses: tick, shortcut, current value, heading, switch ------------ */
+.kestrel .menu-item .menu-tick { flex: none; display: inline-grid; place-items: center; width: 12px; }
+.kestrel .menu-item .menu-key { flex: none; min-width: 10px; font: inherit; font-size: 10.5px; color: var(--s-muted); background: none; border: 0; padding: 0; text-align: right; }
+.kestrel .menu-item .menu-value { font-size: 11px; }
+.kestrel .menu-heading { padding: 4px 9px 0; font-size: 10px; color: var(--s-muted); }
+.kestrel .menu-item .menu-switch { flex: none; position: relative; width: 24px; height: 14px; border-radius: 7px; background: var(--s-line); transition: background .12s; }
+.kestrel .menu-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--s-paper); box-shadow: 0 1px 2px #0003; transition: transform .12s; }
+.kestrel .menu-switch.on { background: var(--s-accent); }
+.kestrel .menu-switch.on::after { transform: translateX(10px); }

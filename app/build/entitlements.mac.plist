@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Kestrel's hardened-runtime exceptions: only what V8 needs. Not sandboxed (the app runs the
+     user's shells, CLIs and agents in their own folders). No disable-library-validation: every
+     native module Kestrel loads (node-pty's pty.node) is signed with the same Developer ID.
+     The Claude Code binary keeps Anthropic's own signature and entitlements. -->
+<plist version="1.0">
+  <dict>
+    <!-- V8's JIT, in the app, its helpers, and the server (Electron's Node, ELECTRON_RUN_AS_NODE). -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <!-- V8/WebAssembly still map writable+executable pages that are not MAP_JIT. -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+  </dict>
+</plist>

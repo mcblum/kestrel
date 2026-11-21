@@ -1,0 +1,32 @@
+{
+  "name": "@kestrel/ui",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tanstack/react-virtual": "3.14.26",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "lucide-react": "^0.460.0",
+    "react": "^19.0.0",
+    "react-diff-view": "^3.3.0",
+    "react-dom": "^19.0.0",
+    "react-markdown": "^10.1.0",
+    "refractor": "5.0.0",
+    "remark-gfm": "^4.0.1",
+    "zustand": "5.0.16"
+  },
+  "devDependencies": {
+    "@kestrel/server": "workspace:*",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}

@@ -1,0 +1,60 @@
+.kestrel .overview-page { display: flex; flex-direction: column; flex: 1 0 auto; min-width: 0; width: 100%; }
+.kestrel .overview-content { flex: none; }
+.kestrel .overview-footer { container-type: inline-size; margin-top: auto; width: 100%; border-top: 1px solid var(--s-line); background: transparent; }
+.kestrel .overview-footer > .column { padding-block: 20px; }
+.kestrel .activity-garden { --garden-green: light-dark(#42785c, #9bc9ac); box-sizing: border-box; width: 100%; min-width: 0; display: grid; grid-template-columns: max-content minmax(326px, 1fr) 280px; align-items: center; gap: 16px 32px; }
+.kestrel .activity-garden-calendar { position: relative; width: 326px; max-width: 100%; justify-self: center; }
+.kestrel .activity-garden-projects { width: 100%; max-width: 280px; justify-self: end; }
+.kestrel .activity-garden-day-detail { position: absolute; top: 100%; left: 0; right: 0; margin: 6px 0 0; font-size: 10px; color: var(--s-muted); text-align: center; }
+.kestrel .activity-garden h2 { display: flex; align-items: center; gap: 6px; margin: 0 0 5px; font-size: 12px; font-weight: 500; color: var(--s-muted); }
+.kestrel .activity-garden h2 svg { width: 16px; height: 16px; color: var(--garden-green); }
+.kestrel .activity-garden-summary p { margin: 0; font-size: 12px; white-space: nowrap; }
+.kestrel .activity-garden-summary strong { font-size: 23px; font-weight: 500; letter-spacing: -.04em; margin-right: 3px; }
+.kestrel .activity-garden-calendar, .kestrel .activity-garden-projects { min-width: 0; }
+.kestrel .activity-garden-caption { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: var(--s-muted); font-size: 10px; }
+.kestrel .activity-garden-grid { display: grid; grid-template-columns: repeat(15, minmax(0, 18px)); justify-content: center; gap: 4px; margin-inline: auto; }
+.kestrel .activity-garden-day { height: 18px; min-width: 0; padding: 0; background: var(--s-bg); border: 1px solid var(--s-line); border-radius: 3px; cursor: pointer; }
+.kestrel .activity-garden [data-level="1"] { background: color-mix(in srgb, var(--garden-green) 25%, var(--s-side)); }
+.kestrel .activity-garden [data-level="2"] { background: color-mix(in srgb, var(--garden-green) 45%, var(--s-side)); }
+.kestrel .activity-garden [data-level="3"] { background: color-mix(in srgb, var(--garden-green) 70%, var(--s-side)); }
+.kestrel .activity-garden [data-level="4"] { background: var(--garden-green); }
+.kestrel .activity-garden-day[data-today] { border-color: var(--s-muted); }
+.kestrel .activity-garden-day:hover, .kestrel .activity-garden button:focus-visible, .kestrel .activity-garden button[aria-pressed="true"] { outline: 2px solid var(--garden-green); outline-offset: 2px; }
+.kestrel .activity-garden-detail { margin: 8px 0 0; height: 15px; font-size: 10px; color: var(--s-muted); white-space: nowrap; }
+.kestrel .activity-garden-project-list { display: grid; gap: 1px; }
+.kestrel .activity-garden-project-row { display: grid; grid-template-columns: minmax(0, 1fr) 64px 3ch; align-items: center; gap: 8px; width: 100%; padding: 3px 4px; border: 0; border-radius: 4px; background: none; color: var(--s-ink); font-size: 11px; text-align: left; cursor: pointer; }
+.kestrel .activity-garden-project-row:hover, .kestrel .activity-garden-project-row[aria-pressed="true"] { background: var(--s-side); }
+.kestrel .activity-garden-project-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .activity-garden-project-row b { font-weight: 500; font-variant-numeric: tabular-nums; text-align: right; }
+.kestrel .activity-garden-project-track { height: 3px; border-radius: 2px; background: var(--s-line); overflow: hidden; }
+.kestrel .activity-garden-project-track > span { display: block; height: 100%; border-radius: inherit; background: var(--garden-green); }
+.kestrel .activity-garden-project-more { margin: 0; padding: 0; font-size: 10px; line-height: inherit; }
+.kestrel .activity-garden-selection { grid-column: 1 / -1; border-top: 1px solid var(--s-line); padding-top: 16px; }
+.kestrel .activity-garden-selection-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.kestrel .activity-garden h3 { margin: 0; font-size: 12px; font-weight: 500; }
+.kestrel .activity-garden h3 span, .kestrel .activity-garden-selection p { color: var(--s-muted); font-size: 12px; }
+.kestrel .activity-garden-selection button { display: flex; align-items: center; gap: 12px; background: none; color: var(--s-ink); border: 0; cursor: pointer; padding: 8px; font-size: 12px; text-align: left; border-radius: 4px; }
+.kestrel .activity-garden-selection button:hover { background: var(--s-side); }
+.kestrel .activity-garden-selection svg { width: 14px; height: 14px; flex: none; color: var(--s-muted); }
+.kestrel .activity-garden-selection ul { list-style: none; margin: 8px 0 0; padding: 0; max-height: 240px; overflow-y: auto; }
+.kestrel .activity-garden-selection li button { width: 100%; justify-content: space-between; }
+.kestrel .activity-garden-selection li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@container (max-width: 950px) { .kestrel .activity-garden { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .kestrel .activity-garden-summary { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; } .kestrel .activity-garden h2 { margin: 0; } }
+/* Two columns: the calendar keeps to the left edge, under the heading, with the projects beside it. */
+@container (max-width: 950px) { .kestrel .activity-garden-calendar { justify-self: start; } }
+/* A narrow window (a small screen, or the app beside another window): one column, every block the
+   full width and starting at the left edge. The calendar's squares grow to fill the row, the day's
+   detail takes its own line instead of floating over the block below, and the projects get the room. */
+@container (max-width: 620px) {
+  .kestrel .activity-garden { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .kestrel .overview-footer > .column { padding-block: 16px; }
+  .kestrel .activity-garden-calendar { width: 100%; max-width: 460px; justify-self: stretch; }
+  .kestrel .activity-garden-grid { grid-template-columns: repeat(15, minmax(0, 1fr)); justify-content: stretch; margin-inline: 0; }
+  .kestrel .activity-garden-day { height: auto; aspect-ratio: 1; }
+  .kestrel .activity-garden-day-detail { position: static; margin-top: 8px; text-align: left; }
+  .kestrel .activity-garden-projects { max-width: none; justify-self: stretch; }
+  .kestrel .activity-garden-project-row { grid-template-columns: minmax(0, 1fr) minmax(64px, 30%) 3ch; padding-inline: 0; }
+  .kestrel .activity-garden-selection ul { max-height: 180px; }
+}
+
+@container (max-width: 950px) { .kestrel .activity-garden-grid { grid-template-columns: repeat(15, minmax(0, 18px)); } }

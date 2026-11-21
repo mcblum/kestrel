@@ -1,0 +1,59 @@
+/* ---- terminal tabs: one strip at the top of the Terminal view ------------------------------
+   Same height and type as the file viewer's head line; the chosen tab is filled the way a
+   pressed pane button is. Grey only: an exited shell is shown by a fainter title, not a colour. */
+/* At most MAX_TERMINAL_TABS tabs: they shrink and ellipsize rather than push the + or the pane's X
+   out of the row; past that the row is one menu (TerminalMenu.tsx). */
+.kestrel .term-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; box-sizing: border-box; height: var(--pane-header-height); padding: 0 0 0 6px; overflow: hidden; font-size: 11px; }
+
+.kestrel .term-tab { position: relative; display: flex; align-items: center; flex: 0 1 auto; min-width: 52px; max-width: 160px; height: 20px; border-radius: 5px; color: var(--s-muted); }
+.kestrel .term-tab:hover { background: var(--s-soft); color: var(--s-ink); }
+.kestrel .term-tab.active { background: color-mix(in srgb, var(--s-ink) 16%, transparent); color: var(--s-ink); }
+.kestrel .term-tab-main { display: flex; align-items: center; min-width: 0; height: 100%; padding: 0 2px 0 8px; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; }
+.kestrel .term-tab-main:focus-visible { outline: 1px solid var(--s-muted); outline-offset: -1px; border-radius: 5px; }
+.kestrel .term-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .term-tab.exited .term-tab-title { color: var(--s-muted); opacity: .7; }
+
+/* The close button keeps its room, so tabs do not shift when it appears. */
+.kestrel .term-tab-close, .kestrel .term-tab-new { display: grid; place-items: center; flex: none; padding: 0; background: none; border: 0; border-radius: 4px; color: var(--s-muted); cursor: pointer; }
+.kestrel .term-tab-close { width: 16px; height: 16px; margin: 0 2px 0 1px; visibility: hidden; }
+.kestrel .term-tab:hover .term-tab-close, .kestrel .term-tab.active .term-tab-close, .kestrel .term-tab-close:focus-visible { visibility: visible; }
+.kestrel .term-tab-close:hover, .kestrel .term-tab-new:hover { background: color-mix(in srgb, var(--s-ink) 10%, transparent); color: var(--s-ink); }
+.kestrel .term-tab-close svg { width: 11px; height: 11px; }
+.kestrel .term-tab-new { width: 20px; height: 20px; margin-left: 2px; }
+
+/* A dragged tab lands on the left or right edge of the tab under the pointer; a dragged menu row
+   above or below a row. The same line as the sidebar's. */
+.kestrel .term-tab.drop-before::before, .kestrel .term-tab.drop-after::after { content: ''; position: absolute; top: 2px; bottom: 2px; width: 2px; border-radius: 1px; background: var(--s-accent); }
+.kestrel .term-tab.drop-before::before { left: -2px; }
+.kestrel .term-tab.drop-after::after { right: -2px; }
+
+/* More terminals than tabs: one button naming the current one, and the app's menu panel under it. */
+.kestrel .term-menu { display: flex; min-width: 0; margin-left: 6px; }
+.kestrel .term-menu-button { display: flex; align-items: center; gap: 4px; min-width: 0; height: 20px; padding: 0 6px 0 8px; background: color-mix(in srgb, var(--s-ink) 16%, transparent); border: 0; border-radius: 5px; color: var(--s-ink); font: inherit; font-size: 11px; cursor: pointer; }
+.kestrel .term-menu-button:hover { background: color-mix(in srgb, var(--s-ink) 22%, transparent); }
+.kestrel .term-menu-button.exited .term-tab-title { opacity: .7; }
+.kestrel .term-menu-button svg { width: 11px; height: 11px; flex: none; color: var(--s-muted); }
+.kestrel .term-menu-pop { position: fixed; z-index: 40; width: max-content; min-width: 220px; max-width: 320px; }
+.kestrel .term-menu-row { display: flex; align-items: center; }
+.kestrel .term-menu-row .menu-item { flex: 1; min-width: 0; }
+.kestrel .term-menu-row.exited .term-tab-title { opacity: .7; }
+.kestrel .term-menu-row .term-tab-close { visibility: visible; opacity: 0; }
+.kestrel .term-menu-row:hover .term-tab-close, .kestrel .term-menu-row .term-tab-close:focus-visible { opacity: 1; }
+.kestrel .term-menu-row .term-tab-rename { flex: 1; max-width: none; margin: 3px 4px 3px 9px; height: 22px; }
+.kestrel .menu-item .term-menu-mark { width: 12px; flex: none; }
+.kestrel .term-menu-row.drop-before::before, .kestrel .term-menu-row.drop-after::after { content: ''; position: absolute; z-index: 1; left: 4px; right: 4px; height: 2px; border-radius: 1px; background: var(--s-accent); }
+.kestrel .term-menu-row.drop-before::before { top: -1px; }
+.kestrel .term-menu-row.drop-after::after { bottom: -1px; }
+.kestrel .term-tab-new svg { width: 12px; height: 12px; }
+
+/* Renaming happens in the tab itself. */
+.kestrel .term-tab-rename { width: auto; min-width: 0; max-width: 140px; height: 18px; margin: 0 0 0 4px; padding: 0 4px; box-sizing: border-box; border: 1px solid var(--s-line); border-radius: 4px; background: var(--s-paper); color: var(--s-ink); font: inherit; outline: 0; }
+
+/* Every tab's screen stays mounted; only the chosen one shows. The inset keeps the text off the
+   pane's edges; it is painted in the terminal's own colour (set inline from its theme). The host
+   inside has no padding, because the fit measures the host's content box. */
+.kestrel { --term-inset-x: 8px; --term-inset-y: 6px; }
+.kestrel .term-screen { flex: 1; min-height: 0; display: flex; flex-direction: column; box-sizing: border-box; padding: var(--term-inset-y) var(--term-inset-x); }
+.kestrel .term-screen[hidden] { display: none; }
+
+/* No terminals left: one button, in the middle. */

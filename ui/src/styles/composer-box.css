@@ -1,0 +1,13 @@
+/* The message box (Composer in Conversation.tsx, NewSessionTab.tsx). The text spans the whole box
+   so its scroll bar sits at the box's right edge, inside the rounded border; the attach, stop and
+   send buttons float over its bottom right corner, and the text keeps clear of them with padding
+   as wide as they are (it wraps before them on every line, as it did beside them). */
+.kestrel .composer-box { --composer-edge: 8px; --composer-actions: 66px; position: relative; padding-right: var(--composer-edge); }
+/* Paperclip (2px margin) and send, 28px each, 8px apart; the stop button adds one more. */
+.kestrel .composer-box:has(> .composer-actions .stop) { --composer-actions: 102px; }
+.kestrel .composer-box > .composer-input { margin-right: calc(-1 * var(--composer-edge)); padding-right: calc(var(--composer-actions) + var(--composer-edge)); box-sizing: border-box; }
+/* Clear of the scroll bar (8px, scrollbars.css), level with the box's bottom padding. */
+.kestrel .composer-actions { position: absolute; right: 10px; bottom: 8px; display: flex; align-items: center; gap: 8px; }
+/* The placeholder is cut with an ellipsis before the buttons too, not under them (it is drawn over
+   the text's padding, so the padding alone does not keep it clear). */
+.kestrel .composer-box > .composer-input.is-empty::before { max-width: calc(100% - var(--composer-actions) - var(--composer-edge)); }
