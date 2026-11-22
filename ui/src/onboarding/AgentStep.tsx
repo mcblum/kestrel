@@ -3,6 +3,7 @@ import { Check, Terminal } from 'lucide-react';
 import { useResource } from '../data/resources.ts';
 import { AGENTS_PATH, asAgentStatus } from '../components/useAgents.ts';
 import { AGENTS, AGENT_LABEL } from '../labels.ts';
+import { SignIn } from '../components/SignIn.tsx';
 import { startingControls, tabActions, useTabs } from '../tabsStore.ts';
 
 export function AgentStep() {
@@ -23,6 +24,7 @@ export function AgentStep() {
           <div>
             <h2>{AGENT_LABEL[agent]}</h2>
             <p>{status ? available ? 'Ready to start a session.' : status.notes[agent] ?? 'Not available yet. Install the CLI and sign in, then check again.' : value.state === 'loading' ? 'Checking availability…' : 'Could not check availability.'}</p>
+            {status?.signIn.includes(agent) && <SignIn agent={agent} />}
           </div>
           {available && <label className="setup-default">
             <input type="radio" name="setup-agent" checked={defaults.agent === agent} onChange={() => tabActions.setDefaults({ ...defaults, agent, model: '', effort: '', fast: false })} />

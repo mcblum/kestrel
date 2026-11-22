@@ -24,6 +24,7 @@ import { RunPhase, type PhaseChange } from './run-phase.ts';
 import { baseOptions, isConnectorTool } from './options.ts';
 import { kestrelMcpServer } from './tools.ts';
 import { claudeAvailability, claudeThrown } from './failure.ts';
+import { claudeSignIn } from './sign-in.ts';
 import { cardOffer, isUnconfinedCommand, isUnsandboxed, offersAllowList, ON_LIST_NOTE, onAllowList, rewrittenDetail, shellSandbox, unconfinedNote, unconfinedReason, UNSANDBOXED_NOTE } from './sandbox.ts';
 import { offerOptions } from '../../sandbox-allow/offer.ts';
 import type { SandboxOffer } from '../../shared/sandbox-allow.ts';
@@ -471,9 +472,11 @@ function resolution(pending: Pending, answer: InputAnswer): Awaited<ReturnType<C
 
 /** `runQuery` is the SDK's `query` and `runFork` its `forkSession`; tests pass scripted ones. */
 export function claudeAdapter(runQuery: typeof query = query, runFork: typeof forkSession = forkSession): AgentAdapter {
+  const signIn = claudeSignIn();
   return {
     agent: 'claude',
-    availability: async () => claudeAvailability(),
+    availability: () => claudeAvailability(),
+    signIn,
     models: () => claudeModels(runQuery),
     start(options, prompt, emit, attachments) {
       const handle = new ClaudeHandle(null, options, emit, runQuery);

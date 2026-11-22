@@ -2,9 +2,10 @@
 // missing), the pane icons on the right. Two, quieter: its group, its project, and a short git
 // summary that opens the Details pane. Tags are edited in Details; activity state is the tab's dot.
 // Beside the pane icons: the branch's pull request chip, and "Create PR" when it has no open one;
-// its menu also removes the worktree ("Worktree" offers that alone otherwise).
+// its menu also removes the worktree ("Worktree" offers that alone otherwise). A session reviewing
+// somebody else's request has "View PR #7" there instead, which opens it on its host (`requestButton`).
 import { WorkstreamChip } from './WorkstreamChip.tsx';
-import { Folder, TriangleAlert } from 'lucide-react';
+import { ExternalLink, Folder, TriangleAlert } from 'lucide-react';
 import { fitsGroup } from '@kestrel/server/project-groups';
 import { lookupHost, type GitStatus, type PullRequest } from '@kestrel/server/details';
 import type { SessionDetail, SessionView } from '@kestrel/server/model';
@@ -14,7 +15,7 @@ import { filingMark, projectName, UNSCOPED } from '../labels.ts';
 import { FilingTag } from '../components/FilingTag.tsx';
 import { actions, useApp } from '../store.ts';
 import { GitSummary } from './details/GitSummary.tsx';
-import { offersCreatePullRequest } from '@kestrel/server/session-documents';
+import { requestButton } from '@kestrel/server/session-documents';
 import { hostTerms } from '@kestrel/server/host-terms';
 import { changedFilesText, uncommittedCount } from '@kestrel/server/commit-request';
 import { PullRequestSummary, type PullRequestSource } from './PullRequestView.tsx';
@@ -81,7 +82,7 @@ export function SessionBar({ session, detail, panes, browserTitle, git, pullRequ
   const files = detail?.files ?? [];
   const runningCommands = useApp((s) => s.live.get(session.id)?.commands.filter((c) => c.status === 'running').length ?? 0);
   const worktree = useWorktreeMenu(session);
-  const offersCreate = !session.worktreeDiscarded && offersCreatePullRequest(true, pullRequests.value, git);
+  const button = requestButton(session, pullRequests.value, git);
   return (
     <header className="session-bar session-head">
       {/* Line one: the title, and the pane icons. */}
@@ -90,10 +91,16 @@ export function SessionBar({ session, detail, panes, browserTitle, git, pullRequ
           {session.title}
         </span>
         <ToolsMissing detail={detail} />
-        {session.branch && (
+        {(session.branch || button) && (
           <span className="bar-pr">
-            <PullRequestSummary sessionId={session.id} onRefresh={pullRequests.refresh} value={pullRequests.value} onOpen={onOpenPullRequest} />
-            {offersCreate && <CreatePullRequestButton sessionId={session.id} terms={hostTerms(lookupHost(pullRequests.value))} git={git} worktree={worktree} />}
+            {session.branch && <PullRequestSummary sessionId={session.id} onRefresh={pullRequests.refresh} value={pullRequests.value} onOpen={onOpenPullRequest} />}
+            {button?.kind === 'create' && <CreatePullRequestButton sessionId={session.id} terms={hostTerms(lookupHost(pullRequests.value))} git={git} worktree={worktree} />}
+            {button?.kind === 'view' && (
+              <button type="button" className="pr-create-button" title={button.title} onClick={() => window.open(button.url, '_blank', 'noreferrer')}>
+                <ExternalLink aria-hidden />
+                {button.label}
+              </button>
+            )}
           </span>
         )}
         <PaneToolbar

@@ -4,12 +4,15 @@
 import { existsSync } from 'node:fs';
 import type { AgentEvent } from '../types.ts';
 import { CLAUDE_EXECUTABLE_ENV } from './executable.ts';
+import { claudeInstalled, claudeSignedIn, claudeSignInAdvice, type ClaudeInstalled } from './sign-in.ts';
 
 type Failed = Extract<AgentEvent, { type: 'failed' }>;
 type Env = Record<string, string | undefined>;
 
-export const CLAUDE_SIGN_IN = 'Claude is not signed in: run `claude` in a terminal, sign in with /login, then send again.';
 export const CLAUDE_NOT_FOUND = 'Kestrel could not run Claude Code, the program its Claude sessions run on. Reinstall Kestrel, or from a checkout run `pnpm install`, then send again.';
+
+/** After the advice on a turn that failed: the message was not taken. */
+export const SEND_AGAIN = 'Then send again.';
 
 const AUTH_PATTERN = /authenticat|\/login|not logged in|oauth|invalid api key/i;
 const NOT_FOUND_PATTERN = /\bENOENT\b|executable not found|native binary .*not found/i;
@@ -22,9 +25,12 @@ const withAdvice = (reason: string, advice: string): string => {
   return said ? `${said}. ${advice}` : advice;
 };
 
-/** A Claude failure as the `failed` event the runtime shows. `sdkError` is the SDK's error code, when it gave one. */
-export function claudeFailure(reason: string, sdkError?: string): Failed {
-  if (sdkError === SDK_AUTH_ERROR || AUTH_PATTERN.test(reason)) return { type: 'failed', reason: withAdvice(reason, CLAUDE_SIGN_IN), kind: 'auth' };
+/**
+ * A Claude failure as the `failed` event the runtime shows. `sdkError` is the SDK's error code, when
+ * it gave one. `installed` words the sign-in advice for what this computer has (sign-in.ts).
+ */
+export function claudeFailure(reason: string, sdkError?: string, installed: () => ClaudeInstalled = claudeInstalled): Failed {
+  if (sdkError === SDK_AUTH_ERROR || AUTH_PATTERN.test(reason)) return { type: 'failed', reason: withAdvice(reason, `${claudeSignInAdvice(installed())} ${SEND_AGAIN}`), kind: 'auth' };
   return { type: 'failed', reason, kind: 'other' };
 }
 
@@ -39,11 +45,18 @@ export function claudeThrown(error: unknown): Failed {
 }
 
 /**
- * Whether a Claude session can start. Only the program is checked: asking whether Claude is signed
- * in means starting it, so a sign-in problem shows when the first turn fails, with what to do.
+ * Whether a Claude session can start: the program is there, and it is signed in. The program is
+ * asked (`auth status`), which runs no turn. When it cannot say, the session is let start, and a
+ * sign-in problem shows when the first turn fails. `signIn`: Kestrel can sign it in from here.
  */
-export function claudeAvailability(env: Env = process.env, exists: (path: string) => boolean = existsSync): { available: boolean; reason?: string } {
+export async function claudeAvailability(
+  env: Env = process.env,
+  exists: (path: string) => boolean = existsSync,
+  signedIn: () => Promise<boolean | null> = () => claudeSignedIn(env),
+  installed: () => ClaudeInstalled = () => claudeInstalled(env),
+): Promise<{ available: boolean; reason?: string; signIn?: boolean }> {
   const path = env[CLAUDE_EXECUTABLE_ENV];
-  if (!path || exists(path)) return { available: true };
-  return { available: false, reason: `${CLAUDE_NOT_FOUND} (${path})` };
+  if (path && !exists(path)) return { available: false, reason: `${CLAUDE_NOT_FOUND} (${path})` };
+  if ((await signedIn().catch(() => null)) === false) return { available: false, reason: claudeSignInAdvice(installed()), signIn: true };
+  return { available: true };
 }

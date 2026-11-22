@@ -4,6 +4,7 @@
 //   - Codex: one long-lived `codex app-server` process, JSON-RPC; approvals arrive as requests.
 //   - OpenCode: `opencode serve` over HTTP + SSE; permissions arrive as events.
 // Everything below is what Kestrel needs from any of them and nothing agent-specific.
+import type { AgentSignIn } from './sign-in.ts';
 import type { SlashCommand } from '../shared/slash-commands.ts';
 import type { SandboxSupport } from './claude/sandbox-support.ts';
 import type { Agent, CardQuestion, TodoItem, WidgetCard } from '../model.ts';
@@ -438,8 +439,17 @@ export interface AgentAdapter {
    * Returns the new conversation's id; rejects with a reason. Absent: the agent cannot fork.
    */
   fork?(agentSessionId: string, where: ForkWhere): Promise<string>;
-  /** Whether a session can start now (installed, signed in), and if not, what the user should do. Absent: always. */
-  availability?(): Promise<{ available: boolean; reason?: string }>;
+  /**
+   * Whether a session can start now (installed, signed in), and if not, what the user should do.
+   * `signIn`: it is not signed in, and `signIn` below can do it from Kestrel. Absent: always.
+   */
+  availability?(): Promise<{ available: boolean; reason?: string; signIn?: boolean }>;
+  /**
+   * Signing the agent in from Kestrel, with the agent's own program (sign-in.ts). Absent where that
+   * program cannot do it without a terminal of its own: OpenCode signs in to one of many model
+   * providers, chosen in its own prompt.
+   */
+  readonly signIn?: AgentSignIn;
   /** The permission levels it understands. Absent: all of them. */
   readonly permissions?: readonly PermissionLevel[];
   /** How full an idle conversation's context window is, asked without running a turn. Absent when the agent cannot say. */

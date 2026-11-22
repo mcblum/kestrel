@@ -224,3 +224,12 @@ export function foldComments(summary: string, comments: readonly ReviewLineComme
   if (comments.length === 0) return summary;
   return [summary, ...comments.map((c) => `**${c.path}:${c.line}**\n${c.body}`)].join('\n\n');
 }
+
+/**
+ * Said to the agent wherever post_review is described or answered: the review card is the last
+ * thing in its turn (Matt, 2026-11-21: a review that was followed by "I've reviewed the PR and
+ * handed you the review" and more). The transcript keeps the card last all the same (`reviewLast`).
+ */
+export const REVIEW_ENDS_TURN = 'The review card is the last thing in this turn: end your turn now and write nothing after it, not even to say that the review is done.';
+/** The same, before the call: in the first message of a review and in the tool's description. */
+export const REVIEW_IS_LAST = 'post_review is the last thing you do in the turn. Anything the user should know goes in its summary or is said before the call; after it, end your turn without writing anything more, not even to say that the review is done.';

@@ -49,7 +49,8 @@ import { OpenIn } from './open-in/prefs.ts';
 import { ProjectEdits } from './project-edits/prefs.ts';
 import { StartBase } from './start-base/prefs.ts';
 import { CommandsKept } from './commands-kept/prefs.ts';
-import { AgentInfo, type ModelList } from './runtime/agent-info.ts';
+import { AgentInfo, type AgentAvailability, type ModelList } from './runtime/agent-info.ts';
+import type { AgentSignIn } from './agents/sign-in.ts';
 import { editVerdict, optionsFor, startOptions } from './runtime/agent-options.ts';
 import { BackgroundWork } from './runtime/background.ts';
 import { launchChild, loadRecord, startSession, type StartRequest } from './runtime/bring-up.ts';
@@ -387,8 +388,13 @@ export class SessionRuntime implements McpSessions {
   }
 
   /** Which agents can start a session now (installed, signed in), and for the others why not. */
-  agentAvailability(): Promise<{ available: Agent[]; notes: Partial<Record<Agent, string>> }> {
+  agentAvailability(): Promise<AgentAvailability> {
     return this.info.availability();
+  }
+
+  /** The agent's own sign-in, run from Kestrel (agents/sign-in.ts). Refused for an agent Kestrel cannot sign in. */
+  agentSignIn(agent: Agent): AgentSignIn {
+    return this.info.signIn(agent);
   }
 
   /** Where an out-of-process agent reaches a session's Kestrel tools (set once the HTTP server's port and token are known). */
@@ -806,10 +812,12 @@ export class SessionRuntime implements McpSessions {
 
   /** Run an action through the transcript and send what changed on the live channel. */
   private apply(id: string, rec: Live, action: TranscriptAction): void {
-    const { messages, changed } = applyToTranscript(rec.messages, action, clock(), this.now());
+    const { messages, changed, removed } = applyToTranscript(rec.messages, action, clock(), this.now());
     rec.messages = messages;
     const patch: LivePatch = {};
     if (changed.length) patch.messages = changed;
+    // Taken out first, then merged: a message in both lists lands at the end (a review card kept last in its turn).
+    if (removed?.length) patch.removedMessages = removed;
     if (action.type !== 'user' && action.type !== 'resolved' && action.type !== 'settled' && action.type !== 'notice' && action.type !== 'card' && action.type !== 'withdrawn') {
       const line = outputLine(action);
       if (line) {

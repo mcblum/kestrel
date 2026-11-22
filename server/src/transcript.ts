@@ -24,6 +24,8 @@ export type TranscriptAction =
 export interface Applied {
   messages: ChatMessage[];
   changed: ChatMessage[];
+  /** Ids taken out of their place; one that is also in `changed` was moved to the end (`reviewLast`). */
+  removed?: string[];
 }
 
 const MAX_OUTPUT = 20_000;
@@ -65,7 +67,7 @@ function upsertTask(items: TodoItem[], task: Extract<AgentEvent, { type: 'task' 
 }
 
 /** A message that is a card of its own (task list, widget, file, next step, pictures, suggestion): tool lines do not join it. */
-const isCard = (m: ChatMessage) => Boolean(m.input || m.notice || m.todos || m.widget || m.file || m.next || m.images || m.suggestion);
+const isCard = (m: ChatMessage) => Boolean(m.input || m.notice || m.todos || m.widget || m.file || m.next || m.review || m.started || m.images || m.suggestion);
 
 const replaceAt = <T>(list: readonly T[], index: number, item: T): T[] => list.map((x, i) => (i === index ? item : x));
 
@@ -98,6 +100,25 @@ export function liveStatus(event: AgentEvent): string | undefined {
  * ends (shared/turns.ts). Without `now` nothing is stamped.
  */
 export function applyToTranscript(messages: readonly ChatMessage[], action: TranscriptAction, time: string, now?: number): Applied {
+  const applied = applyAction(messages, action, time, now);
+  return (action.type === 'message' || action.type === 'tool') && applied.messages.length > messages.length ? reviewLast(applied) : applied;
+}
+
+/**
+ * A review is the last thing in its turn (Matt, 2026-11-21). The agent is told to end its turn with
+ * post_review; when it says or does more all the same, that goes above the review card, which
+ * stays at the foot of the turn. Only the newest turn (what follows the user's last message) is looked at.
+ */
+function reviewLast(applied: Applied): Applied {
+  const { messages } = applied;
+  const turnStart = messages.findLastIndex((m) => m.author === 'you' && !m.midTurn) + 1;
+  const at = messages.findIndex((m, i) => i >= turnStart && m.review !== undefined);
+  if (at < 0 || at === messages.length - 1) return applied;
+  const card = messages[at]!;
+  return { messages: [...messages.slice(0, at), ...messages.slice(at + 1), card], changed: [...applied.changed, card], removed: card.id === undefined ? [] : [card.id] };
+}
+
+function applyAction(messages: readonly ChatMessage[], action: TranscriptAction, time: string, now?: number): Applied {
   const sent = now === undefined ? {} : { sentAt: now };
   switch (action.type) {
     case 'user': {
@@ -181,7 +202,7 @@ export function applyToTranscript(messages: readonly ChatMessage[], action: Tran
     case 'started':
       return { messages: [...messages], changed: [] };
     case 'failed': {
-      const message: ChatMessage = { id: `failed-${time}-${messages.length}`, author: 'agent', time, text: action.reason, notice: 'error' };
+      const message: ChatMessage = { id: `failed-${time}-${messages.length}`, author: 'agent', time, text: action.reason, notice: 'error', ...(action.kind === 'auth' ? { signIn: true as const } : {}) };
       const settled = ended(settle(messages), now);
       return { messages: [...settled.messages, message], changed: [...settled.changed, message] };
     }

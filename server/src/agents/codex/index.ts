@@ -9,7 +9,11 @@ import { skillCommands } from './skills.ts';
 import { CodexHandle, type HandleDeps } from './handle.ts';
 import { FALLBACK_MODELS } from './models.ts';
 import { CODEX_LEVELS } from './policy.ts';
-import { CodexUnavailable, launchCommand, launchCodex, type Launch } from './process.ts';
+import { hostPlatform } from '../../host.ts';
+import { spawnTarget } from '../find-program.ts';
+import { cliSignIn } from '../sign-in.ts';
+import { codexEnv } from './binary.ts';
+import { codexBinary, CodexUnavailable, launchCommand, launchCodex, NOT_INSTALLED, type Launch } from './process.ts';
 import { mcpServerNames, readCodexConfig } from './quiet.ts';
 
 type Env = Record<string, string | undefined>;
@@ -62,8 +66,20 @@ export function codexAdapter(options: CodexAdapterOptions = {}): AgentAdapter {
     }
     return probe.result;
   };
+  // Codex signs itself in (`codex login` opens the page); what was known about it is asked again after.
+  const signIn = cliSignIn({
+    command: () => {
+      const binary = codexBinary(env);
+      if (!binary) return null;
+      const target = spawnTarget(binary, hostPlatform());
+      return { file: target.command, args: ['login'], env: codexEnv(env, binary), shell: target.shell };
+    },
+    missing: NOT_INSTALLED,
+    onDone: () => (probe = null),
+  });
   return {
     agent: 'codex',
+    signIn,
     permissions: CODEX_LEVELS,
     contextUsage: async (threadId) => contexts.get(threadId) ?? null,
     async models() {
@@ -78,7 +94,8 @@ export function codexAdapter(options: CodexAdapterOptions = {}): AgentAdapter {
         await probed();
         return { available: true };
       } catch (error) {
-        return { available: false, reason: error instanceof CodexUnavailable ? error.message : error instanceof Error ? error.message : String(error) };
+        const signedOut = error instanceof CodexUnavailable && error.kind === 'auth';
+        return { available: false, reason: error instanceof Error ? error.message : String(error), ...(signedOut ? { signIn: true } : {}) };
       }
     },
     // Codex lists no slash commands, only skills: those are what "/" offers (skills.ts).

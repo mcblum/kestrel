@@ -12,6 +12,7 @@ import { canonicalHost, remoteHost, remoteRepository } from '../pull-requests/ch
 import { hostTerms, type HostKind } from '../shared/host-terms.ts';
 import type { PermissionLevel } from '../shared/permissions.ts';
 import { repositoryKey, requestNumberLabel, REVIEW_PERMISSION, reviewSessionTitle, type ReviewMark, type ReviewRequest } from '../shared/review-requests.ts';
+import { REVIEW_IS_LAST } from '../shared/review-reply.ts';
 import { DEFAULT_REVIEW_INSTRUCTIONS } from '../shared/review-settings.ts';
 import { alreadyReviewing, type ReviewingComments } from './reviewing.ts';
 import { reviewersOf, type ModelPreset, type WhoDoesWhat } from '../shared/who-does-what.ts';
@@ -96,6 +97,7 @@ export function reviewPrompt(request: Pick<ReviewRequest, 'host' | 'repository' 
     instructions.trim() || DEFAULT_REVIEW_INSTRUCTIONS,
     // How it is handed over is not theirs to change: the card is built from exactly this.
     'Hand over the review with the post_review tool, once: a verdict (approve, request_changes, or comment); a summary of a few sentences, which says what the change does and what you make of it overall; and the problems, each said once, as a finding. A finding has a brief (one or two plain sentences anyone can read), a detail (the technical explanation, which the user opens when they want it), a fix when you have one, a priority, whether you think it blocks the merge, and the lines of code it is about. Do not list the problems in the summary as well: each is shown as its own card, and a list above them says everything twice.',
+    REVIEW_IS_LAST,
     `Do not push anything, and do not comment on, approve or ask for changes to the ${terms.long} on ${terms.service} yourself: post_review shows your review to the user, who decides whether it is posted.`,
   ]
     .filter(Boolean)

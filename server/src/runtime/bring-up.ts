@@ -121,6 +121,10 @@ async function bringUp(host: BringUpHost, id: string, rec: Live, adapter: AgentA
       { sessionId: id, agent: launch.agent, prompt: prompt || attachmentsLabel(launch.attachments ?? []), title: launch.title, generate: launch.generateTitle, repo: source?.isGit ? source.path : null, folder: launch.folder, signal },
     );
     rec.base = where.base;
+    // A worktree that starts ahead of its base (a review, at the request's commit) has changes to
+    // show before anything is edited: read them now. Nothing else would until the first turn ends,
+    // and opening the session earlier found no worktree to look at yet.
+    if (launch.start && launch.start.head !== launch.start.base) host.queue(rec, () => host.upkeep.refreshFiles(id, rec));
     // A new worktree gets the project's untracked files first, so the setup script and the agent find them.
     const envSettings = await host.projectEnv.all();
     if (project && source && where.branch && !where.setupDone) {

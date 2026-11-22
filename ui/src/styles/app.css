@@ -25,6 +25,17 @@ body { background: light-dark(#fafbf9, #171a19); }
 .kestrel .connection-list { list-style: none; margin: 0; padding: 0; display: grid; }
 .kestrel .connection-list li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; font-size: 11px; color: var(--s-ink); }
 .kestrel .connection-list small { margin-left: auto; font-size: 10px; color: var(--s-muted); }
+/* An agent that is not signed in: why, and Sign in, on a line of their own under its row. */
+.kestrel .connection-list li.with-sign-in { flex-wrap: wrap; }
+.kestrel .connection-sign-in { flex-basis: 100%; display: grid; gap: 8px; padding: 2px 0 6px 15px; }
+.kestrel .sign-in { display: grid; gap: 8px; justify-items: start; min-width: 0; }
+.kestrel .sign-in-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--s-muted); }
+.kestrel .sign-in-note a { color: var(--s-ink); white-space: nowrap; }
+.kestrel .sign-in-note a svg { width: 11px; height: 11px; vertical-align: -1px; }
+.kestrel .sign-in-code { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.kestrel .sign-in-code input { width: 200px; padding: 5px 8px; font-size: 12px; border: 1px solid var(--s-line); border-radius: 6px; background: var(--s-paper); color: var(--s-ink); }
+.kestrel .chat-error-body { display: grid; gap: 8px; min-width: 0; }
+.kestrel .setup-agent .sign-in { margin-top: 10px; }
 .kestrel .settings-link { margin: 6px 0 0; color: var(--s-muted); }
 .kestrel .settings-link svg { width: 13px; height: 13px; }
 .kestrel .settings-section { display: grid; gap: var(--space-label); margin-top: var(--space-section); max-width: 520px; }

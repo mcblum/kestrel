@@ -23,6 +23,7 @@ import {
   newPullRequestModeOf,
   newPullRequestPrepared,
   offersCreatePullRequest,
+  requestButton,
   openDocument,
   pullRequestNumberOf,
   documentTitle,
@@ -255,5 +256,19 @@ describe('uncommitted changes and the New PR form', () => {
     expect(form(again)).toMatchObject({ title: 'Now with the commit', base: 'dev', draft: true });
     const typed = editNewPullRequest(ready('generated'), { title: 'Mine' });
     expect(regenerateNewPullRequest(typed, 3)).toEqual({ state: typed, prepare: false });
+  });
+
+  it('a review session never offers Create: its button opens the request under review on its host', () => {
+    const none = { state: 'ready', value: { pullRequests: [] } };
+    const ahead = { state: 'ready', value: { head: 'abc', ahead: 2, uncommitted: 0 } };
+    const review = { host: 'github' as const, number: 7, url: 'https://github.com/acme/app/pull/7' };
+    // The same branch, ahead of its base with no request of its own: Create for a session of the user's work.
+    expect(requestButton({ branch: 'matt/fix' }, none, ahead)).toEqual({ kind: 'create' });
+    expect(requestButton({ branch: 'kestrel-review/fix', review }, none, ahead)).toEqual({ kind: 'view', url: review.url, label: 'View PR #7', title: 'Open this pull request on GitHub' });
+    expect(requestButton({ branch: 'kestrel-review/fix', review: { ...review, host: 'gitlab', number: 12 } }, none, ahead)).toMatchObject({ kind: 'view', label: 'View MR !12', title: 'Open this merge request on GitLab' });
+    // Whatever is known of the branch, and with its worktree gone.
+    expect(requestButton({ branch: null, review, worktreeDiscarded: true }, { state: 'loading' })).toMatchObject({ kind: 'view' });
+    expect(requestButton({ branch: 'matt/fix', worktreeDiscarded: true }, none, ahead)).toBeNull();
+    expect(requestButton({ branch: null }, none, ahead)).toBeNull();
   });
 });

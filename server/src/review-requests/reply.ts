@@ -10,7 +10,7 @@ import type { ChatMessage, Session } from '../model.ts';
 import type { ByNumberProvider } from '../pull-requests/by-number.ts';
 import type { CommandRunner } from '../pull-requests/types.ts';
 import { hostTerms, type HostKind } from '../shared/host-terms.ts';
-import { draftReview, editedFindings, postable, summaryProblem, verdictFor, verdictProblem, VERDICT_POSTED, type ReviewReply, type ReviewVerdict } from '../shared/review-reply.ts';
+import { draftReview, editedFindings, postable, REVIEW_ENDS_TURN, summaryProblem, verdictFor, verdictProblem, VERDICT_POSTED, type ReviewReply, type ReviewVerdict } from '../shared/review-reply.ts';
 import { repliesOnItsOwn, type ReviewAutomation } from '../shared/review-settings.ts';
 import type { TranscriptAction } from '../transcript.ts';
 import { Refused } from '../workspace.ts';
@@ -59,10 +59,10 @@ export class ReviewReplies {
       // The verdict follows the findings from the start: a review whose findings include a blocker asks for changes, whatever word came with it.
       const review: ReviewReply = { ...drafted.reply, verdict: verdictFor(drafted.reply.verdict, drafted.reply.findings) };
       this.host.showCard(sessionId, { type: 'card', id, review });
-      if (!repliesOnItsOwn(await this.host.settings(), session.startedIn)) return { text: 'Shown to the user, who decides whether to post it. Nothing has been posted. End your turn.' };
+      if (!repliesOnItsOwn(await this.host.settings(), session.startedIn)) return { text: `Shown to the user, who decides whether to post it. Nothing has been posted. ${REVIEW_ENDS_TURN}` };
       try {
         const posted = await this.post(sessionId, id, {}, true);
-        return { text: `Posted as ${VERDICT_POSTED[posted.posted!.verdict]}, as the user chose for this project.` };
+        return { text: `Posted as ${VERDICT_POSTED[posted.posted!.verdict]}, as the user chose for this project. ${REVIEW_ENDS_TURN}` };
       } catch (error) {
         if (!(error instanceof Refused)) throw error;
         this.host.notice(sessionId, `The review was not posted on its own: ${error.message}`, 'error');

@@ -13,6 +13,7 @@ import { StartedHere } from './Lineage.tsx';
 import { WidgetView } from './Widget.tsx';
 import { Pictures } from './Pictures.tsx';
 import { SuggestionLine } from './SuggestionCard.tsx';
+import { SignInOffer } from './SignIn.tsx';
 import { drafts, type AttachmentRefs } from '../store.ts';
 import { SentAttachments } from './attachments/SentAttachments.tsx';
 import { useAttachments } from './attachments/useAttachments.tsx';
@@ -122,7 +123,15 @@ export const Message = memo(function Message({ message, sessionId, onChoice, onR
   if (message.notice)
     return (
       <div className={`chat-message chat-error${message.notice === 'warning' ? ' chat-warning' : ''}${message.notice === 'info' ? ' chat-info' : ''}`} role={message.notice === 'info' ? 'note' : 'alert'}>
-        {message.notice === 'info' ? <Info aria-hidden /> : <TriangleAlert aria-hidden />} {message.text}
+        {message.notice === 'info' ? <Info aria-hidden /> : <TriangleAlert aria-hidden />}{' '}
+        {message.signIn ? (
+          <div className="chat-error-body">
+            {message.text}
+            <SignInOffer sessionId={sessionId} />
+          </div>
+        ) : (
+          message.text
+        )}
       </div>
     );
   if (message.suggestion) return <SuggestionLine sessionId={sessionId} suggestion={message.suggestion} />;

@@ -2,6 +2,7 @@
 // controls under the message box, what "/" offers (before a session exists, and for one opened
 // without a list), and how full a session's context window is. Each answer that is slow to get is
 // asked once and shared. Moved out of runtime.ts as it was (0.0.18).
+import type { AgentSignIn } from '../agents/sign-in.ts';
 import type { AgentCapabilities, ModelOption } from '../agents/types.ts';
 import { AGENT_LABEL, type Agent, type Session } from '../model.ts';
 import type { ContextUsage } from '../shared/context-usage.ts';
@@ -22,6 +23,13 @@ export interface ModelList {
   fromSdk: boolean;
 }
 
+/** GET /api/agents. */
+export interface AgentAvailability {
+  available: Agent[];
+  notes: Partial<Record<Agent, string>>;
+  signIn: Agent[];
+}
+
 export type AgentInfoHost = Pick<RuntimeHost, 'workspace' | 'adapters' | 'emitLive' | 'onEvent' | 'scratch' | 'toolHost' | 'optionsFor' | 'sessionOrThrow' | 'recordFor'>;
 
 export class AgentInfo {
@@ -39,19 +47,31 @@ export class AgentInfo {
     return Object.keys(this.host.adapters) as Agent[];
   }
 
-  /** Which agents can start a session now (installed, signed in), and for the others why not. */
-  async availability(): Promise<{ available: Agent[]; notes: Partial<Record<Agent, string>> }> {
+  /**
+   * Which agents can start a session now (installed, signed in), and for the others why not.
+   * `signIn`: the ones that are not signed in and that Kestrel can sign in from here.
+   */
+  async availability(): Promise<AgentAvailability> {
     const checked = await Promise.all(
       this.agents().map(async (agent) => {
-        const check = this.host.adapters[agent]!.availability;
-        const answer: { available: boolean; reason?: string } = check ? await check().catch((error: unknown) => ({ available: false, reason: error instanceof Error ? error.message : String(error) })) : { available: true };
-        return { agent, ...answer };
+        const adapter = this.host.adapters[agent]!;
+        const answer: { available: boolean; reason?: string; signIn?: boolean } = adapter.availability ? await adapter.availability().catch((error: unknown) => ({ available: false, reason: error instanceof Error ? error.message : String(error) })) : { available: true };
+        return { agent, ...answer, signIn: Boolean(answer.signIn && adapter.signIn) };
       }),
     );
     return {
       available: checked.filter((c) => c.available).map((c) => c.agent),
       notes: Object.fromEntries(checked.filter((c) => !c.available && c.reason).map((c) => [c.agent, c.reason])) as Partial<Record<Agent, string>>,
+      signIn: checked.filter((c) => !c.available && c.signIn).map((c) => c.agent),
     };
+  }
+
+  /** The agent's sign-in, for the routes that start, follow and cancel one. Refused where Kestrel cannot do it. */
+  signIn(agent: Agent): AgentSignIn {
+    const adapter = this.host.adapters[agent];
+    if (!adapter) throw new Refused(`${AGENT_LABEL[agent]} is not available in Kestrel.`);
+    if (!adapter.signIn) throw new Refused(`Kestrel cannot sign ${AGENT_LABEL[agent]} in: it signs in to a model provider chosen in its own prompt. Run its sign-in command in a terminal.`);
+    return adapter.signIn;
   }
 
   async models(agent: Agent): Promise<ModelList> {

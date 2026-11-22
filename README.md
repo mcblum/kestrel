@@ -43,7 +43,7 @@ A **workstream** keeps those conversations connected. Follow the whole task, see
 ## Get started
 
 1. **[Download Kestrel for Mac](https://starfish.nationalmachine.io/kestrel/releases/-/releases/permalink/latest/downloads/Kestrel.dmg)** and move it to Applications.
-2. **Have an agent ready.** Install and sign in to at least one of Claude Code, Codex CLI, or OpenCode. First-launch setup checks what is available.
+2. **Have an agent ready.** Claude needs no install: Kestrel includes Claude Code, and first-launch setup can sign you in (signing in to the Claude desktop app alone is not enough). Codex CLI and OpenCode are installed separately. First-launch setup checks what is available.
 3. **Add a project and start a session.** Describe what you want to accomplish. Kestrel keeps the conversation and its working copy together.
 
 For GitHub or GitLab pull requests, also sign in with `gh` or `glab`. Kestrel requires a Mac with Apple Silicon and checks for app updates automatically.

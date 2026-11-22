@@ -5,6 +5,7 @@
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import type { CommandOutput } from '@kestrel/server/commands';
+import type { SignInProgress } from '@kestrel/server/sign-in';
 import type { Agent, ChatMessage, Group, LivePatch, PinKind, Project, SessionDetail, SessionQueue, SessionSettings, SessionView, WorkspaceState } from '@kestrel/server/model';
 import type { PermissionLevel } from '@kestrel/server/permissions';
 import type { BaseChoice } from '@kestrel/server/start-base';
@@ -103,6 +104,8 @@ export interface AppState {
   tabs: TabsView;
   /** The simulators, each one's screen and state, each session's chosen device and each device's latest problem (simulatorStore.ts owns the writes). */
   simulator: SimulatorState;
+  /** Each agent's sign-in started from Kestrel, while it is under way and how it ended (signIn.ts owns the writes). */
+  signIn: Readonly<Partial<Record<Agent, SignInProgress>>>;
   error: string | null;
 }
 
@@ -130,7 +133,7 @@ async function refreshLaunch(): Promise<boolean> {
   }
 }
 
-const initialState: AppState = { connection: launch ? 'connecting' : 'no-server', live: new Map(), renaming: null, tagging: null, openedFromReference: null, workspace: null, sessionsById: new Map(), details: new Map(), pullRequests: new Map(), reviewRequests: NO_REVIEW_REQUESTS, pullRequestsVersion: 0, resources: new Map(), tabs: { loaded: false, state: initialTabs(), remembered: DEFAULT_REMEMBERED, sidebar: EMPTY_SIDEBAR, seen: null }, simulator: { devices: { loaded: false, devices: [], unavailable: null }, infos: new Map(), chosen: new Map(), errors: new Map() }, error: null };
+const initialState: AppState = { connection: launch ? 'connecting' : 'no-server', live: new Map(), renaming: null, tagging: null, openedFromReference: null, workspace: null, sessionsById: new Map(), details: new Map(), pullRequests: new Map(), reviewRequests: NO_REVIEW_REQUESTS, pullRequestsVersion: 0, resources: new Map(), tabs: { loaded: false, state: initialTabs(), remembered: DEFAULT_REMEMBERED, sidebar: EMPTY_SIDEBAR, seen: null }, simulator: { devices: { loaded: false, devices: [], unavailable: null }, infos: new Map(), chosen: new Map(), errors: new Map() }, signIn: {}, error: null };
 
 /** The one store (Zustand). Everything the app knows about the server lives here, once. */
 const appStoreApi = createStore<AppState>()(() => initialState);
@@ -141,8 +144,8 @@ function set(patch: Partial<AppState>) {
   appStoreApi.setState(patch);
 }
 
-/** For the modules that own a slice's writes: the tabs (tabsStore.ts) and the simulator (simulatorStore.ts). */
-export function setApp(patch: Pick<Partial<AppState>, 'tabs' | 'simulator'>) {
+/** For the modules that own a slice's writes: the tabs (tabsStore.ts), the simulator (simulatorStore.ts) and agent sign-ins (signIn.ts). */
+export function setApp(patch: Pick<Partial<AppState>, 'tabs' | 'simulator' | 'signIn'>) {
   set(patch);
 }
 
@@ -382,7 +385,8 @@ const NO_QUEUE: SessionQueue = { items: [], held: false };
 function applyLive(id: string, patch: LivePatch) {
   const prev = current().live.get(id) ?? { messages: [], files: [], filesProblem: null, commands: [], slashCommands: [], agentOutput: '', kestrelTools: 'unknown' as const, kestrelMissing: [] as string[], settings: { model: '', permission: 'ask' as PermissionLevel }, status: '', subagents: [], subagentsAfter: null, queue: NO_QUEUE, context: null, backgroundTasks: [] };
   const next: LiveState = {
-    messages: withoutRemoved(patch.messages ? mergeMessages(prev.messages, patch.messages) : prev.messages, patch.removedMessages),
+    // Removed first, then merged: a message the server both removes and sends again has moved to the end.
+    messages: patch.messages ? mergeMessages(withoutRemoved(prev.messages, patch.removedMessages), patch.messages) : withoutRemoved(prev.messages, patch.removedMessages),
     files: patch.files ?? prev.files,
     filesProblem: patch.filesProblem === undefined ? prev.filesProblem : patch.filesProblem,
     agentOutput: patch.agentOutput ?? prev.agentOutput,

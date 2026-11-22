@@ -45,7 +45,7 @@ export class CodexUnavailable extends Error {
 
 export const NOT_INSTALLED =
   'Codex is not installed: Kestrel found no `codex` command on your PATH or in the usual install folders. Install the Codex CLI (`npm install -g @openai/codex`), run `codex login` in a terminal, then send again.';
-export const NOT_SIGNED_IN = 'Codex is not signed in. Run `codex login` in a terminal (it uses your ChatGPT account or an API key), then send again.';
+export const NOT_SIGNED_IN = 'Codex is not signed in. Choose Sign in, or run `codex login` in a terminal (it uses your ChatGPT account or an API key), then send again.';
 
 const TAIL_BYTES = 4000;
 // eslint-disable-next-line no-control-regex

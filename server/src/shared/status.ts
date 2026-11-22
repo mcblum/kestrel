@@ -35,7 +35,7 @@ const STATUS_ORDER: StatusKey[] = ['needs-you', 'failed', 'working', 'interrupte
 export const STATUS_DOT: Record<StatusKey, 'amber' | 'green' | 'idle'> = { 'needs-you': 'amber', failed: 'amber', working: 'green', interrupted: 'idle', review: 'idle', done: 'idle', stopped: 'idle' };
 
 /** The runtime writes a failed run as a session needing you, with a note that starts like this. */
-const FAILURE_NOTE = /^(Failed\b|Claude is not signed in)/;
+const FAILURE_NOTE = /^(Failed\b|(Claude|Codex|OpenCode) is not signed in)/;
 const HANDED_OFF_NOTE = /^Handed off/;
 
 export const isFailureNote = (note: string) => FAILURE_NOTE.test(note);

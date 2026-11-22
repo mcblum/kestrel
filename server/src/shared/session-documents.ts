@@ -7,7 +7,7 @@
 // A tab's shown name follows the repository's host (`documentTitle`): "PR #12" on GitHub, "MR !12" on GitLab.
 // With uncommitted changes, Create first asks in place (`pressCreate`, `confirming`), and a commit
 // made from the form may re-run the generated text only where the user typed none (`mayRegenerate`).
-import { requestLabel, type HostTerms } from './host-terms.ts';
+import { hostTerms, requestLabel, type HostKind, type HostTerms } from './host-terms.ts';
 
 export type NewPullRequestMode = 'manual' | 'generated';
 
@@ -225,4 +225,21 @@ export function offersCreatePullRequest(hasBranch: boolean, lookup: RequestLooku
   const mergedAsIs = newest?.state === 'merged' && newest.headSha !== undefined && branch?.head === newest.headSha && branch.uncommitted === 0;
   const unchanged = branch !== undefined && branch.ahead === 0 && branch.uncommitted === 0;
   return !mergedAsIs && !unchanged;
+}
+
+/** What the session bar puts beside the pull request chip: nothing, Create, or a way to the request under review. */
+export type RequestButton = { kind: 'create' } | { kind: 'view'; url: string; label: string; title: string } | null;
+
+/**
+ * The one button beside a session's pull request chip. A session reviewing somebody else's request
+ * never offers Create (Matt, 2026-11-21): its branch is Kestrel's copy of their commit, which reads
+ * as ahead of its base and is never pushed. It offers the request itself on its host instead
+ * ("View PR #7", "View MR !12"), even after its worktree is gone. Any other session: `offersCreatePullRequest`.
+ */
+export function requestButton(session: { review?: { host: HostKind; number: number; url: string }; branch?: string | null; worktreeDiscarded?: boolean }, lookup: RequestLookup, git?: BranchState): RequestButton {
+  if (session.review) {
+    const terms = hostTerms(session.review.host);
+    return { kind: 'view', url: session.review.url, label: `View ${requestLabel(terms, session.review.number)}`, title: `Open this ${terms.long} on ${terms.service}` };
+  }
+  return !session.worktreeDiscarded && offersCreatePullRequest(Boolean(session.branch), lookup, git) ? { kind: 'create' } : null;
 }

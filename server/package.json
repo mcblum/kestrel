@@ -89,6 +89,7 @@
     "./routes": "./src/shared/routes.ts",
     "./review-filter": "./src/shared/review-filter.ts",
     "./toasts": "./src/shared/toasts.ts",
+    "./sign-in": "./src/shared/sign-in.ts",
     "./review-requests": "./src/shared/review-requests.ts",
     "./review-settings": "./src/shared/review-settings.ts",
     "./review-reply": "./src/shared/review-reply.ts",

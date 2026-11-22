@@ -3,16 +3,23 @@
 // is and is not connected. When all is well there is no row at all.
 import { useEffect, useRef, useState } from 'react';
 import { Popup } from './Popup.tsx';
+import { SignIn } from './SignIn.tsx';
 import { useConnections, type ConnectionRow } from './useAgents.ts';
 
 export function ConnectionList({ rows }: { rows: ConnectionRow[] }) {
   return (
     <ul className="connection-list">
       {rows.map((r) => (
-        <li key={r.name}>
+        <li key={r.name} className={r.signIn ? 'with-sign-in' : undefined}>
           <span className={`status-dot ${r.connected ? 'green' : 'idle'}`} />
           <span>{r.name}</span>
           <small title={r.detail}>{r.note}</small>
+          {r.signIn && (
+            <div className="connection-sign-in">
+              <p className="settings-help">{r.detail}</p>
+              <SignIn agent={r.signIn} small />
+            </div>
+          )}
         </li>
       ))}
     </ul>

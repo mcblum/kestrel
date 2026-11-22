@@ -11,7 +11,7 @@ import { useAgentStatus } from '../useAgents.ts';
 import { menuOpenFrom, openFrom } from './anchor.ts';
 
 /** Until the server answers, only Claude is offered. */
-const ASSUMED: AgentStatus = { available: ['claude'], notes: {} };
+const ASSUMED: AgentStatus = { available: ['claude'], notes: {}, signIn: [] };
 
 export function agentMenu(value: Agent, status: AgentStatus): MenuItem[] {
   return AGENTS.map((a) => ({

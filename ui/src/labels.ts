@@ -9,6 +9,8 @@ export const AGENT_LABEL: Record<Agent, string> = SERVER_AGENT_LABEL;
 export interface AgentStatus {
   available: Agent[];
   notes: Partial<Record<Agent, string>>;
+  /** The ones that are not signed in and that Kestrel can sign in from here. */
+  signIn: Agent[];
 }
 
 /** A few words for why an agent cannot start, for a picker entry; the full reason goes in its tooltip. */

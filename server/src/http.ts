@@ -53,6 +53,7 @@ import { samplePullRequests } from './pull-requests/fake.ts';
 import type { TitleProvider } from './agents/title-providers.ts';
 import { onboardingRoute } from './onboarding/api.ts';
 import { controlsRoute, speedFields } from './controls-api.ts';
+import { signInRoute } from './sign-in-api.ts';
 import { fileOpenRoute, runCommand, type FileOpenDeps } from './file-open-api.ts';
 import { appIcons } from './app-icons.ts';
 import { hostPlatform } from './host.ts';
@@ -337,6 +338,9 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
     // The workspace's Pull requests page: every linked request, de-duplicated (pull-request-list-api.ts).
     const requestList = await pullRequestListRoute(parts, method, url, workspace, detailsConfig.sources, detailsConfig.sample);
     if (requestList) return send(req, res, requestList.status, requestList.body);
+    // Signing an agent in from Kestrel (sign-in-api.ts).
+    const signedIn = await signInRoute(parts, method, () => readJson(req), runtime ?? null);
+    if (signedIn) return send(req, res, signedIn.status, signedIn.body);
     // What an agent offers the controls under the message box, and a session's context window (controls-api.ts).
     const controls = await controlsRoute(parts, method, runtime ?? null);
     if (controls) return send(req, res, controls.status, controls.body);
@@ -539,7 +543,7 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
       if (parts.length === 4 && parts[3] === 'models' && runtime && isSelectableAgent(parts[2])) return send(req, res, 200, await runtime.models(parts[2] as Agent));
       // What "/" offers in the new-session box, for the agent and project chosen there.
       if (parts.length === 4 && parts[3] === 'slash-commands' && runtime && isSelectableAgent(parts[2])) return send(req, res, 200, { commands: await runtime.draftSlashCommands(parts[2] as Agent, url.searchParams.get('projectId') || null, url.searchParams.get('folderId') || null) });
-      return send(req, res, 200, runtime ? await runtime.agentAvailability() : { available: [] });
+      return send(req, res, 200, runtime ? await runtime.agentAvailability() : { available: [], notes: {}, signIn: [] });
     }
     if (parts[1] === 'ui-state' && parts.length === 2) {
       if (method === 'GET') {

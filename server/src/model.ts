@@ -344,6 +344,8 @@ export interface ChatMessage {
   streaming?: boolean;
   /** An error from the agent or Kestrel rather than something the agent said. */
   notice?: 'error' | 'warning' | 'info';
+  /** This failure was the agent not being signed in: the row offers to sign it in, where Kestrel can. */
+  signIn?: true;
   activity?: ChatActivity[];
   question?: { text: string; choices: string[] };
   input?: InputCard;

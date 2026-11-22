@@ -1,7 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { KESTREL_TOOLS, type AgentEvent } from '../types.ts';
-import { CLAUDE_SIGN_IN } from './failure.ts';
+import { claudeInstalled, claudeSignInAdvice } from './sign-in.ts';
+
+const CLAUDE_SIGN_IN = `${claudeSignInAdvice(claudeInstalled())} Then send again.`;
 import { backgroundOutputFile, ClaudeMapper, kestrelToolsCheck, taskEnded, kestrelToolsStatus, listedTasks, type SdkLike, toolOrigin, unexpectedTools } from './map.ts';
 
 function recorded(name: string): SdkLike[] {

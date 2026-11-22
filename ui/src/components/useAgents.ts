@@ -9,8 +9,8 @@ import { useApp } from '../store.ts';
 export const AGENTS_PATH = '/api/agents';
 /** A server from before notes sends none. */
 export const asAgentStatus = (raw: unknown): Sourced<AgentStatus> => {
-  const r = raw as { available?: Agent[]; notes?: AgentStatus['notes'] };
-  return ready({ available: Array.isArray(r?.available) ? r.available : [], notes: r?.notes ?? {} });
+  const r = raw as { available?: Agent[]; notes?: AgentStatus['notes']; signIn?: Agent[] };
+  return ready({ available: Array.isArray(r?.available) ? r.available : [], notes: r?.notes ?? {}, signIn: Array.isArray(r?.signIn) ? r.signIn : [] });
 };
 
 export interface ConnectionRow {
@@ -19,6 +19,8 @@ export interface ConnectionRow {
   note: string;
   /** The server's full reason when an agent cannot start (what to install or run), for a tooltip. */
   detail?: string;
+  /** The agent this row can sign in, when it is not signed in and Kestrel can do it from here. */
+  signIn?: Agent;
 }
 
 /** Which agents can start now and why the others cannot; null until the server has answered. */
@@ -37,7 +39,7 @@ export function useConnections(): { live: boolean; /** False until the agents ha
     if (connected) return { name: AGENT_LABEL[a], connected, note: 'Connected' };
     if (!live || !status) return { name: AGENT_LABEL[a], connected, note: 'Unknown' };
     const words = unavailableWords(status.notes[a]);
-    return { name: AGENT_LABEL[a], connected, note: words[0]!.toUpperCase() + words.slice(1), detail: status.notes[a] };
+    return { name: AGENT_LABEL[a], connected, note: words[0]!.toUpperCase() + words.slice(1), detail: status.notes[a], ...(status.signIn.includes(a) ? { signIn: a } : {}) };
   });
   return { live, known: status !== null, rows: [{ name: 'Kestrel server', connected: live, note: live ? 'Connected' : 'Reconnecting…' }, ...agents] };
 }

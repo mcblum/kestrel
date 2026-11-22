@@ -5,6 +5,7 @@ import { ROLES, type Role } from '../../shared/who-does-what.ts';
 import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { SELECTABLE_AGENTS, type Agent } from '../../model.ts';
+import { REVIEW_IS_LAST } from '../../shared/review-reply.ts';
 import { WAIT_REASON_MAX } from '../../shared/waits.ts';
 import { loadsWithSession, type KestrelToolHost, type ToolResult } from '../types.ts';
 import { KESTREL_SERVER } from './map.ts';
@@ -141,7 +142,7 @@ export function kestrelMcpServer(host: KestrelToolHost, omit: readonly string[] 
       ),
       tool(
         'post_review',
-        "Only when this session is reviewing somebody else's pull or merge request (Kestrel started it as a review): hand over your finished review. It is shown to the user as a card they can change and post; nothing reaches the host from this call unless the user chose that. Call it once, at the end, instead of commenting or approving on the host yourself.",
+        "Only when this session is reviewing somebody else's pull or merge request (Kestrel started it as a review): hand over your finished review. It is shown to the user as a card they can change and post; nothing reaches the host from this call unless the user chose that. Call it once, at the end, instead of commenting or approving on the host yourself. " + REVIEW_IS_LAST,
         {
           verdict: z.enum(['comment', 'approve', 'request_changes']).describe('What you would do: only comment, approve, or ask for changes.'),
           summary: z.string().describe('In Markdown, a few sentences: what the change does and what you make of it overall. Do not list the problems here: each one is a finding.'),

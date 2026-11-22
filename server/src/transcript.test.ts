@@ -195,3 +195,34 @@ describe('where a turn ends in the agent’s conversation', () => {
     expect(applyToTranscript(marked.messages, { type: 'turn-point', point: 'p1' }, '10:00', 3000).changed).toEqual([]);
   });
 });
+
+describe('a review is the last thing in its turn', () => {
+  const review = { verdict: 'comment' as const, summary: 'Fine.', sha: 'a'.repeat(40) };
+  const step = (messages: readonly ChatMessage[], action: TranscriptAction) => applyToTranscript(messages, action, '10:00', 1000);
+  const handed = [{ type: 'user', id: 'u1', text: 'Review it' }, { type: 'message', id: 'm1', text: 'Reading.', delta: '', done: true }, { type: 'card', id: 'review-1', review }].reduce<ChatMessage[]>((all, a) => step(all, a as TranscriptAction).messages, []);
+
+  it('what the agent says after handing it over goes above the card, and the window is told the card moved', () => {
+    const said = step(handed, { type: 'message', id: 'm2', text: 'I have reviewed the PR.', delta: '', done: false });
+    expect(said.messages.map((m) => m.id)).toEqual(['u1', 'm1', 'm2', 'review-1']);
+    expect(said.removed).toEqual(['review-1']);
+    expect(said.changed.map((m) => m.id)).toEqual(['m2', 'review-1']);
+    // The card is the same object: its row is not drawn again for the move.
+    expect(said.messages.at(-1)).toBe(handed.at(-1));
+    // More of the same message changes nothing but that message.
+    const more = step(said.messages, { type: 'message', id: 'm2', text: 'I have reviewed the PR and handed it over.', delta: '', done: true });
+    expect(more.messages.map((m) => m.id)).toEqual(['u1', 'm1', 'm2', 'review-1']);
+    expect(more.removed).toBeUndefined();
+  });
+
+  it('a tool run after it goes above the card too', () => {
+    const ran = step(handed, { type: 'tool', id: 't1', name: 'Bash', status: 'started', summary: 'git status' });
+    expect(ran.messages.map((m) => m.id)).toEqual(['u1', 'm1', 'tools-t1', 'review-1']);
+  });
+
+  it('leaves an earlier turn’s review where it is', () => {
+    const next = step(handed, { type: 'user', id: 'u2', text: 'Look again at the cache' });
+    const answer = step(next.messages, { type: 'message', id: 'm3', text: 'Looking.', delta: '', done: true });
+    expect(answer.messages.map((m) => m.id)).toEqual(['u1', 'm1', 'review-1', 'u2', 'm3']);
+    expect(answer.removed).toBeUndefined();
+  });
+});

@@ -12,7 +12,12 @@ import type { PullRequest } from '../shared/details.ts';
 import { reviewRequestKey, type ReviewRequest } from '../shared/review-requests.ts';
 import { ready } from '../shared/sourced.ts';
 import { NOBODY, type WhoDoesWhat } from '../shared/who-does-what.ts';
+import { memoryPersistence } from '../persistence/memory.ts';
+import { createProject } from '../project-store.ts';
+import { SessionRuntime } from '../runtime.ts';
+import { FakeAgents, until } from '../test-agent.ts';
 import { makeRepo } from '../test-repo.ts';
+import { Workspace } from '../workspace.ts';
 import { GIT_TEST_TIMEOUT_MS } from '../test-timeouts.ts';
 import { DEFAULT_REVIEW_INSTRUCTIONS } from '../shared/review-settings.ts';
 import { defaultBranchOf, folderOfRequest, localReviewRef, requestHeadRef, REVIEW_BRANCH_PREFIX, reviewerPreset, reviewPrompt, reviewStart, startReview, type StartReviewDeps } from './start.ts';
@@ -77,6 +82,24 @@ describe('the commit a review starts at', () => {
     const worktree = await createWorktree(repo, tempDir('worktrees'), 'session-1', 'Review: Fix the cache', 'kestrel', start);
     expect(await headCommit(worktree.path)).toBe(head);
     expect((await changedFiles(worktree.path, worktree.base)).map((f) => f.path).sort()).toEqual(['a.txt', 'feature.txt']);
+  });
+
+  it('shows the request’s changes as soon as the session starts, while the agent is still reading', async () => {
+    const { repo, head } = withRequest('refs/pull/7/head');
+    const { sha, start } = await reviewStart(runGit, repo, 'github', 7, 'main');
+    const workspace = new Workspace(memoryPersistence());
+    const agents = new FakeAgents();
+    agents.hold = true; // the review's turn never ends here: nothing but the start may fill the list
+    const runtime = new SessionRuntime(workspace, { claude: agents.adapter() }, tempDir('data'));
+    const project = await createProject(workspace, { name: 'App', folders: [repo] });
+    const review = { key: request().key, host: 'github' as const, number: 7, sha, url: request().url };
+    const session = await runtime.start({ agent: 'claude', projectId: project.id, prompt: 'Review it', title: 'Review: Fix the cache', start: { ...start, prefix: REVIEW_BRANCH_PREFIX }, review });
+    await until(() => agents.starts.length === 1, 'the agent');
+    const stored = (await workspace.state()).sessions.find((s) => s.id === session.id)!;
+    expect(await headCommit(stored.worktreePath!)).toBe(head);
+    expect(stored.branch).toMatch(/^kestrel-review\//);
+    await until(() => (runtime.overlay(session.id)?.files.length ?? 0) > 0, 'the request’s changed files');
+    expect(runtime.overlay(session.id)!.files.map((f) => f.path).sort()).toEqual(['a.txt', 'feature.txt']);
   });
 
   it('says why when the request cannot be fetched', async () => {
