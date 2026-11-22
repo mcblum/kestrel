@@ -15,8 +15,10 @@ export const DEFAULT_EDITOR_ID = 'default';
 /** What the server can do with files on this computer (GET /api/editors). */
 export interface FileOpeners {
   editors: readonly Editor[];
-  /** Whether it can show a file in Finder. */
+  /** Whether it can show a file in the file manager. */
   reveal: boolean;
+  /** What that file manager is called here (shared/platform.ts); "Finder" when the server does not say. */
+  fileManager?: string;
 }
 
 export interface ChangedFileTarget {
@@ -69,7 +71,8 @@ export function changedFileMenu(file: ChangedFileTarget, ctx: FileMenuContext): 
   const deleted = file.status === 'D';
   const diff: MenuItem[] = ctx.shown ? [] : [{ id: 'show-diff', label: 'Show diff' }];
   const open = deleted ? [] : openItems(ctx.editors);
-  const reveal: MenuItem[] = !ctx.reveal ? [] : deleted ? [{ id: 'reveal-folder', label: 'Show folder in Finder' }] : [{ id: 'reveal', label: 'Show in Finder' }];
+  const manager = ctx.fileManager ?? 'Finder';
+  const reveal: MenuItem[] = !ctx.reveal ? [] : deleted ? [{ id: 'reveal-folder', label: `Show folder in ${manager}` }] : [{ id: 'reveal', label: `Show in ${manager}` }];
   const copies = [...(ctx.folder ? [copy('copy-path', 'Copy path', absolutePath(ctx.folder, file.path), 'path')] : []), copy('copy-relative-path', 'Copy relative path', file.path, 'relative path')];
   return sections(diff, [...open, ...reveal], copies);
 }

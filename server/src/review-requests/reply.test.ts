@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ChatMessage, Session } from '../model.ts';
 import type { PullRequest } from '../shared/details.ts';
-import { draftReview, foldComments, type ReviewReply } from '../shared/review-reply.ts';
+import { BRIEF_MAX, draftReview, editedFindings, findingMark, foldComments, keptFindings, orderFindings, postable, verdictFor, type OutgoingReview, type ReviewFinding, type ReviewReply } from '../shared/review-reply.ts';
 import type { ReviewAutomation as ReviewSettings } from '../shared/review-settings.ts';
 import { ready, unavailable, type Sourced } from '../shared/sourced.ts';
 import { ghReviewArgs, gitlabNote, glabApproveArgs, postReview } from './post.ts';
@@ -11,19 +11,39 @@ import { ReviewReplies } from './reply.ts';
 
 const SHA = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
-const draft = (over: Partial<ReviewReply> = {}): ReviewReply => ({ verdict: 'comment', summary: 'Looks right.', comments: [], sha: SHA, ...over });
+const draft = (over: Partial<ReviewReply> = {}): ReviewReply => ({ verdict: 'comment', summary: 'Looks right.', findings: [], sha: SHA, ...over });
+/** A review as it goes to the host. */
+const out = (over: Partial<OutgoingReview> = {}): OutgoingReview => ({ verdict: 'comment', summary: 'Looks right.', comments: [], sha: SHA, ...over });
 
 describe('what post_review accepts', () => {
-  it('takes a verdict, a summary and comments on lines', () => {
-    const result = draftReview({ verdict: 'approve', summary: ' Fine. ', comments: [{ path: './src/a.ts', line: 3, body: ' typo ' }] }, SHA);
-    expect(result).toEqual({ reply: { verdict: 'approve', summary: 'Fine.', comments: [{ path: 'src/a.ts', line: 3, body: 'typo' }], sha: SHA } });
+  const finding = (over: Record<string, unknown> = {}) => ({ brief: 'Off by one.', priority: 'high', blocking: true, ...over });
+
+  it('takes a verdict, a summary and findings, and names each finding by its place', () => {
+    const result = draftReview({ verdict: 'approve', summary: ' Fine. ', findings: [finding({ brief: ' typo ', detail: ' why ', fix: '', refs: [{ path: './src/a.ts', line: 3 }] }), finding({ blocking: false, priority: 'low' })] }, SHA);
+    expect(result).toEqual({
+      reply: {
+        verdict: 'approve',
+        summary: 'Fine.',
+        findings: [
+          { id: 'f1', brief: 'typo', detail: 'why', priority: 'high', blocking: true, refs: [{ path: 'src/a.ts', line: 3 }] },
+          { id: 'f2', brief: 'Off by one.', priority: 'low', blocking: false, refs: [] },
+        ],
+        sha: SHA,
+      },
+    });
+    expect(draftReview({ verdict: 'comment', summary: 'x' }, SHA)).toMatchObject({ reply: { findings: [] } });
   });
 
   it('says what is wrong with a review it cannot use', () => {
+    const bad = (f: Record<string, unknown>) => draftReview({ verdict: 'comment', summary: 'x', findings: [f] }, SHA);
     expect(draftReview({ verdict: 'lgtm', summary: 'x' }, SHA)).toMatchObject({ problem: expect.stringContaining('verdict must be one of') });
     expect(draftReview({ verdict: 'comment', summary: '  ' }, SHA)).toMatchObject({ problem: expect.stringContaining('summary is empty') });
-    expect(draftReview({ verdict: 'comment', summary: 'x', comments: [{ path: '../etc/passwd', line: 1, body: 'x' }] }, SHA)).toMatchObject({ problem: expect.stringContaining('Comment 1: path') });
-    expect(draftReview({ verdict: 'comment', summary: 'x', comments: [{ path: 'a.ts', line: 0, body: 'x' }] }, SHA)).toMatchObject({ problem: expect.stringContaining('Comment 1: line') });
+    expect(bad(finding({ brief: ' ' }))).toMatchObject({ problem: expect.stringContaining('Finding 1: brief is empty') });
+    expect(bad(finding({ brief: 'x'.repeat(BRIEF_MAX + 1) }))).toMatchObject({ problem: expect.stringContaining('Keep it to a sentence or two') });
+    expect(bad(finding({ priority: 'urgent' }))).toMatchObject({ problem: expect.stringContaining('priority must be one of: high, medium, low') });
+    expect(bad(finding({ blocking: 'yes' }))).toMatchObject({ problem: expect.stringContaining('blocking must be true or false') });
+    expect(bad(finding({ refs: [{ path: '../etc/passwd', line: 1 }] }))).toMatchObject({ problem: expect.stringContaining('path must be a file relative to the repository') });
+    expect(bad(finding({ refs: [{ path: 'a.ts', line: 0 }] }))).toMatchObject({ problem: expect.stringContaining('line must be a line number') });
   });
 
   it('writes comments under the summary when they cannot go on lines', () => {
@@ -32,9 +52,51 @@ describe('what post_review accepts', () => {
   });
 });
 
+describe('findings, as the user leaves them and as they are posted', () => {
+  const f = (id: string, over: Partial<ReviewFinding> = {}): ReviewFinding => ({ id, brief: `Problem ${id}.`, priority: 'medium', blocking: false, refs: [], ...over });
+
+  it('the verdict follows the findings: changes while one blocks, and never on the agent’s word alone', () => {
+    expect(verdictFor('comment', [f('f1', { blocking: true })])).toBe('request_changes');
+    expect(verdictFor('approve', [f('f1', { blocking: true })])).toBe('request_changes');
+    // The only blocker is dismissed, or no longer marked blocking.
+    expect(verdictFor('request_changes', [f('f1', { blocking: true, dismissed: true })])).toBe('comment');
+    expect(verdictFor('request_changes', [f('f1')])).toBe('comment');
+    expect(verdictFor('approve', [f('f1')])).toBe('approve');
+    expect(verdictFor('approve', [])).toBe('approve');
+  });
+
+  it('an edit rewords, re-marks or dismisses the card’s own findings, and cannot add one', () => {
+    const own = [f('f1', { blocking: true }), f('f2')];
+    const edited = editedFindings(own, [{ ...own[1], brief: 'Reworded.', priority: 'low' }, { ...own[0], dismissed: true }, f('f9', { brief: 'Invented.' })]);
+    expect(edited).toEqual({ findings: [{ ...own[0], dismissed: true }, { ...own[1], brief: 'Reworded.', priority: 'low' }] });
+    expect(editedFindings(own, undefined)).toEqual({ findings: own });
+    expect(editedFindings(own, [{ ...own[0], brief: '' }])).toMatchObject({ problem: expect.stringContaining('Finding 1: brief is empty') });
+  });
+
+  it('are ordered blocking first, then by priority, keeping the agent’s order among equals', () => {
+    const order = orderFindings([f('a', { priority: 'low' }), f('b', { priority: 'high' }), f('c', { blocking: true, priority: 'low' }), f('d', { priority: 'high' })]).map((x) => x.id);
+    expect(order).toEqual(['c', 'b', 'd', 'a']);
+  });
+
+  it('a kept finding goes up as one comment on its first line; one with no line goes under the summary; a dismissed one goes nowhere', () => {
+    const out = postable({
+      summary: 'Sum.',
+      findings: [
+        f('f1', { brief: 'Covers the first row.', detail: 'Because `top` assumes the page scrolls.', fix: 'Read it from the scroll parent.', priority: 'high', blocking: true, refs: [{ path: 'a.ts', line: 4 }, { path: 'b.ts', line: 9 }] }),
+        f('f2', { brief: 'No changelog entry.', priority: 'low' }),
+        f('f3', { brief: 'Dismissed.', dismissed: true, refs: [{ path: 'c.ts', line: 1 }] }),
+      ],
+    });
+    expect(out.comments).toEqual([{ path: 'a.ts', line: 4, body: '**Blocking · High priority.** Covers the first row.\n\nBecause `top` assumes the page scrolls.\n\n**Suggested fix:** Read it from the scroll parent.\n\nAlso: `b.ts:9`' }]);
+    expect(out.summary).toBe('Sum.\n\n**Low priority.** No changelog entry.');
+    expect(findingMark({ blocking: false, priority: 'medium' })).toBe('Medium priority');
+    expect(keptFindings([f('f1'), f('f2', { dismissed: true })]).map((x) => x.id)).toEqual(['f1']);
+  });
+});
+
 describe('the commands that post a review', () => {
   it('posts a GitHub review on the commit that was reviewed, with its comments on lines', () => {
-    const args = ghReviewArgs(12, draft({ verdict: 'request_changes', comments: [{ path: 'a.ts', line: 4, body: 'Off by one.' }] }));
+    const args = ghReviewArgs(12, out({ verdict: 'request_changes', comments: [{ path: 'a.ts', line: 4, body: 'Off by one.' }] }));
     expect(args.slice(0, 4)).toEqual(['api', '-X', 'POST', 'repos/{owner}/{repo}/pulls/12/reviews']);
     expect(args).toContain(`commit_id=${SHA}`);
     expect(args).toContain('event=REQUEST_CHANGES');
@@ -44,7 +106,7 @@ describe('the commands that post a review', () => {
 
   it('approves on GitLab only at the commit that was reviewed, and says a request for changes in the note', () => {
     expect(glabApproveArgs(7, SHA)).toEqual(['mr', 'approve', '7', '--sha', SHA]);
-    expect(gitlabNote(draft({ verdict: 'request_changes' }))).toBe('**Changes requested.**\n\nLooks right.');
+    expect(gitlabNote(out({ verdict: 'request_changes' }))).toBe('**Changes requested.**\n\nLooks right.');
   });
 
   it('posts again with the comments under the summary when GitHub refuses the lines', async () => {
@@ -54,7 +116,7 @@ describe('the commands that post a review', () => {
       if (calls.length === 1) throw Object.assign(new Error('gh failed'), { stderr: 'HTTP 422: Unprocessable Entity' });
       return { stdout: '' };
     };
-    const note = await postReview(run, { host: 'github', number: 12, cwd: '/w' }, draft({ comments: [{ path: 'a.ts', line: 4, body: 'Off by one.' }] }));
+    const note = await postReview(run, { host: 'github', number: 12, cwd: '/w' }, out({ comments: [{ path: 'a.ts', line: 4, body: 'Off by one.' }] }));
     expect(calls).toHaveLength(2);
     expect(calls[1]).toContain('body=Looks right.\n\n**a.ts:4**\nOff by one.');
     expect(calls[1]!.some((a) => a.startsWith('comments[]'))).toBe(false);
@@ -65,13 +127,13 @@ describe('the commands that post a review', () => {
     const run = async () => {
       throw Object.assign(new Error('gh failed'), { stderr: 'HTTP 403: Resource not accessible' });
     };
-    await expect(postReview(run, { host: 'github', number: 12, cwd: '/w' }, draft())).rejects.toThrow(/GitHub did not take the review/);
+    await expect(postReview(run, { host: 'github', number: 12, cwd: '/w' }, out())).rejects.toThrow(/GitHub did not take the review/);
   });
 
   it('on GitLab approves first, then posts one note', async () => {
     const calls: string[][] = [];
     const run = async (_bin: string, args: readonly string[]) => (calls.push([...args]), { stdout: '' });
-    await postReview(run, { host: 'gitlab', number: 7, cwd: '/w' }, draft({ verdict: 'approve' }));
+    await postReview(run, { host: 'gitlab', number: 7, cwd: '/w' }, out({ verdict: 'approve' }));
     expect(calls.map((c) => c.slice(0, 2).join(' '))).toEqual(['mr approve', 'mr note']);
   });
 });

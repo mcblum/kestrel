@@ -1,7 +1,7 @@
 // Open tabs and the composer's last choices. The server keeps them (not localStorage), so the
 // Electron window and a browser tab agree. Everything pure lives in @kestrel/server/tabs.
 import { guardLeave } from './unsaved.ts';
-import { DEFAULT_CONTROLS, withScope, activate, placement, activateNth, becomeSession, closeTab, isLastOverview, moveTab, openTarget, prune, retargetActive, sanitize, setControls, type Controls, type OpenTarget, type Preselect, type Tab, type TabsState } from '@kestrel/server/tabs';
+import { DEFAULT_CONTROLS, withScope, activate, placement, activateNth, becomeSession, closeTab, isLastOverview, moveTab, openTarget, prune, replaceSession, retargetActive, sanitize, setControls, type Controls, type OpenTarget, type Preselect, type Tab, type TabsState } from '@kestrel/server/tabs';
 import { rememberPick, rememberSent, startControls, startFromOf, storedRemembered, withFixed, withStartFrom, type Remembered, type StartFrom, type StickyPick } from '@kestrel/server/sticky-controls';
 import { clampContextWidth, clampPaneWidth, clampSimWidth, clampWidth, place, placeProject, placeTag, placeWorkstream, sanitizeSidebar, toggleCollapsed, toggleHidden, type SidebarPrefs } from '@kestrel/server/sidebar';
 import { parseSessionOrder, type SessionOrder } from '@kestrel/server/session-order';
@@ -78,11 +78,29 @@ function pruneMissing() {
   if (next !== tabsView().state) setView({ ...tabsView(), state: next });
 }
 
+/**
+ * A session that gave way to another (a first-message review request made into a review session,
+ * server: review-requests/convert.ts): its tab shows the one that replaced it, before the old one
+ * is pruned as deleted. The new one may not be in the pushed workspace yet, so it is awaited.
+ */
+function followReplaced() {
+  const live = appStore.get().live;
+  let state = tabsView().state;
+  for (const tab of state.tabs) {
+    const to = tab.kind === 'session' ? live.get(tab.sessionId)?.replacedBy : undefined;
+    if (!to || tab.kind !== 'session') continue;
+    awaited.add(to);
+    state = replaceSession(state, tab.sessionId, to);
+  }
+  if (state !== tabsView().state) setView({ ...tabsView(), state });
+}
+
 function sync() {
   const s = appStore.get();
   if (s.connection === 'live' && !tabsView().loaded) void load();
   if (tabsView().loaded) {
     const before = tabsView().state;
+    followReplaced();
     pruneMissing();
     if (tabsView().state !== before) save();
     trackSeen();

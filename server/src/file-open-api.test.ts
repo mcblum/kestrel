@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { detectEditors, detectFolderApps } from './editors.ts';
 import { OpenIn } from './open-in/prefs.ts';
 import { fileOpenRoute, type FileOpenDeps } from './file-open-api.ts';
+import { openersFor } from './openers.ts';
 
 describe('detectEditors', () => {
   test('lists only the installed editors, in order, then the default app', () => {
@@ -51,7 +52,7 @@ describe('fileOpenRoute', () => {
   test('GET /api/editors: the detected editors without their app names', async () => {
     expect(await fileOpenRoute(['api', 'editors'], 'GET', async () => ({}), deps)).toEqual({
       status: 200,
-      body: { editors: [{ id: 'cursor', label: 'Cursor' }, { id: 'default', label: 'Default app' }], reveal: true },
+      body: { editors: [{ id: 'cursor', label: 'Cursor' }, { id: 'default', label: 'Default app' }], reveal: true, fileManager: 'Finder' },
     });
     expect((await fileOpenRoute(['api', 'editors'], 'GET', async () => ({}), { ...deps, canOpen: false }))?.body).toEqual({ editors: [], reveal: false });
   });
@@ -183,5 +184,27 @@ describe('fileOpenRoute', () => {
 
   test('other paths are not answered', async () => {
     expect(await fileOpenRoute(['api', 'sessions', 's1', 'tags'], 'POST', async () => ({}), deps)).toBeNull();
+  });
+});
+
+describe('fileOpenRoute off a Mac', () => {
+  test('says what the file manager is called and words refusals for the platform', async () => {
+    const calls: [string, readonly string[], unknown][] = [];
+    const windows = openersFor('windows', { exists: () => false, isFolder: () => false, env: {}, home: '' });
+    const deps: FileOpenDeps = {
+      directoryOf: async () => null,
+      folderOf: async () => null,
+      editors: () => windows.editors,
+      folderApps: () => windows.folderApps,
+      folderAppIcons: async () => ({}),
+      openIn: { prefs: async () => ({ defaultApp: null }), setDefaultApp: async () => undefined } as unknown as FileOpenDeps['openIn'],
+      canOpen: true,
+      platform: 'windows',
+      launch: windows,
+      run: async (command, args, options) => void calls.push([command, args, options]),
+    };
+    expect((await fileOpenRoute(['api', 'editors'], 'GET', async () => ({}), deps))?.body).toEqual({ editors: [{ id: 'default', label: 'Default app' }], reveal: true, fileManager: 'File Explorer' });
+    const refused = await fileOpenRoute(['api', 'sessions', 's1', 'open-file'], 'POST', async () => ({ path: 'a.ts', editor: 'xcode' }), deps);
+    expect(refused).toEqual({ status: 400, body: { error: 'xcode is not an editor Kestrel found on this computer.' } });
   });
 });

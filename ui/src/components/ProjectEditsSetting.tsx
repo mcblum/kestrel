@@ -2,6 +2,7 @@
 // shared/project-edits.ts, project-edits/api.ts). On by default. Held once in the app store, like
 // the tag suggestion prefs; a change writes back what the server stored.
 import { SettingSection } from './SettingHelp.tsx';
+import { thisComputer } from '../platform.ts';
 import type { ProjectEditPrefs } from '@kestrel/server/project-edits';
 import { ready, type Sourced } from '@kestrel/server/sourced';
 import { useResource } from '../data/resources.ts';
@@ -31,7 +32,7 @@ const HELP = (
   <>
     <p className="settings-help">
       When a session needs to change a file that is in another project, the edit is refused and the agent is told to delegate: a session of that project makes the change in its own worktree and reports back in the chat you asked in. A file in another
-      session's worktree is refused the same way, and the agent asks that session to make the change. Files that are in no project (a settings file, a config file elsewhere on this Mac) the session edits itself. Shell commands are not covered. Turn this
+      session's worktree is refused the same way, and the agent asks that session to make the change. Files that are in no project (a settings file, a config file elsewhere on {thisComputer()}) the session edits itself. Shell commands are not covered. Turn this
       off to let a session edit those files directly, under its approval mode.
     </p>
   </>

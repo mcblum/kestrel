@@ -1,10 +1,13 @@
-// Settings → Git → Review requests (server: shared/review-settings.ts, review-settings/api.ts): what
+// Settings → Code reviews (0.0.23; before that, Settings → Git → Review requests) (server: shared/review-settings.ts, review-settings/api.ts): what
 // Kestrel does with the requests you were asked to review, and in which projects a review may
 // start on its own. With a `projectId` it is the same list seen from that project's Settings tab:
 // one switch. Held once in the app store through useResource; a change writes back what the
 // server stored.
-import { DEFAULT_REVIEW_SETTINGS, isAutomatic, isChosenProject, REPLY_WARNING, REVIEW_MODE_LABEL, REVIEW_MODES, REVIEW_PLACE_LABEL, REVIEW_PLACES, withProject, type ReviewMode, type ReviewPlace, type ReviewProjects, type ReviewSettings } from '@kestrel/server/review-settings';
-import { useState } from 'react';
+import { DEFAULT_REVIEW_SETTINGS, isAutomatic, isChosenProject, REPLY_WARNING, REVIEW_MODE_LABEL, REVIEW_MODES, REVIEW_PLACE_LABEL, REVIEW_PLACES, withProject, type ReviewMode, type ReviewPlace, type ReviewProjects, type ReviewSettings, DEFAULT_REVIEW_INSTRUCTIONS, instructionsProblem } from '@kestrel/server/review-settings';
+import { useEffect, useState } from 'react';
+import { useDraft } from '../unsaved.ts';
+import { PERMISSION_LEVELS, permissionHint, type PermissionLevel } from '@kestrel/server/permissions';
+import { REVIEW_PERMISSIONS } from '@kestrel/server/review-requests';
 import { useResource } from '../data/resources.ts';
 import { openView } from '../route.ts';
 import { asReviewSettings as asSettings, REVIEW_SETTINGS_PATH, saveReviewSettings as save } from '../reviewSettings.ts';
@@ -160,8 +163,8 @@ function ProjectControls({ settings, projectId }: { settings: ReviewSettings; pr
     return (
       <p className="settings-help">
         Reviews do not start on their own: Review requests is set to "{REVIEW_MODE_LABEL[settings.mode]}".{' '}
-        <button type="button" className="link-button" onClick={() => openView({ kind: 'settings', section: 'git' })}>
-          Change it in Settings → Git
+        <button type="button" className="link-button" onClick={() => openView({ kind: 'settings', section: 'code-reviews' })}>
+          Change it in Settings → Code reviews
         </button>
       </p>
     );
@@ -188,5 +191,97 @@ export function ReviewRequestsSetting({ projectId }: { projectId?: string }) {
         <AppControls settings={loaded.value} />
       )}
     </SettingSection>
+  );
+}
+
+const MODE_HELP = (
+  <p className="settings-help">
+    The permission mode a review session starts in, whoever starts it. Auto is the default: a review reads a change and writes nothing, and one that stops to ask before each command it reads the change with cannot be left to get on with it. Whatever the mode, a
+    review is posted only through its review card.
+  </p>
+);
+
+const ANNOUNCE_HELP = (
+  <p className="settings-help">
+    When several people let reviews start on their own, one request sets several agents off at once, none knowing of the others. With this on, Kestrel posts a short comment in your name when a review begins: "Reviewing this now, at commit …". Whether it is on or
+    not, Kestrel reads a request's recent comments before starting a review on its own, and does not start one when somebody else has said "Reviewing" within the last day; the request then says who, and you can still start a review yourself.
+  </p>
+);
+
+const INSTRUCTIONS_HELP = (
+  <p className="settings-help">
+    What every review is told about how to review and how to write it up. It goes into the first message of a review session, after what is being reviewed and before how the review is handed over; those two parts are Kestrel's and are not changed here. Write your
+    own, or keep Kestrel's: short comments, code quoted inline, and no building or testing, which is CI's work.
+  </p>
+);
+
+/**
+ * The instructions as a draft: typed here, saved by the screen's Save bar (ui/src/unsaved.ts).
+ * Reset to default puts Kestrel's own wording back at once, as a switch would.
+ */
+function ReviewInstructions({ stored }: { stored: string }) {
+  const shown = stored || DEFAULT_REVIEW_INSTRUCTIONS;
+  const [text, setText] = useState(shown);
+  useEffect(() => setText(shown), [shown]);
+  const problem = instructionsProblem(text);
+  const anchor = useDraft({ what: 'Review instructions', changed: text !== shown, problem, save: async () => (await save({ instructions: text }), true), discard: () => setText(shown) });
+  const isDefault = stored === '' && text === DEFAULT_REVIEW_INSTRUCTIONS;
+  return (
+    <>
+      <textarea aria-label="Review instructions" className="form-control review-setting-instructions" rows={12} spellCheck value={text} aria-invalid={problem !== null} onChange={(e) => setText(e.target.value)} />
+      {problem && <p className="field-error" role="alert">{problem}</p>}
+      <p className="settings-help review-setting-reset">
+        <button type="button" className="secondary-button small" disabled={isDefault} onClick={() => (setText(DEFAULT_REVIEW_INSTRUCTIONS), void save({ instructions: '' }))}>
+          Reset to default
+        </button>
+        <span>{stored === '' ? 'These are Kestrel’s own.' : 'These are your own.'}</span>
+      </p>
+      <span ref={anchor} className="draft-anchor" />
+    </>
+  );
+}
+
+/** How reviews run: the mode they start in, and whether Kestrel says so on the request when one begins. Both save as they are changed. */
+function ReviewRunSettings() {
+  const loaded = useResource(REVIEW_SETTINGS_PATH, asSettings).value;
+  if (loaded.state !== 'ready') return null; // the section above says why
+  const settings = loaded.value;
+  const modes = PERMISSION_LEVELS.filter((m) => REVIEW_PERMISSIONS.includes(m.id));
+  const chosen = modes.find((m) => m.id === settings.permission);
+  return (
+    <>
+      <SettingSection title="Code reviews permissions mode" help={MODE_HELP}>
+        <select aria-label="Code reviews permissions mode" className="form-control review-setting-mode" value={settings.permission} onChange={(e) => void save({ permission: e.target.value as PermissionLevel })}>
+          {modes.map((mode) => (
+            <option key={mode.id} value={mode.id}>
+              {mode.label}
+              {mode.id === DEFAULT_REVIEW_SETTINGS.permission ? ' (default)' : ''}
+            </option>
+          ))}
+        </select>
+        {chosen && <p className="settings-help">{permissionHint(chosen)}.</p>}
+      </SettingSection>
+      <SettingSection title="Review instructions" help={INSTRUCTIONS_HELP}>
+        <ReviewInstructions stored={settings.instructions} />
+      </SettingSection>
+      <SettingSection title="When a review begins" help={ANNOUNCE_HELP}>
+        <label className="tag-rule-switch">
+          <input type="checkbox" checked={settings.announce} onChange={(e) => void save({ announce: e.target.checked })} />
+          Post a "Reviewing" comment on the pull request
+        </label>
+        <p className="settings-help">{settings.announce ? 'Posted in your name on GitHub or GitLab as each review starts, by hand or on its own.' : 'Nothing is posted when a review starts.'}</p>
+      </SettingSection>
+    </>
+  );
+}
+
+/** Settings → Code reviews: what is done with review requests, then how a review runs. */
+export function CodeReviewsSettings() {
+  return (
+    <>
+      <h1>Code reviews</h1>
+      <ReviewRequestsSetting />
+      <ReviewRunSettings />
+    </>
   );
 }

@@ -34,8 +34,14 @@ on Electron's Node), so it does not collide with `pnpm dev:server` / `pnpm dev:u
 at once. (`~/.kestrel` is kept for an installed app; nothing run from this checkout opens it.) Quitting the app stops the server and any agents. To run the built UI instead of Vite:
 `pnpm --filter @kestrel/ui build`, then `pnpm --filter @kestrel/app start`.
 
-A signed, notarized `Kestrel.dmg` (Apple Silicon) is built by `scripts/release/make-release.sh`;
+A signed, notarized `Kestrel.dmg` (Apple Silicon) is built by `scripts/release/make-release.sh`,
+and the Windows installer and Linux AppImage by `scripts/release/make-release-desktop.sh`;
 the installed app uses `~/.kestrel` and updates itself. See [RELEASING.md](RELEASING.md).
+
+Kestrel runs from source on macOS, Linux and Windows. What differs between them is asked in one
+place, `server/src/host.ts` (which shell, how a command is ended) with the names and words in
+`server/src/shared/platform.ts`; a feature that cannot work on a platform refuses with the reason.
+On Linux, install `bubblewrap` and `socat` for the sandbox that holds a child session's commands.
 
 Tabs: ⌘N or ⌘T new session tab, ⌘W close tab, ⌘1–9 switch, ⌘K switch session. Right-click the
 sidebar to add a project, folder or session. (Browsers reserve some of these shortcuts; the

@@ -136,7 +136,7 @@ describe('findCodex', () => {
   });
 
   it('looks in the usual install folders when an app launched from the Dock has a minimal PATH', () => {
-    expect(findCodex({ PATH: '/usr/bin:/bin' }, lookup(['/opt/homebrew/bin/codex']))).toBe('/opt/homebrew/bin/codex');
+    expect(findCodex({ PATH: '/usr/bin:/bin' }, lookup(['/opt/homebrew/bin/codex']), 'mac')).toBe('/opt/homebrew/bin/codex');
     const nvm = lookup(['/Users/me/.nvm/versions/node/v9.0.0/bin/codex', '/Users/me/.nvm/versions/node/v24.15.0/bin/codex'], ['v9.0.0', 'v24.15.0']);
     expect(findCodex({ PATH: '/usr/bin' }, nvm)).toBe('/Users/me/.nvm/versions/node/v24.15.0/bin/codex');
   });

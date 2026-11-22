@@ -2,6 +2,7 @@
 // it works, its Kestrel tools, its sandbox and signing access, and the check every file edit passes
 // first (`editVerdict`). Moved out of runtime.ts as it was (0.0.18).
 import { guestEditRefusal, hostEditRefusal } from '../shared/worktree-guests.ts';
+import { hostSandboxSupport } from '../agents/claude/sandbox-support.ts';
 import { resolveEnv } from '../project-env/resolve.ts';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -50,7 +51,7 @@ export async function startOptions(host: OptionsHost, sessionId: string, directo
   await host.sandboxAllow.entries();
   const signing = options.confineShell ? await host.commitSigning.accessFor(directory) : undefined;
   const { env } = await resolveEnv(await host.projectEnv.all(), project?.id ?? null, folder?.path ?? null);
-  const guarded: StartOptions = { ...options, ...(Object.keys(env).length > 0 ? { env } : {}), intercept: (action) => editVerdict(host, sessionId, project?.id ?? null, directory, action), sandboxAllow: host.sandboxAllow.access(), ...(signing ? { commitSigning: signing } : {}) };
+  const guarded: StartOptions = { ...options, ...(Object.keys(env).length > 0 ? { env } : {}), intercept: (action) => editVerdict(host, sessionId, project?.id ?? null, directory, action), sandboxAllow: host.sandboxAllow.access(), ...(signing ? { commitSigning: signing } : {}), ...(options.confineShell ? { sandboxSupport: hostSandboxSupport() } : {}) };
   const mcpAccess = host.mcpAccess();
   return mcpAccess ? { ...guarded, kestrelMcp: mcpAccess(sessionId) } : guarded;
 }

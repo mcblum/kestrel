@@ -1,4 +1,4 @@
-// Where Settings → Git → Review requests is kept (shared/review-settings.ts): one small named
+// Where Settings → Code reviews is kept (shared/review-settings.ts): one small named
 // setting in the store, so both persistence backends keep it. Shaped like project-edits/prefs.ts:
 // writes run one after another. Listeners hear each stored change (the sync and the starter).
 import { DEFAULT_REVIEW_SETTINGS, sanitizeReviewSettings, type ReviewSettings } from '../shared/review-settings.ts';

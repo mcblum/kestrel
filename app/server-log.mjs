@@ -1,4 +1,6 @@
-// The packaged app's server log: ~/Library/Logs/Kestrel/server.log. A checkout prints the server's
+// The packaged app's server log, `server.log` in Electron's log folder for Kestrel:
+// ~/Library/Logs/Kestrel on macOS, %APPDATA%\Kestrel\logs on Windows, ~/.config/Kestrel/logs on
+// Linux. A checkout prints the server's
 // output in the terminal; an installed app has no terminal, so failures the server only logs (a
 // title that could not be generated, an agent that would not start) were invisible. One earlier
 // file is kept (server.log.1) once this one passes MAX_BYTES at launch. No Electron import: tested.

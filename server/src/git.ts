@@ -61,6 +61,8 @@ export interface WorktreeStart {
   head: string;
   base: string;
   baseRef: string | null;
+  /** What its branch is named under, in place of the user's own prefix: a review's branch is Kestrel's, not a branch of the user's work. */
+  prefix?: string;
 }
 
 /**
@@ -98,7 +100,7 @@ export function oneAtATime<T>(repoPath: string, work: () => Promise<T>): Promise
 async function addWorktree(repoPath: string, worktreesDir: string, sessionId: string, title: string, prefix: string, start?: WorktreeStart): Promise<Worktree> {
   const head = start?.head ?? (await git(repoPath, ['rev-parse', '--verify', 'HEAD'], { allowFail: true })).trim();
   if (!head) throw new Refused('This repository has no commits yet. Make a first commit, then start the session.');
-  const branch = branchName(prefix, title, sessionId);
+  const branch = branchName(start?.prefix ?? prefix, title, sessionId);
   const path = join(worktreesDir, `${branchSlug(repoPath.split('/').pop() ?? 'repo')}-${shortId(sessionId)}`);
   mkdirSync(worktreesDir, { recursive: true });
   // Tools that walk up for config (pnpm, tsconfig, eslint) must not find another repo's files.

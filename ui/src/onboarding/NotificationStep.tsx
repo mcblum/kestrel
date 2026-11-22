@@ -3,6 +3,7 @@
 // time: the system asks once, when the first notification is sent, so sending a test is the ask.
 // A browser asks when its own permission is requested, which the controls do.
 import { Bell } from 'lucide-react';
+import { platform, systemName } from '../platform.ts';
 import { NotificationControls } from '../components/NotificationsSetting.tsx';
 import { shellShowsBanners } from '../notifier.ts';
 
@@ -10,7 +11,9 @@ import { shellShowsBanners } from '../notifier.ts';
 export const permissionNote = (shell: boolean, packaged: boolean): string =>
   !shell
     ? 'Your browser asks once whether Kestrel may show notifications. Allow them here, or later in Settings → Notifications.'
-    : packaged
+    : platform() !== 'mac'
+      ? `${systemName()} shows Kestrel's notifications unless you have turned them off for it. Send a test notification now to see one.`
+      : packaged
       ? 'macOS asks once whether Kestrel may show notifications, the first time one is sent. Send a test notification now to answer it here, not in the middle of your work.'
       : 'This copy of Kestrel is run from a checkout, which macOS does not let show notifications. The installed app can; a sound still plays here.';
 

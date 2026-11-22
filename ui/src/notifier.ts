@@ -6,17 +6,19 @@
 // It watches the one copy of the workspace in the app store and holds nothing of its own but the
 // previous list to compare with. A click on a banner brings the window forward and opens the session.
 import type { SessionView } from '@kestrel/server/model';
+import { platform } from './platform.ts';
 import { useSyncExternalStore } from 'react';
-import { bannerProblem, DEFAULT_NOTIFY, notifies, notifyEvents, type NotifyEvent, type NotifyPrefs } from '@kestrel/server/notifications';
+import { bannerProblem, DEFAULT_NOTIFY, sanitizeNotify, notifies, notifyEvents, parseTarget, reviewNotifyEvents, targetOf, type NotifyEvent, type NotifyPrefs } from '@kestrel/server/notifications';
 import { ready, type Sourced } from '@kestrel/server/sourced';
-import { openSession } from './route.ts';
+import { openSession, openView } from './route.ts';
 import { playSound } from './sounds.ts';
 import { appStore, call, putResource } from './store.ts';
 import { activeTab, tabsView } from './tabsStore.ts';
 
 export const NOTIFICATIONS_PATH = '/api/notifications';
 export type NotifyAnswer = { prefs: NotifyPrefs };
-export const asNotifyPrefs = (raw: unknown): Sourced<NotifyPrefs> => ready((raw as NotifyAnswer).prefs ?? DEFAULT_NOTIFY);
+/** Read through `sanitizeNotify`, so a part an older server does not send yet is its default (a missing `enabled` is on), never "off". */
+export const asNotifyPrefs = (raw: unknown): Sourced<NotifyPrefs> => ready(sanitizeNotify((raw as NotifyAnswer | null)?.prefs ?? DEFAULT_NOTIFY));
 
 /** Whether this window may show banners: 'unsupported' where the browser has no notifications at all. */
 export type BannerPermission = NotificationPermission | 'unsupported';
@@ -49,7 +51,7 @@ export const shellShowsBanners = (): boolean => typeof window.kestrelShell?.noti
 /** Show one banner through the desktop app. True when the system showed it; a refusal is kept as the problem to say. */
 async function shellBanner(notification: { title: string; body: string; sessionId: string }): Promise<boolean> {
   const answer = await window.kestrelShell!.notify!(notification).catch((error: unknown) => ({ ok: false, reason: String(error) }));
-  setProblem(answer.ok ? null : bannerProblem(answer.reason ?? '', window.kestrelShell?.app?.packaged === true));
+  setProblem(answer.ok ? null : bannerProblem(answer.reason ?? '', window.kestrelShell?.app?.packaged === true, platform()));
   return answer.ok;
 }
 
@@ -62,22 +64,46 @@ export async function sendTestBanner(): Promise<'shown' | 'refused' | 'blocked'>
   return 'shown';
 }
 
+/** Open what a banner was about: the session, or the review request's page. */
+function openTarget(target: string): void {
+  const named = parseTarget(target);
+  if (!named) return;
+  if ('requestKey' in named) openView({ kind: 'review-request', id: named.requestKey });
+  else openSession(named.sessionId);
+}
+
 function show(event: NotifyEvent, prefs: NotifyPrefs): void {
   if (!prefs.banner) return;
-  if (shellShowsBanners()) return void shellBanner({ title: event.title, body: event.body, sessionId: event.sessionId });
+  // The shell hands back what it was given as `sessionId` when the banner is clicked: the target.
+  if (shellShowsBanners()) return void shellBanner({ title: event.title, body: event.body, sessionId: targetOf(event) });
   if (bannerPermission() === 'granted') {
     // `tag`: a second window, or a second event for the session, replaces the banner instead of stacking. Silent: the sound is Kestrel's own.
-    const banner = new Notification(event.title, { body: event.body, tag: `kestrel-${event.sessionId}`, silent: true });
+    const banner = new Notification(event.title, { body: event.body, tag: `kestrel-${targetOf(event)}`, silent: true });
     banner.onclick = () => {
       window.focus();
-      openSession(event.sessionId);
+      openTarget(targetOf(event));
       banner.close();
     };
   }
 }
 
 let before: readonly SessionView[] | null = null;
+/** The review requests that were waiting at the last look (their keys), and the list they were read from; null until the server's first answer. */
+let requestsBefore: { list: unknown; keys: readonly string[] } | null = null;
 let asked = false;
+
+/**
+ * New review requests since the last look (0.0.23). The store starts with an empty list before the
+ * server has said anything, so the first list that arrives with the workspace is "what was already
+ * waiting", never news.
+ */
+function newReviewRequests(prefs: NotifyPrefs): NotifyEvent[] {
+  const held = appStore.get().reviewRequests;
+  if (requestsBefore?.list === held.requests) return [];
+  const events = notifies(prefs) ? reviewNotifyEvents(requestsBefore?.keys ?? null, held, prefs) : [];
+  requestsBefore = { list: held.requests, keys: held.requests.map((r) => r.key) };
+  return events;
+}
 
 function check(): void {
   const state = appStore.get();
@@ -86,13 +112,14 @@ function check(): void {
   // The settings are asked for once, when the server is first there; the page that edits them writes the same entry.
   if (!asked) {
     asked = true;
-    void call<NotifyAnswer>(NOTIFICATIONS_PATH).then((answer) => putResource(NOTIFICATIONS_PATH, ready(answer.prefs)), () => void (asked = false));
+    void call<NotifyAnswer>(NOTIFICATIONS_PATH).then((answer) => putResource(NOTIFICATIONS_PATH, asNotifyPrefs(answer)), () => void (asked = false));
   }
-  const after = ws.sessions;
-  if (after === before) return;
   const prefs = heldPrefs();
+  const requested = newReviewRequests(prefs);
+  const after = ws.sessions;
+  if (after === before && requested.length === 0) return;
   const tab = tabsView().loaded ? activeTab(tabsView()) : undefined;
-  const events = notifies(prefs) ? notifyEvents(before, after, ws.links, prefs, { focused: document.hasFocus(), openSessionId: tab?.kind === 'session' ? tab.sessionId : null }) : [];
+  const events = [...(notifies(prefs) && after !== before ? notifyEvents(before, after, ws.links, prefs, { focused: document.hasFocus(), openSessionId: tab?.kind === 'session' ? tab.sessionId : null }) : []), ...requested];
   before = after;
   if (events.length === 0) return;
   events.forEach((event) => show(event, prefs));
@@ -102,7 +129,7 @@ function check(): void {
 /** Start watching. Called once, as the app starts. */
 export function installNotifier(): void {
   // A click on a banner the desktop app showed: the shell has brought the window forward.
-  window.kestrelShell?.onNotificationClick?.((sessionId) => sessionId && openSession(sessionId));
+  window.kestrelShell?.onNotificationClick?.((target) => openTarget(target));
   appStore.subscribe(check);
   check();
 }

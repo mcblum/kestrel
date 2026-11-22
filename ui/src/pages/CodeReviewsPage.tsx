@@ -105,8 +105,8 @@ function Empty({ dismissed, off }: { dismissed: boolean; off: boolean }) {
         <h2>Review requests are switched off</h2>
         <p>
           GitHub and GitLab are not asked.{' '}
-          <button type="button" className="link-button" {...opener((newTab) => openView({ kind: 'settings', section: 'git' }, newTab))}>
-            Change it in Settings → Git
+          <button type="button" className="link-button" {...opener((newTab) => openView({ kind: 'settings', section: 'code-reviews' }, newTab))}>
+            Change it in Settings → Code reviews
           </button>
         </p>
       </div>

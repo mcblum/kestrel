@@ -21,13 +21,27 @@ export const SHORTCUT_COMMANDS: readonly ShortcutCommand[] = [
   { id: 'next-tab', label: 'Next tab', group: 'Tabs', default: 'mod+shift+]' },
   { id: 'prev-tab', label: 'Previous tab', group: 'Tabs', default: 'mod+shift+[' },
   { id: 'toggle-sidebar', label: 'Show or hide the sidebar', group: 'View', default: 'mod+b' },
+  // A browser's own keys on a Mac. Windows and Linux browsers use Alt with the arrows, which is fixed below.
+  { id: 'back', label: 'Back', group: 'View', default: 'mod+[' },
+  { id: 'forward', label: 'Forward', group: 'View', default: 'mod+]' },
 ];
 
 /** Shortcuts that are listed so they can be found, and cannot be changed. */
 export const FIXED_SHORTCUTS: readonly { label: string; group: ShortcutCommand['group']; keys: string }[] = [
   { label: 'Go to tab 1 to 9', group: 'Tabs', keys: 'mod+1 … mod+9' },
   { label: 'New terminal (in the Terminal pane)', group: 'View', keys: 'ctrl+shift+`' },
+  { label: 'Back and forward, on Windows and Linux', group: 'View', keys: 'alt+left … alt+right' },
 ];
+
+/**
+ * A browser's Back and Forward keys where they are not Cmd with a bracket: Alt with the left and
+ * right arrows on Windows and Linux. Not on a Mac, where Option with an arrow moves the cursor a
+ * word at a time. Always there beside the keys above, and not changeable.
+ */
+export function browserNavCommand(binding: string | null, mac: boolean): 'back' | 'forward' | null {
+  if (mac) return null;
+  return binding === 'alt+left' ? 'back' : binding === 'alt+right' ? 'forward' : null;
+}
 
 /** The user's own keys, by command id; '' takes a command's key away. A command not listed keeps its default. */
 export type ShortcutOverrides = Readonly<Record<string, string>>;

@@ -68,7 +68,13 @@ export class WorkStopper {
 
   /** End the command's processes directly. Nothing left running from it: the row says it ended, and the user is told. */
   private async endItself(target: StopTarget, file: string, why: string): Promise<void> {
-    const result = await killTaskProcesses(file, this.processes);
+    let result: Awaited<ReturnType<typeof killTaskProcesses>>;
+    try {
+      result = await killTaskProcesses(file, this.processes);
+    } catch (error) {
+      // The processes could not even be looked up (no lsof here, or Windows): it may still be running.
+      throw new Refused(`${why} ${error instanceof Error ? error.message : String(error)}`);
+    }
     this.ended(target, 'stopped');
     if (result.ended.length === 0) throw new Refused(`${why} Nothing is running from it any more, so it had already ended.`);
   }

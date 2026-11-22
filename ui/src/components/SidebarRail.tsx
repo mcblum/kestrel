@@ -1,6 +1,6 @@
 // The sidebar as a narrow icon rail, drawn instead of the full sidebar when the window is too narrow
 // for it (sidebarRail.ts). Icons only, each doing what its row in the full sidebar does: Overview,
-// Pull requests, New session, Search, and Settings at the foot. Between them, the sessions that need a look:
+// New session, Pull requests, Search, and Settings at the foot. Between them, the sessions that need a look:
 // the pinned ones, then any waiting for an answer, as their initial with the row's dot (or, with no
 // dot, its open request's icon: RowRequest.tsx); the title is in the tooltip. The rest is one
 // click on the sidebar toggle away (the full sidebar, floating).
@@ -80,6 +80,9 @@ export function SidebarRail({ route, activeId, onSwitch }: { route: Route | null
         <button className={`rail-button${overview ? ' active' : ''}`} data-menu-kind="overview" aria-label="Overview" aria-current={overview ? 'page' : undefined} {...opener((newTab) => openView({ kind: 'overview' }, newTab))}>
           <LayoutDashboard aria-hidden />
         </button>
+        <button className="rail-button" aria-label="New session" title="New session ⌘N" {...opener((newTab) => void runMenuAction(item.newSession().action!, newTab))}>
+          <Plus aria-hidden />
+        </button>
         <button className={`rail-button${requests ? ' active' : ''}`} aria-label="Pull requests" title="Pull requests" aria-current={requests ? 'page' : undefined} {...opener((newTab) => openView({ kind: 'pull-requests' }, newTab))}>
           <GitPullRequest aria-hidden />
         </button>
@@ -89,9 +92,6 @@ export function SidebarRail({ route, activeId, onSwitch }: { route: Route | null
             {newReviews > 0 && <span className="status-dot rail-dot green" aria-hidden />}
           </button>
         )}
-        <button className="rail-button" aria-label="New session" title="New session ⌘N" {...opener((newTab) => void runMenuAction(item.newSession().action!, newTab))}>
-          <Plus aria-hidden />
-        </button>
         <button className="rail-button" aria-label="Search" title="Search ⌘K" onClick={onSwitch}>
           <Search aria-hidden />
         </button>

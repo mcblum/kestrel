@@ -5,6 +5,9 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
+import { hostPlatform } from '../../host.ts';
+import type { Platform } from '../../shared/platform.ts';
+import { findIn, installDirs } from '../find-program.ts';
 
 type Env = Record<string, string | undefined>;
 
@@ -23,19 +26,15 @@ const existsSafe = (path: string): boolean => {
 
 export const realLookup: Lookup = { exists: existsSafe, home: homedir() };
 
-/** Install folders a GUI-launched app may not have on its PATH, OpenCode's own first. */
-function wellKnownDirs(home: string): string[] {
-  return [join(home, '.opencode', 'bin'), '/opt/homebrew/bin', '/usr/local/bin', join(home, '.local', 'bin'), join(home, '.bun', 'bin'), join(home, '.npm-global', 'bin'), join(home, '.volta', 'bin')];
+/** Install folders a GUI-launched app may not have on its PATH (find-program.ts), OpenCode's own first. */
+function wellKnownDirs(home: string, platform: Platform, env: Env): string[] {
+  return [join(home, '.opencode', 'bin'), ...installDirs(home, platform, env)];
 }
 
 /** The `opencode` to run: the override when set (null if it does not exist), else PATH, else the usual folders. */
-export function findOpencode(env: Env = process.env, lookup: Lookup = realLookup): string | null {
+export function findOpencode(env: Env = process.env, lookup: Lookup = realLookup, platform: Platform = hostPlatform()): string | null {
   const override = env.KESTREL_OPENCODE_BINARY;
   if (override !== undefined && override !== '') return lookup.exists(override) ? override : null;
-  const dirs = [...(env.PATH ?? '').split(delimiter).filter(Boolean), ...wellKnownDirs(lookup.home)];
-  for (const dir of dirs) {
-    const candidate = join(dir, 'opencode');
-    if (lookup.exists(candidate)) return candidate;
-  }
-  return null;
+  const dirs = [...(env.PATH ?? env.Path ?? '').split(delimiter).filter(Boolean), ...wellKnownDirs(lookup.home, platform, env)];
+  return findIn(dirs, 'opencode', platform, lookup.exists);
 }

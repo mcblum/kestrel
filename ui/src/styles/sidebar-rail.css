@@ -7,7 +7,8 @@
 .kestrel .sidebar-rail-bar { display: flex; flex-direction: column; align-items: center; min-width: 0; min-height: 0; box-sizing: border-box; padding: 44px 0 10px; background: var(--s-side); border-right: 1px solid var(--s-line); overflow: hidden; }
 .kestrel.mac-chrome .sidebar-rail-bar { -webkit-app-region: drag; }
 .kestrel.mac-chrome .sidebar-rail-bar button { -webkit-app-region: no-drag; }
-.kestrel.mac-chrome:not(.full-screen).sidebar-rail .tab-strip { padding-left: calc(var(--toggle-x) + var(--toggle-size) + 6px - var(--rail-width)); }
+/* The three window buttons (toggle, Back, Forward) are wider than the rail on every platform. */
+.kestrel.sidebar-rail .tab-strip { padding-left: max(0px, calc(var(--toggle-x) + var(--toggle-row) + 6px - var(--rail-width))); }
 
 .kestrel .rail-top { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: none; }
 .kestrel .rail-sessions { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 0 1 auto; width: 100%; min-height: 0; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--s-line); overflow-y: auto; scrollbar-width: none; }

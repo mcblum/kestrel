@@ -1,14 +1,16 @@
-// HTTP route for Settings → Git → Review requests (shared/review-settings.ts). The UI's only; no
+// HTTP route for Settings → Code reviews (shared/review-settings.ts). The UI's only; no
 // Kestrel tool reaches it, so no agent can let itself start reviews.
 //
 //   GET /api/review-settings                                   200 ReviewSettings
-//   PUT /api/review-settings  { mode?, projects?, show?, sidebarLimit?, confirmed? } 200 ReviewSettings | 400 { error }
+//   PUT /api/review-settings  { mode?, projects?, show?, sidebarLimit?, announce?, permission?, instructions?, confirmed? } 200 ReviewSettings | 400 { error }
 //
 // `mode: "reply"` posts in the user's name, so it is stored only with `confirmed: true`: the
 // warning was shown and agreed to.
 //
 // `projects` is "all" or a list of project ids; ids of projects that are not registered are dropped.
 import { asReviewProjects, asSidebarLimit, isReviewPlace, REVIEW_MODES, REVIEW_PLACES, SIDEBAR_LIMIT, type ReviewMode, type ReviewSettings } from '../shared/review-settings.ts';
+import { DEFAULT_REVIEW_INSTRUCTIONS, instructionsProblem } from '../shared/review-settings.ts';
+import { isReviewPermission, REVIEW_PERMISSIONS } from '../shared/review-requests.ts';
 import type { ReviewPrefs } from './prefs.ts';
 
 export type ReviewSettingsAnswer = { status: number; body: unknown };
@@ -43,6 +45,21 @@ export async function reviewSettingsRoute(parts: readonly string[], method: stri
     if (sidebarLimit === null) return bad(`sidebarLimit must be a whole number from ${SIDEBAR_LIMIT.min} to ${SIDEBAR_LIMIT.max}.`);
     change = { ...change, sidebarLimit };
   }
-  if (Object.keys(change).length === 0) return bad('Give a mode, a choice of projects, where they are shown, or how many the sidebar lists.');
+  if (body.permission !== undefined) {
+    if (!isReviewPermission(body.permission)) return bad(`permission must be one of: ${REVIEW_PERMISSIONS.join(', ')}.`);
+    change = { ...change, permission: body.permission };
+  }
+  if (body.instructions !== undefined) {
+    if (typeof body.instructions !== 'string') return bad('instructions must be text; empty for Kestrel\'s own.');
+    const problem = instructionsProblem(body.instructions);
+    if (problem) return bad(problem);
+    // Kestrel's own wording, saved back unchanged, is not the user's: it stays the default, so a later default reaches them.
+    change = { ...change, instructions: body.instructions.trim() === DEFAULT_REVIEW_INSTRUCTIONS ? '' : body.instructions.trim() };
+  }
+  if (body.announce !== undefined) {
+    if (typeof body.announce !== 'boolean') return bad('announce must be true or false.');
+    change = { ...change, announce: body.announce };
+  }
+  if (Object.keys(change).length === 0) return bad('Give a mode, a choice of projects, where they are shown, how many the sidebar lists, the mode reviews start in, the review instructions, or whether a review is announced.');
   return { status: 200, body: await prefs.set(change) };
 }

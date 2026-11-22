@@ -1,4 +1,4 @@
-// Settings → Git → Review requests, as the UI holds it: one entry in the app store (useResource),
+// Settings → Code reviews, as the UI holds it: one entry in the app store (useResource),
 // read by the setting itself, the sidebar (whether it has the CODE REVIEWS section and the Code
 // reviews row, and how many requests the section lists) and the Code reviews page.
 import { DEFAULT_REVIEW_SETTINGS, sanitizeReviewSettings, type ReviewSettings } from '@kestrel/server/review-settings';

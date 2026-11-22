@@ -1,8 +1,9 @@
-// Settings → Git → Review requests: what Kestrel does with the requests the user was asked to
+// Settings → Code reviews: what Kestrel does with the requests the user was asked to
 // review (shared/review-requests.ts), and in which projects it may start a review on its own. One
 // copy, kept with the app's settings; a project's Settings tab shows the same list from its side.
 // Pure and browser-safe.
-import type { ReviewRequest } from './review-requests.ts';
+import type { PermissionLevel } from './permissions.ts';
+import { isReviewPermission, REVIEW_PERMISSION, type ReviewRequest } from './review-requests.ts';
 
 /**
  * `off`: no host is asked. `list`: requests are listed. `start`: a review also starts on its own.
@@ -47,12 +48,46 @@ export interface ReviewSettings {
   projects: ReviewProjects;
   show: ReviewPlace;
   sidebarLimit: number;
+  /**
+   * Post a "Reviewing" comment on the request, in the user's name, when a review of it begins
+   * (review-requests/reviewing.ts). Off until the user turns it on: it writes where others read.
+   */
+  announce: boolean;
+  /** The mode a review session starts in (`REVIEW_PERMISSIONS`); Auto unless the user chose another. */
+  permission: PermissionLevel;
+  /** How to review and how to write it up, in the user's own words; '' for Kestrel's (`DEFAULT_REVIEW_INSTRUCTIONS`). */
+  instructions: string;
 }
 
 /** The part that decides what Kestrel does on its own: all the starting and replying rules read. */
 export type ReviewAutomation = Pick<ReviewSettings, 'mode' | 'projects'>;
 
-export const DEFAULT_REVIEW_SETTINGS: ReviewSettings = { mode: 'list', projects: 'all', show: 'page', sidebarLimit: SIDEBAR_LIMIT.initial };
+export const DEFAULT_REVIEW_SETTINGS: ReviewSettings = { mode: 'list', projects: 'all', show: 'page', sidebarLimit: SIDEBAR_LIMIT.initial, announce: false, permission: REVIEW_PERMISSION, instructions: '' };
+
+/**
+ * How a review is done and written up, unless the user wrote their own (Settings → Code reviews →
+ * Review instructions; Matt, 2026-11-21). It is the part of a review's first message that is a
+ * matter of taste. What to review, which commit, how the review is handed over and that nothing is
+ * posted by the agent itself are said around it and are not the user's to change
+ * (review-requests/start.ts `reviewPrompt`).
+ *
+ * Three things it is here to prevent, each seen in a real review: building and testing a whole
+ * large app to read one change; explanations many paragraphs long; and describing code in words
+ * where quoting it would do.
+ */
+export const DEFAULT_REVIEW_INSTRUCTIONS = [
+  'Review this change by reading it: the diff, and as much of the code around it as you need to judge it. Do not build the project, install its dependencies or run its tests; CI does that, and its results are on the request.',
+  'Look for what is wrong or risky: bugs, behaviour that changes without being meant to, errors and edge cases that are not handled, security problems. Leave style and naming alone unless they hide a bug.',
+  'Be clear and reasonably short: easy for a person to follow, and exact enough that an engineer or another model could act on it without re-reading the change. The brief of a finding is one or two plain sentences. Its detail says why it is wrong and when it bites, in a short paragraph; quote the code you mean inline, in backticks, instead of describing it. No preamble, no praise, nothing said twice.',
+].join('\n\n');
+
+export const MAX_REVIEW_INSTRUCTIONS = 4000;
+
+/** Why this cannot be the review instructions, or null when it can ('' is Kestrel's own). */
+export const instructionsProblem = (text: string): string | null => (text.length > MAX_REVIEW_INSTRUCTIONS ? `Review instructions can be at most ${MAX_REVIEW_INSTRUCTIONS} characters; this is ${text.length}.` : null);
+
+/** The instructions a review is given: the user's, or Kestrel's when they wrote none. */
+export const reviewInstructions = (settings: Pick<ReviewSettings, 'instructions'>): string => settings.instructions.trim() || DEFAULT_REVIEW_INSTRUCTIONS;
 
 export const isReviewPlace = (v: unknown): v is ReviewPlace => REVIEW_PLACES.includes(v as ReviewPlace);
 
@@ -86,6 +121,9 @@ export function sanitizeReviewSettings(raw: unknown): ReviewSettings {
     projects: asReviewProjects(r.projects) ?? DEFAULT_REVIEW_SETTINGS.projects,
     show: isReviewPlace(r.show) ? r.show : DEFAULT_REVIEW_SETTINGS.show,
     sidebarLimit: asSidebarLimit(r.sidebarLimit) ?? DEFAULT_REVIEW_SETTINGS.sidebarLimit,
+    announce: r.announce === true,
+    permission: isReviewPermission(r.permission) ? r.permission : DEFAULT_REVIEW_SETTINGS.permission,
+    instructions: typeof r.instructions === 'string' && instructionsProblem(r.instructions) === null ? r.instructions : '',
   };
 }
 
@@ -101,7 +139,7 @@ export const startsOnItsOwn = (settings: ReviewAutomation, projectId: string | n
 /** Whether a finished review in this project is posted without the user's click. */
 export const repliesOnItsOwn = (settings: ReviewAutomation, projectId: string | null): boolean => settings.mode === 'reply' && projectId !== null && isChosenProject(settings, projectId);
 
-/** What the user must confirm before choosing `reply`. One wording, shown in Settings → Git. */
+/** What the user must confirm before choosing `reply`. One wording, shown in Settings → Code reviews. */
 export const REPLY_WARNING =
   'Kestrel will post reviews, and approve pull requests, in your name without showing you first. A pull request is somebody else\'s text, and text in it can steer the model that reads it. Choose this only for repositories whose contributors you trust.';
 

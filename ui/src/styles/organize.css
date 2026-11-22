@@ -41,13 +41,18 @@
    above the wordmark; in full screen (no lights) and outside the Mac it sits at the far left, and
    the sidebar keeps a top strip of the same height for it. With the sidebar hidden, the tab strip
    starts after it. */
-.kestrel { --toggle-x: 8px; --toggle-y: 11px; --toggle-size: 24px; }
+/* Back and Forward stand right of it; --toggle-row is the three buttons' width together, which is
+   what the tab strip clears when the sidebar is hidden or a rail. */
+.kestrel { --toggle-x: 8px; --toggle-y: 11px; --toggle-size: 24px; --toggle-gap: 2px; --toggle-row: calc(var(--toggle-size) * 3 + var(--toggle-gap) * 2); }
 .kestrel.mac-chrome:not(.full-screen) { --toggle-x: 80px; --toggle-y: 8px; }
 .kestrel .window-toggle { position: fixed; z-index: 60; left: var(--toggle-x); top: var(--toggle-y); width: var(--toggle-size); height: var(--toggle-size); flex: none; border: 0; border-radius: 5px; cursor: pointer; letter-spacing: 0; -webkit-app-region: no-drag; }
 .kestrel .window-toggle svg { width: 15px; height: 15px; }
 .kestrel .window-toggle:hover { background: color-mix(in srgb, var(--s-ink) 10%, transparent); color: var(--s-ink); }
+.kestrel .window-nav-back { left: calc(var(--toggle-x) + var(--toggle-size) + var(--toggle-gap)); }
+.kestrel .window-nav-forward { left: calc(var(--toggle-x) + (var(--toggle-size) + var(--toggle-gap)) * 2); }
+.kestrel .window-nav:disabled { opacity: .35; cursor: default; background: transparent; }
 .kestrel:not(.mac-chrome) .studio-sidebar { padding-top: 44px; }
-.kestrel.sidebar-hidden .tab-strip { padding-left: calc(var(--toggle-x) + var(--toggle-size) + 6px); }
+.kestrel.sidebar-hidden .tab-strip { padding-left: calc(var(--toggle-x) + var(--toggle-row) + 6px); }
 
 /* A workstream row is a tag row with its own icon (SidebarWorkstreams.tsx). The rows under it are
    references: each names the project its session is in, quietly, before the title. */

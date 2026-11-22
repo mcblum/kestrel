@@ -1,10 +1,10 @@
-// Settings → Git → Review requests: the rules (shared/review-settings.ts), where they are kept,
+// Settings → Code reviews: the rules (shared/review-settings.ts), where they are kept,
 // the route, and the part that starts reviews on its own (review-requests/auto.ts).
 import { describe, expect, it } from 'vitest';
 import { reviewStarter } from '../review-requests/auto.ts';
 import { ReviewRequestStore } from '../review-requests/store.ts';
 import type { ReviewRequest } from '../shared/review-requests.ts';
-import { DEFAULT_REVIEW_SETTINGS, MAX_REVIEWS_AT_ONCE, reviewsToStart, sanitizeReviewSettings, startsOnItsOwn, withProject, type ReviewAutomation, type ReviewSettings } from '../shared/review-settings.ts';
+import { DEFAULT_REVIEW_INSTRUCTIONS, instructionsProblem, MAX_REVIEW_INSTRUCTIONS, reviewInstructions, DEFAULT_REVIEW_SETTINGS, MAX_REVIEWS_AT_ONCE, reviewsToStart, sanitizeReviewSettings, startsOnItsOwn, withProject, type ReviewAutomation, type ReviewSettings } from '../shared/review-settings.ts';
 import { ready } from '../shared/sourced.ts';
 import { reviewSettingsRoute } from './api.ts';
 import { ReviewPrefs } from './prefs.ts';
@@ -214,5 +214,48 @@ describe('a reason leaves with its request', () => {
     store.note(request(1).key, 'why');
     store.set('github.com', ready([]));
     expect(store.noted().size).toBe(0);
+  });
+});
+
+describe('how a review runs (0.0.23)', () => {
+  it('starts in Auto and announces nothing until the user says so; settings saved before are read that way', () => {
+    expect(DEFAULT_REVIEW_SETTINGS.permission).toBe('auto');
+    expect(DEFAULT_REVIEW_SETTINGS.announce).toBe(false);
+    expect(sanitizeReviewSettings({ mode: 'start', projects: 'all', show: 'page', sidebarLimit: 5 })).toMatchObject({ permission: 'auto', announce: false });
+  });
+
+  it('keeps a chosen mode and the switch, and never Bypass or Plan as a standing mode for reviews', () => {
+    expect(sanitizeReviewSettings({ permission: 'ask', announce: true })).toMatchObject({ permission: 'ask', announce: true });
+    expect(sanitizeReviewSettings({ permission: 'bypass' }).permission).toBe('auto');
+    expect(sanitizeReviewSettings({ permission: 'plan' }).permission).toBe('auto');
+    expect(sanitizeReviewSettings({ announce: 'yes' }).announce).toBe(false);
+  });
+});
+
+describe('review instructions (0.0.23)', () => {
+  it('are Kestrel’s own until the user writes some', () => {
+    expect(DEFAULT_REVIEW_SETTINGS.instructions).toBe('');
+    expect(reviewInstructions(DEFAULT_REVIEW_SETTINGS)).toBe(DEFAULT_REVIEW_INSTRUCTIONS);
+    expect(reviewInstructions({ instructions: 'Mine.' })).toBe('Mine.');
+    expect(sanitizeReviewSettings({ instructions: 'Mine.' }).instructions).toBe('Mine.');
+    expect(sanitizeReviewSettings({ instructions: 7 }).instructions).toBe('');
+  });
+
+  it('have a length limit, said in words', () => {
+    expect(instructionsProblem('x'.repeat(MAX_REVIEW_INSTRUCTIONS))).toBeNull();
+    expect(instructionsProblem('x'.repeat(MAX_REVIEW_INSTRUCTIONS + 1))).toMatch(/at most 4000 characters; this is 4001/);
+  });
+
+  it('are stored over HTTP; Kestrel’s own wording saved back, or nothing, is the default again', async () => {
+    const prefs = new ReviewPrefs();
+    const workspace = { state: async () => ({ projects: [] }) };
+    const put = (body: Record<string, unknown>) => reviewSettingsRoute(['api', 'review-settings'], 'PUT', async () => body, workspace as never, prefs);
+    expect(((await put({ instructions: ' Only security. ' }))!.body as { instructions: string }).instructions).toBe('Only security.');
+    expect(((await put({ instructions: DEFAULT_REVIEW_INSTRUCTIONS }))!.body as { instructions: string }).instructions).toBe('');
+    await put({ instructions: 'Mine.' });
+    expect(((await put({ instructions: '' }))!.body as { instructions: string }).instructions).toBe('');
+    expect((await put({ instructions: 'x'.repeat(MAX_REVIEW_INSTRUCTIONS + 1) }))!.status).toBe(400);
+    expect((await put({ permission: 'bypass' }))!.status).toBe(400);
+    expect(((await put({ permission: 'ask', announce: true }))!.body as { permission: string; announce: boolean })).toMatchObject({ permission: 'ask', announce: true });
   });
 });

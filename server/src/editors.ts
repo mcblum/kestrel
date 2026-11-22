@@ -1,4 +1,5 @@
-// Which of the common Mac editors are installed, for a changed file's "Open in …" items. Detection
+// Which of the common editors are installed, for a changed file's "Open in …" items. This file is
+// the list and the Mac's way of finding and opening them; openers.ts has Windows and Linux. Detection
 // is a pure function over a lookup (does this app exist?), so tests pass a fake one; `installedApp`
 // is the real lookup: the app bundle in /Applications or ~/Applications.
 import { existsSync } from 'node:fs';
@@ -9,6 +10,8 @@ import { DEFAULT_EDITOR_ID, type Editor, type FolderApp } from './shared/file-me
 /** An editor and the name `open -a` knows its app by; the default app has none. */
 export interface EditorApp extends Editor {
   app: string | null;
+  /** Off a Mac: the program that starts it (openers.ts). */
+  command?: string;
 }
 
 /** In the order the menu lists them. */
@@ -42,7 +45,9 @@ export function openArgs(editor: EditorApp, file: string): string[] {
 /** A folder app and the name `open -a` knows it by; Finder has none (`open <folder>` is Finder). */
 export interface FolderAppEntry extends FolderApp {
   app: string | null;
-  /** Part of macOS: there without looking. */
+  /** Off a Mac: the program that starts it (openers.ts). */
+  command?: string;
+  /** Part of the system: there without looking. */
   builtIn?: boolean;
   /** The app whose icon it shows, when `app` does not say (Finder is opened with no app name). */
   iconApp?: string;

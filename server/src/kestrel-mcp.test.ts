@@ -1,4 +1,4 @@
-// A session's Kestrel tools over MCP HTTP (for Codex): who may call them, and that they are the
+// A session's Kestrel tools over MCP HTTP (for Codex and OpenCode): who may call them, and that they are the
 // session's own tools.
 import { createServer, request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -53,6 +53,16 @@ describe('session MCP endpoint', () => {
     expect(listed.result.tools.map((t: { name: string }) => t.name)).toContain('list_projects');
     const ran = await (await call(port, 'one', rpc(2, 'tools/call', { name: 'list_projects', arguments: {} }))).json();
     expect(ran.result.content[0].text).toBe('[{"name":"alpha"}]');
+  });
+
+  // Every provider gets every tool (Matt, 2026-11-21): Claude is handed this server in-process, Codex
+  // and OpenCode reach it here, so a tool missing from it is missing for all three, and a name in
+  // KESTREL_TOOLS that is not served is a tool no agent has.
+  it('serves exactly the tools in KESTREL_TOOLS, so no provider is given fewer', async () => {
+    const port = await serve();
+    const listed = await (await call(port, 'one', rpc(1, 'tools/list'))).json();
+    const names: string[] = listed.result.tools.map((t: { name: string }) => t.name);
+    expect([...names].sort()).toEqual([...KESTREL_TOOLS].sort());
   });
 
   it('marks the session tools as always loaded, and leaves the browser and simulator tools to be looked up', async () => {

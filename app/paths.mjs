@@ -3,9 +3,10 @@
 // Checkout (`pnpm dev:app`, `pnpm start`): the server runs from TypeScript with tsx, the UI comes
 // from Vite (or ui/dist), and the SDK and the simulator helper find their own binaries.
 //
-// Packaged (Kestrel.app): the server is one built JavaScript file in Contents/Resources/server
-// with node-pty beside it, the UI is in the app archive, and the Claude Code binary and the
-// simulator helper are in Contents/Resources/bin, outside the archive so they can be executed.
+// Packaged: the server is one built JavaScript file in the resources folder's `server` (Contents/
+// Resources in Kestrel.app, `resources` beside the program on Windows and Linux) with node-pty
+// beside it, the UI is in the app archive, and the Claude Code binary and, on a Mac, the simulator
+// helper are in the resources folder's `bin`, outside the archive so they can be executed.
 import { app } from 'electron';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -37,7 +38,7 @@ export function bundledBinaries() {
   if (!isPackaged) return {};
   const bin = join(process.resourcesPath, 'bin');
   const found = {};
-  const claude = join(bin, 'claude');
+  const claude = join(bin, process.platform === 'win32' ? 'claude.exe' : 'claude');
   const sim = join(bin, 'kestrel-sim');
   if (existsSync(claude)) found.KESTREL_CLAUDE_EXECUTABLE = claude;
   if (existsSync(sim)) found.KESTREL_SIM_HELPER = sim;

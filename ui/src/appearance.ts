@@ -32,6 +32,15 @@ function apply(): void {
 
 export const appearance = (): Appearance => current;
 
+/** Whether a look has ever been chosen in this browser; false means it is still the default. */
+export function appearanceChosen(): boolean {
+  try {
+    return window.localStorage.getItem(KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
 /** Whether the window is drawn dark now. */
 export const drawnDark = (): boolean => isDark(current.theme, systemDark?.matches ?? false);
 

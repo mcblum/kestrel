@@ -3,6 +3,8 @@
 // Read through the session's file route and held once per file (useResource); "Whole file" shows
 // all of it, scrolled to the line. The arrow at its top right shows the line in context: the Changes
 // pane opens at that file's diff, which in a review is the request's own change, with the line marked.
+// The arrow is there only when the Changes pane has that file: a review whose base could not be
+// worked out has no changes to show, and an arrow to an empty pane is worse than none.
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { excerptAround, extensionOf } from '@kestrel/server/code-excerpt';
 import type { FileContent } from '@kestrel/server/files';
@@ -10,6 +12,7 @@ import { ready, type Sourced } from '@kestrel/server/sourced';
 import { useResource } from '../data/resources.ts';
 import { SquareArrowOutUpRight } from 'lucide-react';
 import { focusChange } from '../changesFocus.ts';
+import { useApp } from '../store.ts';
 import { HighlightedCode } from '../highlight/HighlightedCode.tsx';
 
 const asContent = (raw: unknown): Sourced<FileContent> => ready(raw as FileContent);
@@ -18,6 +21,7 @@ export function ReviewCommentCode({ sessionId, path, line }: { sessionId: string
   const [whole, setWhole] = useState(false);
   const answer = useResource(`/api/sessions/${encodeURIComponent(sessionId)}/file?path=${encodeURIComponent(path)}`, asContent).value;
   const marked = useRef<HTMLSpanElement>(null);
+  const inChanges = useApp((s) => s.details.get(sessionId)?.files.some((f) => f.path === path) ?? false);
   // The whole file opens at the line, not at its top.
   useEffect(() => {
     if (whole) marked.current?.scrollIntoView({ block: 'center' });
@@ -26,15 +30,17 @@ export function ReviewCommentCode({ sessionId, path, line }: { sessionId: string
   if (answer.state === 'unavailable') return <p className="review-code-note">{answer.reason || 'Could not read this file.'}</p>;
   const content = answer.value;
   if (content.kind !== 'text') return <p className="review-code-note">{content.kind === 'binary' ? 'This is not a text file.' : 'This file is too large to show.'}</p>;
-  const excerpt = excerptAround(content.text, line, whole ? null : undefined);
+  const excerpt = excerptAround(content.text, line, whole ? null : 3);
   const numbers = excerpt.code.split('\n').map((_, i) => excerpt.first + i);
   const shownAll = excerpt.first === 1 && numbers.length === excerpt.total;
   return (
     <div className="review-code">
       <div className="review-code-head">
-        <button type="button" className="copy-button" aria-label="Show this line in the Changes pane" title="Show in Changes" onClick={() => focusChange(sessionId, path, line)}>
-          <SquareArrowOutUpRight aria-hidden />
-        </button>
+        {inChanges && (
+          <button type="button" className="copy-button" aria-label="Show this line in the Changes pane" title="Show in Changes" onClick={() => focusChange(sessionId, path, line)}>
+            <SquareArrowOutUpRight aria-hidden />
+          </button>
+        )}
       </div>
       <div className={`review-code-body${whole ? ' whole' : ''}`} style={{ '--marked': excerpt.marked ?? -1 } as CSSProperties}>
         {excerpt.marked !== null && <span className="review-code-mark" ref={marked} aria-hidden />}

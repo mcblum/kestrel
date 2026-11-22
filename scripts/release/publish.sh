@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Publishes the release make-release.sh left in dist/release to the public kestrel/releases
-# project on starfish. House pattern (Shrike Packaging/gitlab-release.sh, Bellbird
+# project on starfish, with the Windows installer and the Linux AppImage of the same version when
+# they are in that folder too (make-release-desktop.sh, or a CI job's artifacts copied in). The Mac
+# build is always there: a release is never Windows or Linux alone. House pattern (Shrike Packaging/gitlab-release.sh, Bellbird
 # scripts/publish-macos.sh), with electron-updater's feed in place of Sparkle's appcast:
 #
 #   1. checks  the DMG and the app in the zip are signed, notarized and stapled; nothing in the
@@ -13,6 +15,11 @@
 #   5. feed    latest-mac.yml, with absolute URLs into the package registry, committed to `main`
 #              (last, so the feed never names a file that is not there yet)
 #   6. verify  fetch the public feed and HEAD every URL in it, the blockmap and the permalink
+#
+# Windows and Linux ride along through the same steps: their files are uploaded in 3, linked from
+# the Release in 4 (/Kestrel-Setup.exe and /Kestrel.AppImage are their permanent downloads), and
+# their feeds (latest.yml, latest-linux.yml) are committed in 5. They are not code-signed, so step 1
+# checks only their names and feeds for private strings and that their feed says this version.
 #
 #   scripts/release/publish.sh [--dry-run] [--force] [--dir dist/release]
 #
@@ -55,6 +62,27 @@ DMG="Kestrel-$VERSION-arm64.dmg"
 for f in "$ZIP" "$ZIP.blockmap" "$DMG" Kestrel.dmg; do [ -f "$DIR/$f" ] || fail "missing $DIR/$f"; done
 cmp -s "$DIR/$DMG" "$DIR/Kestrel.dmg" || fail "Kestrel.dmg is not the same file as $DMG"
 
+# The other platforms' builds of this version, when they are here. Each line of OTHERS is
+# "<platform> <arch> <feed file> <artifact> <permanent download name>".
+OTHERS=""
+other() { # platform arch feed artifact permalink
+  [ -f "$DIR/$4" ] || return 0
+  [ -f "$DIR/$3" ] || fail "$4 is here without its feed $3 (run scripts/release/make-release-desktop.sh)"
+  local said; said="$(sed -n 's/^version: *//p' "$DIR/$3" | head -1)"
+  [ "$said" = "$VERSION" ] || fail "$3 says ${said:-nothing}, the Mac feed says $VERSION"
+  grep -q "url: $4$" "$DIR/$3" || fail "$3 does not name $4"
+  OTHERS="$OTHERS$1 $2 $3 $4 $5"$'\n'
+}
+other win x64 latest.yml "Kestrel-Setup-$VERSION-x64.exe" Kestrel-Setup.exe
+other linux x64 latest-linux.yml "Kestrel-$VERSION-x86_64.AppImage" Kestrel.AppImage
+other linux arm64 latest-linux-arm64.yml "Kestrel-$VERSION-arm64.AppImage" Kestrel-arm64.AppImage
+OTHER_FILES=""
+while read -r _ _ feed artifact _; do
+  [ -n "${artifact:-}" ] || continue
+  OTHER_FILES="$OTHER_FILES $artifact"
+  [ ! -f "$DIR/$artifact.blockmap" ] || OTHER_FILES="$OTHER_FILES $artifact.blockmap"
+done <<< "$OTHERS"
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -95,6 +123,12 @@ unzip -Z1 "$DIR/$ZIP" > "$WORK/zip-list"
 hits="$( { grep -rlaF -f "$PRIVATE" "$APP"; grep -rlaE "$TOKEN_SHAPE" "$APP"; } 2>/dev/null | sed "s|$WORK/zip/||" | sort -u | head -5 || true)"
 [ -z "$hits" ] || { echo "$hits" >&2; fail "files in the app contain a private string (listed above)"; }
 echo "    no home path, email or token in the zip's names, the app's files or the feed"
+while read -r platform arch feed artifact _; do
+  [ -n "${artifact:-}" ] || continue
+  ! private_in "$DIR/$feed" || fail "$feed contains a private string"
+  echo "    also publishing $artifact ($platform $arch; not code-signed, its contents are not opened here)"
+done <<< "$OTHERS"
+[ -n "$OTHERS" ] || echo "    no Windows or Linux build of $VERSION in $DIR: publishing the Mac build alone"
 
 # ---- API -------------------------------------------------------------------------------------
 ENC_PROJECT="$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "$PROJECT")"
@@ -145,7 +179,7 @@ for id in $existing; do api_send DELETE "/projects/$PROJECT_ID/packages/$id" >/d
 UPLOAD_ARGS=()
 # The direct upload route (the GitLab box itself) needs the public name; the public route must not get one.
 [ "$UPLOAD" = "$PUBLIC" ] || UPLOAD_ARGS=(--http1.1 -H "Host: $HOST")
-for f in "$ZIP" "$ZIP.blockmap" "$DMG"; do
+for f in "$ZIP" "$ZIP.blockmap" "$DMG" $OTHER_FILES; do
   path="/projects/$PROJECT_ID/packages/generic/$PACKAGE/$VERSION/$f"
   if [ "$DRY" = 1 ]; then echo "    (dry run) PUT $UPLOAD/api/v4$path  <- $f ($(du -h "$DIR/$f" | cut -f1))"; continue; fi
   echo "    PUT  $UPLOAD/api/v4$path" >&2
@@ -155,7 +189,7 @@ done
 
 # A Release hangs its tag on a ref: an empty project gets a first commit on main.
 if [ -z "$DEFAULT_BRANCH" ]; then
-  readme="$(printf '# Kestrel releases\n\nDownloads and the update feed for Kestrel for Mac.\n\n- Download: %s/%s/-/releases/permalink/latest/downloads/Kestrel.dmg\n- Update feed: %s\n' "$PUBLIC" "$PROJECT" "$FEED_URL")"
+  readme="$(printf '# Kestrel releases\n\nDownloads and the update feeds for Kestrel.\n\n- Download: %s/%s/-/releases/permalink/latest/downloads/Kestrel.dmg\n- Update feed: %s\n' "$PUBLIC" "$PROJECT" "$FEED_URL")"
   python3 -c 'import json,sys; print(json.dumps({"branch":"main","content":sys.argv[1],"commit_message":"Kestrel releases"}))' "$readme" > "$WORK/readme.json"
   api_send POST "/projects/$PROJECT_ID/repository/files/README.md" -H "Content-Type: application/json" --data @"$WORK/readme.json" >/dev/null
 fi
@@ -166,33 +200,48 @@ echo "    GET  $PUBLIC/api/v4/projects/$PROJECT_ID/releases/v$VERSION"
 if curl -fsS -o /dev/null -H @"$HEADER" "$PUBLIC/api/v4/projects/$PROJECT_ID/releases/v$VERSION" 2>/dev/null; then
   api_send DELETE "/projects/$PROJECT_ID/releases/v$VERSION" >/dev/null
 fi
-python3 - "$VERSION" "$REGISTRY" "$ZIP" "$DMG" > "$WORK/release.json" <<'PY'
+printf '%s' "$OTHERS" > "$WORK/others"
+python3 - "$VERSION" "$REGISTRY" "$ZIP" "$DMG" "$WORK/others" > "$WORK/release.json" <<'PY'
 import json, sys
-v, registry, zip_name, dmg = sys.argv[1:5]
-print(json.dumps({
-    "tag_name": f"v{v}", "ref": "main", "name": f"Kestrel {v}",
-    "description": f"Kestrel {v} for Macs with Apple Silicon (macOS 12 or later). Signed with Developer ID and notarized.\n\n"
-                   "Download Kestrel.dmg, open it, and drag Kestrel to Applications. Installed copies update themselves.",
-    "assets": {"links": [
-        {"name": "Kestrel.dmg", "url": registry + dmg, "filepath": "/Kestrel.dmg", "link_type": "package"},
-        {"name": zip_name, "url": registry + zip_name, "filepath": f"/{zip_name}", "link_type": "package"},
-    ]},
-}))
+v, registry, zip_name, dmg, others = sys.argv[1:6]
+links = [
+    {"name": "Kestrel.dmg", "url": registry + dmg, "filepath": "/Kestrel.dmg", "link_type": "package"},
+    {"name": zip_name, "url": registry + zip_name, "filepath": f"/{zip_name}", "link_type": "package"},
+]
+text = [f"Kestrel {v}.",
+        "**Mac** (Apple Silicon, macOS 12 or later): download Kestrel.dmg, open it, and drag Kestrel to Applications. Signed with Developer ID and notarized."]
+for line in open(others).read().splitlines():
+    platform, arch, _feed, artifact, permalink = line.split()
+    links.append({"name": permalink, "url": registry + artifact, "filepath": f"/{permalink}", "link_type": "package"})
+    if platform == "win":
+        text.append(f"**Windows** ({arch}): download and run {permalink}. It is not code-signed yet, so Windows SmartScreen asks before it runs.")
+    else:
+        text.append(f"**Linux** ({arch}): download {permalink}, make it executable (`chmod +x`) and run it. It needs FUSE 2 (libfuse2) as every AppImage does.")
+text.append("Installed copies update themselves.")
+print(json.dumps({"tag_name": f"v{v}", "ref": "main", "name": f"Kestrel {v}", "description": "\n\n".join(text), "assets": {"links": links}}))
 PY
 api_send POST "/projects/$PROJECT_ID/releases" -H "Content-Type: application/json" --data @"$WORK/release.json" >/dev/null
 
 # ---- 5. the feed -----------------------------------------------------------------------------
-step "Feed: latest-mac.yml on main"
-node "$ROOT/scripts/release/write-feed.mjs" --dir "$DIR" --version "$VERSION" --base "$REGISTRY" --out "$WORK/latest-mac.yml" >/dev/null
-! private_in "$WORK/latest-mac.yml" || fail "the feed contains a private string"
-sed 's/^/    /' "$WORK/latest-mac.yml"
-python3 -c 'import json,sys; print(json.dumps({"branch":"main","content":open(sys.argv[1]).read(),"commit_message":"Kestrel "+sys.argv[2]}))' "$WORK/latest-mac.yml" "$VERSION" > "$WORK/feed.json"
-echo "    GET  $PUBLIC/api/v4/projects/$PROJECT_ID/repository/files/latest-mac.yml?ref=main"
-if curl -fsS -o /dev/null -H @"$HEADER" "$PUBLIC/api/v4/projects/$PROJECT_ID/repository/files/latest-mac.yml?ref=main" 2>/dev/null; then
-  api_send PUT "/projects/$PROJECT_ID/repository/files/latest-mac.yml" -H "Content-Type: application/json" --data @"$WORK/feed.json" >/dev/null
-else
-  api_send POST "/projects/$PROJECT_ID/repository/files/latest-mac.yml" -H "Content-Type: application/json" --data @"$WORK/feed.json" >/dev/null
-fi
+step "Feeds on main"
+commit_feed() { # platform arch feed-file-name
+  local platform="$1" arch="$2" name="$3"
+  node "$ROOT/scripts/release/write-feed.mjs" --dir "$DIR" --version "$VERSION" --platform "$platform" --arch "$arch" --base "$REGISTRY" --out "$WORK/$name" >/dev/null
+  ! private_in "$WORK/$name" || fail "$name contains a private string"
+  echo "    $name:"; sed 's/^/      /' "$WORK/$name"
+  python3 -c 'import json,sys; print(json.dumps({"branch":"main","content":open(sys.argv[1]).read(),"commit_message":"Kestrel "+sys.argv[2]+" ("+sys.argv[3]+")"}))' "$WORK/$name" "$VERSION" "$name" > "$WORK/feed.json"
+  echo "    GET  $PUBLIC/api/v4/projects/$PROJECT_ID/repository/files/$name?ref=main"
+  if curl -fsS -o /dev/null -H @"$HEADER" "$PUBLIC/api/v4/projects/$PROJECT_ID/repository/files/$name?ref=main" 2>/dev/null; then
+    api_send PUT "/projects/$PROJECT_ID/repository/files/$name" -H "Content-Type: application/json" --data @"$WORK/feed.json" >/dev/null
+  else
+    api_send POST "/projects/$PROJECT_ID/repository/files/$name" -H "Content-Type: application/json" --data @"$WORK/feed.json" >/dev/null
+  fi
+}
+commit_feed mac arm64 latest-mac.yml
+while read -r platform arch feed _ _; do
+  [ -n "${feed:-}" ] || continue
+  commit_feed "$platform" "$arch" "$feed"
+done <<< "$OTHERS"
 
 if [ "$DRY" = 1 ]; then
   step "Dry run: nothing was changed"
@@ -204,7 +253,15 @@ step "Verify"
 served="$(curl -fsSL "$FEED_URL?nocache=$(date +%s)")" || fail "the public feed does not load: $FEED_URL"
 echo "$served" | grep -q "^version: $VERSION$" || fail "the public feed does not say $VERSION yet"
 urls="$(echo "$served" | sed -n 's/^ *- url: //p; s/^path: //p' | sort -u)"
-for u in $urls "$REGISTRY$ZIP.blockmap" "$PUBLIC/$PROJECT/-/releases/permalink/latest/downloads/Kestrel.dmg"; do
+permalinks="$PUBLIC/$PROJECT/-/releases/permalink/latest/downloads/Kestrel.dmg"
+while read -r _ _ feed _ permalink; do
+  [ -n "${feed:-}" ] || continue
+  other_feed="$(curl -fsSL "$PUBLIC/$PROJECT/-/raw/main/$feed?nocache=$(date +%s)")" || fail "the public feed does not load: $feed"
+  echo "$other_feed" | grep -q "^version: $VERSION$" || fail "the public $feed does not say $VERSION yet"
+  urls="$urls $(echo "$other_feed" | sed -n 's/^ *- url: //p; s/^path: //p' | sort -u)"
+  permalinks="$permalinks $PUBLIC/$PROJECT/-/releases/permalink/latest/downloads/$permalink"
+done <<< "$OTHERS"
+for u in $urls "$REGISTRY$ZIP.blockmap" $permalinks; do
   code="$(curl -sS -o /dev/null -I -L -w '%{http_code}' "$u")"
   [ "$code" = 200 ] || fail "$u answers $code"
   echo "    200  $u"
@@ -212,4 +269,4 @@ done
 echo
 echo "Published Kestrel $VERSION"
 echo "    feed:     $FEED_URL"
-echo "    download: $PUBLIC/$PROJECT/-/releases/permalink/latest/downloads/Kestrel.dmg"
+for u in $permalinks; do echo "    download: $u"; done

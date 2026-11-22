@@ -10,7 +10,7 @@ import type { ChatMessage, Session } from '../model.ts';
 import type { ByNumberProvider } from '../pull-requests/by-number.ts';
 import type { CommandRunner } from '../pull-requests/types.ts';
 import { hostTerms, type HostKind } from '../shared/host-terms.ts';
-import { draftReview, summaryProblem, verdictProblem, VERDICT_POSTED, type ReviewReply, type ReviewVerdict } from '../shared/review-reply.ts';
+import { draftReview, editedFindings, postable, summaryProblem, verdictFor, verdictProblem, VERDICT_POSTED, type ReviewReply, type ReviewVerdict } from '../shared/review-reply.ts';
 import { repliesOnItsOwn, type ReviewAutomation } from '../shared/review-settings.ts';
 import type { TranscriptAction } from '../transcript.ts';
 import { Refused } from '../workspace.ts';
@@ -34,6 +34,8 @@ export interface ReviewRepliesHost {
 export interface ReplyEdit {
   verdict?: unknown;
   summary?: unknown;
+  /** The card's findings as the user left them: reworded, re-marked or dismissed (`editedFindings`). */
+  findings?: unknown;
 }
 
 export class ReviewReplies {
@@ -47,14 +49,16 @@ export class ReviewReplies {
   }
 
   /** `post_review`: a refusal goes back to the agent and shows in the conversation, like Kestrel's other tools. */
-  private async tool(sessionId: string, args: { verdict?: unknown; summary?: unknown; comments?: unknown }): Promise<ToolResult> {
+  private async tool(sessionId: string, args: { verdict?: unknown; summary?: unknown; findings?: unknown }): Promise<ToolResult> {
     try {
       const session = await this.host.session(sessionId);
       if (!session?.review) throw new Refused("This session is not reviewing somebody else's pull request, so there is nothing to post a review to. Say what you found in your reply.");
       const drafted = draftReview(args, session.review.sha);
       if ('problem' in drafted) throw new Refused(drafted.problem);
       const id = `review-${randomUUID()}`;
-      this.host.showCard(sessionId, { type: 'card', id, review: drafted.reply });
+      // The verdict follows the findings from the start: a review whose findings include a blocker asks for changes, whatever word came with it.
+      const review: ReviewReply = { ...drafted.reply, verdict: verdictFor(drafted.reply.verdict, drafted.reply.findings) };
+      this.host.showCard(sessionId, { type: 'card', id, review });
       if (!repliesOnItsOwn(await this.host.settings(), session.startedIn)) return { text: 'Shown to the user, who decides whether to post it. Nothing has been posted. End your turn.' };
       try {
         const posted = await this.post(sessionId, id, {}, true);
@@ -80,7 +84,9 @@ export class ReviewReplies {
     if (!session.worktreePath || session.worktreeDiscarded) throw new Refused("This session's worktree is gone, so the review cannot be posted from it.");
     const problem = (edit.verdict !== undefined ? verdictProblem(edit.verdict) : null) ?? (edit.summary !== undefined ? summaryProblem(edit.summary) : null);
     if (problem) throw new Refused(problem);
-    const reply: ReviewReply = { ...draft, ...(edit.verdict !== undefined ? { verdict: edit.verdict as ReviewVerdict } : {}), ...(edit.summary !== undefined ? { summary: (edit.summary as string).trim() } : {}) };
+    const edited = editedFindings(draft.findings ?? [], edit.findings);
+    if ('problem' in edited) throw new Refused(edited.problem);
+    const reply: ReviewReply = { ...draft, findings: edited.findings, ...(edit.verdict !== undefined ? { verdict: edit.verdict as ReviewVerdict } : {}), ...(edit.summary !== undefined ? { summary: (edit.summary as string).trim() } : {}) };
     if (this.posting.has(cardId)) throw new Refused('This review is being posted.');
     this.posting.add(cardId);
     try {
@@ -100,7 +106,8 @@ export class ReviewReplies {
             : `Could not tell which commit the ${terms.long} is at, so an approval was not posted.`,
         );
       }
-      const how = await postReview(this.host.run, { host, number, cwd: session.worktreePath }, reply);
+      // Kept findings go up as comments on their lines; dismissed ones stay on the card and go nowhere.
+      const how = await postReview(this.host.run, { host, number, cwd: session.worktreePath }, { verdict: reply.verdict, sha: reply.sha, ...postable(reply) });
       const note = [how, moved ? `It was made of ${reply.sha.slice(0, 12)}; the ${terms.long} has new commits since.` : null].filter(Boolean).join(' ');
       const posted: ReviewReply = { ...reply, posted: { at: this.host.now(), verdict: reply.verdict, ...(onItsOwn ? { onItsOwn: true } : {}), ...(note ? { note } : {}) } };
       this.host.showCard(sessionId, { type: 'card', id: cardId, review: posted });

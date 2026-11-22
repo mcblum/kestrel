@@ -24,7 +24,7 @@ import { RunPhase, type PhaseChange } from './run-phase.ts';
 import { baseOptions, isConnectorTool } from './options.ts';
 import { kestrelMcpServer } from './tools.ts';
 import { claudeAvailability, claudeThrown } from './failure.ts';
-import { cardOffer, isUnsandboxed, offersAllowList, ON_LIST_NOTE, onAllowList, rewrittenDetail, shellSandbox, UNSANDBOXED_NOTE } from './sandbox.ts';
+import { cardOffer, isUnconfinedCommand, isUnsandboxed, offersAllowList, ON_LIST_NOTE, onAllowList, rewrittenDetail, shellSandbox, unconfinedNote, unconfinedReason, UNSANDBOXED_NOTE } from './sandbox.ts';
 import { offerOptions } from '../../sandbox-allow/offer.ts';
 import type { SandboxOffer } from '../../shared/sandbox-allow.ts';
 import { askSlashCommands, claudeSlashCommands, leftOut, terminalOnlyOf } from './slash.ts';
@@ -215,8 +215,8 @@ class ClaudeHandle implements AgentHandle {
    * Kestrel's own hook answered (SDK 0.3.322).
    */
   private passesOutside(tool: string, input: Record<string, unknown>): boolean {
-    if (!shellSandbox(this.opts) || !isUnsandboxed(tool, input)) return false;
-    return this.outsideAllowed || onAllowList(input, this.opts);
+    const outside = (shellSandbox(this.opts) && isUnsandboxed(tool, input)) || isUnconfinedCommand(tool, input, this.opts);
+    return outside ? this.outsideAllowed || onAllowList(input, this.opts) : false;
   }
 
   private canUseTool: CanUseTool = (tool, input, context) => {
@@ -232,7 +232,7 @@ class ClaudeHandle implements AgentHandle {
   private ask(tool: string, input: Record<string, unknown>, { signal, toolUseID }: Parameters<CanUseTool>[2], offer: SandboxOffer, written?: string): ReturnType<CanUseTool> {
     return new Promise((resolve) => {
       const id = toolUseID || randomUUID();
-      const request = buildRequest(id, tool, input, this.opts.directory, this.planFile, this.opts.browserElement, offer, written);
+      const request = buildRequest(id, tool, input, this.opts.directory, this.planFile, this.opts.browserElement, offer, written, isUnconfinedCommand(tool, input, this.opts) ? unconfinedReason(this.opts) : null);
       const settle: Pending['settle'] = (result) => resolve(result);
       this.pending.set(id, { request, input, settle });
       signal.addEventListener('abort', () => {
@@ -269,6 +269,13 @@ class ClaudeHandle implements AgentHandle {
       // ...or the command is on the user's always-allowed list (Settings → Workflow).
       if (onAllowList(toolInput, this.opts)) return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'allow' as const, permissionDecisionReason: ON_LIST_NOTE } };
       return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'ask' as const, permissionDecisionReason: UNSANDBOXED_NOTE } };
+    }
+    // A confined session on a computer with no sandbox (Windows; Linux without bubblewrap): nothing
+    // holds its commands to its folder, so each one is put to the user, with the same two ways past.
+    if (isUnconfinedCommand(name, toolInput, this.opts)) {
+      if (this.outsideAllowed) return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'allow' as const, permissionDecisionReason: 'The user allowed every unsandboxed command for this session.' } };
+      if (onAllowList(toolInput, this.opts)) return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'allow' as const, permissionDecisionReason: ON_LIST_NOTE } };
+      return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'ask' as const, permissionDecisionReason: unconfinedNote(unconfinedReason(this.opts)!) } };
     }
     if (asksOutsideFolder(this.opts.permission) && writeOutside(name, toolInput, this.opts.directory)) {
       return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'ask' as const, permissionDecisionReason: OUTSIDE_NOTE } };
@@ -412,7 +419,7 @@ export function planText(input: Record<string, unknown>, planFile: string | null
 
 const questionsOf = (input: Record<string, unknown>): Question[] => (Array.isArray(input.questions) ? (input.questions as Question[]) : []);
 
-function buildRequest(id: string, tool: string, input: Record<string, unknown>, cwd: string, planFile: string | null = null, element?: ElementLookup, offer: SandboxOffer = {}, written?: string): InputRequest {
+function buildRequest(id: string, tool: string, input: Record<string, unknown>, cwd: string, planFile: string | null = null, element?: ElementLookup, offer: SandboxOffer = {}, written?: string, unconfined: string | null = null): InputRequest {
   if (tool === 'AskUserQuestion') {
     const questions = questionsOf(input).map((q) => ({ question: q.question, header: q.header, multi: q.multiSelect === true, options: (q.options ?? []).map((o) => ({ label: o.label, description: o.description })) }));
     const only = questions.length === 1 && !questions[0]!.multi ? questions[0]! : null;
@@ -438,6 +445,12 @@ function buildRequest(id: string, tool: string, input: Record<string, unknown>, 
     const always = offerOptions(offer);
     const options = [ALLOW[0]!, ...always, ...ALLOW_OR_ALL_OUTSIDE.slice(1)];
     return { id, kind: 'approval', tool, title: `${title} (outside the sandbox)`, detail: `${UNSANDBOXED_NOTE}.\n\n${rewrittenDetail(input, written) ?? detail}`, options, ...(always.length ? { sandboxOffer: offer } : {}) };
+  }
+  // A command of a confined session on a computer with no sandbox: the card says why it asks, and
+  // offers to stop asking for this session, as the card for leaving the sandbox does.
+  if (unconfined) {
+    const options = [ALLOW[0]!, { id: ALLOW_OUTSIDE, label: 'Allow all commands in this session', role: 'allow' as const }, ALLOW[1]!];
+    return { id, kind: 'approval', tool, title: `${title} (not sandboxed)`, detail: `${unconfinedNote(unconfined)}.\n\n${detail}`, options };
   }
   return { id, kind: 'approval', tool, title, detail, options: ALLOW };
 }

@@ -197,6 +197,24 @@ export function prune(s: TabsState, sessionIds: ReadonlySet<string>, awaited: Re
 }
 
 /**
+ * A session gave way to another (a first-message review request made into a review session):
+ * every tab showing the old one shows the new one, in the same place. When the new one is already
+ * open in a tab of its own, the old one's tab is closed and that one comes to the front in its
+ * stead. Unchanged when no tab shows the old session.
+ */
+export function replaceSession(s: TabsState, oldId: string, newId: string): TabsState {
+  const showsOld = (t: Tab) => t.kind === 'session' && t.sessionId === oldId;
+  if (!s.tabs.some(showsOld)) return s;
+  const already = s.tabs.find((t) => t.kind === 'session' && t.sessionId === newId);
+  const wasInFront = s.tabs.some((t) => showsOld(t) && t.id === s.activeId);
+  if (already) {
+    const tabs = s.tabs.filter((t) => !showsOld(t));
+    return { tabs, activeId: wasInFront ? already.id : s.activeId };
+  }
+  return { ...s, tabs: s.tabs.map((t) => (showsOld(t) ? { ...t, kind: 'session' as const, sessionId: newId } : t)) };
+}
+
+/**
  * Accept stored state only if it is well-formed; otherwise start over. State saved before tabs
  * could hold any page had a pinned `overview` tab: it comes back as an Overview page.
  */

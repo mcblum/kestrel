@@ -7,9 +7,10 @@
 // when there is no room, level with its item and shifted up or down to stay inside.
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Check, ChevronRight } from 'lucide-react';
-import type { MenuItem } from '@kestrel/server/menu';
+import { REVEAL_ID, type MenuItem } from '@kestrel/server/menu';
 import type { Side } from '@kestrel/server/popup-place';
 import { runMenuAction } from '../commands.ts';
+import { showInManager } from '../platform.ts';
 import { wantsNewTab } from '../route.ts';
 import { contextMenu, useContextMenu, type OpenMenu } from '../menuState.ts';
 import { usePopupPlacement } from './usePopupPlacement.ts';
@@ -64,7 +65,8 @@ function ItemBody({ item, ticks }: { item: MenuItem; ticks: boolean }) {
       {ticks && !item.toggle && <span className="menu-tick">{item.checked && <Check aria-hidden />}</span>}
       {/* An app's own icon (the Open in menu). Decorative: the label names it. */}
       {item.icon && <img className="menu-icon" src={item.icon} alt="" aria-hidden />}
-      <span>{item.label}</span>
+      {/* Menus are worded for a Mac where they are built; the file manager's name is this computer's. */}
+      <span>{item.id === REVEAL_ID ? showInManager() : item.label}</span>
       {item.hint && <small>{item.hint}</small>}
       {item.value && <small className="menu-value">{item.value}</small>}
       {item.shortcut && <kbd className="menu-key">{item.shortcut}</kbd>}

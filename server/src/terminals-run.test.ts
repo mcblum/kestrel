@@ -111,3 +111,23 @@ describe('the run wrapper', () => {
     expect(text).toContain(`printf '\\033]777;kestrel-run;n1;%d\\007' "$code"`);
   });
 });
+
+describe('on Windows', () => {
+  const windows = () => {
+    const { spawn, spawned } = fakePty();
+    return { terms: new Terminals(spawn, { SHELL: '/bin/zsh' }, { titleCheckMs: 0, titlePollMs: 0, platform: 'windows' }), spawned };
+  };
+
+  it('a terminal is PowerShell, with no login flag', () => {
+    const { terms, spawned } = windows();
+    terms.open('s1', 'C:\\work', { cols: 90, rows: 20 });
+    expect(spawned[0]).toMatchObject({ shell: 'powershell.exe', args: [] });
+  });
+
+  it('running a code block is refused with the reason, and opens no terminal', () => {
+    const { terms, spawned } = windows();
+    expect(() => terms.run('s1', 'C:\\work', bash('echo hello'), { cols: 90, rows: 20 })).toThrow(Refused);
+    expect(() => terms.run('s1', 'C:\\work', bash('echo hello'), { cols: 90, rows: 20 })).toThrow(/not available on Windows yet/);
+    expect(spawned).toHaveLength(0);
+  });
+});

@@ -1,8 +1,9 @@
 // Settings, in the main canvas: a list of sections on the left, the chosen one on the right. App-wide
 // only: a project's own settings are on its page's Settings tab. Nothing opens in a panel from the side.
 import { SaveBar } from '../components/SaveBar.tsx';
+import { thisComputer } from '../platform.ts';
 import { SettingHeading, SettingSection } from '../components/SettingHelp.tsx';
-import { Archive, Bot, GitBranch, Plug, SlidersHorizontal, Workflow as Workflow2, FolderGit2, Keyboard, Layers, Palette, Bell, TerminalSquare, Shield } from 'lucide-react';
+import { Archive, Bot, GitBranch, Plug, SlidersHorizontal, Workflow as Workflow2, FolderGit2, Keyboard, Layers, Palette, Bell, TerminalSquare, Shield, Eye } from 'lucide-react';
 import { ArchivedSettings } from './ArchivedSettings.tsx';
 import { SetupSetting } from '../onboarding/SetupSetting.tsx';
 import { CreateProjectPage } from './CreateProjectPage.tsx';
@@ -14,7 +15,7 @@ import { CommandsKeptSetting } from '../components/CommandsKeptSetting.tsx';
 import { AppearanceSetting } from '../components/AppearanceSetting.tsx';
 import { ShortcutsSetting } from '../components/ShortcutsSetting.tsx';
 import { PresetsSetting } from '../components/PresetsSetting.tsx';
-import { ReviewRequestsSetting } from '../components/ReviewRequestsSetting.tsx';
+import { CodeReviewsSettings } from '../components/ReviewRequestsSetting.tsx';
 import { CleanupPolicySetting } from '../components/CleanupPolicySetting.tsx';
 import { KeepAwakeSetting } from '../components/KeepAwakeSetting.tsx';
 import { NotificationsSetting } from '../components/NotificationsSetting.tsx';
@@ -99,7 +100,6 @@ function Git() {
       <BranchPrefixSetting />
       <StartFromLatestSetting />
       <CleanupPolicySetting />
-      <ReviewRequestsSetting />
     </>
   );
 }
@@ -121,7 +121,7 @@ function Connections() {
   const { rows } = useConnections();
   return (
     <>
-      <SettingHeading level={1} title="Connections" help={<p className="settings-help">What Kestrel is connected to on this Mac.</p>} />
+      <SettingHeading level={1} title="Connections" help={<p className="settings-help">What Kestrel is connected to on {thisComputer()}.</p>} />
       <section className="settings-section">
         <ConnectionList rows={rows} />
       </section>
@@ -157,6 +157,7 @@ export function SettingsPage({ section: asked = 'general' }: { section?: string 
         {item('permissions', 'Permissions', <Shield aria-hidden />)}
         <div className="settings-nav-group">Workspace</div>
         {item('git', 'Git', <GitBranch aria-hidden />)}
+        {item('code-reviews', 'Code reviews', <Eye aria-hidden />)}
         {item('connections', 'Connections', <Plug aria-hidden />)}
         {item('worktrees', 'Storage', <FolderGit2 aria-hidden />)}
         {item('archived', 'Archived', <Archive aria-hidden />)}
@@ -183,6 +184,8 @@ export function SettingsPage({ section: asked = 'general' }: { section?: string 
           <AgentSetup />
         ) : section === 'git' ? (
           <Git />
+        ) : section === 'code-reviews' ? (
+          <CodeReviewsSettings />
         ) : section === 'workflow' ? (
           <Workflow />
         ) : section === 'connections' ? (

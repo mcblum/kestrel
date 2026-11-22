@@ -1,4 +1,4 @@
-// Kestrel's Electron shell: one window, a normal Mac app menu, and the server as a child process.
+// Kestrel's Electron shell: one window, the platform's usual menu, and the server as a child process.
 //
 // What it does, in order: makes the per-launch token, starts the server for exactly this app's
 // origin, opens the window with a preload script that hands the page the server address and
@@ -15,7 +15,7 @@ import { pathToFileURL } from 'node:url';
 import { setAppIdentity } from './identity.mjs';
 import { createFolderChooser } from './folder-chooser.mjs';
 import { buildMenu, cleanAccelerators } from './menu.mjs';
-import { createFolderQueue, foldersOnly } from './open-folders.mjs';
+import { createFolderQueue, foldersInArgs, foldersOnly } from './open-folders.mjs';
 import { isPackaged, preloadPath, uiDist } from './paths.mjs';
 import { openServerLog } from './server-log.mjs';
 import { freePort, startServer } from './server-process.mjs';
@@ -158,9 +158,9 @@ function showWindow() {
   win.focus();
 }
 
-// One window, one instance: a second launch focuses the first.
+// One window, one instance: a second launch focuses the first (and hands it any folder it was
+// given: see "folders opened with Kestrel" below).
 if (!app.requestSingleInstanceLock()) app.quit();
-app.on('second-instance', showWindow);
 
 // ---- folders opened with Kestrel -----------------------------------------------------------
 // A folder dropped on the Dock icon (or `open -a Kestrel.app <folder>`) opens Create project with it
@@ -179,6 +179,21 @@ app.on('open-file', (event, path) => {
   if (!win) return; // before the window: the page takes them once it is ready
   showWindow();
   win.webContents.send('kestrel:open-folders');
+});
+
+/** Folders that arrived some other way than open-file: queued, and the page told when it is there. */
+function takeFolders(folders) {
+  if (folders.length === 0) return;
+  openedFolders.add(folders);
+  win?.webContents.send('kestrel:open-folders');
+}
+// Windows and Linux have no open-file: a folder dropped on Kestrel's shortcut, or "Open with", is
+// an argument of the launch. This launch's own are queued now; a later launch's reach the running
+// app here. A checkout's arguments are Electron's own, so only an installed app reads them.
+if (isPackaged && process.platform !== 'darwin') takeFolders(foldersInArgs(process.argv, process.cwd()));
+app.on('second-instance', (_event, argv, workingDirectory) => {
+  showWindow();
+  if (isPackaged && process.platform !== 'darwin') takeFolders(foldersInArgs(argv, workingDirectory));
 });
 
 function serveBuiltUi() {
@@ -206,13 +221,30 @@ function createWindow() {
     minHeight: 600,
     title: 'Kestrel',
     // On the Mac the page runs to the top of the window: no title bar, the traffic lights sit
-    // over the sidebar, and the tab strip is the drag area (see the `.mac-chrome` styles).
+    // over the sidebar, and the tab strip is the drag area (see the `.mac-chrome` styles). Windows
+    // and Linux keep the system's own title bar and the menu bar under it.
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 14, y: 14 } } : {}),
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1c1c1d' : '#fafafa',
     // webviewTag: the session's browser pane. Its pages are locked down in guardWebviews.
     webPreferences: { preload: preloadPath, contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: true },
   });
   trackBounds(win);
+  // A browser's Back and Forward where they are not menu keys: Alt with the arrows on Windows and
+  // Linux (on a Mac Option with an arrow moves the cursor by a word, and the keys are ⌘[ and ⌘]), and
+  // the mouse's and keyboard's own back and forward buttons on Windows.
+  if (process.platform !== 'darwin') {
+    win.webContents.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown' || !input.alt || input.control || input.meta || input.shift) return;
+      const command = input.key === 'ArrowLeft' ? 'back' : input.key === 'ArrowRight' ? 'forward' : null;
+      if (!command) return;
+      event.preventDefault();
+      sendCommand(command);
+    });
+    win.on('app-command', (_event, command) => {
+      if (command === 'browser-backward') sendCommand('back');
+      else if (command === 'browser-forward') sendCommand('forward');
+    });
+  }
   guardWebviews(win.webContents);
   // The page may only ever show the app. Links elsewhere open in the browser, never in this window.
   win.webContents.on('will-navigate', (event, url) => {
@@ -270,7 +302,8 @@ async function boot() {
   // user's login-shell environment instead (shell-env.mjs). A checkout already has it.
   const shellEnv = isPackaged ? await resolveShellEnv() : { env: process.env, source: 'inherited' };
   console.log(`[kestrel] environment: ${shellEnv.source}`);
-  // An installed app has no terminal to print to: keep the server's output in ~/Library/Logs/Kestrel.
+  // An installed app has no terminal to print to: keep the server's output in the system's log
+  // folder for Kestrel (server-log.mjs says where that is on each platform).
   const writeLog = isPackaged ? openServerLog(app.getPath('logs')) : undefined;
   writeLog?.(`[kestrel] environment: ${shellEnv.source}\n`);
   server = await startServer({ port: launch.port, token: launch.token, origin, dataDir: process.env.KESTREL_DATA_DIR, baseEnv: shellEnv.env, writeLog });
@@ -328,7 +361,8 @@ async function boot() {
     if (!win || event.sender !== win.webContents) return { ok: false, reason: 'not the app window' };
     if (!Notification.isSupported()) return { ok: false, reason: 'unsupported' };
     const text = (value, max) => (typeof value === 'string' ? value.slice(0, max) : '');
-    const sessionId = text(raw?.sessionId, 100);
+    // What the click is for, handed back as it came: a session's id, or a review request's key behind a mark (shared/notifications.ts `targetOf`).
+    const sessionId = text(raw?.sessionId, 400);
     return new Promise((resolve) => {
       const note = new Notification({ title: text(raw?.title, 200) || 'Kestrel', body: text(raw?.body, 400), silent: true });
       shown.add(note); // kept until it is over: a collected notification never tells of its click

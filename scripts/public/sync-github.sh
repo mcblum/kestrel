@@ -71,7 +71,7 @@ look() { # look <what it is> <extended regex> [grep -v filter]
   printf '%s\n' "$hits" | head -20 >&2
   found=1
 }
-look "a home folder path" '/(Users|home)/[A-Za-z0-9._-]+' '/(Users|home)/(me|you|[a-z]|runner|node|someone|dev|user|name|x|\$|<|\{|[A-Za-z0-9._-]*example)([^A-Za-z0-9._-]|$)|pnpm-lock\.yaml'
+look "a home folder path" '/(Users|home)/[A-Za-z0-9._-]+' '/(Users|home)/(me|you|[a-z]|runner|node|someone|dev|user|name|x|linuxbrew|\$|<|\{|[A-Za-z0-9._-]*example)([^A-Za-z0-9._-]|$)|pnpm-lock\.yaml'
 look "a private network address" '(^|[^0-9.])(192\.168|10\.[0-9]{1,3})\.[0-9]{1,3}\.[0-9]{1,3}([^0-9]|$)' '10\.0\.0\.|192\.168\.[01]\.[0-9]+[^0-9]|pnpm-lock\.yaml'
 look "a key or token" '(glpat-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{30,}|sk-ant-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----)' 'scripts/public/sync-github\.sh'
 if [ -n "${GITHUB_SYNC_DENY:-}" ]; then look "a line matching GITHUB_SYNC_DENY" "$GITHUB_SYNC_DENY"; fi

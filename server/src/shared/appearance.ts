@@ -21,6 +21,19 @@ export const MAX_TERMINAL_FONT = 24;
 export const DEFAULT_APPEARANCE: Appearance = { theme: 'system', codeFont: '', terminalFontSize: 12, contrast: 'standard', diffColors: 'red-green' };
 
 export const THEME_LABEL: Record<Theme, string> = { system: 'Match the system', light: 'Light', dark: 'Dark' };
+/**
+ * Setup asks how Kestrel should look (0.0.23; Matt, 2026-11-21): dark, light, or as the system is
+ * set, in that order, with dark chosen until the user picks. Someone who skips setup keeps
+ * `DEFAULT_APPEARANCE` (the system's).
+ */
+export const SETUP_THEMES: readonly Theme[] = ['dark', 'light', 'system'];
+export const SETUP_THEME: Theme = 'dark';
+export const SETUP_THEME_NOTE: Record<Theme, string> = {
+  dark: 'Light text on a dark window.',
+  light: 'Dark text on a light window.',
+  system: 'Dark or light, whichever this computer is set to.',
+};
+
 export const DIFF_LABEL: Record<DiffColors, string> = { 'red-green': 'Green and red', 'blue-orange': 'Blue and orange' };
 
 /** Fonts offered by name; any other installed font can be typed. '' is the system's own. */

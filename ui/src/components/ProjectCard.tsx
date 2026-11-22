@@ -2,6 +2,7 @@
 // says when): the project's name with a pin toggle, how many sessions it has, its folders, and its
 // page. Not shown on keyboard focus: the row's … menu has everything in it.
 import { useMemo } from 'react';
+import { showInManager } from '../platform.ts';
 import { Folder, FolderPlus, MessageSquare, Pin, Settings } from 'lucide-react';
 import type { MenuAction } from '@kestrel/server/menu';
 import type { Project } from '@kestrel/server/model';
@@ -20,7 +21,7 @@ const run = (action: MenuAction, newTab = false) => (hoverCard.close(), void run
 export function ProjectCardBody({ project, pinned }: { project: Project; pinned: boolean }) {
   const sessions = useApp((s) => s.workspace?.sessions);
   const lines = useMemo(() => projectCardLines(project, sessions ?? []), [project, sessions]);
-  const where = window.kestrelShell ? 'Show in Finder' : 'Copy path';
+  const where = window.kestrelShell ? showInManager() : 'Copy path';
   const pinLabel = pinned ? `Unpin ${project.name}` : `Pin ${project.name}`;
   return (
     <>

@@ -1,5 +1,6 @@
 // Kestrel server entry point.
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { reviewingComments } from './review-requests/reviewing.ts';
 import { join } from 'node:path';
 import { claudeAdapter } from './agents/claude/index.ts';
 import { codexAdapter } from './agents/codex/index.ts';
@@ -72,7 +73,7 @@ const titles = titleProviders(scripted ? 'scripted' : fake ? 'none' : 'real');
 // Tag rules and Settings → Git live in the store's settings; with fake data a sample GitHub login stands in for gh. The test-only `note` suggestion kind is offered to the scripted stand-in alone.
 // Codex is the user's own `codex app-server` (agents/codex/), OpenCode the user's own `opencode serve`
 // (agents/opencode/); the scripted stand-in replaces Claude only.
-const runtime = new SessionRuntime(workspace, scripted ? { claude: scriptedAdapter() } : { claude: claudeAdapter(), codex: codexAdapter(), opencode: opencodeAdapter() }, dataDir, { titleProviders: titles, suggestions: { settings: db, testKinds: scripted }, git: { settings: db, username: fake ? sampleUsername : undefined }, projectEdits: { settings: db }, startBase: { settings: db }, projectScripts: { settings: db }, projectEnv: { settings: db }, savedActions: { settings: db }, gitDefaults: { settings: db }, notifications: { settings: db }, cleanup: { settings: db }, whoDoesWhat: { settings: db }, keepAwake: { settings: db }, commandsKept: { settings: db }, openIn: { settings: db }, sandboxAllow: { settings: db }, commitSigning: { settings: db }, crashReports: { settings: db }, reviewPrefs: { settings: db }, ...(fake ? { reviewRunner: async () => ({ stdout: '' }) } : {}) });
+const runtime = new SessionRuntime(workspace, scripted ? { claude: scriptedAdapter() } : { claude: claudeAdapter(), codex: codexAdapter(), opencode: opencodeAdapter() }, dataDir, { titleProviders: titles, suggestions: { settings: db, testKinds: scripted }, git: { settings: db, username: fake ? sampleUsername : undefined }, projectEdits: { settings: db }, startBase: { settings: db }, projectScripts: { settings: db }, projectEnv: { settings: db }, savedActions: { settings: db }, gitDefaults: { settings: db }, notifications: { settings: db }, cleanup: { settings: db }, whoDoesWhat: { settings: db }, keepAwake: { settings: db }, commandsKept: { settings: db }, openIn: { settings: db }, sandboxAllow: { settings: db }, commitSigning: { settings: db }, crashReports: { settings: db }, reviewPrefs: { settings: db }, reviewing: fake ? null : reviewingComments(), ...(fake ? { reviewRunner: async () => ({ stdout: '' }) } : {}) });
 if (demo && seeded && !story) await seedDemoExtras(workspace, runtime.savedActions);
 // SAMPLE: with fake data, one running session shows background work left running (seed.ts).
 if (fake && !story) {
@@ -170,7 +171,7 @@ if (fake && reviewSettings.mode !== 'off') await seedSampleReviews();
 const reviewRequestSync = fake ? null : syncReviewRequests(workspace, { github: githubReviewRequests(), gitlab: gitlabReviewRequests(), glabSignIn: sharedGlabSignIn, originOf: originUrl }, reviewRequests, () => app.watched() && reviewSettings.mode !== 'off');
 // Reviews that start on their own: whenever the list changes, and every few seconds, since a
 // review that finishes frees a place for one that waited.
-const reviewStarts = reviewStarter({ settings: () => reviewPrefs.current(), sessions: async () => (await workspace.state()).sessions, start: (request) => runtime.startReview(request) }, reviewRequests);
+const reviewStarts = reviewStarter({ settings: () => reviewPrefs.current(), sessions: async () => (await workspace.state()).sessions, start: (request) => runtime.startReview(request, { automatic: true }) }, reviewRequests);
 reviewRequests.onChange(() => void reviewStarts.run());
 const reviewStartTimer = setInterval(() => void reviewStarts.run(), REVIEW_CHECK_MS);
 reviewPrefs.onChange((next) => {

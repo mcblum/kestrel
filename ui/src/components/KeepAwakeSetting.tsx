@@ -4,6 +4,7 @@
 import { awakeText, type KeepAwakeView } from '@kestrel/server/keep-awake';
 import { ready, type Sourced } from '@kestrel/server/sourced';
 import { useResource } from '../data/resources.ts';
+import { thisComputer } from '../platform.ts';
 import { act, call, OLDER_SERVER, putResource, RESTART_REASON } from '../store.ts';
 import { SettingSection } from './SettingHelp.tsx';
 
@@ -18,28 +19,30 @@ function Controls() {
     const next = await act(() => call<KeepAwakeView>(KEEP_AWAKE_PATH, { method: 'PUT', body: JSON.stringify({ enabled }) }));
     if (next) putResource(KEEP_AWAKE_PATH, ready(next));
   };
-  const now = awakeText(view.state, view.power);
+  const computer = view.computer ?? thisComputer();
+  // Where it cannot be done at all the reason shows before the switch is tried, and the switch is off.
+  const now = view.unavailable ?? awakeText(view.state, view.power, computer);
   return (
     <>
       <label className="tag-rule-switch">
-        <input type="checkbox" checked={view.enabled} disabled={!view.state.holding && view.state.why === 'unavailable' && !view.enabled} onChange={(e) => void change(e.target.checked)} />
-        Keep this Mac awake while agents are working
+        <input type="checkbox" checked={view.enabled} disabled={(view.unavailable !== undefined || (!view.state.holding && view.state.why === 'unavailable')) && !view.enabled} onChange={(e) => void change(e.target.checked)} />
+        Keep {computer} awake while agents are working
       </label>
       {now && <p className="settings-help" role="status">{now}</p>}
     </>
   );
 }
 
-const HELP = (
+const help = () => (
   <p className="settings-help">
-    While any session's agent is working, Kestrel stops this Mac going to sleep from being idle, so long work is not cut off; when none is working it sleeps as usual. The display may still turn off, and closing the lid still puts it to sleep. On battery below
+    While any session's agent is working, Kestrel stops {thisComputer()} going to sleep from being idle, so long work is not cut off; when none is working it sleeps as usual. The display may still turn off, and closing the lid still puts it to sleep. On battery below
     20% Kestrel stands aside and lets it sleep. Off unless you turn it on.
   </p>
 );
 
 export function KeepAwakeSetting() {
   return (
-    <SettingSection title="Keep awake" help={HELP}>
+    <SettingSection title="Keep awake" help={help()}>
       <Controls />
     </SettingSection>
   );

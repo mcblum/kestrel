@@ -11,7 +11,7 @@
 // The order is the session order chosen in Settings: most recently changed first, or the order the
 // rows were dragged into (`inSidebarOrder`). In a custom order a row dropped above or below
 // another takes that place; a pinned one dropped here is unpinned too. Not drawn while empty.
-// Only the first few request rows are listed (Settings → Git, `sidebarLimit`): a review under way
+// Only the first few request rows are listed (Settings → Code reviews, `sidebarLimit`): a review under way
 // and the request that is open are always listed, and "Show more" opens the Code reviews page,
 // where every request is and each can be dismissed. A request row's menu has Dismiss too.
 import { memo, useMemo, type DragEvent, type ReactNode } from 'react';

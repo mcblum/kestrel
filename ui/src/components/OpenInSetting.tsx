@@ -3,6 +3,7 @@
 // (@kestrel/server/file-menu, `defaultFolderApp`). Held once in the app store with the app list
 // (folderApps.ts), so the button changes the moment this does.
 import { SettingSection } from './SettingHelp.tsx';
+import { thisComputer } from '../platform.ts';
 import { defaultFolderApp, PREFERRED_FOLDER_APP } from '@kestrel/server/file-menu';
 import { chooseDefaultFolderApp, useFolderApps } from './folderApps.ts';
 
@@ -10,7 +11,7 @@ const OWN_CHOICE = '';
 
 function OpenInSettingControls() {
   const { apps, chosen } = useFolderApps();
-  if (apps.length === 0) return <p className="settings-help">Kestrel found no app here that can open a folder. Opening needs Kestrel to run on a Mac.</p>;
+  if (apps.length === 0) return <p className="settings-help">Kestrel found no app on this computer that can open a folder.</p>;
   const own = defaultFolderApp(apps, null);
   // Chosen once and uninstalled since: the button has gone back to Kestrel's choice, and so does this.
   const value = apps.some((a) => a.id === chosen) ? chosen! : OWN_CHOICE;
@@ -36,7 +37,7 @@ function OpenInHelp() {
   return (
     <>
     <p className="settings-help">
-      The app the Open in button on the Changes and Files panes opens a session's code in with one click. The arrow beside the button lists every app Kestrel found on this Mac. Left to Kestrel, it is{' '}
+      The app the Open in button on the Changes and Files panes opens a session's code in with one click. The arrow beside the button lists every app Kestrel found on {thisComputer()}. Left to Kestrel, it is{' '}
       {own?.id === PREFERRED_FOLDER_APP ? 'VS Code' : `VS Code when it is installed${own ? `; here, ${own.label}` : ''}`}.
     </p>
     </>

@@ -700,7 +700,7 @@ export function Sidebar({ route, activeId, onSwitch }: { route: Route | null; ac
 
 function SidebarBody({ workspace, homes, collapsed, route, activeId, onSwitch }: { workspace: WorkspaceState; homes: SidebarHomes; collapsed: readonly string[]; route: Route | null; activeId: string | null; onSwitch: () => void }) {
   const pinnedRows = usePinnedRows(workspace, homes);
-  // Where review requests are shown (Settings → Git): the section, the row for their page, or both.
+  // Where review requests are shown (Settings → Code reviews): the section, the row for their page, or both.
   const reviewSettings = useReviewSettings();
   const reviewsSection = hasReviewSection(reviewSettings);
   // Folded PINNED still shows the open session if it is drawn there.
@@ -731,16 +731,16 @@ function SidebarBody({ workspace, homes, collapsed, route, activeId, onSwitch }:
         </span>{' '}
         kestrel
       </div>
-      {/* The top menu: four matching rows, then a gap, then the lists. */}
+      {/* The top menu: matching rows, then a gap, then the lists. New session is right below Overview (Matt, 2026-11-21): what is done most is not under the lists of what waits. */}
       <div className="top-menu">
         {nav({ kind: 'overview' }, 'Overview', <LayoutDashboard aria-hidden />)}
-        {nav({ kind: 'pull-requests' }, 'Pull requests', <GitPullRequest aria-hidden />)}
-        {hasReviewLink(reviewSettings) && <ReviewsLink active={isView(route, { kind: 'code-reviews' })} />}
         <button className="side-link" {...opener((newTab) => void runMenuAction(item.newSession().action!, newTab))}>
           <Plus aria-hidden />
           <span className="link-label">New session</span>
           <ShortcutHint command="new-session" />
         </button>
+        {nav({ kind: 'pull-requests' }, 'Pull requests', <GitPullRequest aria-hidden />)}
+        {hasReviewLink(reviewSettings) && <ReviewsLink active={isView(route, { kind: 'code-reviews' })} />}
         <button className="side-link" onClick={onSwitch}>
           <Search aria-hidden />
           <span className="link-label">Search</span>

@@ -5,6 +5,7 @@
 //   - OpenCode: `opencode serve` over HTTP + SSE; permissions arrive as events.
 // Everything below is what Kestrel needs from any of them and nothing agent-specific.
 import type { SlashCommand } from '../shared/slash-commands.ts';
+import type { SandboxSupport } from './claude/sandbox-support.ts';
 import type { Agent, CardQuestion, TodoItem, WidgetCard } from '../model.ts';
 import type { PermissionLevel } from '../shared/permissions.ts';
 import type { ContextUsage } from '../shared/context-usage.ts';
@@ -169,6 +170,7 @@ export const KESTREL_TOOLS = [
   'send_file',
   'next_step',
   'post_review',
+  'start_review',
   'suggest',
   'browser_navigate',
   'browser_read',
@@ -224,6 +226,8 @@ export interface KestrelToolHost {
   handoff(args: { project: string; folder?: string; summary: string; agent?: string; archive_self?: boolean }): Promise<ToolResult>;
   /** A session with no project moves itself into one, keeping its conversation, after the user approves. */
   moveToProject(args: { project: string; folder?: string; reason?: string }): Promise<ToolResult>;
+  /** `start_review`: the user's first message asked for a review of a pull request; offer to make this a review session. */
+  startReview(args: { pull_request: string }): Promise<ToolResult>;
   /** Work for one or more sessions of their own, which report back: one child session each; the caller stays as the orchestrator. `name` and `objective` describe the workstream a split across projects makes. */
   delegate(args: { tasks: { project: string; folder?: string; brief: string; agent?: string; role?: string }[]; name?: string; objective?: string }): Promise<ToolResult>;
   /** An unrelated new task in a project. No link. */
@@ -243,7 +247,7 @@ export interface KestrelToolHost {
   /** End the turn with where things stand and replies the user can pick. */
   nextStep(args: { recap: string; ask?: string; replies?: string[] }): Promise<ToolResult>;
   /** Hand over a finished review of somebody else's pull request; the user posts it (review-requests/reply.ts). */
-  postReview(args: { verdict?: unknown; summary?: unknown; comments?: unknown }): Promise<ToolResult>;
+  postReview(args: { verdict?: unknown; summary?: unknown; findings?: unknown }): Promise<ToolResult>;
   /** Drop an optional action into the conversation (suggestions/service.ts). Never waits for the user. */
   suggest(args: { kind: string } & Record<string, unknown>): Promise<ToolResult>;
   /** The session's browser pane, which the user watches. See browser-tools.ts. */
@@ -298,6 +302,12 @@ export interface StartOptions {
    * ignores it (Codex sandboxes every session's commands already).
    */
   confineShell?: boolean;
+  /**
+   * Whether this computer can sandbox commands (agents/claude/sandbox-support.ts), set with
+   * `confineShell`. Absent means it can. Where it cannot (Windows; Linux without bubblewrap), a
+   * confined Claude session runs no command without asking, and the card says why.
+   */
+  sandboxSupport?: SandboxSupport;
   /**
    * The user already chose "Allow all outside the sandbox" in this session: its commands that
    * leave the sandbox run without asking, from its first turn after a restart too.

@@ -55,7 +55,8 @@ import { onboardingRoute } from './onboarding/api.ts';
 import { controlsRoute, speedFields } from './controls-api.ts';
 import { fileOpenRoute, runCommand, type FileOpenDeps } from './file-open-api.ts';
 import { appIcons } from './app-icons.ts';
-import { detectEditors, detectFolderApps, installedApp, type EditorApp, type FolderAppEntry } from './editors.ts';
+import { hostPlatform } from './host.ts';
+import { openersFor, type Openers } from './openers.ts';
 import { isSimMessage, simSocket } from './sim-socket.ts';
 import { userMcpServers } from './claude-config.ts';
 import { isArchiveKind } from './shared/archive.ts';
@@ -156,8 +157,8 @@ export interface KestrelServerOptions {
   crashReporting?: CrashReportSetup | null;
   /** Who may write a generated pull request's text: the title providers (index.ts). Default: none. */
   writers?: readonly TitleProvider[];
-  /** How files are opened and shown in Finder (file-open-api.ts); tests pass a stand-in runner. Default: `open` on a Mac. */
-  fileOpen?: Partial<Pick<FileOpenDeps, 'run' | 'editors' | 'canOpen' | 'folderApps' | 'folderAppIcons'>>;
+  /** How files are opened and shown in the file manager (file-open-api.ts); tests pass a stand-in runner. Default: this computer's own way (openers.ts). */
+  fileOpen?: Partial<Pick<FileOpenDeps, 'run' | 'editors' | 'canOpen' | 'folderApps' | 'folderAppIcons' | 'platform' | 'launch'>>;
 }
 
 export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, runtime?: SessionRuntime, options: KestrelServerOptions = {}): KestrelServer {
@@ -194,16 +195,20 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
   let stateJson: Promise<string> | null = null;
   const detailsConfig = options.details ?? { sources: detailsSources(false), sample: false };
   const createPRRoute = createPRRoutes({ samples: detailsConfig.sample ? (detailsConfig.sources.samples ?? samplePullRequests()) : null, writers: options.writers ?? [], gitDefaults: async (projectId) => (runtime ? runtime.gitDefaults.of(projectId) : AUTOMATIC), onCreated: (sessionId) => runtime?.noteFormRequest(sessionId) });
-  let editors: readonly EditorApp[] | null = null;
-  let folderApps: readonly FolderAppEntry[] | null = null;
+  // Found once: which apps are installed does not change while Kestrel runs.
+  let found: Openers | null = null;
+  const openers = (): Openers => (found ??= openersFor(options.fileOpen?.platform ?? hostPlatform()));
   let folderAppIcons: Promise<Record<string, string>> | null = null;
   const fileOpen: Omit<FileOpenDeps, 'directoryOf' | 'folderOf' | 'openIn'> = {
     // Read once: an app's icon does not change while Kestrel runs.
-    folderAppIcons: options.fileOpen?.folderAppIcons ?? (() => (folderAppIcons ??= appIcons(fileOpen.folderApps().map((a) => ({ id: a.id, app: a.iconApp ?? a.app }))))),
-    folderApps: options.fileOpen?.folderApps ?? (() => (folderApps ??= detectFolderApps((app) => installedApp(app)))),
+    // An app's own icon is read from its bundle, which only a Mac has: elsewhere the menu shows names alone.
+    folderAppIcons: options.fileOpen?.folderAppIcons ?? (() => (folderAppIcons ??= openers().platform === 'mac' ? appIcons(fileOpen.folderApps().map((a) => ({ id: a.id, app: a.iconApp ?? a.app }))) : Promise.resolve({}))),
+    folderApps: options.fileOpen?.folderApps ?? (() => openers().folderApps),
     run: options.fileOpen?.run ?? runCommand,
-    editors: options.fileOpen?.editors ?? (() => (editors ??= detectEditors((app) => installedApp(app)))),
-    canOpen: options.fileOpen?.canOpen ?? process.platform === 'darwin',
+    editors: options.fileOpen?.editors ?? (() => openers().editors),
+    canOpen: options.fileOpen?.canOpen ?? true,
+    platform: options.fileOpen?.platform ?? hostPlatform(),
+    launch: options.fileOpen?.launch ?? { openFile: (editor, file) => openers().openFile(editor, file), reveal: (target) => openers().reveal(target), openFolder: (app, folder) => openers().openFolder(app, folder) },
   };
   const currentStateJson = () => (stateJson ??= workspace.state().then((s) => JSON.stringify(s)));
 
@@ -412,7 +417,7 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
       // Post a review of somebody else's pull request, as the user left its card (review-requests/reply.ts).
       if (runtime && parts[3] === 'review-reply' && parts.length === 4 && method === 'POST') {
         const body = await readJson(req);
-        return send(req, res, 200, await runtime.reviewReplies.post(parts[2]!, String(body.cardId ?? ''), { ...(body.verdict !== undefined ? { verdict: body.verdict } : {}), ...(body.summary !== undefined ? { summary: body.summary } : {}) }));
+        return send(req, res, 200, await runtime.reviewReplies.post(parts[2]!, String(body.cardId ?? ''), { ...(body.verdict !== undefined ? { verdict: body.verdict } : {}), ...(body.summary !== undefined ? { summary: body.summary } : {}), ...(body.findings !== undefined ? { findings: body.findings } : {}) }));
       }
       if (runtime && parts[3] === 'review' && parts.length === 4 && (method === 'GET' || method === 'POST')) {
         // With who would review it, or why nobody can: whoever wrote the code does not review it.

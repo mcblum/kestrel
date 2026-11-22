@@ -1,7 +1,8 @@
 // Runs one of a project's scripts (shared/project-scripts.ts) in a session's worktree: the user's
-// login shell, as a terminal would run it, in a process group of its own so that stopping it or
-// its time running out ends everything it started. It never throws: how it ended is the answer.
+// login shell, as a terminal would run it (cmd.exe on Windows: host.ts), in a process group of its
+// own so that stopping it or its time running out ends everything it started. It never throws: how it ended is the answer.
 import { spawn } from 'node:child_process';
+import { endTree, scriptShell } from '../host.ts';
 import { SCRIPT_TIMEOUT_MS, tailOf, type ScriptKind, type ScriptOutcome } from '../shared/project-scripts.ts';
 import { terminalEnv } from '../terminals.ts';
 
@@ -36,13 +37,13 @@ export const runScript: RunScript = (run) =>
   new Promise((resolve) => {
     if (run.signal?.aborted) return resolve({ status: 'stopped', tail: '' });
     const base = run.env ?? process.env;
-    const shell = base.SHELL || '/bin/zsh';
+    const shell = scriptShell(base, run.script);
     let output = '';
     let ending: 'timed-out' | 'stopped' | null = null;
     let child: ReturnType<typeof spawn>;
     try {
       // Kestrel's own variables (its launch token among them) are taken out; the script's are added after.
-      child = spawn(shell, ['-l', '-c', run.script], { cwd: run.cwd, env: { ...terminalEnv(base), ...run.vars }, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      child = spawn(shell.file, shell.args, { cwd: run.cwd, env: { ...terminalEnv(base), ...run.vars }, detached: true, stdio: ['ignore', 'pipe', 'pipe'], windowsVerbatimArguments: shell.verbatim, windowsHide: true });
     } catch (error) {
       return resolve({ status: 'not-run', reason: error instanceof Error ? error.message : String(error), tail: '' });
     }
@@ -55,12 +56,7 @@ export const runScript: RunScript = (run) =>
     child.stderr?.on('data', take);
 
     const signalGroup = (signal: NodeJS.Signals): void => {
-      if (child.pid === undefined) return;
-      try {
-        process.kill(-child.pid, signal); // the whole group: what the script started goes with it
-      } catch {
-        // already gone
-      }
+      if (child.pid !== undefined) endTree(child.pid, signal === 'SIGKILL' ? 'SIGKILL' : 'SIGTERM'); // the whole group: what the script started goes with it
     };
     let killer: NodeJS.Timeout | undefined;
     const end = (why: 'timed-out' | 'stopped'): void => {

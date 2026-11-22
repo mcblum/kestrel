@@ -2,6 +2,7 @@
 // (two lines at most, shortened in the middle) and size. Used in the composer (with remove and
 // retry, and the upload's state on the tile), in a queued message (`small`), and in a sent one.
 import type { DragEvent, ReactNode } from 'react';
+import { fileManager } from '../../platform.ts';
 import { FileText, ImageOff, RotateCw, X } from 'lucide-react';
 import { formatSize, middleEllipsis } from '@kestrel/server/attachments';
 import { useBlobUrl, type PictureRef } from '../useBlobUrl.ts';
@@ -44,7 +45,7 @@ function Face({ name, size, picture, onOpen, onReveal }: Pick<TileProps, 'name' 
     </>
   );
   // A file opens nothing in the app; where its original is known, it can be shown in Finder.
-  return onReveal ? <button type="button" className="att-face att-file" title={`Show ${name} in Finder`} onClick={onReveal}>{label}</button> : <span className="att-face att-file" title={name}>{label}</span>;
+  return onReveal ? <button type="button" className="att-face att-file" title={`Show ${name} in ${fileManager()}`} onClick={onReveal}>{label}</button> : <span className="att-face att-file" title={name}>{label}</span>;
 }
 
 export function AttachmentTile(props: TileProps) {

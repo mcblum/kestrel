@@ -57,6 +57,13 @@ export const DEFAULT_PERMISSION: PermissionLevel = 'ask';
 /** The level that skips every prompt. Choosing it needs the user's confirmation. */
 export const SKIP_PROMPTS: PermissionLevel = 'bypass';
 
+/**
+ * How Bypass differs from Auto, shown under its name in the mode menu, in Matt's words (2026-11-21). In Auto
+ * something still stands between the agent and the computer: Claude's own judgement of each
+ * action, Codex's sandbox, or Kestrel's check of where a command reaches. In Bypass nothing does.
+ */
+export const SKIP_PROMPTS_NOTE = 'Full send, no sandboxes or approvals. Use at your own risk.';
+
 export const SKIP_PROMPTS_CONFIRM =
   'Bypass permissions for this session?\n\nThe agent will edit files and run any command without asking you first, anywhere your account can reach.';
 

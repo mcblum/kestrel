@@ -149,7 +149,7 @@ describe('with no window showing the session', () => {
 
 describe('the browser tools as agents see them', () => {
   it('are exactly these six, after the others, with the simulator tools last', () => {
-    expect(KESTREL_TOOLS).toEqual(['list_projects', 'add_project', 'handoff', 'move_to_project', 'delegate', 'spawn', 'session_status', 'ask_session', 'complete_workstream', 'wait_for', 'show_widget', 'send_file', 'next_step', 'post_review', 'suggest', 'browser_navigate', 'browser_read', 'browser_click', 'browser_type', 'browser_screenshot', 'browser_console', 'sim_list', 'sim_boot', 'sim_launch', 'sim_screenshot', 'sim_tap', 'sim_swipe', 'sim_pinch', 'sim_type', 'sim_key', 'sim_button', 'sim_open_url', 'sim_appearance']);
+    expect(KESTREL_TOOLS).toEqual(['list_projects', 'add_project', 'handoff', 'move_to_project', 'delegate', 'spawn', 'session_status', 'ask_session', 'complete_workstream', 'wait_for', 'show_widget', 'send_file', 'next_step', 'post_review', 'start_review', 'suggest', 'browser_navigate', 'browser_read', 'browser_click', 'browser_type', 'browser_screenshot', 'browser_console', 'sim_list', 'sim_boot', 'sim_launch', 'sim_screenshot', 'sim_tap', 'sim_swipe', 'sim_pinch', 'sim_type', 'sim_key', 'sim_button', 'sim_open_url', 'sim_appearance']);
   });
 
   it('are named in the standing instruction', () => {

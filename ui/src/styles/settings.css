@@ -31,7 +31,11 @@
 .kestrel .appearance-font input:not(.appearance-number) { flex-basis: 100%; }
 .kestrel .appearance-sample { grid-column: 2; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; line-height: 1.6; margin-top: -8px; }
 .kestrel .appearance-wide.tag-rule-switch { margin-top: 4px; }
-.kestrel .notify-events { gap: 8px; margin-bottom: 8px; }
+.kestrel .notify-events { gap: 8px; margin-bottom: 20px; }
+.kestrel .notify-allow { margin-bottom: 20px; font-weight: 500; }
+.kestrel .notify-how { display: grid; gap: 8px; margin: 0 0 8px; padding: 0; border: 0; min-width: 0; }
+.kestrel .notify-how legend { padding: 0; margin-bottom: 12px; font-size: 12px; font-weight: 500; color: var(--s-ink); }
+.kestrel :is(.notify-events, .notify-how):disabled { opacity: .5; }
 .kestrel .notify-events legend { margin-bottom: 12px; font-weight: 500; }
 .kestrel .notify-sound { gap: 12px; }
 .kestrel .notify-sound select { flex: 1; max-width: 240px; }

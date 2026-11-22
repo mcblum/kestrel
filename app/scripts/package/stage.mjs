@@ -2,19 +2,24 @@
 //
 //   dist/stage/app/         the app archive (app.asar): package.json, main.mjs (the shell and
 //                           electron-updater, bundled), preload.cjs, ui/ (vite build output)
-//   dist/stage/resources/   Contents/Resources, outside the archive:
+//   dist/stage/resources/   the app's resources folder (Contents/Resources on a Mac), outside the archive:
 //     server/index.mjs        the server, built to one JavaScript file (build-server.mjs)
-//     server/node_modules/node-pty   its one native dependency (N-API prebuilt, no rebuild needed)
-//     bin/claude              the Claude Code binary the Agent SDK runs (its own, Anthropic-signed)
-//     bin/kestrel-sim         the simulator helper (build:simhelper)
+//     server/node_modules/node-pty   its one native dependency (N-API, no rebuild needed for Electron)
+//     bin/claude[.exe]        the Claude Code binary the Agent SDK runs (its own, Anthropic-signed)
+//     bin/kestrel-sim         the simulator helper (build:simhelper), in a Mac build only
 //
 // Nothing in the workspace's node_modules is changed: files are copied out of it.
-//   node app/scripts/package/stage.mjs      (run from anywhere; ui/dist and kestrel-sim must exist)
+//   node app/scripts/package/stage.mjs [--platform darwin|win32|linux] [--arch arm64|x64]
+// (run from anywhere; ui/dist must exist, and kestrel-sim for a Mac build). Without the options it
+// stages for this computer. node-pty ships prebuilt for macOS and Windows; for Linux it is compiled
+// when it is installed, so a Linux build is staged on Linux, for the architecture it runs on. The
+// Claude Code binary of another platform is not installed by pnpm: fetch-claude-binary.mjs gets it.
 // The version is app/package.json's: the one source for the bundle, the About panel and the updater.
 import { build } from 'esbuild';
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 import { buildServer } from './build-server.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -23,12 +28,18 @@ const root = join(appDir, '..');
 const stage = join(root, 'dist', 'stage');
 const stageApp = join(stage, 'app');
 const resources = join(stage, 'resources');
-const PLATFORM = 'darwin-arm64';
+const { values: target } = parseArgs({ options: { platform: { type: 'string', default: process.platform }, arch: { type: 'string', default: process.arch } } });
+const OS = target.platform;
+const ARCH = target.arch;
+const PLATFORM = `${OS}-${ARCH}`;
+const EXE = OS === 'win32' ? '.exe' : '';
 
 function fail(message) {
   console.error(`!! stage: ${message}`);
   process.exit(1);
 }
+
+if (!['darwin', 'win32', 'linux'].includes(OS) || !['arm64', 'x64'].includes(ARCH)) fail(`cannot stage for ${PLATFORM}: --platform is darwin, win32 or linux and --arch is arm64 or x64`);
 
 function need(path, what) {
   if (!existsSync(path)) fail(`${what} is missing: ${path}`);
@@ -69,7 +80,7 @@ async function stageShell(appPackage) {
     version: appPackage.version,
     description: 'Runs coding agents, organized around tasks.',
     author: 'Matt Blum',
-    license: 'UNLICENSED',
+    license: 'AGPL-3.0-only',
     type: 'module',
     main: 'main.mjs',
   };
@@ -86,10 +97,34 @@ async function stageServer() {
   const ptyOut = join(out, 'node_modules', 'node-pty');
   cpSync(join(pty, 'package.json'), join(ptyOut, 'package.json'));
   cpSync(join(pty, 'LICENSE'), join(ptyOut, 'LICENSE'));
-  cpSync(join(pty, 'lib'), join(ptyOut, 'lib'), { recursive: true, filter: (src) => !/\.(test\.js|map)$/.test(src) && !src.includes(`${join('lib', 'worker')}`) });
+  // lib/worker is the Windows console's output reader; the Unix terminal never loads it.
+  const skipWorker = OS !== 'win32';
+  cpSync(join(pty, 'lib'), join(ptyOut, 'lib'), { recursive: true, filter: (src) => !/\.(test\.js|map)$/.test(src) && !(skipWorker && src.includes(`${join('lib', 'worker')}`)) });
+  if (OS === 'linux') {
+    // No prebuild for Linux: the module pnpm compiled on this computer, which must be the target.
+    if (process.platform !== 'linux' || process.arch !== ARCH) fail(`node-pty has no prebuild for Linux, so a ${PLATFORM} build is staged on a ${PLATFORM} computer (this is ${process.platform}-${process.arch})`);
+    const built = need(join(pty, 'build', 'Release', 'pty.node'), "node-pty's compiled module (pnpm install builds it; it needs python3, make and g++)");
+    cpSync(built, join(ptyOut, 'build', 'Release', 'pty.node'));
+    return;
+  }
   const prebuilt = need(join(pty, 'prebuilds', PLATFORM), `node-pty's ${PLATFORM} prebuild`);
-  cpSync(prebuilt, join(ptyOut, 'prebuilds', PLATFORM), { recursive: true });
-  chmodSync(join(ptyOut, 'prebuilds', PLATFORM, 'spawn-helper'), 0o755);
+  cpSync(prebuilt, join(ptyOut, 'prebuilds', PLATFORM), { recursive: true, filter: (src) => !src.endsWith('.pdb') });
+  if (OS === 'darwin') chmodSync(join(ptyOut, 'prebuilds', PLATFORM, 'spawn-helper'), 0o755);
+}
+
+/** The Claude Code binary for the target: from node_modules when pnpm installed that platform's
+ *  package (it does for this computer's), else from where fetch-claude-binary.mjs put it. */
+function claudeBinary(sdk) {
+  const name = `claude${EXE}`;
+  const pkg = `@anthropic-ai/claude-agent-sdk-${PLATFORM}`;
+  for (let dir = sdk; ; dir = dirname(dir)) {
+    const candidate = join(dir, 'node_modules', pkg, name);
+    if (existsSync(candidate)) return candidate;
+    if (dirname(dir) === dir) break;
+  }
+  const version = JSON.parse(readFileSync(join(sdk, 'package.json'), 'utf8')).version;
+  const fetched = join(root, 'dist', 'cache', `claude-${PLATFORM}-${version}`, 'package', name);
+  return need(fetched, `the Claude Code binary for ${PLATFORM} (node scripts/release/fetch-claude-binary.mjs --platform ${OS} --arch ${ARCH})`);
 }
 
 function stageBinaries() {
@@ -97,9 +132,9 @@ function stageBinaries() {
   mkdirSync(bin, { recursive: true });
   // The SDK resolves its CLI as `@anthropic-ai/claude-agent-sdk-<platform>/claude` next to itself.
   const sdk = packageDir(join(root, 'server'), '@anthropic-ai/claude-agent-sdk');
-  const cli = packageDir(sdk, `@anthropic-ai/claude-agent-sdk-${PLATFORM}`);
-  cpSync(need(join(cli, 'claude'), 'the Claude Code binary'), join(bin, 'claude'));
-  chmodSync(join(bin, 'claude'), 0o755);
+  cpSync(claudeBinary(sdk), join(bin, `claude${EXE}`));
+  chmodSync(join(bin, `claude${EXE}`), 0o755);
+  if (OS !== 'darwin') return; // the iOS simulator, and so its helper, is on a Mac only
   cpSync(need(join(appDir, 'native', 'build', 'kestrel-sim'), 'the simulator helper (pnpm --filter @kestrel/app build:simhelper)'), join(bin, 'kestrel-sim'));
   chmodSync(join(bin, 'kestrel-sim'), 0o755);
 }
@@ -116,4 +151,4 @@ mkdirSync(stageApp, { recursive: true });
 await stageShell(appPackage);
 await stageServer();
 stageBinaries();
-console.log(`==> staged Kestrel ${appPackage.version} in ${stage}`);
+console.log(`==> staged Kestrel ${appPackage.version} for ${PLATFORM} in ${stage}`);

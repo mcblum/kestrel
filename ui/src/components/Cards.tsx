@@ -1,6 +1,7 @@
 // What the agent leaves in the conversation besides text: its task list, a file it made for
 // you, and the next-step box at the end of a turn.
 import { memo } from 'react';
+import { showInManager } from '../platform.ts';
 import { Check, FileText, FolderOpen, MessageCircle } from 'lucide-react';
 import type { FileCard, NextStep, TodoItem } from '@kestrel/server/model';
 import { Markdown } from './Markdown.tsx';
@@ -88,7 +89,7 @@ export const FileCardView = memo(function FileCardView({ file, sessionId }: { fi
         </span>
         {note && <span className="file-card-note">{note}</span>}
         <span className="file-card-actions">
-          <button type="button" className="copy-button" aria-label="Show in Finder" onClick={() => void actions.reveal(file.path)}>
+          <button type="button" className="copy-button" aria-label={showInManager()} onClick={() => void actions.reveal(file.path)}>
             <FolderOpen aria-hidden />
           </button>
           <CopyButton value={file.path} label="path" />

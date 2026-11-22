@@ -1,6 +1,10 @@
 // The sidebar's context menu, as data. One definition feeds the right-click menu and the "+"
 // buttons, so they can never disagree about what exists or what it is called.
 import { archiveRefusal } from './workstreams.ts';
+import { showInFileManager } from './platform.ts';
+
+/** The id of every "Show in Finder" item, so the page can word it for its platform. */
+export const REVEAL_ID = 'reveal';
 import { openInMenu, type FolderApp } from './file-menu.ts';
 import { forkRefusal } from './fork.ts';
 import type { TurnFork } from './turns.ts';
@@ -280,7 +284,8 @@ function pathItems(path: string | null | undefined, canReveal = true, scope?: Sc
   if (!path) return [];
   const copy: MenuItem = { id: 'copy-path', label: 'Copy path', action: { type: 'copy', text: path, what: 'path' } };
   const open = scope ? openInItems(scope, openIn) : [];
-  return canReveal ? [...open, { id: 'reveal', label: 'Show in Finder', action: { type: 'reveal', path } }, copy] : [...open, copy];
+  // Worded for a Mac here; the page words it for the computer it is on (ui ContextMenu, `REVEAL_ID`).
+  return canReveal ? [...open, { id: REVEAL_ID, label: showInFileManager('mac'), action: { type: 'reveal', path } }, copy] : [...open, copy];
 }
 
 /**

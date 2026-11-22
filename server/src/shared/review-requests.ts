@@ -2,6 +2,7 @@
 // (review-requests/) and pushes, and what the sidebar's CODE REVIEWS section lists. Only a request
 // made of the user by name counts, never one made of a team they are in. Pure and browser-safe.
 import { hostTerms, isHostKind, type HostKind } from './host-terms.ts';
+import type { PermissionLevel } from './permissions.ts';
 import { sessionDot, type Seen } from './unread.ts';
 import { agoText } from './when.ts';
 
@@ -207,6 +208,22 @@ export function asReviewMark(raw: unknown): ReviewMark | null {
   if (!isHostKind(m.host) || ![m.key, m.sha, m.url].every(isString) || typeof m.number !== 'number') return null;
   return { key: m.key as string, host: m.host, number: m.number, sha: m.sha as string, url: m.url as string };
 }
+
+/**
+ * The mode a review session starts in (Matt, 2026-11-21): Auto. A review reads a change and writes
+ * nothing, and a session that stops to ask before every `git diff` and every file it opens is not
+ * one anybody can leave to it. What it must not do on its own (post to the host) is not a
+ * permission: it goes through `post_review`, whatever the mode.
+ */
+export const REVIEW_PERMISSION: PermissionLevel = 'auto';
+
+/**
+ * The modes a review may be set to start in (Settings → Code reviews → Code reviews permissions
+ * mode): Auto, Manual or Accept edits. Not Plan, which is for work that will then be done, and not
+ * Bypass, which is confirmed for one session at a time and never a standing setting.
+ */
+export const REVIEW_PERMISSIONS: readonly PermissionLevel[] = ['auto', 'ask', 'edits'];
+export const isReviewPermission = (value: unknown): value is PermissionLevel => REVIEW_PERMISSIONS.includes(value as PermissionLevel);
 
 /** "Review: <the request's title>": what a review session is called. */
 export const reviewSessionTitle = (requestTitle: string): string => `Review: ${requestTitle}`;

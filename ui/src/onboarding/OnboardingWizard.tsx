@@ -8,16 +8,18 @@ import { AGENTS_PATH, asAgentStatus } from '../components/useAgents.ts';
 import { AGENT_LABEL } from '../labels.ts';
 import { saveSetup } from './data.ts';
 import { AgentStep } from './AgentStep.tsx';
+import { AppearanceStep } from './AppearanceStep.tsx';
 import { NotificationStep } from './NotificationStep.tsx';
 import { ProjectStep } from './ProjectStep.tsx';
 
 /** "A", "A and B", "A, B and C". */
 const andList = (names: readonly string[]): string => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
 
-const STEPS = ['welcome', 'agents', 'projects', 'notifications', 'ready'] as const;
-const LABELS = ['Welcome', 'Agents', 'Projects', 'Notifications', 'Ready'];
+const STEPS = ['welcome', 'appearance', 'agents', 'projects', 'notifications', 'ready'] as const;
+const LABELS = ['Welcome', 'Appearance', 'Agents', 'Projects', 'Notifications', 'Ready'];
 const COPY = {
   welcome: ['A home for your coding work.', 'Bring your agents and projects together. Let’s get your workspace ready.'],
+  appearance: ['Pick your look.', 'Dark, light, or whatever this computer is set to. It changes as you choose, so pick the one that looks right.'],
   agents: ['Bring your agents.', 'Use Claude Code, Codex or OpenCode with the setup you already have.'],
   projects: ['What will you work on?', 'Add one project, or bring in a whole folder of them. You can always add more later.'],
   notifications: ['Know when you’re needed.', 'Leave a session working and Kestrel tells you when it finishes, fails or stops to ask you something.'],
@@ -66,7 +68,7 @@ export function OnboardingWizard({ step }: { step: Exclude<OnboardingStep, 'comp
     <ol className="setup-progress" aria-label="Setup progress">{STEPS.map((id, i) => <li key={id} className={i < index ? 'is-done' : i === index ? 'is-current' : ''} aria-current={id === step ? 'step' : undefined}><span>{i < index ? <Check aria-hidden /> : i + 1}</span>{LABELS[i]}</li>)}</ol>
     <div className="form-head"><h1 ref={heading} tabIndex={-1}>{COPY[step][0]}</h1><p className="form-lede">{COPY[step][1]}</p></div>
     <fieldset className="setup-body" disabled={saving}>
-      {step === 'welcome' ? <Welcome /> : step === 'agents' ? <AgentStep /> : step === 'projects' ? <ProjectStep onBusyChange={setProjectBusy} onEditingChange={setProjectEditing} /> : step === 'notifications' ? <NotificationStep /> : <Ready />}
+      {step === 'welcome' ? <Welcome /> : step === 'appearance' ? <AppearanceStep /> : step === 'agents' ? <AgentStep /> : step === 'projects' ? <ProjectStep onBusyChange={setProjectBusy} onEditingChange={setProjectEditing} /> : step === 'notifications' ? <NotificationStep /> : <Ready />}
     </fieldset>
     {error && <p className="field-error" role="alert">Could not save setup progress. {error} Try again.</p>}
     <div className="setup-footer">

@@ -2,6 +2,7 @@
 // the code font, the terminal's text size, higher contrast for code, and the diff colours. Kept in
 // this browser, so each change shows at once and nothing is saved to the server.
 import { useState } from 'react';
+import { thisComputer } from '../platform.ts';
 import { CODE_FONTS, codeFontProblem, DIFF_LABEL, MAX_TERMINAL_FONT, MIN_TERMINAL_FONT, THEME_LABEL, type DiffColors, type Theme } from '@kestrel/server/appearance';
 import { setAppearance, useAppearance } from '../appearance.ts';
 import { SettingSection } from './SettingHelp.tsx';
@@ -29,7 +30,7 @@ function Controls() {
           <option value={CUSTOM}>Another font…</option>
         </select>
         {typing && (
-          <input className="form-control" aria-label="Font name" placeholder="A font installed on this Mac" spellCheck={false} value={typed} aria-invalid={problem !== null} onChange={(e) => (setTyped(e.target.value), codeFontProblem(e.target.value.trim()) === null && setAppearance({ codeFont: e.target.value.trim() }))} />
+          <input className="form-control" aria-label="Font name" placeholder={`A font installed on ${thisComputer()}`} spellCheck={false} value={typed} aria-invalid={problem !== null} onChange={(e) => (setTyped(e.target.value), codeFontProblem(e.target.value.trim()) === null && setAppearance({ codeFont: e.target.value.trim() }))} />
         )}
       </div>
       {typing && problem && <span className="delegation-limit-problem appearance-wide" role="alert">{problem}</span>}

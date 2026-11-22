@@ -467,6 +467,8 @@ export const isSelectableAgent = (value: unknown): value is Agent => SELECTABLE_
 /** What the live channel sends for a session. Messages replace those with the same id. */
 export interface LivePatch {
   messages?: ChatMessage[];
+  /** This session was replaced by another (a first-message review request made into a review session) and is about to be removed: a tab showing it shows that one instead. */
+  replacedBy?: string;
   /** Messages taken out of the conversation, by id: sent into a turn that ended before the agent read them, and held again. */
   removedMessages?: string[];
   files?: ChangedFile[];

@@ -4,6 +4,9 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
+import { hostPlatform } from '../../host.ts';
+import type { Platform } from '../../shared/platform.ts';
+import { findIn, installDirs } from '../find-program.ts';
 
 type Env = Record<string, string | undefined>;
 
@@ -25,22 +28,17 @@ export const realLookup: Lookup = { exists: existsSync, list: listOrEmpty, home:
 
 const newestFirst = (a: string, b: string): number => b.localeCompare(a, undefined, { numeric: true });
 
-/** Install folders a GUI-launched app may not have on its PATH. */
-function wellKnownDirs(lookup: Lookup): string[] {
+/** Install folders a GUI-launched app may not have on its PATH (find-program.ts), then each nvm Node's, newest first. */
+function wellKnownDirs(lookup: Lookup, platform: Platform, env: Env): string[] {
   const nvm = join(lookup.home, '.nvm', 'versions', 'node');
-  const nodeBins = [...lookup.list(nvm)].sort(newestFirst).map((v) => join(nvm, v, 'bin'));
-  const home = (...p: string[]) => join(lookup.home, ...p);
-  return ['/opt/homebrew/bin', '/usr/local/bin', home('.local', 'bin'), home('.volta', 'bin'), home('.bun', 'bin'), home('.npm-global', 'bin'), ...nodeBins];
+  const nodeBins = platform === 'windows' ? [] : [...lookup.list(nvm)].sort(newestFirst).map((v) => join(nvm, v, 'bin'));
+  return [...installDirs(lookup.home, platform, env), ...nodeBins];
 }
 
 /** The path of the `codex` command, from PATH first and then the usual install folders. */
-export function findCodex(env: Env = process.env, lookup: Lookup = realLookup): string | null {
-  const dirs = [...(env.PATH ?? '').split(delimiter).filter(Boolean), ...wellKnownDirs(lookup)];
-  for (const dir of dirs) {
-    const candidate = join(dir, 'codex');
-    if (lookup.exists(candidate)) return candidate;
-  }
-  return null;
+export function findCodex(env: Env = process.env, lookup: Lookup = realLookup, platform: Platform = hostPlatform()): string | null {
+  const dirs = [...(env.PATH ?? env.Path ?? '').split(delimiter).filter(Boolean), ...wellKnownDirs(lookup, platform, env)];
+  return findIn(dirs, 'codex', platform, lookup.exists);
 }
 
 /**

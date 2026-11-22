@@ -1,9 +1,9 @@
 // Keep awake while agents work (shared/keep-awake.ts, keep-awake/*): the rule, reading the
 // battery, and holding and releasing as sessions start and stop working.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, test, vi } from 'vitest';
 import { keepAwakeRoute } from './keep-awake/api.ts';
-import { KeepAwake } from './keep-awake/hold.ts';
-import { awakeState, awakeText, parsePower, sanitizeKeepAwake, type Power } from './shared/keep-awake.ts';
+import { awakeMeans, KeepAwake } from './keep-awake/hold.ts';
+import { awakeState, awakeText, ON_MAINS, parseLinuxPower, parsePower, sanitizeKeepAwake, UNAVAILABLE_ON_LINUX, UNAVAILABLE_ON_WINDOWS, type Power } from './shared/keep-awake.ts';
 
 const MAINS: Power = { onBattery: false, percent: 100 };
 const battery = (percent: number): Power => ({ onBattery: true, percent });
@@ -86,5 +86,38 @@ describe('holding the Mac awake', () => {
     expect(await route('PUT', { enabled: true })).toMatchObject({ status: 200, body: { enabled: true, state: { holding: true } } });
     expect(await keepAwakeRoute(['api', 'other'], 'GET', async () => ({}), keep)).toBeNull();
     keep.stop();
+  });
+});
+
+describe('keep awake off a Mac', () => {
+  const has = (...programs: string[]) => (program: string) => programs.includes(program);
+
+  test('a Mac and a Linux with systemd-inhibit can be held; the words name the computer', () => {
+    expect('hold' in awakeMeans('mac', has())).toBe(true);
+    expect('hold' in awakeMeans('linux', has('systemd-inhibit'))).toBe(true);
+    expect(awakeText({ holding: true }, ON_MAINS, 'this computer')).toBe('An agent is working: this computer is being kept awake.');
+    expect(awakeText({ holding: false, why: 'idle' }, ON_MAINS, 'this computer')).toBe('No agent is working, so this computer may sleep as usual.');
+  });
+
+  test('Windows, and a Linux without systemd-inhibit, say why they cannot', () => {
+    expect(awakeMeans('windows', has('systemd-inhibit'))).toEqual({ unavailable: UNAVAILABLE_ON_WINDOWS });
+    expect(awakeMeans('linux', has())).toEqual({ unavailable: UNAVAILABLE_ON_LINUX });
+    expect(awakeText({ holding: false, why: 'unavailable' }, ON_MAINS, 'this computer', UNAVAILABLE_ON_WINDOWS)).toBe(UNAVAILABLE_ON_WINDOWS);
+  });
+
+  test('the view carries the reason, and nothing is held or asked of the agents', async () => {
+    const hold = vi.fn(() => ({ release: () => undefined }));
+    const working = vi.fn(async () => true);
+    const awake = new KeepAwake({ working, hold, platform: 'windows' });
+    const view = await awake.set(true);
+    expect(view).toMatchObject({ enabled: true, state: { holding: false, why: 'unavailable' }, computer: 'this computer', unavailable: UNAVAILABLE_ON_WINDOWS });
+    expect(hold).not.toHaveBeenCalled();
+    expect(working).not.toHaveBeenCalled();
+  });
+
+  test('a Linux battery is read from its status and capacity files', () => {
+    expect(parseLinuxPower('Discharging\n', '17\n')).toEqual({ onBattery: true, percent: 17 });
+    expect(parseLinuxPower('Charging\n', '80\n')).toEqual({ onBattery: false, percent: 80 });
+    expect(parseLinuxPower(null, null)).toEqual({ onBattery: false, percent: null });
   });
 });

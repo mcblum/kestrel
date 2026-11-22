@@ -7,8 +7,10 @@ import { chmodSync, existsSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { basename, dirname, join } from 'node:path';
 import { discardRun, prepareRun, type PreparedRun } from './code-run.ts';
+import { hostPlatform, terminalShell } from './host.ts';
 import { RUN_TERMINAL_TITLE, scanRunEnd, type RunnableBlock } from './shared/code-run.ts';
 import { MAX_TERMINALS_PER_SESSION, moveTerminal, numberTitles, type TerminalInfo } from './shared/terminals.ts';
+import type { Platform } from './shared/platform.ts';
 import { Refused } from './workspace.ts';
 
 /** The part of node-pty used here, so tests can stand in for it. */
@@ -34,6 +36,8 @@ export interface TerminalOptions {
   /** How often the program in front is also checked while someone watches the terminal, so a quiet
    *  command (`sleep 300`) still shows in the title. 0 = never. */
   titlePollMs?: number;
+  /** Which kind of computer this is (host.ts); tests name one. */
+  platform?: Platform;
 }
 
 /** About 200 KB of recent output per terminal, replayed to a client that attaches. */
@@ -120,6 +124,7 @@ export class Terminals {
   private spawnPty: SpawnPty | null;
   private readonly titleCheckMs: number;
   private readonly titlePollMs: number;
+  private readonly platform: Platform;
 
   constructor(
     spawnPty: SpawnPty | null = null,
@@ -129,6 +134,7 @@ export class Terminals {
     this.spawnPty = spawnPty;
     this.titleCheckMs = options.titleCheckMs ?? TITLE_CHECK_MS;
     this.titlePollMs = options.titlePollMs ?? TITLE_POLL_MS;
+    this.platform = options.platform ?? hostPlatform();
   }
 
   /** Called with a session id whenever its list of terminals, a title or an exit changes. */
@@ -165,6 +171,8 @@ export class Terminals {
    * Returns the Run terminal's id. The end is known from the wrapper's marker, not from timing.
    */
   run(sessionId: string, cwd: string, block: RunnableBlock, size: { cols?: unknown; rows?: unknown }): string {
+    // The run's wrapper is a POSIX shell script, typed into the Run terminal's shell (code-run.ts).
+    if (this.platform === 'windows') throw new Refused('Running a code block is not available on Windows yet: it is run by a POSIX shell script, and the terminal here is PowerShell. Copy it into the terminal instead.');
     let term = this.sessions.get(sessionId)?.find((t) => t.runner);
     if (term?.run) throw new Refused('A run is already in progress. Stop it or wait for it to finish.');
     if (term && term.exitCode !== null) {
@@ -208,8 +216,8 @@ export class Terminals {
     if (terms.length >= MAX_TERMINALS_PER_SESSION) throw new Refused(`A session, project or group page can have at most ${MAX_TERMINALS_PER_SESSION} terminals. Close one to open another.`);
     this.spawnPty ??= nodePtySpawn();
     const env = { ...terminalEnv(this.env), ...action?.env };
-    const shell = env.SHELL || '/bin/zsh';
-    const pty = this.spawnPty(shell, ['-l'], { cwd, ...sizeOf(size), env });
+    const { file: shell, args } = terminalShell(env, this.platform);
+    const pty = this.spawnPty(shell, args, { cwd, ...sizeOf(size), env });
     const shellName = basename(shell);
     const term: Running = { id: randomUUID().slice(0, 8), pty, shellName, scrollback: new Scrollback(), clients: new Set(), custom: runner ? RUN_TERMINAL_TITLE : (action?.title ?? null), program: shellName, lastTitleCheck: 0, titleTimer: null, poll: null, exitCode: null, runner, run: null, ...(action ? { actionId: action.actionId } : {}) };
     this.sessions.set(sessionId, [...terms, term]);

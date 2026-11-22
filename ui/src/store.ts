@@ -73,7 +73,7 @@ export type Connection = 'connecting' | 'live' | 'offline' | 'no-server';
 
 /** Streaming state of one session, built from the live channel. Separate from the workspace. */
 /** What is held for a watched session: every field of a patch, except the one-off removals already applied. */
-export type LiveState = Required<Omit<LivePatch, 'removedMessages'>>;
+export type LiveState = Required<Omit<LivePatch, 'removedMessages' | 'replacedBy'>> & Pick<LivePatch, 'replacedBy'>;
 
 export interface AppState {
   connection: Connection;
@@ -397,6 +397,7 @@ function applyLive(id: string, patch: LivePatch) {
     backgroundTasks: patch.backgroundTasks ?? prev.backgroundTasks,
     commands: patch.commands ?? prev.commands,
     slashCommands: patch.slashCommands ?? prev.slashCommands,
+    ...(patch.replacedBy ?? prev.replacedBy ? { replacedBy: patch.replacedBy ?? prev.replacedBy } : {}),
   };
   set({ live: new Map(current().live).set(id, next) });
 }

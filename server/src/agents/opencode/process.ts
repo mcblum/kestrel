@@ -5,6 +5,8 @@
 // "opencode server listening on http://127.0.0.1:<port>" once it is ready (opencode 1.14.25).
 // Every child is killed when the Kestrel server process exits, however it exits.
 import { spawn } from 'node:child_process';
+import { hostPlatform } from '../../host.ts';
+import { spawnTarget } from '../find-program.ts';
 import { randomBytes } from 'node:crypto';
 import { dirname, delimiter } from 'node:path';
 import { Tail } from '../codex/process.ts';
@@ -89,7 +91,8 @@ export const serveArgs = (pure: boolean): string[] => ['serve', '--hostname=127.
 export function launchCommand(command: string, args: readonly string[], options: LaunchOptions & { binaryDir?: string }): Promise<OpencodeServer> {
   const password = randomBytes(24).toString('base64url');
   const env = childEnv(options.env, options.binaryDir ?? command, options.config, password);
-  const child = spawn(command, [...args], { stdio: ['ignore', 'pipe', 'pipe'], env: env as NodeJS.ProcessEnv });
+  const target = spawnTarget(command, hostPlatform());
+  const child = spawn(target.command, [...args], { stdio: ['ignore', 'pipe', 'pipe'], env: env as NodeJS.ProcessEnv, shell: target.shell, windowsHide: true });
   const tail = new Tail();
   const untrack = track(() => child.kill('SIGTERM'));
   return new Promise((resolve, reject) => {

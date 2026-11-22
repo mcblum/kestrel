@@ -1,4 +1,4 @@
-// Starting reviews on their own (Settings → Git → Review requests, "Start reviews on their own").
+// Starting reviews on their own (Settings → Code reviews, "Start reviews on their own").
 // Which requests, and how many at once, is one pure rule (`reviewsToStart`); this runs it whenever
 // the list, the setting or the sessions may have changed, and starts what it names. A start that
 // is refused is not retried: its reason is put on the request (store.ts `note`) so its page says

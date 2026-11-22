@@ -1,7 +1,7 @@
-// Keep awake while agents work (0.0.20, matt/kestrel#24): an opt-in setting that stops this Mac
-// going to sleep from being idle while any session's agent is working, lets it sleep again when
+// Keep awake while agents work (0.0.20, matt/kestrel#24): an opt-in setting that stops this
+// computer going to sleep from being idle while any session's agent is working, lets it sleep again when
 // none is, and stands aside when the battery is low. Pure and browser-safe: the rule and the words;
-// holding the Mac awake is keep-awake/hold.ts.
+// holding it awake is keep-awake/hold.ts (macOS and Linux; Windows cannot yet, and says so).
 
 export interface KeepAwakePrefs {
   /** Off unless the user turns it on. */
@@ -33,18 +33,22 @@ export function awakeState(prefs: KeepAwakePrefs, working: boolean, power: Power
   return { holding: true };
 }
 
-/** What the settings page says under the switch. */
-export function awakeText(state: AwakeState, power: Power): string {
-  if (state.holding) return 'An agent is working: this Mac is being kept awake.';
+/** Why this computer cannot be held awake, when `why` is `unavailable`. */
+export const UNAVAILABLE_ON_WINDOWS = 'Kestrel cannot keep a Windows computer awake yet. Change when it sleeps in Windows’ own Power settings.';
+export const UNAVAILABLE_ON_LINUX = 'Keeping this computer awake needs systemd-inhibit, which was not found here.';
+
+/** What the settings page says under the switch. `computer` is "this Mac" or "this computer"; `unavailable` is the server's reason. */
+export function awakeText(state: AwakeState, power: Power, computer = 'this Mac', unavailable = 'Kestrel cannot keep this computer awake.'): string {
+  if (state.holding) return `An agent is working: ${computer} is being kept awake.`;
   switch (state.why) {
     case 'off':
       return '';
     case 'idle':
-      return 'No agent is working, so this Mac may sleep as usual.';
+      return `No agent is working, so ${computer} may sleep as usual.`;
     case 'low-battery':
-      return `The battery is at ${power.percent}%, below ${LOW_BATTERY_PERCENT}%, so this Mac is left to sleep.`;
+      return `The battery is at ${power.percent}%, below ${LOW_BATTERY_PERCENT}%, so ${computer} is left to sleep.`;
     case 'unavailable':
-      return 'Kestrel can only keep a Mac awake.';
+      return unavailable;
   }
 }
 
@@ -60,9 +64,19 @@ export function parsePower(report: string): Power {
   return { onBattery, percent: percent ? Math.min(100, Number(percent[1])) : null };
 }
 
+/** A Linux battery, read from /sys/class/power_supply: its `status` ("Discharging", "Charging", "Full") and `capacity` (a percentage). */
+export function parseLinuxPower(status: string | null, capacity: string | null): Power {
+  const percent = capacity !== null && /^\d{1,3}$/.test(capacity.trim()) ? Math.min(100, Number(capacity.trim())) : null;
+  return { onBattery: status !== null && status.trim().toLowerCase() === 'discharging', percent };
+}
+
 /** What the page is sent. */
 export interface KeepAwakeView {
   enabled: boolean;
   state: AwakeState;
   power: Power;
+  /** "this Mac" or "this computer" (shared/platform.ts). */
+  computer?: string;
+  /** Why this computer cannot be held awake; absent where it can. */
+  unavailable?: string;
 }

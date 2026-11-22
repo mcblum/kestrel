@@ -98,11 +98,21 @@ function run(file: string, args: readonly string[]): Promise<string> {
 
 const numbers = (text: string): number[] => text.split(/\s+/).filter(Boolean).map(Number).filter(Number.isInteger);
 
-/** This Mac's processes, through `/usr/sbin/lsof` and `/bin/ps`. */
+/** Why Kestrel cannot end a command's processes itself on Windows: said to the user, not swallowed. */
+export const NO_PROCESS_LOOKUP_ON_WINDOWS = 'Kestrel cannot look up which processes hold a file on Windows (it uses lsof and ps, which Windows does not have), so it cannot end this command itself. End it from Task Manager if it is still running.';
+
+/**
+ * This computer's processes, through `lsof` and `ps`: at their fixed places on a Mac, from PATH on
+ * Linux (lsof is a package there; without it the lookup fails with the system's own "not found").
+ * Windows has neither, so the lookup fails there with a reason.
+ */
 export const systemProcesses: ProcessSystem = {
-  holders: async (path) => numbers(await run('/usr/sbin/lsof', ['-t', '--', path])),
+  holders: async (path) => {
+    if (process.platform === 'win32') throw new Error(NO_PROCESS_LOOKUP_ON_WINDOWS);
+    return numbers(await run(process.platform === 'darwin' ? '/usr/sbin/lsof' : 'lsof', ['-t', '--', path]));
+  },
   table: async () =>
-    (await run('/bin/ps', ['-A', '-o', 'pid=,ppid=,comm='])).split('\n').flatMap((line) => {
+    (await run(process.platform === 'darwin' ? '/bin/ps' : 'ps', ['-A', '-o', 'pid=,ppid=,comm='])).split('\n').flatMap((line) => {
       const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
       return m ? [{ pid: Number(m[1]), ppid: Number(m[2]), comm: m[3]!.trim() }] : [];
     }),

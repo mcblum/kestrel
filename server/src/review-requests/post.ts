@@ -9,13 +9,13 @@ import { ghFailureReason, GH_TIMEOUT_MS } from '../pull-requests/github.ts';
 import { GLAB_TIMEOUT_MS, glabFailureReason } from '../pull-requests/glab.ts';
 import type { CommandRunner } from '../pull-requests/types.ts';
 import type { HostKind } from '../shared/host-terms.ts';
-import { foldComments, type ReviewReply } from '../shared/review-reply.ts';
+import { foldComments, type OutgoingReview } from '../shared/review-reply.ts';
 import { Refused } from '../workspace.ts';
 
 const GH_EVENT = { comment: 'COMMENT', approve: 'APPROVE', request_changes: 'REQUEST_CHANGES' } as const;
 
 /** `gh api` arguments that post a review of pull request `number` in the repository of the working folder. Pure. */
-export function ghReviewArgs(number: number, reply: Pick<ReviewReply, 'verdict' | 'summary' | 'comments' | 'sha'>): string[] {
+export function ghReviewArgs(number: number, reply: OutgoingReview): string[] {
   const comments = reply.comments.flatMap((c) => ['-f', `comments[][path]=${c.path}`, '-F', `comments[][line]=${c.line}`, '-f', 'comments[][side]=RIGHT', '-f', `comments[][body]=${c.body}`]);
   return ['api', '-X', 'POST', `repos/{owner}/{repo}/pulls/${number}/reviews`, '-f', `commit_id=${reply.sha}`, '-f', `event=${GH_EVENT[reply.verdict]}`, '-f', `body=${reply.summary}`, ...comments];
 }
@@ -24,7 +24,7 @@ export const glabNoteArgs = (number: number, body: string): string[] => ['mr', '
 export const glabApproveArgs = (number: number, sha: string): string[] => ['mr', 'approve', String(number), '--sha', sha];
 
 /** What a GitLab note says: the verdict it cannot carry any other way, then the review. Pure. */
-export function gitlabNote(reply: Pick<ReviewReply, 'verdict' | 'summary' | 'comments'>): string {
+export function gitlabNote(reply: Pick<OutgoingReview, 'verdict' | 'summary' | 'comments'>): string {
   const body = foldComments(reply.summary, reply.comments);
   return reply.verdict === 'request_changes' ? `**Changes requested.**\n\n${body}` : body;
 }
@@ -44,7 +44,7 @@ export interface PostReviewTarget {
  * Post the review. Resolves with a note for the user when it went up differently from how it was
  * written, else null. Throws `Refused` with the host's reason when nothing was posted.
  */
-export async function postReview(run: CommandRunner, target: PostReviewTarget, reply: Pick<ReviewReply, 'verdict' | 'summary' | 'comments' | 'sha'>): Promise<string | null> {
+export async function postReview(run: CommandRunner, target: PostReviewTarget, reply: OutgoingReview): Promise<string | null> {
   if (target.host === 'github') {
     const gh = (args: string[]) => run('gh', args, { cwd: target.cwd, timeoutMs: GH_TIMEOUT_MS });
     try {

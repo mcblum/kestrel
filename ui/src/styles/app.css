@@ -823,9 +823,11 @@ body { background: light-dark(#fafbf9, #171a19); }
 .kestrel .mode-text small { font-size: 11.5px; color: var(--s-muted); }
 .kestrel .mode-check { width: 15px; height: 15px; flex: none; color: light-dark(#2f6fd6, #6aa5ff); }
 .kestrel .mode-row kbd { flex: none; width: 14px; text-align: right; font: inherit; font-size: 11px; color: var(--s-muted); background: none; border: 0; padding: 0; }
-.kestrel .mode-bypass { cursor: default; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--s-line); border-radius: 0; }
-.kestrel .mode-enable { flex: none; padding: 3px 9px; background: transparent; border: 0; border-radius: 6px; font: inherit; font-size: 12px; color: var(--s-ink); cursor: pointer; }
-.kestrel .mode-enable:hover { background: var(--s-soft); }
+.kestrel .mode-bypass { align-items: flex-start; cursor: default; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--s-line); border-radius: 0; }
+/* Drawn as a button, with its outline's right edge on the line the mode numbers end at: as bare
+   text its padding left the word hanging short of that line. */
+.kestrel .mode-enable { flex: none; padding: 3px 9px; background: transparent; border: 1px solid var(--s-line); border-radius: 6px; font: inherit; font-size: 12px; line-height: 1.3; color: var(--s-ink); cursor: pointer; }
+.kestrel .mode-enable:hover { background: var(--s-soft); border-color: var(--s-muted); }
 .kestrel .ctl .picker-button.ctl-danger { color: var(--s-amber); }
 
 /* ---- rich rendering: tasks, plans, questions, widgets, files, next step, pictures ---------- */

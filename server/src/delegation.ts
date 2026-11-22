@@ -2,6 +2,9 @@
 // that delegates hears back. The tool handlers (agents/claude/tools.ts) only translate; the
 // rules are here. Everything an agent is told is plain text; a refusal never throws at it.
 import { reviewComment, sameAgentNote, clipSummary, findingsText, guestIntro, guestWrites, handBackText, nextRoundText, REVIEW_ROUNDS, reviewBrief, reviewEndNotice, verdictOf, writerRefusal, type Guest, type Review } from './shared/worktree-guests.ts';
+import { originUrl } from './git.ts';
+import { hostTerms } from './shared/host-terms.ts';
+import { ALREADY_A_REVIEW, CONVERT_DECLINED, convertAsk, converted, noProjectFor, NOT_A_REQUEST, NOT_FIRST_MESSAGE, parseRequestRef, requestHome } from './review-requests/convert.ts';
 import { cannotRunNow, fallbackAsk, fallbackNotice, fallbackTold, modeOfRole, nextRunner, noFallbackLeft, noReviewerReason, NOT_CONNECTED, orchestrateMove, orchestrateNotice, orchestratorsOf, pickReviewer, presetForRole, presetSummary, reviewersOf, ROLE_LABEL, ROLES, runnersOf, takeoverIntro, whenUnavailable, type Author, type ModelPreset, type Role, type RoleRun, type WhoDoesWhat } from './shared/who-does-what.ts';
 import { archivedAfterHandoff, HANDOFF_ARCHIVE_DECLINED, handoffArchiveAsk, MOVE_DECLINED, moveApproved, moveAsk, movedNotice, movedTold, moveFailed, notArchived, projectWorkedIn } from './shared/session-move.ts';
 import { MOVE_KIND } from './suggestions/move-kind.ts';
@@ -26,7 +29,7 @@ import { Refused, type Workspace } from './workspace.ts';
 
 export type ChildOrigin = 'handoff' | 'delegate' | 'spawn';
 /** The tools this file answers; the display tools come from `display.ts`. */
-export type DelegationTools = Pick<KestrelToolHost, 'listProjects' | 'addProject' | 'handoff' | 'moveToProject' | 'delegate' | 'spawn' | 'sessionStatus' | 'askSession' | 'completeWorkstream' | 'waitFor'>;
+export type DelegationTools = Pick<KestrelToolHost, 'listProjects' | 'addProject' | 'handoff' | 'moveToProject' | 'startReview' | 'delegate' | 'spawn' | 'sessionStatus' | 'askSession' | 'completeWorkstream' | 'waitFor'>;
 /**
  * How much of a session's last message another session is told. It was 400 characters, which cut
  * every real report short: the asker then asked for a shorter one, again and again (2026-11-18).
@@ -78,7 +81,7 @@ export class Delegation {
   /** What the user approved for a session that can only be done once its turn has ended: moving it into a project, or archiving it after a handoff. Live only. */
   /** Sessions whose agent has asked the user about moving: Kestrel does not ask them again itself. Live only. */
   private readonly moveAsked = new Set<string>();
-  private readonly afterTurn = new Map<string, { move: Target & { folder: ProjectFolder } } | { archive: string }>();
+  private readonly afterTurn = new Map<string, { move: Target & { folder: ProjectFolder } } | { archive: string } | { replacedBy: string }>();
 
   constructor(
     private readonly rt: SessionRuntime,
@@ -94,6 +97,7 @@ export class Delegation {
       addProject: (a) => this.guard(callerId, 'add_project', () => this.addProject(callerId, a)),
       handoff: (a) => this.guard(callerId, 'handoff', () => this.handoff(callerId, a)),
       moveToProject: (a) => this.guard(callerId, 'move_to_project', () => this.moveToProject(callerId, a)),
+      startReview: (a) => this.guard(callerId, 'start_review', () => this.convertToReview(callerId, a)),
       delegate: (a) => this.guard(callerId, 'delegate', () => this.delegate(callerId, a.tasks ?? [], { name: a.name, objective: a.objective })),
       spawn: (a) => this.guard(callerId, 'spawn', () => this.spawn(callerId, a)),
       sessionStatus: (a) => this.guard(callerId, 'session_status', () => this.sessionStatus(callerId, a.id)),
@@ -190,7 +194,7 @@ export class Delegation {
     return level !== undefined && NO_CARD_LEVELS.includes(level);
   }
 
-  private async approve(caller: Session, tool: 'delegate' | 'spawn' | 'ask_session' | 'handoff' | 'move_to_project', title: string, lines: string[], allow = 'Start', always = false): Promise<boolean> {
+  private async approve(caller: Session, tool: 'delegate' | 'spawn' | 'ask_session' | 'handoff' | 'move_to_project' | 'start_review', title: string, lines: string[], allow = 'Start', always = false): Promise<boolean> {
     // `always`: a role the user set to start only after they approve asks whatever the caller's mode.
     if (!always && this.startsWithoutCard(caller.id)) return true;
     const request: InputRequest = {
@@ -236,6 +240,11 @@ export class Delegation {
     const pending = this.afterTurn.get(session.id);
     if (!pending) return false;
     this.afterTurn.delete(session.id);
+    if ('replacedBy' in pending) {
+      // The review session it asked for is running: this one gives way to it (review-requests/convert.ts).
+      await this.rt.replaceWith(session.id, pending.replacedBy);
+      return true;
+    }
     if ('archive' in pending) {
       const outcome = await this.rt.runArchiveScript(session.id);
       const failure = outcome && scriptFailure('archive', outcome);
@@ -286,6 +295,31 @@ export class Delegation {
     if (session.startedIn || this.moveAsked.has(session.id) || this.rt.moveRefusal(session)) return;
     const worked = projectWorkedIn(this.rt.turnWork(session.id), (await this.ws.state()).projects);
     if (worked) await this.rt.suggestions.suggest(session.id, { kind: MOVE_KIND, project: worked.project.id, folder: worked.folder.id });
+  }
+
+  /**
+   * start_review: the user's first message asked for a review of a pull request. They are asked
+   * whether to make this a review session; on a yes one is started for that request and this
+   * session is removed when its turn ends (review-requests/convert.ts). Refused, with what to do
+   * instead, when the request is in no registered project or the conversation is already under way.
+   */
+  private async convertToReview(callerId: string, a: { pull_request: string }): Promise<ToolResult> {
+    const caller = await this.session(callerId);
+    if (caller.review) throw new Refused(ALREADY_A_REVIEW);
+    const said = (this.rt.recordOf(callerId)?.messages ?? []).filter((m) => m.author === 'you' && !m.notice).length;
+    if (said > 1) throw new Refused(NOT_FIRST_MESSAGE);
+    const ref = parseRequestRef(a.pull_request ?? '');
+    if (!ref) throw new Refused(NOT_A_REQUEST);
+    const home = await requestHome(ref, (await this.ws.state()).projects, caller.startedIn, originUrl);
+    const named = ref.repository ? `${ref.repository} #${ref.number}` : `#${ref.number}`;
+    if (!home) throw new Refused(noProjectFor(named));
+    const request = await this.rt.requestToReview(home, ref.number, ref.url);
+    const terms = hostTerms(request.host);
+    const ask = convertAsk(`${terms.long} ${terms.sigil}${request.number} in ${request.repository} ("${request.title}")`, home.project.name);
+    if (!(await this.approve(caller, 'start_review', ask.title, [ask.detail], 'Make it a review', true))) return { text: CONVERT_DECLINED };
+    const review = await this.rt.startReview(request);
+    this.afterTurn.set(callerId, { replacedBy: review.id });
+    return { text: converted(review.title, review.id) };
   }
 
   private async handoff(callerId: string, a: { project: string; folder?: string; summary: string; agent?: string; archive_self?: boolean }): Promise<ToolResult> {

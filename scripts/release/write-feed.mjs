@@ -1,7 +1,13 @@
-// Writes latest-mac.yml, the feed electron-updater reads, for the artifacts in a release folder.
+// Writes the feed electron-updater reads, for one platform's artifacts in a release folder:
 //
-//   node scripts/release/write-feed.mjs --dir dist/release --version 0.0.1 [--base <url>]
+//   mac      latest-mac.yml           the update zip, then the DMG
+//   win      latest.yml               the NSIS installer
+//   linux    latest-linux.yml         the AppImage (latest-linux-arm64.yml for --arch arm64)
 //
+//   node scripts/release/write-feed.mjs --dir dist/release --version 0.0.1 [--platform mac|win|linux]
+//                                       [--arch x64|arm64] [--base <url>] [--out <file>]
+//
+// --platform defaults to mac, --arch to arm64 for mac and x64 otherwise.
 // Without --base the entries are bare file names, resolved against wherever the feed is served
 // (a local test server). With --base (the publish step) every `url` and `path` is absolute:
 // electron-updater resolves each with `new URL(entry, feedBase)`, so an absolute URL is used as
@@ -13,20 +19,22 @@ import { createReadStream, existsSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 
-const { values } = parseArgs({ options: { dir: { type: 'string' }, version: { type: 'string' }, base: { type: 'string' }, out: { type: 'string' } } });
-const { dir, version } = values;
-if (!dir || !version) {
-  console.error('usage: write-feed.mjs --dir <release dir> --version <x.y.z> [--base <absolute url ending in />] [--out <file>]');
+import { feedFiles } from './feed-files.mjs';
+
+const { values } = parseArgs({ options: { dir: { type: 'string' }, version: { type: 'string' }, platform: { type: 'string', default: 'mac' }, arch: { type: 'string' }, base: { type: 'string' }, out: { type: 'string' } } });
+const { dir, version, platform } = values;
+if (!dir || !version || !['mac', 'win', 'linux'].includes(platform)) {
+  console.error('usage: write-feed.mjs --dir <release dir> --version <x.y.z> [--platform mac|win|linux] [--arch x64|arm64] [--base <absolute url ending in />] [--out <file>]');
   process.exit(2);
 }
+const arch = values.arch ?? (platform === 'mac' ? 'arm64' : 'x64');
 const base = values.base ?? '';
 if (base && !/^https:\/\/.+\/$/.test(base)) {
   console.error(`!! --base must be an https URL ending in /, not ${base}`);
   process.exit(2);
 }
 
-const zip = `Kestrel-${version}-arm64-mac.zip`;
-const dmg = `Kestrel-${version}-arm64.dmg`;
+const names = feedFiles(platform, arch, version);
 
 function sha512(path) {
   return new Promise((resolve, reject) => {
@@ -41,7 +49,7 @@ async function entry(name) {
   return { url: `${base}${name}`, sha512: await sha512(path), size: statSync(path).size };
 }
 
-const files = [await entry(zip), await entry(dmg)];
+const files = await Promise.all(names.files.map(entry));
 const yml = [
   `version: ${version}`,
   'files:',
@@ -51,6 +59,6 @@ const yml = [
   `releaseDate: '${new Date().toISOString()}'`,
   '',
 ].join('\n');
-const out = values.out ?? join(dir, 'latest-mac.yml');
+const out = values.out ?? join(dir, names.feed);
 writeFileSync(out, yml);
 console.log(`==> ${out}`);

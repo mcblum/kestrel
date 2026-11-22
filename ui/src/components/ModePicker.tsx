@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Check } from 'lucide-react';
 import { Popup } from './Popup.tsx';
 import { opensUpward } from './usePopupPlacement.ts';
-import { PERMISSION_LEVELS, permissionHint, SKIP_PROMPTS, SKIP_PROMPTS_CONFIRM, type PermissionLevel } from '@kestrel/server/permissions';
+import { PERMISSION_LEVELS, permissionHint, SKIP_PROMPTS, SKIP_PROMPTS_CONFIRM, SKIP_PROMPTS_NOTE, type PermissionLevel } from '@kestrel/server/permissions';
 import type { Agent } from '@kestrel/server/model';
 
 const ALL = PERMISSION_LEVELS.map((m) => m.id);
@@ -17,9 +17,12 @@ interface Props {
   levels?: readonly PermissionLevel[];
   /** The agent the session runs on: a mode's hint says what it does for that agent (`permissionHint`). */
   agent?: Agent;
+  /** The tooltip of the label itself: what the current mode does. On the label only, never on the
+   *  menu under it, where it would show over every row as if it were that row's own. */
+  help?: string;
 }
 
-export function ModePicker({ value, onChange, levels = ALL, agent }: Props) {
+export function ModePicker({ value, onChange, levels = ALL, agent, help }: Props) {
   const LISTED = PERMISSION_LEVELS.filter((m) => m.place === 'listed' && levels.includes(m.id));
   const BYPASS = PERMISSION_LEVELS.find((m) => m.place === 'bypass' && levels.includes(m.id));
   const [open, setOpen] = useState(false);
@@ -57,7 +60,7 @@ export function ModePicker({ value, onChange, levels = ALL, agent }: Props) {
 
   return (
     <div className="picker mode-picker" ref={host}>
-      <button ref={button} type="button" className={`picker-button${bypassing ? ' ctl-danger' : ''}`} aria-haspopup="menu" aria-expanded={open} aria-label={`Mode: ${current.label}`} onClick={() => setOpen((o) => !o)}>
+      <button ref={button} type="button" className={`picker-button${bypassing ? ' ctl-danger' : ''}`} aria-haspopup="menu" aria-expanded={open} aria-label={`Mode: ${current.label}`} title={help} onClick={() => setOpen((o) => !o)}>
         <span className="picker-value">{current.label}</span>
       </button>
       {open && (
@@ -78,6 +81,7 @@ export function ModePicker({ value, onChange, levels = ALL, agent }: Props) {
             <div className="mode-row mode-bypass">
               <span className="mode-text">
                 <strong>{BYPASS.label}</strong>
+                <small>{SKIP_PROMPTS_NOTE}</small>
               </span>
               {bypassing ? (
                 <Check className="mode-check" aria-label="On" />

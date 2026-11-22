@@ -15,10 +15,10 @@ import type { StartOptions } from '../types.ts';
 
 export const UNSANDBOXED_NOTE = "Runs outside the sandbox: it can change files outside this session's folder";
 
-type Confined = Pick<StartOptions, 'directory' | 'permission' | 'confineShell' | 'sandboxAllow' | 'commitSigning'>;
+type Confined = Pick<StartOptions, 'directory' | 'permission' | 'confineShell' | 'sandboxAllow' | 'commitSigning' | 'sandboxSupport'>;
 
-/** The temporary folders, which the sandbox's own rules let commands write. */
-const TEMP_FOLDERS = [...new Set(['/tmp', '/private/tmp', tmpdir(), realpathSync(tmpdir())])];
+/** The temporary folders, which the sandbox's own rules let commands write. Windows has no /tmp. */
+const TEMP_FOLDERS = [...new Set([...(process.platform === 'win32' ? [] : ['/tmp', '/private/tmp']), tmpdir(), realpathSync(tmpdir())])];
 
 /** The folders the user put on the always-allowed list, by access (Settings → Workflow). */
 function allowedFolders(entries: readonly SandboxAllowEntry[]): { read: string[]; write: string[] } {
@@ -44,11 +44,12 @@ function ownFolders(directory: string, repoOf: (worktree: string) => string | nu
  * reaches a running session from its next message. When the repository signs its commits, signing
  * gets through (`commitSigning`): GnuPG's home is readable and the signing agent's socket can be
  * reached; nothing more, and nothing of it writable.
+ *
+ * Nothing, too, on a computer that has no sandbox (`sandboxSupport`): asking the SDK for one there
+ * ends the run with an error. Such a session is held by `unconfinedReason` instead.
  */
 export function shellSandbox(opts: Confined, repoOf: (worktree: string) => string | null = worktreeRepo): Options['sandbox'] | undefined {
-  if (!opts.confineShell) return undefined;
-  const { permissionMode, readOnly } = claudePermission(opts.permission);
-  if (readOnly || permissionMode === 'bypassPermissions') return undefined;
+  if (!wantsConfinedShell(opts) || opts.sandboxSupport?.available === false) return undefined;
   const listed = allowedFolders(opts.sandboxAllow?.entries() ?? []);
   const read = [...listed.read, ...(opts.commitSigning?.read ?? [])];
   const sockets = opts.commitSigning?.sockets ?? [];
@@ -60,6 +61,33 @@ export function shellSandbox(opts: Confined, repoOf: (worktree: string) => strin
     network: { allowedDomains: ['*'], ...(sockets.length ? { allowUnixSockets: sockets } : {}) },
   };
 }
+
+/** A session Kestrel marked (`confineShell`), that runs commands at all, and whose user did not choose Bypass. */
+function wantsConfinedShell(opts: Confined): boolean {
+  if (!opts.confineShell) return false;
+  const { permissionMode, readOnly } = claudePermission(opts.permission);
+  return !readOnly && permissionMode !== 'bypassPermissions';
+}
+
+/** The tools that run a shell command: Bash everywhere, and PowerShell on Windows. */
+const SHELL_TOOLS = new Set(['Bash', 'PowerShell']);
+
+/**
+ * Why a session that should be sandboxed is not, or null when it is (or needs none). Such a
+ * session's every command asks, in every mode: with nothing to hold a command to the session's
+ * folder, the user is the check. "Allow all" on that card and the always-allowed list still apply.
+ */
+export function unconfinedReason(opts: Confined): string | null {
+  return wantsConfinedShell(opts) && opts.sandboxSupport?.available === false ? opts.sandboxSupport.reason : null;
+}
+
+/** Whether a tool call is a command of a session that has no sandbox to run it in. */
+export function isUnconfinedCommand(tool: string, input: Record<string, unknown>, opts: Confined): boolean {
+  return SHELL_TOOLS.has(tool) && typeof input.command === 'string' && unconfinedReason(opts) !== null;
+}
+
+/** The note on that command's card, and the hook's reason. */
+export const unconfinedNote = (reason: string): string => `Not sandboxed (${reason}): it can change files outside this session's folder`;
 
 /** Where a command's path arguments may point for it to be covered by a command entry (sandbox-allow/match.ts). */
 export function sandboxBounds(opts: Confined, repoOf: (worktree: string) => string | null = worktreeRepo, home: string = homedir()): Bounds {

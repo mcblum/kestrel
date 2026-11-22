@@ -20,6 +20,9 @@
 // conversation), `suggestions/` (optional actions the agent drops in), `browser-tools.ts` (the browser
 // pane, driven through the window that shows it) and `sim-tools.ts` (the iOS Simulator, driven by the server itself).
 import { commentOnPR } from './pull-requests/create.ts';
+import { hostTerms } from './shared/host-terms.ts';
+import { reviewRequestKey } from './shared/review-requests.ts';
+import type { RequestHome } from './review-requests/convert.ts';
 import { githubCommands } from './pull-requests/github.ts';
 import { gitlabCommands } from './pull-requests/gitlab.ts';
 import { REVIEW_KIND, reviewKind } from './suggestions/review-kind.ts';
@@ -52,7 +55,8 @@ import { BackgroundWork } from './runtime/background.ts';
 import { launchChild, loadRecord, startSession, type StartRequest } from './runtime/bring-up.ts';
 import { githubByNumber, gitlabByNumber } from './pull-requests/by-number.ts';
 import { git, originUrl } from './git.ts';
-import { startReview } from './review-requests/start.ts';
+import { startReview, type StartReviewOptions } from './review-requests/start.ts';
+import type { ReviewingComments } from './review-requests/reviewing.ts';
 import { ReviewReplies } from './review-requests/reply.ts';
 import { ReviewPrefs } from './review-settings/prefs.ts';
 import { execRunner } from './pull-requests/github.ts';
@@ -169,6 +173,8 @@ export class SessionRuntime implements McpSessions {
   readonly crashReports: CrashReports;
   /** Settings → Git → Review requests (review-settings/prefs.ts). */
   readonly reviewPrefs: ReviewPrefs;
+  /** The "Reviewing" comments on a request (review-requests/reviewing.ts); null where no host is asked. */
+  private readonly reviewing: ReviewingComments | null;
   /** The `post_review` tool, and posting a review card to its host (review-requests/reply.ts). */
   readonly reviewReplies: ReviewReplies;
   /** Stops one command or piece of background work on the user's word (runtime/stop-work.ts). */
@@ -206,6 +212,7 @@ export class SessionRuntime implements McpSessions {
     this.commitSigning = new CommitSigning(opts.commitSigning);
     this.crashReports = new CrashReports(opts.crashReports);
     this.reviewPrefs = new ReviewPrefs(opts.reviewPrefs);
+    this.reviewing = opts.reviewing ?? null;
     this.reviewReplies = new ReviewReplies({
       session: async (id) => (await workspace.state()).sessions.find((s) => s.id === id),
       messages: (id) => this.records.get(id)?.messages ?? [],
@@ -487,7 +494,7 @@ export class SessionRuntime implements McpSessions {
    * Start reviewing a request somebody asked the user to review, or give back the review already
    * started (review-requests/start.ts): a session in the request's project, at the request's commit.
    */
-  startReview(request: ReviewRequest): Promise<Session> {
+  startReview(request: ReviewRequest, opts: StartReviewOptions = {}): Promise<Session> {
     return startReview(
       {
         projects: async () => (await this.workspace.state()).projects,
@@ -498,8 +505,15 @@ export class SessionRuntime implements McpSessions {
         who: () => this.whoDoesWhat.current(),
         connectedAgents: () => this.availableAgents(),
         start: ({ effort, fast, ...req }) => this.start({ ...req, ...(effort ? { effort } : {}), ...(fast ? { fast: true } : {}) }),
+        ...(this.reviewing ? { reviewing: this.reviewing } : {}),
+        announces: async () => (await this.reviewPrefs.current()).announce,
+        permission: async () => (await this.reviewPrefs.current()).permission,
+        instructions: async () => (await this.reviewPrefs.current()).instructions,
+        notice: (id, text) => this.notice(id, text, 'warning'),
+        now: () => this.now(),
       },
       request,
+      opts,
     );
   }
 
@@ -646,6 +660,26 @@ export class SessionRuntime implements McpSessions {
   async stopBackgroundTask(sessionId: string, taskId: string): Promise<void> {
     const session = await this.sessionOrThrow(sessionId);
     await this.stopper.stop({ sessionId, taskId, handle: this.records.get(sessionId)?.handle, agentName: AGENT_LABEL[session.agent] });
+  }
+
+  /**
+   * The request a session asked to review, as a review request: who it is by and what it is called
+   * are asked of the host (review-requests/convert.ts). Throws `Refused` when the host has no such request.
+   */
+  async requestToReview(home: RequestHome, number: number, url: string | undefined): Promise<ReviewRequest> {
+    const terms = hostTerms(home.host);
+    const found = await (home.host === 'github' ? githubByNumber() : gitlabByNumber()).pullRequestByNumber(home.folder.path, number);
+    if (found.state === 'unavailable') throw new Refused(`Could not look up ${terms.long} ${terms.sigil}${number}: ${found.reason}`);
+    const request = found.state === 'ready' ? found.value : null;
+    if (!request) throw new Refused(`${terms.service} has no ${terms.long} ${terms.sigil}${number} in ${home.repository}.`);
+    const base = { host: home.host, hostName: home.hostName, repository: home.repository, number, title: request.title, author: request.author ?? '', url: request.url || url || '', updatedAt: this.now() };
+    return { ...base, key: reviewRequestKey(base), projectId: home.project.id };
+  }
+
+  /** A session gives way to another: every window showing it is told to show that one, then it is deleted. */
+  async replaceWith(sessionId: string, replacementId: string): Promise<void> {
+    this.emitLive(sessionId, { replacedBy: replacementId });
+    await this.deleteSession(sessionId);
   }
 
   /** Delete a session for good, with its worktree; its branch stays when it holds work (runtime/session-worktrees.ts). */

@@ -96,7 +96,10 @@ export function ComposerControls({ value, mode, onChange, sessionId }: Props) {
       <span className="ctl-right">
         <PresetControl value={value} running={fixed} onChange={pick} />
         <ModelControl models={caps.models} value={value} running={fixed} onChange={(s) => pick({ ...value, ...s })} />
-        {item('Mode', <ModePicker value={value.permission} levels={caps.permissions} agent={value.agent} onChange={(permission) => pick({ ...value, permission })} />, fixed ? `${hint}. Changes apply from your next message` : hint)}
+        {/* Its tooltip is on the picker's own label: on this wrapper it would also show over the open menu's rows (Bypass's Enable showed the current mode's hint). */}
+        <span className="ctl" key="Mode">
+          <ModePicker value={value.permission} levels={caps.permissions} agent={value.agent} help={`Mode: ${fixed ? `${hint}. Changes apply from your next message` : hint}`} onChange={(permission) => pick({ ...value, permission })} />
+        </span>
         {fixed && sessionId && caps.contextUsage && <ContextRing sessionId={sessionId} />}
       </span>
     </div>

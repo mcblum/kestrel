@@ -55,7 +55,7 @@ describe.each([
     const route = (method: string, body: Record<string, unknown>) => onboardingRoute(['api', 'onboarding'], method, async () => body, workspace.onboarding);
     expect(await route('PUT', { step: 'projects' })).toEqual({ status: 200, body: { step: 'projects' } });
     // Every step of the guide is progress that can be saved, Notifications (0.0.21) included.
-    for (const step of ['welcome', 'agents', 'notifications', 'ready', 'projects']) expect(await route('PUT', { step })).toEqual({ status: 200, body: { step } });
+    for (const step of ['welcome', 'appearance', 'agents', 'notifications', 'ready', 'projects']) expect(await route('PUT', { step })).toEqual({ status: 200, body: { step } });
     for (const step of [null, 'unknown', 1, {}, ['complete']]) expect((await route('PUT', { step }))?.status).toBe(400);
     expect(await route('GET', {})).toEqual({ status: 200, body: { step: 'projects' } });
     expect(await onboardingRoute(['api', 'state'], 'PUT', async () => { throw new Error('must not read'); }, workspace.onboarding)).toBeNull();

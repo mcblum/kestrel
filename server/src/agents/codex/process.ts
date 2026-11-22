@@ -2,6 +2,8 @@
 // spoken to over stdio JSON-RPC (rpc.ts), its stderr kept as a short tail for the reason a crash
 // gives. Every child is also killed when the Kestrel server process exits, however it exits.
 import { spawn } from 'node:child_process';
+import { hostPlatform } from '../../host.ts';
+import { spawnTarget } from '../find-program.ts';
 import { existsSync } from 'node:fs';
 import { codexEnv, findCodex } from './binary.ts';
 import { RpcConnection, type RpcHandlers } from './rpc.ts';
@@ -102,7 +104,8 @@ export const launchCodex: Launch = ({ env, handlers, onExit }) => {
 
 /** Starts any program that speaks the app-server protocol on stdio (the real one, or a test's fake). */
 export function launchCommand(command: string, args: string[], env: Env, handlers: RpcHandlers, onExit: (info: ExitInfo) => void): AppServer {
-  const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], env: env as NodeJS.ProcessEnv });
+  const target = spawnTarget(command, hostPlatform());
+  const child = spawn(target.command, args, { stdio: ['pipe', 'pipe', 'pipe'], env: env as NodeJS.ProcessEnv, shell: target.shell, windowsHide: true });
   const tail = new Tail();
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', (chunk: string) => tail.push(chunk));

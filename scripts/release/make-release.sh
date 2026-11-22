@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Builds a signed, notarized, stapled Kestrel for Apple Silicon, from a clean tree, in one go:
+# Builds a signed, notarized, stapled Kestrel for Apple Silicon, from a clean tree, in one go
+# (Windows and Linux are scripts/release/make-release-desktop.sh):
 #
 #   preflight -> install -> simulator helper -> UI + server -> stage -> package + sign (electron-builder)
 #   -> notarize + staple the app (afterSign) -> DMG + update zip from the stapled app
@@ -57,7 +58,7 @@ step "UI"
 pnpm --filter @kestrel/ui build
 
 step "Stage (server bundle, node-pty, Claude Code binary, simulator helper)"
-KESTREL_VERSION_OVERRIDE="$VERSION_OVERRIDE" node app/scripts/package/stage.mjs
+KESTREL_VERSION_OVERRIDE="$VERSION_OVERRIDE" node app/scripts/package/stage.mjs --platform darwin --arch arm64
 
 step "Package and sign Kestrel $VERSION$( [ "$SKIP_NOTARIZE" = 1 ] && echo ' (not notarized)' || echo ', notarize and staple the app' )"
 rm -rf "$BUILDER_OUT"
@@ -73,7 +74,9 @@ codesign --force --timestamp --sign "$KESTREL_SIGN_ID" "$BUILDER_OUT/$DMG"
 [ "$SKIP_NOTARIZE" = 1 ] || scripts/release/notarize.sh "$BUILDER_OUT/$DMG"
 
 step "Collect into dist/release"
-rm -rf "$OUT"; mkdir -p "$OUT"
+# Only the Mac's own files are replaced: a Windows or Linux build of this version already collected
+# here (make-release-desktop.sh, or a CI job's artifacts) stays for publish.sh.
+mkdir -p "$OUT"; rm -f "$OUT"/Kestrel*.dmg "$OUT"/Kestrel-*-mac.zip "$OUT"/Kestrel-*-mac.zip.blockmap "$OUT/latest-mac.yml"
 cp "$BUILDER_OUT/$ZIP" "$BUILDER_OUT/$ZIP.blockmap" "$BUILDER_OUT/$DMG" "$OUT/"
 cp "$OUT/$DMG" "$OUT/Kestrel.dmg"
 # electron-builder's DMG blockmap is stale once the DMG is stapled, and the Mac updater only uses the zip's.

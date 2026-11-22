@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { createFolderQueue, foldersOnly } from './open-folders.mjs';
+import { createFolderQueue, foldersInArgs, foldersOnly } from './open-folders.mjs';
 
 describe('foldersOnly', () => {
   const dirs = new Set(['/Users/me/Code/site', '/Users/me/Code/api']);
@@ -32,5 +32,22 @@ describe('createFolderQueue', () => {
     const taken = queue.take();
     queue.add(['/b']);
     assert.deepEqual(taken, ['/a']);
+  });
+});
+
+describe('foldersInArgs (Windows and Linux: folders named on the command line)', () => {
+  const isDir = (path) => path.endsWith('repo') || path.endsWith('other');
+
+  test('takes the folders after the program, leaving options and files out', () => {
+    const argv = ['/opt/Kestrel/kestrel', '--no-sandbox', '/work/repo', '/work/notes.txt', '/work/other'];
+    assert.deepEqual(foldersInArgs(argv, '/home/someone', isDir), ['/work/repo', '/work/other']);
+  });
+
+  test('a folder that is not a whole path is taken from the folder the launch was made in', () => {
+    assert.deepEqual(foldersInArgs(['/opt/Kestrel/kestrel', 'repo'], '/work', isDir), ['/work/repo']);
+  });
+
+  test('the program itself is never a folder to open', () => {
+    assert.deepEqual(foldersInArgs(['/work/repo'], '/work', isDir), []);
   });
 });

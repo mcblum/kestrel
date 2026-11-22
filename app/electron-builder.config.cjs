@@ -1,9 +1,12 @@
-// electron-builder configuration for Kestrel.app (arm64, Developer ID, hardened runtime).
-// It packages what app/scripts/package/stage.mjs laid out in dist/stage; make-release.sh runs both.
+// electron-builder configuration for Kestrel: Kestrel.app (arm64, Developer ID, hardened runtime),
+// the Windows installer (NSIS, x64) and the Linux AppImage.
+// It packages what app/scripts/package/stage.mjs laid out in dist/stage, which is staged for one
+// platform at a time: make-release.sh runs both for the Mac, make-release-desktop.sh for the others.
 // Signing identity and notary profile come from the environment (names only, never secrets):
 //   KESTREL_SIGN_ID         default "Developer ID Application: Matthew Blum (NLJAPE8842)"
 //   KESTREL_NOTARY_PROFILE  default "Vireo" (a notarytool keychain profile)
 //   KESTREL_SKIP_NOTARIZE=1 sign only (local iterations)
+const { existsSync } = require('node:fs');
 const { join } = require('node:path');
 
 const root = join(__dirname, '..');
@@ -11,7 +14,14 @@ const stage = join(root, 'dist', 'stage');
 const DEFAULT_SIGN_ID = 'Developer ID Application: Matthew Blum (NLJAPE8842)';
 const signId = process.env.KESTREL_SIGN_ID || DEFAULT_SIGN_ID;
 const icon = join(root, 'Brand', 'exports', 'icon.icns');
+// Windows and Linux take a PNG: electron-builder makes the .ico and the icon sizes from it.
+const pngIcon = join(root, 'Brand', 'exports', 'icon-512.png');
 const entitlements = join(__dirname, 'build', 'entitlements.mac.plist');
+// The Electron already in node_modules is this computer's. It is used when the build is for this
+// computer's platform; a build for another one (a Windows installer made on Linux) downloads its own.
+const localElectron = join(root, 'app', 'node_modules', 'electron', 'dist');
+const target = process.env.KESTREL_TARGET_PLATFORM || process.platform;
+const useLocalElectron = target === process.platform && existsSync(localElectron);
 
 module.exports = {
   appId: 'io.nationalmachine.kestrel',
@@ -19,8 +29,7 @@ module.exports = {
   executableName: 'Kestrel',
   copyright: '© 2026 Matt Blum',
   electronVersion: '45.3.2',
-  // The Electron already in node_modules: nothing is downloaded.
-  electronDist: join(root, 'app', 'node_modules', 'electron', 'dist'),
+  ...(useLocalElectron ? { electronDist: localElectron } : {}),
   directories: { app: join(stage, 'app'), output: join(root, 'dist', 'builder'), buildResources: join(__dirname, 'build') },
   files: ['**/*'],
   asar: true,
@@ -67,10 +76,36 @@ module.exports = {
     sign: false,
     writeUpdateInfo: false,
   },
+  win: {
+    target: [{ target: 'nsis', arch: ['x64'] }],
+    icon: pngIcon,
+    // Not code-signed: there is no Windows certificate yet, so SmartScreen warns on first run.
+    // KESTREL_WIN_NO_EDIT=1 also skips writing the icon and version into Kestrel.exe, which off
+    // Windows needs wine (a packaging check on a Mac; never a release).
+    ...(process.env.KESTREL_WIN_NO_EDIT === '1' ? { signAndEditExecutable: false } : {}),
+  },
+  nsis: {
+    // One click, for this user only: no administrator prompt, and updates install the same way.
+    oneClick: true,
+    perMachine: false,
+    artifactName: 'Kestrel-Setup-${version}-${arch}.${ext}',
+    shortcutName: 'Kestrel',
+    uninstallDisplayName: 'Kestrel',
+  },
+  linux: {
+    // An AppImage runs on any distribution and is the form electron-updater can replace in place.
+    target: [{ target: 'AppImage' }],
+    icon: pngIcon,
+    category: 'Development',
+    synopsis: 'Runs coding agents, organized around tasks.',
+    artifactName: 'Kestrel-${version}-${arch}.${ext}',
+    executableName: 'kestrel',
+  },
   afterPack: join(root, 'scripts', 'release', 'after-pack.cjs'),
   // Notarize and staple the app before the DMG and zip are made from it, so both carry the ticket.
   afterSign: join(root, 'scripts', 'release', 'after-sign.cjs'),
-  // Writes app-update.yml into the app and the zip's blockmap; the feed itself (latest-mac.yml)
-  // is written by make-release.sh. The app sets its feed URL itself (app/updater.mjs).
+  // Writes app-update.yml into the app and the blockmaps; the feeds themselves (latest-mac.yml,
+  // latest.yml, latest-linux.yml) are written by write-feed.mjs. The app sets its feed URL itself
+  // (app/updater.mjs).
   publish: { provider: 'generic', url: 'https://starfish.nationalmachine.io/kestrel/releases/-/raw/main/' },
 };

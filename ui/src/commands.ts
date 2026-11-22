@@ -1,6 +1,7 @@
 // Things the user can do from a shortcut, a menu, or the Electron app menu. One place, so the
 // page and the native menu can never disagree.
-import { bindingOf, commandFor } from '@kestrel/server/shortcuts';
+import { bindingOf, commandFor, browserNavCommand } from '@kestrel/server/shortcuts';
+import { goBack, goForward } from './navHistory.ts';
 import { isMac, shortcuts } from './shortcuts.ts';
 import { openCreateProject, openProjectFolders, openProjectPage, openProjectSettings } from './projectNav.ts';
 import type { MenuAction } from '@kestrel/server/menu';
@@ -62,7 +63,7 @@ async function forkAndOpen(sessionId: string, turn: string | undefined, newTab: 
   focusSessionComposer(fork.id);
 }
 
-export type Command = 'new-session' | 'new-tab' | 'close-tab' | 'switch' | 'next-tab' | 'prev-tab' | 'toggle-sidebar' | `tab:${number}`;
+export type Command = 'new-session' | 'new-tab' | 'close-tab' | 'switch' | 'next-tab' | 'prev-tab' | 'toggle-sidebar' | 'back' | 'forward' | `tab:${number}`;
 
 /** Opened by the shell (Electron menu) or by a key press; App provides the switcher. */
 let openSwitcher: () => void = () => undefined;
@@ -92,12 +93,15 @@ export function runCommand(command: Command | string): void {
   else if (command === 'next-tab') tabActions.step(1);
   else if (command === 'prev-tab') tabActions.step(-1);
   else if (command === 'toggle-sidebar') toggleSidebarOrFloat();
+  else if (command === 'back') goBack();
+  else if (command === 'forward') goForward();
   else if (command.startsWith('tab:')) tabActions.activateNth(Number(command.slice(4)));
 }
 
 /** Map a key press to a command, or null: the user's keys over the defaults (shared/shortcuts.ts). Cmd on Mac, Ctrl elsewhere. */
 export function commandForKey(event: KeyboardEvent): string | null {
-  return commandFor(shortcuts(), bindingOf(event, isMac()));
+  const binding = bindingOf(event, isMac());
+  return commandFor(shortcuts(), binding) ?? browserNavCommand(binding, isMac());
 }
 
 /**

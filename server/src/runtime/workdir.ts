@@ -5,6 +5,7 @@
 // renames the branch too, while that is safe (runtime/late-branch.ts). Anywhere else there is no branch,
 // so nothing waits and the title comes in the background.
 import type { HostKind } from '../shared/host-terms.ts';
+import type { ReviewingComments } from '../review-requests/reviewing.ts';
 import type { ProcessSystem } from './kill-task.ts';
 import type { CommitSigningOptions } from '../commit-signing/prefs.ts';
 import type { CrashReportsOptions } from '../crash-reports/prefs.ts';
@@ -75,6 +76,8 @@ export interface RuntimeOptions {
   reviewPrefs?: { settings?: SettingStore };
   /** How a review is posted to its host (review-requests/post.ts); tests pass their own, so they never call gh or glab. */
   reviewRunner?: CommandRunner;
+  /** The "Reviewing" comments on a request (review-requests/reviewing.ts). Default: none, so nothing asks a host unless the server was started to (index.ts). */
+  reviewing?: ReviewingComments | null;
   /** How a command's processes are found and ended when its agent cannot stop it (runtime/kill-task.ts); tests pass their own. */
   processes?: ProcessSystem;
 }

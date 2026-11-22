@@ -2,6 +2,7 @@
 // line about the default, then the saved folders (add, remove, make one the default, drag to reorder;
 // order means nothing else; Show in Finder or Copy path on each). A refusal shows beside its row.
 import { SettingHeading } from './SettingHelp.tsx';
+import { showInManager } from '../platform.ts';
 import { useState } from 'react';
 import type { Project } from '@kestrel/server/model';
 import { defaultFolder, placeFolder } from '@kestrel/server/project-folders';
@@ -10,10 +11,10 @@ import { projectCalls } from '../projectActions.ts';
 import { AddFolderInput } from './AddFolderInput.tsx';
 import { FolderList } from './FolderList.tsx';
 
-/** Show in Finder where the Mac app can; Copy path in a browser. */
+/** Show in Finder (File Explorer, the file manager) where the desktop app can; Copy path in a browser. */
 const pathAction = () =>
   window.kestrelShell?.reveal
-    ? { label: 'Show in Finder', run: (path: string) => void runMenuAction({ type: 'reveal', path }) }
+    ? { label: showInManager(), run: (path: string) => void runMenuAction({ type: 'reveal', path }) }
     : { label: 'Copy path', run: (path: string) => void runMenuAction({ type: 'copy', text: path, what: 'path' }) };
 
 export function ProjectFolders({ project, headingId }: { project: Project; headingId: string }) {

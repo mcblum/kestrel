@@ -53,11 +53,13 @@ import { installAppearance } from './appearance.ts';
 import { installFocusRing } from './focusRing.ts';
 import { installNotifier } from './notifier.ts';
 import { installShortcuts } from './shortcuts.ts';
+import { installNavHistory } from './navHistory.ts';
 
 installAppearance();
 installFocusRing();
 installNotifier();
 installShortcuts();
+installNavHistory();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

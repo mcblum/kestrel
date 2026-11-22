@@ -1,7 +1,9 @@
 // Updates, with electron-updater's generic provider. Packaged app only: a checkout never checks.
 //
-// The feed is `latest-mac.yml` at FEED_URL (KESTREL_UPDATE_FEED overrides it, for testing against
-// a local server). It names the zip to download, by an absolute URL wherever the zip is hosted.
+// The feed is one file per platform at FEED_URL (KESTREL_UPDATE_FEED overrides it, for testing
+// against a local server): `latest-mac.yml`, `latest.yml` for Windows, `latest-linux.yml` for the
+// Linux AppImage. It names the file to download, by an absolute URL wherever that is hosted.
+// update-support.mjs says which copies update at all, and why the others do not.
 // Checks run shortly after launch and every few hours; a found update downloads in the background;
 // when it is ready the page shows a quiet notice with a Restart button (ui UpdateNotice). Nothing
 // restarts by itself: the user restarts, or the update is installed the next time Kestrel quits.
@@ -10,6 +12,9 @@
 // automatic checks and a plain sentence on "Check for Updates…".
 import { app, dialog } from 'electron';
 import electronUpdater from 'electron-updater';
+import { isMissingFeed, updateSupport } from './update-support.mjs';
+
+export { isMissingFeed };
 
 const { autoUpdater } = electronUpdater;
 
@@ -23,12 +28,6 @@ const CHECK_EVERY_MS = 4 * 60 * 60 * 1000;
 export function feedUrl(env = process.env) {
   const raw = env.KESTREL_UPDATE_FEED || FEED_URL;
   return raw.endsWith('/') ? raw : `${raw}/`;
-}
-
-/** Whether this error means "there is no feed (yet)", rather than a real failure. */
-export function isMissingFeed(error) {
-  const text = String(error?.message ?? error);
-  return /\b404\b/.test(text) || /Cannot find latest-mac\.yml/i.test(text) || /ERR_FILE_NOT_FOUND/.test(text);
 }
 
 const logger = {
@@ -45,7 +44,8 @@ const logger = {
 export function startUpdater({ send, beforeRestart, getWindow }) {
   /** @type {UpdateState} */
   let state = { status: 'idle' };
-  const enabled = app.isPackaged && process.env.KESTREL_UPDATES !== 'off';
+  const support = updateSupport({ platform: process.platform, packaged: app.isPackaged, env: process.env });
+  const enabled = support.enabled;
   const set = (next) => {
     state = next;
     send(state);
@@ -57,7 +57,7 @@ export function startUpdater({ send, beforeRestart, getWindow }) {
     // A downloaded update is also installed when Kestrel quits normally, so nobody has to restart for it.
     autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.allowPrerelease = false;
-    // Test aid: Squirrel reopens the app with no arguments, so a test copy run with its own
+    // Test aid: the installer reopens the app with no arguments, so a test copy run with its own
     // --user-data-dir would reopen on the real profile. KESTREL_UPDATE_NO_RELAUNCH=1 makes
     // Restart quit and install without reopening; the tester opens the new version.
     autoUpdater.autoRunAppAfterInstall = process.env.KESTREL_UPDATE_NO_RELAUNCH !== '1';
@@ -89,7 +89,7 @@ export function startUpdater({ send, beforeRestart, getWindow }) {
     state: () => state,
     /** "Check for Updates…" from the app menu: always says what happened. */
     async checkNow() {
-      if (!enabled) return tell('Updates are off', app.isPackaged ? 'KESTREL_UPDATES is set to off.' : 'A build run from a checkout does not update itself.');
+      if (!support.enabled) return tell('Updates are off', support.reason);
       if (state.status === 'ready') return tell(`Kestrel ${state.version} is ready`, 'Restart Kestrel to update.');
       if (state.status === 'downloading') return tell(`Kestrel ${state.version} is downloading`, 'It will be ready in a moment.');
       try {

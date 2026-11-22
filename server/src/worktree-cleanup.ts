@@ -1,9 +1,12 @@
 // The worktrees Kestrel made for sessions, with what each takes on disk and whether it looks stale
 // (shared/stale-worktrees.ts), for Settings → Worktrees and the Overview's line. Gathering is
-// read-only: git says what is uncommitted and unmerged, `du` says the size. Removing one goes
+// read-only: git says what is uncommitted and unmerged, `du` says the size (on Windows, which has
+// no `du`, the files are added up one by one). Removing one goes
 // through the session runtime's own discard; this file never deletes anything.
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { lstat, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { SessionView, WorkspaceState } from './model.ts';
 import type { DiscardPreview } from './shared/landing.ts';
 import { activityAt } from './shared/session-order.ts';
@@ -30,8 +33,33 @@ export interface CleanupDeps {
   measure(path: string): Promise<number | null>;
 }
 
-/** A folder's size on disk in bytes (`du -sk`), or null when `du` fails or times out. Never throws. */
+/**
+ * A folder's size in bytes by adding up its files, for a computer with no `du` (Windows). Links are
+ * not followed. Null when the folder cannot be read or the time runs out. Never throws.
+ */
+export async function walkBytes(path: string, timeoutMs = DU_TIMEOUT_MS, now: () => number = Date.now): Promise<number | null> {
+  const deadline = now() + timeoutMs;
+  let total = 0;
+  const pending = [path];
+  try {
+    while (pending.length > 0) {
+      if (now() > deadline) return null;
+      const dir = pending.pop()!;
+      for (const entry of await readdir(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) pending.push(full);
+        else if (entry.isFile()) total += (await lstat(full)).size;
+      }
+    }
+  } catch {
+    return null;
+  }
+  return total;
+}
+
+/** A folder's size on disk in bytes (`du -sk`; added up file by file on Windows), or null when it could not be measured. Never throws. */
 export function folderBytes(path: string): Promise<number | null> {
+  if (process.platform === 'win32') return walkBytes(path);
   return new Promise((resolve) =>
     execFile(DU, ['-sk', path], { timeout: DU_TIMEOUT_MS }, (_error, out) => {
       const kilobytes = Number(/^(\d+)/.exec(out ?? '')?.[1]);

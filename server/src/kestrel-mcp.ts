@@ -1,5 +1,5 @@
 // Kestrel's tools over MCP's streamable HTTP, one endpoint per session, for agents that run
-// Kestrel's tools out of process (Codex). The tools are the very ones Claude gets in-process
+// Kestrel's tools out of process (Codex and OpenCode). The tools are the very ones Claude gets in-process
 // (agents/claude/tools.ts), built on the session's own KestrelToolHost, so every rule behind them
 // (limits, approvals, filing) is the same.
 //

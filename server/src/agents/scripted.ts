@@ -34,7 +34,7 @@
 import { SAMPLE_SLASH_COMMANDS } from '../seed.ts';
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { pathsInside } from './edited-paths.ts';
 import type { AgentAdapter, AgentAttachment, AgentEvent, AgentHandle, InputAnswer, KestrelToolHost, MidTurnMessage } from './types.ts';
 import { runScriptedSuggestion } from './scripted-suggest.ts';
@@ -178,12 +178,30 @@ function handle(emit: (e: AgentEvent) => void, id: string, tools: KestrelToolHos
         mkdirSync(join(cwd, 'ui/src'), { recursive: true });
         writeFileSync(join(cwd, 'ui/src/Table.tsx'), SAMPLE_TABLE);
         writeFileSync(join(cwd, 'ui/src/Table.test.tsx'), SAMPLE_TABLE_TEST);
+        mkdirSync(join(cwd, dirname(LONG_SAMPLE_PATH)), { recursive: true });
+        writeFileSync(join(cwd, LONG_SAMPLE_PATH), 'package com.example.platform.tables;\n\n/** Where a sticky header sits. */\npublic final class StickyHeaderOffsetResolverFactory {}\n');
         void tools.postReview({
           verdict: 'request_changes',
-          summary: 'Keeps the table header in view by making it sticky.\n\n1. **The header covers the first row** when the table is inside a scrolling panel: the offset assumes the page scrolls.\n2. The new test only checks the class name, not that the header stays put.',
-          comments: [
-            { path: 'ui/src/Table.tsx', line: 42, body: 'This offset is right for the page, not for a panel that scrolls. Read it from the scroll parent.' },
-            { path: 'ui/src/Table.test.tsx', line: 18, body: 'Assert the position after scrolling, not the class.' },
+          summary: 'Keeps the table header in view by making it sticky. The approach is right, but it only works when the page itself scrolls, and the new test would not catch that.',
+          findings: [
+            {
+              brief: 'The sticky header covers the first row when the table is inside a scrolling panel.',
+              detail: 'The offset in `top: var(--page-header)` assumes the page is what scrolls. Inside a panel with `overflow: auto` the header sticks to the panel, where that offset is too large by the height of the page header.',
+              fix: 'Read the offset from the scroll parent, or set `top: 0` when the table is in a panel.',
+              priority: 'high',
+              blocking: true,
+              // SAMPLE: the second is a very long path, to show how one is cut in the middle.
+              refs: [{ path: 'ui/src/Table.tsx', line: 42 }, { path: LONG_SAMPLE_PATH, line: 3 }],
+            },
+            {
+              brief: 'The new test checks the class name, not that the header stays put.',
+              detail: 'It passes with the bug above. `expect(header).toHaveClass("sticky")` says nothing about where the header is after a scroll.',
+              fix: 'Scroll the container and assert the header’s position.',
+              priority: 'medium',
+              blocking: false,
+              refs: [{ path: 'ui/src/Table.test.tsx', line: 18 }],
+            },
+            { brief: 'The changelog has no entry for this.', priority: 'low', blocking: false },
           ],
         });
         return void timers.push(setTimeout(() => finish({ type: 'done', reason: 'complete' }), 600));
@@ -299,5 +317,6 @@ export function scriptedAdapter(): AgentAdapter {
 }
 
 // SAMPLE: the files the scripted review's comments point at ("/review").
+const LONG_SAMPLE_PATH = 'libs/platform-model/platform-model/src/main/java/com/example/platform/model/tables/service/layout/StickyHeaderOffsetResolverFactory.java';
 const SAMPLE_TABLE = "import { useRef, type ReactNode } from 'react';\n\ninterface Column<T> {\n  key: keyof T & string;\n  title: string;\n  render?: (row: T) => ReactNode;\n}\n\ninterface Props<T> {\n  rows: readonly T[];\n  columns: readonly Column<T>[];\n  /** Keep the header in view while the rows scroll. */\n  stickyHeader?: boolean;\n}\n\nconst HEADER_HEIGHT = 36;\nconst PAGE_OFFSET = 56;\n\nfunction cell<T>(row: T, column: Column<T>): ReactNode {\n  return column.render ? column.render(row) : String(row[column.key] ?? '');\n}\n\nexport function Table<T extends { id: string }>({ rows, columns, stickyHeader = false }: Props<T>) {\n  const body = useRef<HTMLTableSectionElement>(null);\n  const empty = rows.length === 0;\n\n  if (empty) {\n    return <p className=\"table-empty\">Nothing to show.</p>;\n  }\n\n  return (\n    <table className=\"table\">\n      <thead\n        className={stickyHeader ? 'table-head sticky' : 'table-head'}\n        style={\n          stickyHeader\n            ? {\n                position: 'sticky',\n                height: HEADER_HEIGHT,\n                // Sits under the app bar.\n                zIndex: 2,\n                top: PAGE_OFFSET,\n              }\n            : undefined\n        }\n      >\n        <tr>\n          {columns.map((column) => (\n            <th key={column.key}>{column.title}</th>\n          ))}\n        </tr>\n      </thead>\n      <tbody ref={body}>\n        {rows.map((row) => (\n          <tr key={row.id}>\n            {columns.map((column) => (\n              <td key={column.key}>{cell(row, column)}</td>\n            ))}\n          </tr>\n        ))}\n      </tbody>\n    </table>\n  );\n}\n";
 const SAMPLE_TABLE_TEST = "import { render, screen } from '@testing-library/react';\nimport { describe, expect, it } from 'vitest';\nimport { Table } from './Table';\n\nconst rows = [\n  { id: '1', name: 'Ada' },\n  { id: '2', name: 'Grace' },\n];\nconst columns = [{ key: 'name' as const, title: 'Name' }];\n\ndescribe('Table', () => {\n  it('lists its rows', () => {\n    render(<Table rows={rows} columns={columns} />);\n    expect(screen.getByText('Grace')).toBeTruthy();\n  });\n\n  it('keeps the header in view', () => {\n    const { container } = render(<Table rows={rows} columns={columns} stickyHeader />);\n    expect(container.querySelector('thead')?.className).toContain('sticky');\n  });\n});\n";

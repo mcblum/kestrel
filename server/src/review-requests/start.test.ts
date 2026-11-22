@@ -14,7 +14,8 @@ import { ready } from '../shared/sourced.ts';
 import { NOBODY, type WhoDoesWhat } from '../shared/who-does-what.ts';
 import { makeRepo } from '../test-repo.ts';
 import { GIT_TEST_TIMEOUT_MS } from '../test-timeouts.ts';
-import { folderOfRequest, localReviewRef, requestHeadRef, reviewerPreset, reviewPrompt, reviewStart, startReview, type StartReviewDeps } from './start.ts';
+import { DEFAULT_REVIEW_INSTRUCTIONS } from '../shared/review-settings.ts';
+import { defaultBranchOf, folderOfRequest, localReviewRef, requestHeadRef, REVIEW_BRANCH_PREFIX, reviewerPreset, reviewPrompt, reviewStart, startReview, type StartReviewDeps } from './start.ts';
 
 vi.setConfig({ testTimeout: GIT_TEST_TIMEOUT_MS });
 
@@ -103,6 +104,61 @@ describe('the first message', () => {
   });
 });
 
+describe('how to review, in the first message', () => {
+  const start = { head: 'c'.repeat(40), base: 'd'.repeat(40), baseRef: 'main' };
+
+  it('by default: by reading, with no build and no tests (CI does that), short, with code quoted inline', () => {
+    const prompt = reviewPrompt(request(), 'c'.repeat(40), start);
+    expect(prompt).toContain(DEFAULT_REVIEW_INSTRUCTIONS);
+    expect(DEFAULT_REVIEW_INSTRUCTIONS).toContain('Do not build the project, install its dependencies or run its tests; CI does that');
+    expect(DEFAULT_REVIEW_INSTRUCTIONS).toContain('Be clear and reasonably short');
+    expect(DEFAULT_REVIEW_INSTRUCTIONS).toContain('exact enough that an engineer or another model could act on it');
+    expect(DEFAULT_REVIEW_INSTRUCTIONS).toContain('The brief of a finding is one or two plain sentences');
+    expect(DEFAULT_REVIEW_INSTRUCTIONS).toContain('quote the code you mean inline, in backticks');
+    expect(prompt).not.toMatch(/Build it|run its tests when/);
+  });
+
+  it('says each problem once, as a finding, and not again in the summary', () => {
+    const prompt = reviewPrompt(request(), 'c'.repeat(40), start);
+    expect(prompt).toContain('the problems, each said once, as a finding');
+    expect(prompt).toContain('a brief (one or two plain sentences anyone can read)');
+    expect(prompt).toContain('Do not list the problems in the summary as well');
+  });
+
+  it('the user’s own instructions take the place of Kestrel’s, and only of those', () => {
+    const prompt = reviewPrompt(request(), 'c'.repeat(40), start, 'Only look for SQL injection.');
+    expect(prompt).toContain('Only look for SQL injection.');
+    expect(prompt).not.toContain(DEFAULT_REVIEW_INSTRUCTIONS);
+    // What is reviewed, how it is handed over and that nothing is posted by the agent stay.
+    expect(prompt).toContain('Review pull request #7 in acme/app');
+    expect(prompt).toContain('Hand over the review with the post_review tool, once');
+    expect(prompt).toContain('Do not push anything');
+    // Blank instructions are Kestrel's.
+    expect(reviewPrompt(request(), 'c'.repeat(40), start, '  ')).toContain(DEFAULT_REVIEW_INSTRUCTIONS);
+  });
+});
+
+describe('the branch and base of a review', () => {
+  it('reads the default branch a remote names', () => {
+    expect(defaultBranchOf('ref: refs/heads/develop\tHEAD\n0123abc\tHEAD\n')).toBe('develop');
+    expect(defaultBranchOf('0123abc\tHEAD\n')).toBe('');
+    expect(defaultBranchOf('')).toBe('');
+  });
+
+  it('finds the base when the host does not say the target and this clone records no default branch', async () => {
+    const { repo, fork, head } = withRequest('refs/pull/7/head');
+    // As after `git remote add`: no origin/HEAD, and no remote-tracking branch yet.
+    execFileSync('git', ['remote', 'set-head', 'origin', '--delete'], { cwd: repo, stdio: 'ignore' });
+    execFileSync('git', ['update-ref', '-d', 'refs/remotes/origin/main'], { cwd: repo, stdio: 'ignore' });
+    const { start: found } = await reviewStart(runGit, repo, 'github', 7, null);
+    expect(found).toEqual({ head, base: fork, baseRef: 'main' });
+  });
+
+  it('names its branch as Kestrel’s, not under the user’s own prefix', () => {
+    expect(REVIEW_BRANCH_PREFIX).toBe('kestrel-review');
+  });
+});
+
 describe('who reviews, and where', () => {
   const preset = (agent: 'claude' | 'codex', model: string) => ({ id: `${agent}-${model}`, name: model, agent, model, effort: 'high', fast: false });
   const who = (reviewers: ReturnType<typeof preset>[]): WhoDoesWhat => ({ ...NOBODY, presets: reviewers, roles: { ...NOBODY.roles, review: reviewers[0]?.id ?? null }, reviewers: reviewers.map((r) => r.id) });
@@ -163,10 +219,85 @@ describe('starting a review', () => {
       projectId: 'p1',
       folderId: 'f1',
       title: 'Review: Fix the cache',
-      start: { head: h.sha, base: 'd'.repeat(40), baseRef: 'develop' },
+      start: { head: h.sha, base: 'd'.repeat(40), baseRef: 'develop', prefix: 'kestrel-review' },
       review: { key: 'github.com/acme/app/7', host: 'github', number: 7, sha: h.sha, url: 'https://github.com/acme/app/pull/7' },
     });
     expect(h.gitCalls[0]).toEqual(['fetch', '--quiet', 'origin', '+refs/pull/7/head:refs/kestrel/review/7']);
+  });
+
+  it('starts in Auto unless the user chose another mode for reviews', async () => {
+    const auto = harness();
+    await startReview(auto.deps, request());
+    expect(auto.started[0]!.permission).toBe('auto');
+    const manual = harness({ permission: async () => 'ask' });
+    await startReview(manual.deps, request());
+    expect(manual.started[0]!.permission).toBe('ask');
+  });
+
+  describe('with "Reviewing" comments', () => {
+    const NOW = 1_800_000_000_000;
+    const claim = (by: string, minutesAgo = 20) => ({ by, at: NOW - minutesAgo * 60_000 });
+    const reviewing = (standing: { other: ReturnType<typeof claim> | null; mine: ReturnType<typeof claim> | null } | Error) => {
+      const announced: string[] = [];
+      return {
+        announced,
+        comments: {
+          standing: async () => {
+            if (standing instanceof Error) throw standing;
+            return standing;
+          },
+          announce: async (_request: unknown, sha: string) => void announced.push(sha),
+        },
+      };
+    };
+
+    it('a review Kestrel starts on its own holds back when somebody else is already reviewing, and says who', async () => {
+      const r = reviewing({ other: claim('robin'), mine: null });
+      const h = harness({ reviewing: r.comments, announces: async () => true, now: () => NOW });
+      await expect(startReview(h.deps, request(), { automatic: true })).rejects.toThrow('robin said they are reviewing this 20 minutes ago, so Kestrel did not start a second review on its own. Start one yourself if you want it anyway.');
+      expect(h.started).toHaveLength(0);
+      expect(r.announced).toEqual([]);
+    });
+
+    it('a review the user starts goes ahead all the same', async () => {
+      const r = reviewing({ other: claim('robin'), mine: null });
+      const h = harness({ reviewing: r.comments, announces: async () => false, now: () => NOW });
+      await startReview(h.deps, request());
+      expect(h.started).toHaveLength(1);
+    });
+
+    it('says "Reviewing" once the review has started, when the user chose that, naming the commit', async () => {
+      const r = reviewing({ other: null, mine: null });
+      const h = harness({ reviewing: r.comments, announces: async () => true, now: () => NOW });
+      await startReview(h.deps, request(), { automatic: true });
+      expect(h.started).toHaveLength(1);
+      expect(r.announced).toEqual([h.sha]);
+    });
+
+    it('says nothing when the user did not choose it, or already has a comment that stands', async () => {
+      const off = reviewing({ other: null, mine: null });
+      await startReview(harness({ reviewing: off.comments, announces: async () => false, now: () => NOW }).deps, request());
+      expect(off.announced).toEqual([]);
+      const already = reviewing({ other: null, mine: claim('me') });
+      await startReview(harness({ reviewing: already.comments, announces: async () => true, now: () => NOW }).deps, request());
+      expect(already.announced).toEqual([]);
+    });
+
+    it('a host that cannot be asked does not stop a review', async () => {
+      const r = reviewing(new Error('gh: not signed in'));
+      const h = harness({ reviewing: r.comments, announces: async () => false, now: () => NOW });
+      await startReview(h.deps, request(), { automatic: true });
+      expect(h.started).toHaveLength(1);
+    });
+
+    it('a comment that could not be posted is told in the review session, and the review stands', async () => {
+      const notices: [string, string][] = [];
+      const comments = { standing: async () => ({ other: null, mine: null }), announce: async () => Promise.reject(new Error('HTTP 403: Resource not accessible')) };
+      const h = harness({ reviewing: comments, announces: async () => true, notice: (id, text) => void notices.push([id, text]), now: () => NOW });
+      const session = await startReview(h.deps, request());
+      expect(session.id).toBe('new');
+      expect(notices).toEqual([['new', 'The review started, but Kestrel could not post the "Reviewing" comment on the pull request: HTTP 403: Resource not accessible']]);
+    });
   });
 
   it('gives back the review already started, and starts nothing', async () => {

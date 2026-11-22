@@ -134,16 +134,35 @@ export function kestrelMcpServer(host: KestrelToolHost, omit: readonly string[] 
         (args) => guarded(() => host.nextStep(args)),
       ),
       tool(
+        'start_review',
+        "The user's FIRST message in this session asks you to review a pull or merge request, and this is not already a review session: call this before doing anything else. Kestrel asks the user whether to make this a review session (checked out at the request's commit, with findings as cards they can edit and post). On a yes a review session starts and replaces this one: end your turn at once. On a no, or when the result says it cannot be one, review the change here and answer in plain text. Never for a review of the user's own work in progress, and never later in a conversation.",
+        { pull_request: z.string().describe("The request's link, or its number when it is in this session's own project.") },
+        (args) => guarded(() => host.startReview(args)),
+      ),
+      tool(
         'post_review',
         "Only when this session is reviewing somebody else's pull or merge request (Kestrel started it as a review): hand over your finished review. It is shown to the user as a card they can change and post; nothing reaches the host from this call unless the user chose that. Call it once, at the end, instead of commenting or approving on the host yourself.",
         {
           verdict: z.enum(['comment', 'approve', 'request_changes']).describe('What you would do: only comment, approve, or ask for changes.'),
-          summary: z.string().describe('The review itself, in Markdown: what the change does, then the problems you found, most serious first.'),
-          comments: z
-            .array(z.object({ path: z.string().describe('The file, relative to the repository.'), line: z.number().int().describe('The line in the file as the request leaves it.'), body: z.string().describe('The comment.') }))
+          summary: z.string().describe('In Markdown, a few sentences: what the change does and what you make of it overall. Do not list the problems here: each one is a finding.'),
+          findings: z
+            .array(
+              z.object({
+                brief: z.string().describe('One or two plain sentences saying what is wrong, readable by someone who has not opened the code. Always shown.'),
+                detail: z.string().optional().describe('The technical explanation, shown folded: why it is wrong and when it bites, precise enough for an engineer or a model to act on without re-reading the change, and no longer. Quote the code you mean inline in backticks.'),
+                fix: z.string().optional().describe('What to do instead, in a sentence or two.'),
+                priority: z.enum(['high', 'medium', 'low']).describe('How much it matters.'),
+                blocking: z.boolean().describe('Whether you think it must be fixed before this merges.'),
+                refs: z
+                  .array(z.object({ path: z.string().describe('The file, relative to the repository.'), line: z.number().int().describe('The line in the file as the request leaves it.') }))
+                  .max(5)
+                  .optional()
+                  .describe('The lines it is about, the main one first: its comment is posted there, so that one should be a line the request adds or changes. None when it belongs to no line.'),
+              }),
+            )
             .max(50)
             .optional()
-            .describe('Comments on lines the request adds or changes. A line outside the change cannot carry one: put that in the summary.'),
+            .describe('The problems you found, one finding each, said once. The user reads, edits and may dismiss each before anything is posted.'),
         },
         (args) => guarded(() => host.postReview(args)),
       ),
