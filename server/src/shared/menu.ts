@@ -11,12 +11,20 @@ import type { TurnFork } from './turns.ts';
 import { scopeKey, type Scope } from './scope.ts';
 import type { Agent, Session } from '../model.ts';
 
-/** Archive workstream: disabled, with the reason, while any of its sessions is still at work. */
-function archiveItem(name: string, workstreamId: string, members: readonly Pick<Session, 'id' | 'title' | 'state'>[]): MenuItem {
+/**
+ * Archive workstream, and Archive (or Delete) workstream and sessions, the full clean-up when the work
+ * is done (Matt, 2026-11-22): disabled, with the reason, while any of its sessions is still at work.
+ */
+function cleanUpItems(name: string, workstreamId: string, members: readonly Pick<Session, 'id' | 'title' | 'state'>[]): MenuItem[] {
   const refusal = archiveRefusal({ name, sessionIds: members.map((s) => s.id) }, members);
-  return refusal
-    ? { id: 'archive-workstream', label: 'Archive workstream', disabled: true, hint: refusal }
-    : { id: 'archive-workstream', label: 'Archive workstream', hint: 'Its sessions stay where they are', action: { type: 'archive-workstream', workstreamId, archived: true } };
+  const item = (id: string, label: string, action: MenuAction, separatorBefore = false): MenuItem =>
+    refusal ? { id, label, disabled: true, hint: refusal, separatorBefore } : { id, label, action, separatorBefore };
+  return [
+    item('archive-workstream', 'Archive workstream', { type: 'archive-workstream', workstreamId, archived: true }),
+    item('archive-workstream-all', 'Archive workstream and sessions', { type: 'archive-workstream', workstreamId, archived: true, withSessions: true }),
+    { id: 'delete-workstream', label: 'Delete workstream', action: { type: 'delete-workstream', workstreamId }, separatorBefore: true },
+    item('delete-workstream-all', 'Delete workstream and sessions', { type: 'delete-workstream', workstreamId, withSessions: true }),
+  ];
 }
 
 export type MenuAction =
@@ -71,11 +79,11 @@ export type MenuAction =
   /** Stop every session the workstream points at. */
   | { type: 'stop-workstream'; workstreamId: string }
   /** Remove the grouping only: its sessions stay where they are. */
-  | { type: 'delete-workstream'; workstreamId: string }
+  | { type: 'delete-workstream'; workstreamId: string; /** Its sessions too, for good (asks first). */ withSessions?: boolean }
   /** Mark a workstream's work finished, or not finished after all. */
   | { type: 'set-workstream-status'; workstreamId: string; status: 'active' | 'complete' }
   /** Archive a workstream (out of the sidebar, still searchable) or bring it back. Its sessions are not touched. */
-  | { type: 'archive-workstream'; workstreamId: string; archived: boolean }
+  | { type: 'archive-workstream'; workstreamId: string; archived: boolean; /** Its sessions too; on a restore, those archived with it. */ withSessions?: boolean }
   /** Tell a session's agent to run one of its ended commands again (the Commands pane). */
   | { type: 'retry-command'; sessionId: string; commandId: string }
   /** Stop one running command (the Commands pane). */
@@ -248,7 +256,7 @@ export type MenuTarget =
       /** False where nothing can show a folder (the browser build): only Copy path is offered. */
       canReveal?: boolean;
       /** The workstream it is in, which it can be taken out of. */
-      workstream?: { id: string; name: string };
+      workstream?: { id: string; name: string; /** Why it cannot be taken out (`removeRefusal`): it is the lead. */ refusal?: string | null };
       /** Its agent, which decides whether it can be forked. No Fork item without it. */
       agent?: Agent;
       /** The apps that can open its folder; no Open in items without them. */
@@ -388,10 +396,12 @@ export function sidebarMenu(target: MenuTarget): MenuItem[] {
         target.complete
           ? { id: 'reopen-workstream', label: 'Mark as not complete', action: { type: 'set-workstream-status', workstreamId: w, status: 'active' }, separatorBefore: true }
           : { id: 'complete-workstream', label: 'Mark complete', action: { type: 'set-workstream-status', workstreamId: w, status: 'complete' }, separatorBefore: true },
-        target.archived
-          ? { id: 'restore-workstream', label: 'Restore workstream', action: { type: 'archive-workstream', workstreamId: w, archived: false } }
-          : archiveItem(target.name, w, target.members ?? []),
-        { id: 'delete-workstream', label: 'Delete workstream', hint: 'Its sessions stay where they are', action: { type: 'delete-workstream', workstreamId: w }, separatorBefore: true },
+        ...(target.archived
+          ? [
+              { id: 'restore-workstream', label: 'Restore workstream', action: { type: 'archive-workstream', workstreamId: w, archived: false } as MenuAction },
+              { id: 'delete-workstream', label: 'Delete workstream', action: { type: 'delete-workstream', workstreamId: w } as MenuAction, separatorBefore: true },
+            ]
+          : cleanUpItems(target.name, w, target.members ?? [])),
       ];
     }
     case 'session': {
@@ -407,16 +417,25 @@ export function sidebarMenu(target: MenuTarget): MenuItem[] {
       // Like a project's: open (and its read state) · rename, tag and moves · on disk · stop · archive and delete.
       return [
         item.openNewTab({ kind: 'session', id: target.sessionId }),
+        // A workstream's row and tab stand for its lead, so they open this menu: its page is reached from here too (Matt, 2026-11-22).
+        ...(target.workstream ? [{ id: 'open-workstream', label: 'Open workstream page', action: { type: 'open-workstream', workstreamId: target.workstream.id } as MenuAction }] : []),
         ...pinItem('session', target.sessionId, target.pinned),
         ...(target.unread !== undefined ? [{ id: 'mark-unread', label: target.unread ? 'Mark as read' : 'Mark as unread', action: { type: 'mark-unread', sessionId: target.sessionId, unread: !target.unread } as MenuAction }] : []),
         { id: 'rename', label: 'Rename', action: { type: 'rename', kind: 'session', id: target.sessionId }, separatorBefore: true },
         { id: 'tag', label: 'Tag…', action: { type: 'tag-session', sessionId: target.sessionId } },
-        { id: 'move', label: 'Move to group', children: destinations, disabled: destinations.length === 0, hint: destinations.length === 0 ? 'No other group' : undefined },
+        // Nowhere to go: the item is dimmed, with no submenu and no reason line (Matt, 2026-11-22).
+        destinations.length === 0 ? { id: 'move', label: 'Move to group', disabled: true } : { id: 'move', label: 'Move to group', children: destinations },
         ...(target.projects
-          ? [{ id: 'move-project', label: 'Move to project…', children: target.projects.map((p) => ({ id: `to-${p.id}`, label: p.name, action: { type: 'move-to-project', sessionId: target.sessionId, projectId: p.id } as MenuAction })), disabled: target.projects.length === 0, hint: target.projects.length === 0 ? 'No other project' : undefined }]
+          ? [{ id: 'move-project', label: 'Move to project…', ...(target.projects.length === 0 ? { disabled: true } : { children: target.projects.map((p) => ({ id: `to-${p.id}`, label: p.name, action: { type: 'move-to-project', sessionId: target.sessionId, projectId: p.id } as MenuAction })) }) }]
           : []),
         ...(target.agent ? [forkItem(target.sessionId, target.agent, target.running)] : []),
-        ...(target.workstream ? [{ id: 'leave-workstream', label: `Remove from ${target.workstream.name}`, action: { type: 'remove-from-workstream', workstreamId: target.workstream.id, sessionId: target.sessionId } as MenuAction }] : []),
+        ...(target.workstream
+          ? [
+              target.workstream.refusal
+                ? { id: 'leave-workstream', label: `Remove from ${target.workstream.name}`, disabled: true, hint: target.workstream.refusal }
+                : { id: 'leave-workstream', label: `Remove from ${target.workstream.name}`, action: { type: 'remove-from-workstream', workstreamId: target.workstream.id, sessionId: target.sessionId } as MenuAction },
+            ]
+          : []),
         ...onDisk,
         ...(target.running ? [{ id: 'stop', label: 'Stop', action: { type: 'stop-session', sessionId: target.sessionId } as MenuAction, separatorBefore: true }] : []),
         { id: 'archive', label: 'Archive', action: { type: 'archive', kind: 'session', id: target.sessionId }, disabled: target.running, separatorBefore: true },

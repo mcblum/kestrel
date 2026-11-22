@@ -1,5 +1,5 @@
 /* CODE REVIEWS in the sidebar: a request row has two lines (its title, then repository, number and
-   author), as a workstream's top row does. Grey like every other row: no colour of its own. */
+   author), as a workstream's top row does. Its title carries the review colour (colours.css). */
 /* (The extra class is to win over the one-line row height in sidebar-rhythm.css.) */
 .kestrel .studio-sidebar .side-link.review-link { height: auto; min-height: 40px; padding-top: 5px; padding-bottom: 5px; align-items: center; }
 .kestrel .studio-sidebar .review-label { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; text-align: left; }
@@ -12,9 +12,8 @@
 .kestrel .review-no-project { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; font-size: 12px; color: var(--s-muted); }
 .kestrel .review-body { max-width: 720px; font-size: 13px; }
 
-/* A session reviewing somebody else's request: the eye its request row had, in the icon slot to the
-   left of its title, so both kinds of row in CODE REVIEWS line up. */
-.kestrel .studio-sidebar .tree-row > .review-mark { width: var(--slot); height: var(--slot); padding: 1px; box-sizing: border-box; flex: none; margin-left: calc(-1 * (var(--slot) + 8px)); margin-right: 0; color: var(--s-muted); }
+/* A review's title colour is in colours.css (Settings → Colours). */
+.kestrel .studio-sidebar .side-link.review-link { padding-left: var(--side-label-x); }
 
 /* Settings → Git → Review requests. */
 .kestrel .review-setting-mode { width: auto; min-width: 240px; margin-bottom: 6px; }

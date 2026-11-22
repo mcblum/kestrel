@@ -67,9 +67,10 @@
 /* One highlighted row for the open session: the row it was opened from. Its other row (its home,
    or a reference to it) only marks that the session is open: a short bar at the row's left edge and
    the title in ink, no filled background. */
-/* A short straight bar, drawn as a background so the row's rounded corners cannot bend it (an inset
-   shadow followed them and read as a bracket). */
-.kestrel .studio-sidebar .tree-row.open-elsewhere { background-image: linear-gradient(var(--s-muted), var(--s-muted)); background-repeat: no-repeat; background-position: left center; background-size: 2px 14px; }
+/* A short straight bar with rounded ends (Matt, 2026-11-22), drawn as an element of its own so the
+   row's rounded corners cannot bend it (an inset shadow followed them and read as a bracket). It gives
+   way to the drop line while something is dragged over the row, which uses the same ::before. */
+.kestrel .studio-sidebar :is(.tree-row, .workstream-link).open-elsewhere:not(.drop-before)::before { content: ''; position: absolute; left: 0; top: 50%; width: 2px; height: var(--same-session-bar, 14px); transform: translateY(-50%); border-radius: 1px; background: var(--s-muted); pointer-events: none; }
 .kestrel .studio-sidebar .tree-row.open-elsewhere .tree-title { color: var(--s-ink); }
 
 /* The workstream page (WorkstreamPage.tsx): its objective, read or edited in place. */
@@ -103,9 +104,8 @@
 .kestrel .studio-sidebar .fold-toggle:hover { background: color-mix(in srgb, var(--s-muted) 22%, transparent); }
 .kestrel .studio-sidebar .fold-toggle:focus-visible { outline: 1px solid var(--s-muted); outline-offset: 0; }
 .kestrel .studio-sidebar .fold-toggle svg.fold-chevron { width: 11px; height: 11px; color: var(--s-muted); opacity: .7; }
-.kestrel .studio-sidebar .workstream-link.open-elsewhere { background-image: linear-gradient(var(--s-muted), var(--s-muted)); background-repeat: no-repeat; background-position: left center; background-size: 2px 30px; }
 /* A two-line row (a workstream's lead, a session listed under one) marks "open elsewhere" over both its lines. */
-.kestrel .studio-sidebar .tree-row.reference.open-elsewhere { background-size: 2px 30px; }
+.kestrel .studio-sidebar :is(.workstream-link, .tree-row.reference).open-elsewhere { --same-session-bar: 30px; }
 /* The workstream's second line while its name is edited in place. */
 .kestrel .studio-sidebar .workstream-label .tree-where .inline-input { font-size: 10.5px; height: 16px; }
 /* An archived workstream's page says so, with the way back. Grey, like the rest of the chrome. */
@@ -114,3 +114,12 @@
 /* A session list drawn as a tree (a workstream's page): each level is indented, with the line from its parent, as in the sidebar. */
 .kestrel .trow.nested .tcell-main { position: relative; padding-left: calc(var(--depth) * 22px); }
 .kestrel .trow.nested .tcell-main::before { content: ''; position: absolute; left: calc((var(--depth) - 1) * 22px + 6px); top: -10px; bottom: 50%; width: 9px; border-left: 1px solid var(--s-line); border-bottom: 1px solid var(--s-line); border-bottom-left-radius: 4px; }
+
+/* A workstream's first line: the title, then its chevron right after it (Matt, 2026-11-22), as a
+   project's follows its name, so the row's end keeps only the dots and the two buttons. */
+.kestrel .studio-sidebar .workstream-label .workstream-first { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.kestrel .studio-sidebar .workstream-label .workstream-first > .tree-main { flex: 0 1 auto; min-width: 0; }
+.kestrel .studio-sidebar .workstream-label .workstream-first > .fold-toggle { flex: none; display: inline-flex; margin-left: 4px; }
+/* The lead open from its other row: the title brightens; no bar at the far left (Matt, 2026-11-22). */
+.kestrel .studio-sidebar .workstream-block .workstream-link.open-elsewhere:not(.drop-before)::before { content: none; }
+.kestrel .studio-sidebar .workstream-link.open-elsewhere .tree-main { color: var(--s-ink); }

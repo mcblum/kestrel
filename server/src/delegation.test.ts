@@ -209,6 +209,8 @@ describe('delegate', () => {
     // The split reaches repoB, so a workstream points at all three, and the caller's conversation says so.
     expect(state.workstreams).toHaveLength(1);
     expect(state.workstreams[0]!.sessionIds).toEqual([parent.id, ...kids.map((k) => k.session.id)]);
+    // A workstream just made is given a colour (Settings → Colours).
+    expect((await w.runtime.colours.current()).workstreams[state.workstreams[0]!.id]).toBe('brown');
     expect(w.runtime.overlay(parent.id)!.messages.find((m) => m.notice)?.text).toMatch(/^Created the workstream “.+” to connect this session with repoA · Change A and repoB · Change B\.$/);
     // Children ask before edits, in their own worktrees, whatever the caller's level was.
     const childStarts = w.agents.starts.filter((s) => s.prompt.startsWith('Change'));

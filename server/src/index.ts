@@ -31,6 +31,7 @@ import type { Persistence } from './persistence/types.ts';
 import { sampleBackgroundTasks, sampleCommands, seedFakeWorkspace } from './seed.ts';
 import { makeDemoProjects, makeStoryProjects, seedDemoExtras } from './seed-demo.ts';
 import { seedStory } from './seed-story.ts';
+import { seedSidebar } from './seed-sidebar.ts';
 import { LOOPBACK_HOST, newLaunchToken, sessionToken } from './security.ts';
 import { mcpUrl } from './kestrel-mcp.ts';
 import { Workspace } from './workspace.ts';
@@ -46,6 +47,7 @@ const demo = process.env.KESTREL_DEMO === '1';
 // KESTREL_DEMO_SCENE=story (`pnpm demo --story`) is the demo cut down to one moment: one task across
 // three projects, one question waiting, nothing else asking for the eye (seed-story.ts).
 // KESTREL_DEMO_SCENE=story-reviews is the same moment with two review requests waiting in CODE REVIEWS.
+const sidebarDemo = demo && process.env.KESTREL_DEMO_SCENE === 'sidebar';
 const storyReviews = demo && process.env.KESTREL_DEMO_SCENE === 'story-reviews';
 const story = storyReviews || (demo && process.env.KESTREL_DEMO_SCENE === 'story');
 // KESTREL_FAKE=1 opens the separate seeded fake store. Real sessions work in both.
@@ -62,7 +64,8 @@ function openPersistence(): Persistence {
 const db = openPersistence();
 const workspace = new Workspace(db);
 const seeded = fake && (await db.isEmpty());
-if (seeded && story) await seedStory(workspace, makeStoryProjects(dataDir));
+if (seeded && sidebarDemo) await seedSidebar(db, dataDir);
+else if (seeded && story) await seedStory(workspace, makeStoryProjects(dataDir));
 else if (seeded) await seedFakeWorkspace(workspace, demo ? makeDemoProjects(dataDir) : {});
 // KESTREL_SCRIPTED_AGENT=1 (with fake data only) puts a scripted stand-in behind "Claude", for
 // trying the UI by hand: turns that last, approvals, failures (agents/scripted.ts).
@@ -73,10 +76,10 @@ const titles = titleProviders(scripted ? 'scripted' : fake ? 'none' : 'real');
 // Tag rules and Settings → Git live in the store's settings; with fake data a sample GitHub login stands in for gh. The test-only `note` suggestion kind is offered to the scripted stand-in alone.
 // Codex is the user's own `codex app-server` (agents/codex/), OpenCode the user's own `opencode serve`
 // (agents/opencode/); the scripted stand-in replaces Claude only.
-const runtime = new SessionRuntime(workspace, scripted ? { claude: scriptedAdapter() } : { claude: claudeAdapter(), codex: codexAdapter(), opencode: opencodeAdapter() }, dataDir, { titleProviders: titles, suggestions: { settings: db, testKinds: scripted }, git: { settings: db, username: fake ? sampleUsername : undefined }, projectEdits: { settings: db }, startBase: { settings: db }, projectScripts: { settings: db }, projectEnv: { settings: db }, savedActions: { settings: db }, gitDefaults: { settings: db }, notifications: { settings: db }, cleanup: { settings: db }, whoDoesWhat: { settings: db }, keepAwake: { settings: db }, commandsKept: { settings: db }, openIn: { settings: db }, sandboxAllow: { settings: db }, commitSigning: { settings: db }, crashReports: { settings: db }, reviewPrefs: { settings: db }, reviewing: fake ? null : reviewingComments(), ...(fake ? { reviewRunner: async () => ({ stdout: '' }) } : {}) });
-if (demo && seeded && !story) await seedDemoExtras(workspace, runtime.savedActions);
+const runtime = new SessionRuntime(workspace, scripted ? { claude: scriptedAdapter() } : { claude: claudeAdapter(), codex: codexAdapter(), opencode: opencodeAdapter() }, dataDir, { titleProviders: titles, suggestions: { settings: db, testKinds: scripted }, git: { settings: db, username: fake ? sampleUsername : undefined }, projectEdits: { settings: db }, startBase: { settings: db }, projectScripts: { settings: db }, projectEnv: { settings: db }, savedActions: { settings: db }, gitDefaults: { settings: db }, notifications: { settings: db }, cleanup: { settings: db }, whoDoesWhat: { settings: db }, keepAwake: { settings: db }, commandsKept: { settings: db }, openIn: { settings: db }, sandboxAllow: { settings: db }, commitSigning: { settings: db }, crashReports: { settings: db }, reviewPrefs: { settings: db }, colours: { settings: db }, reviewing: fake ? null : reviewingComments(), ...(fake ? { reviewRunner: async () => ({ stdout: '' }) } : {}) });
+if (demo && seeded && !story && !sidebarDemo) await seedDemoExtras(workspace, runtime.savedActions);
 // SAMPLE: with fake data, one running session shows background work left running (seed.ts).
-if (fake && !story) {
+if (fake && !story && !sidebarDemo) {
   const sample = sampleBackgroundTasks(Date.now());
   runtime.background.showSample(sample.sessionId, sample.tasks);
   const commands = sampleCommands(Date.now());
@@ -147,6 +150,7 @@ const seedSampleReviews = async (): Promise<void> => {
   // KESTREL_SAMPLE_REVIEWS=300 seeds that many, to see a long list.
   const samples = sampleReviewRequests(state.projects.map((p) => p.id), Date.now(), sampleReviewCount(process.env.KESTREL_SAMPLE_REVIEWS));
   reviewRequests.set('github.com', ready(samples));
+  if (sidebarDemo) return;
   // SAMPLE: the second request has a review session, so CODE REVIEWS shows both kinds of row.
   const reviewed = samples[1];
   if (reviewed?.projectId && !state.sessions.some((s) => s.review?.key === reviewed.key)) {

@@ -47,6 +47,7 @@ import { detailsRoute, detailsSources, type DetailsSources } from './details-api
 import { asReviewOrder } from './shared/review-requests.ts';
 import type { ReviewRequestStore } from './review-requests/store.ts';
 import { reviewSettingsRoute } from './review-settings/api.ts';
+import { coloursRoute } from './colours/api.ts';
 import { pullRequestListRoute } from './pull-request-list-api.ts';
 import { createPRRoutes } from './pull-requests/create-api.ts';
 import { samplePullRequests } from './pull-requests/fake.ts';
@@ -63,7 +64,8 @@ import { userMcpServers } from './claude-config.ts';
 import { isArchiveKind } from './shared/archive.ts';
 import { publicInfo } from './shared/setup.ts';
 import { sanitizeSidebar } from './shared/sidebar.ts';
-import { sanitizeSeen } from './shared/unread.ts';
+import { checkPage } from './shared/connect-ops.ts';
+import { pageRefusal, transcriptPage } from './shared/transcript-page.ts';
 import { checkAccess, LOOPBACK_HOST, type AccessPolicy } from './security.ts';
 import { mcpSessionOf, serveSessionMcp } from './kestrel-mcp.ts';
 import { LiveChannel } from './live-channel.ts';
@@ -269,6 +271,9 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
     // Settings → Git: what is done with the requests the user was asked to review (review-settings/api.ts).
     const reviewSettings = runtime ? await reviewSettingsRoute(parts, method, () => readJson(req), workspace, runtime.reviewPrefs) : null;
     if (reviewSettings) return send(req, res, reviewSettings.status, reviewSettings.body);
+    // Settings → Colours: the review and workstream colours, and each tag's (colours/api.ts).
+    const colours = runtime ? await coloursRoute(parts, method, () => readJson(req), runtime.colours) : null;
+    if (colours) return send(req, res, colours.status, colours.body);
     // Settings → Workflow: keeping each project's edits in its own session (project-edits/api.ts).
     const projectEdits = runtime ? await projectEditsRoute(parts, method, () => readJson(req), runtime.projectEdits) : null;
     if (projectEdits) return send(req, res, projectEdits.status, projectEdits.body);
@@ -355,7 +360,16 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
       if (method === 'GET' && parts.length === 3) {
         const detail = await workspace.detail(parts[2]!);
         if (!detail) return send(req, res, 404, { error: 'No such session' });
-        return send(req, res, 200, { ...detail, ...runtime?.overlay(parts[2]!) });
+        const whole = { ...detail, ...runtime?.overlay(parts[2]!) };
+        // `?last=N`, or `?before=<message>&limit=N`: one page of the conversation (shared/transcript-page.ts). Without them, all of it, as before.
+        const asked = ['last', 'before', 'limit'].filter((k) => url.searchParams.has(k));
+        if (asked.length === 0) return send(req, res, 200, whole);
+        const ask = checkPage(Object.fromEntries(asked.map((k) => [k, k === 'before' ? url.searchParams.get(k) : Number(url.searchParams.get(k))])));
+        if (!ask.ok) throw new BadRequest(ask.reason);
+        const refusal = pageRefusal(whole.messages, ask.value);
+        if (refusal) return send(req, res, 404, { error: refusal });
+        const page = transcriptPage(whole.messages, ask.value);
+        return send(req, res, 200, { ...whole, messages: page.messages, page: { before: page.before, total: page.total } });
       }
       if (method === 'PATCH' && parts.length === 3) {
         await workspace.renameSession(parts[2]!, str((await readJson(req)).title, 'title', 200));
@@ -556,8 +570,23 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
         const tabs = sanitize(body.tabs);
         // What new sessions start with, read back through storedRemembered (shared/sticky-controls.ts).
         const remembered = typeof body.remembered === 'object' && body.remembered !== null ? body.remembered : null;
-        await workspace.setUiState(JSON.stringify({ tabs, remembered, sidebar: sanitizeSidebar(body.sidebar), ...(body.seen === undefined ? {} : { seen: sanitizeSeen(body.seen) }) }));
+        // What was looked at is the server's own record now (seen.ts): read it first, so one kept here
+        // by an older window is moved out before this write, and never kept here again.
+        await workspace.seen.view();
+        await workspace.setUiState(JSON.stringify({ tabs, remembered, sidebar: sanitizeSidebar(body.sidebar) }));
         return send(req, res, 204);
+      }
+    }
+
+    // What the user has looked at: one record, changed here by every window and by a paired phone, pushed to every window.
+    if (parts[1] === 'seen' && parts.length === 2) {
+      if (method === 'GET') return send(req, res, 200, { seen: await workspace.seen.view() });
+      if (method === 'POST') {
+        const body = await readJson(req);
+        const ids = Array.isArray(body.sessionIds) && body.sessionIds.length <= 500 && body.sessionIds.every((x: unknown) => typeof x === 'string' && x.length < 200) ? (body.sessionIds as string[]) : null;
+        if (!ids || (body.unread !== undefined && typeof body.unread !== 'boolean') || (body.unread === true && ids.length !== 1)) return send(req, res, 400, { error: 'Give sessionIds, a list of session ids, and unread: true only with one of them.' });
+        const seen = body.unread === true ? await workspace.seen.markUnread(ids[0]!) : await workspace.seen.mark(ids);
+        return send(req, res, 200, { seen });
       }
     }
 
@@ -586,7 +615,14 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
       }
       if (runtime && method === 'POST' && parts.length === 4 && parts[3] === 'stop') return send(req, res, 200, { stopped: await runtime.delegation.stopWorkstream(id) });
       if (method === 'DELETE' && parts.length === 5 && parts[3] === 'sessions') {
-        await workspace.removeFromWorkstream(id, decodeURIComponent(parts[4]!));
+        return send(req, res, 200, await workspace.removeFromWorkstream(id, decodeURIComponent(parts[4]!)));
+      }
+      // Undo of the above: the session back at the place it had.
+      if (method === 'POST' && parts.length === 4 && parts[3] === 'sessions') {
+        const body = (await readJson(req)) as { sessionId?: unknown; index?: unknown };
+        if (typeof body.sessionId !== 'string' || !body.sessionId) throw new BadRequest('sessionId must be a session id');
+        if (typeof body.index !== 'number' || !Number.isInteger(body.index) || body.index < 0) throw new BadRequest('index must be a whole number of at least 0');
+        await workspace.addBackToWorkstream(id, body.sessionId, body.index);
         return send(req, res, 204);
       }
       if (method === 'DELETE' && parts.length === 3) {
@@ -715,6 +751,13 @@ async function files(req: IncomingMessage, res: ServerResponse, runtime: Session
     // Every session's pull requests the server already holds; changes follow as they come.
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'pull-requests', all: detailsConfig.sources.store.all() }));
     if (options.reviewRequests && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'review-requests', view: options.reviewRequests.view() }));
+    workspace.seen.view().then((seen) => ws.readyState === ws.OPEN && ws.send(JSON.stringify({ type: 'seen', seen })), (error) => console.error('[kestrel] could not send what was seen', error));
+  });
+
+  // What was looked at, whole, whenever it changes: from this window, another, or a phone.
+  const unsubscribeSeen = workspace.seen.onChange((seen) => {
+    const json = JSON.stringify({ type: 'seen', seen });
+    for (const ws of sockets.clients) if (ws.readyState === ws.OPEN) ws.send(json);
   });
 
   // The PR store's changes, gathered for a moment and sent to every window together.
@@ -778,6 +821,7 @@ async function files(req: IncomingMessage, res: ServerResponse, runtime: Session
       new Promise((resolve) => {
         unsubscribe();
         unsubscribePullRequests();
+        unsubscribeSeen();
         unsubscribeReviewRequests?.();
         unsubscribeLive?.();
         unsubscribeSimShow?.();

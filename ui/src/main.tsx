@@ -48,6 +48,7 @@ import './styles/composer-controls.css';
 import './styles/background-tasks.css';
 import './styles/focus-ring.css';
 import './styles/settings.css';
+import './styles/colours.css';
 import { CrashBoundary } from './components/CrashScreen.tsx';
 import { installAppearance } from './appearance.ts';
 import { installFocusRing } from './focusRing.ts';

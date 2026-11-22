@@ -25,7 +25,7 @@ export function ToastHost() {
     <div className="toast-stack">
       {list.map((toast) => (
         <div key={toast.id} className="toast note" role="status">
-          <span className="toast-text">{toast.message}</span>
+          <span className="toast-text" title={toast.message}>{toast.message}</span>
           {toast.undo && (
             <button type="button" className="toast-undo" onClick={() => toasts.undo(toast.id)}>
               Undo

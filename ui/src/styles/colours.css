@@ -1,0 +1,64 @@
+/* Settings → Colours (shared/colours.ts; ui/src/colours.ts). The palette, each colour defined once
+   for light and dark, muted so any choice sits quietly in grey chrome. No green, yellow or red: those
+   are the status dots and errors. A colour says what kind of thing a row is, never its state
+   (CLAUDE.md, "Grey chrome"). Loaded after the sidebar's sheets, so it wins over their title colours. */
+:root {
+  --palette-grey: light-dark(#6f6c66, #aaa79f);
+  --palette-brown: light-dark(#86644a, #c8a789);
+  /* A terracotta, redder than the amber "waiting on you" dot so the two do not read alike. */
+  --palette-orange: light-dark(#a95b3c, #e0a487);
+  --palette-teal: light-dark(#3c7a78, #8cc4c0);
+  --palette-blue: light-dark(#3f679a, #9cbbe0);
+  --palette-indigo: light-dark(#585a9c, #b0b2e2);
+  --palette-purple: light-dark(#70538c, #baa8d0);
+  --palette-pink: light-dark(#9c4f78, #dba5c2);
+}
+
+/* Colour has one job (Matt, 2026-11-22): it says which project or tag a block of rows is, at a glance,
+   and never sits on a title. A project's colour (`--tint` on its block) is its icon and the guide line
+   down the side of its block; a tag's is its icon, its guide line under TAGS and its chip. Nothing is
+   drawn at the far left of a row in colour: a row listed away from its project names the project on its
+   second line instead. A workstream has a colour of its own, drawn the same way: its icon and a line
+   down the side of its sessions. Code reviews have none (Matt, 2026-11-22). */
+
+/* Icons and chips. */
+.kestrel .studio-sidebar .tag-link.tinted > svg,
+.kestrel .studio-sidebar .workstream-block.tinted .workstream-link > svg,
+.kestrel .studio-sidebar .project-block > .fold-row > .side-link.tinted .repo-icon,
+.kestrel .rail-session.tinted .rail-initial { color: var(--tint); }
+.kestrel .session-head .bar-project.tinted { color: var(--tint); }
+.kestrel .tag-chip.tinted { color: var(--tint); background: color-mix(in srgb, var(--tint) 14%, transparent); }
+
+/* A workstream's line (sidebar-rhythm.css) in its colour, as a project's. */
+.kestrel .studio-sidebar .workstream-block.tinted > .tree-children::before {
+  border-left: 2px solid color-mix(in srgb, var(--tint) 55%, transparent); margin-left: -.5px;
+}
+
+/* A project's or tag's guide line (sidebar-rhythm.css) in its colour, a little wider so it carries. */
+.kestrel .studio-sidebar :is(.project-block, .tag-block).tinted { --guide: var(--tint); }
+.kestrel .studio-sidebar :is(.project-block, .tag-block:not(.workstream-block)).tinted > :is(.tree, .folder-block)::before {
+  border-left: 2px solid color-mix(in srgb, var(--guide) 55%, transparent);
+  margin-left: -.5px;
+}
+
+/* Settings → Colours: one circle per element, tag or group (ColourPicker.tsx). A click fans the
+   choices out from it over the page, each sliding from the circle's place in turn. */
+.kestrel .colour-swatch { box-sizing: border-box; width: 22px; height: 22px; flex: none; padding: 0; border: 2px solid transparent; border-radius: 50%; background: var(--swatch); background-clip: content-box; cursor: pointer; }
+.kestrel .colour-swatch.none { background: none; border: 1px dashed var(--s-muted); }
+.kestrel .colour-swatch[aria-checked='true'] { border-color: var(--s-ink); }
+.kestrel .colour-swatch.none[aria-checked='true'] { border-style: solid; border-width: 2px; }
+.kestrel .colour-swatch:hover { box-shadow: 0 0 0 2px color-mix(in srgb, var(--s-muted) 45%, transparent); }
+.kestrel .colour-picker { position: relative; display: inline-flex; width: 22px; height: 22px; }
+/* The row starts on the circle (covering it) and runs right, or left where there is no room. Each
+   swatch is 22px with a 6px gap: STEP in ColourPicker.tsx. The slide-in runs once; hover only draws a
+   ring and never touches the transform or the animation, which made the swatches jump. */
+.kestrel .colour-fan { position: absolute; z-index: 30; top: -5px; left: -5px; display: flex; gap: 6px; padding: 4px; border: 1px solid var(--s-line); border-radius: 16px; background: var(--s-paper); box-shadow: 0 6px 20px rgba(0, 0, 0, .14); }
+.kestrel .colour-fan.leftward { left: auto; right: -5px; flex-direction: row-reverse; }
+.kestrel .colour-fan > .colour-swatch { animation: colour-fan-out 180ms cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(var(--i) * 18ms); --from: calc(var(--i) * -28px); }
+.kestrel .colour-fan.leftward > .colour-swatch { --from: calc(var(--i) * 28px); }
+@keyframes colour-fan-out { from { opacity: 0; transform: translateX(var(--from)) scale(.6); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .kestrel .colour-fan > .colour-swatch { animation: none; } }
+/* One name column for every section, so the circles line up down the whole page; a longer name is cut short (its full name is its title). */
+.kestrel .colour-rows { display: grid; grid-template-columns: 240px 1fr; align-items: center; gap: 10px 18px; }
+.kestrel .colour-rows .colour-name { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .colour-rows .colour-name svg { width: 14px; height: 14px; margin-right: 6px; vertical-align: -2px; }

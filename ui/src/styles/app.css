@@ -161,7 +161,7 @@ body { background: light-dark(#fafbf9, #171a19); }
 .kestrel :is(.primary-button, .secondary-button) > svg { width: 12px; height: 12px; flex: none; }
 .kestrel a:is(.primary-button, .secondary-button) { text-decoration: none; }
 .kestrel a.secondary-button { color: var(--s-ink); }
-.kestrel .toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 6; box-sizing: border-box; max-width: calc(100vw - 16px); display: flex; align-items: center; gap: 10px; background: var(--s-warm); color: var(--s-ink); border: 1px solid color-mix(in srgb, var(--s-amber) 40%, var(--s-line)); border-radius: 8px; padding: 9px 12px; font-size: 11px; box-shadow: 0 8px 30px #0000001f; }
+.kestrel .toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 30; box-sizing: border-box; max-width: calc(100vw - 16px); display: flex; align-items: center; gap: 10px; background: var(--s-warm); color: var(--s-ink); border: 1px solid color-mix(in srgb, var(--s-amber) 40%, var(--s-line)); border-radius: 8px; padding: 9px 12px; font-size: 11px; box-shadow: 0 8px 30px #0000001f; }
 .kestrel .settings-version { color: var(--s-muted); font-size: 11px; }
 .kestrel .boot-message { padding: 60px 40px; max-width: 560px; }
 .kestrel .boot-message h1 { font-size: 26px; margin-bottom: 12px; }
@@ -1048,19 +1048,21 @@ body { background: light-dark(#fafbf9, #171a19); }
   background-repeat: no-repeat;
 }
 
-/* Toasts (components/ToastHost.tsx): a stack at the bottom centre, newest lowest. A note of what
-   was just done stands out by contrast, not colour; a refused action keeps the warm error look. */
-.kestrel .toast-stack { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 6; display: flex; flex-direction: column; align-items: center; gap: 6px; max-width: calc(100vw - 16px); pointer-events: none; }
+/* Toasts (components/ToastHost.tsx): a stack at the top right, under the tabs, newest lowest, clear of
+   the message box (Matt, 2026-11-22: the inverted note at the bottom centre was too stark). A note is a
+   quiet card in the page's own colours; a refused action keeps the warm error look. */
+.kestrel .toast-stack { position: fixed; top: 46px; right: 16px; z-index: 30; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; max-width: min(560px, calc(100vw - 32px)); pointer-events: none; }
 .kestrel .toast-stack .toast { position: static; transform: none; max-width: 100%; pointer-events: auto; }
-/* A note is the page turned inside out, so it cannot be missed against it: the ink colour behind,
-   the page's colour for the words (dark on a light theme, near white on a dark one). Still grey. */
-.kestrel .toast.note { background: var(--s-ink); color: var(--s-bg); border-color: var(--s-ink); padding: 10px 12px 10px 16px; font-size: 12px; box-shadow: 0 10px 34px #00000047, 0 2px 8px #0000002e; animation: toast-in .26s cubic-bezier(.2, .8, .2, 1) both; }
-.kestrel .toast-text { min-width: 0; }
-.kestrel .toast.note .icon-button { color: color-mix(in srgb, var(--s-bg) 70%, transparent); }
-.kestrel .toast.note .icon-button:hover { color: var(--s-bg); background: color-mix(in srgb, var(--s-bg) 16%, transparent); }
-.kestrel .toast-undo { flex: none; padding: 3px 10px; font: inherit; font-weight: 600; color: var(--s-bg); background: color-mix(in srgb, var(--s-bg) 18%, transparent); border: 0; border-radius: 5px; cursor: pointer; }
-.kestrel .toast-undo:hover { background: color-mix(in srgb, var(--s-bg) 30%, transparent); }
-.kestrel .toast-undo:focus-visible { outline: 2px solid var(--s-bg); outline-offset: 1px; }
-/* In: it rises a little and settles, quickly enough not to be waited for. */
-@keyframes toast-in { from { opacity: 0; transform: translateY(14px) scale(.97); } to { opacity: 1; transform: none; } }
+/* Raised a clear step off the page in both themes (the page's own colour vanished into it): the ink
+   mixed into the background, a firmer border and a real shadow. Still grey. */
+.kestrel .toast.note { background: color-mix(in srgb, var(--s-ink) 11%, var(--s-bg)); color: var(--s-ink); border-color: color-mix(in srgb, var(--s-ink) 20%, var(--s-bg)); padding: 8px 8px 8px 12px; font-size: 12px; box-shadow: 0 10px 28px rgba(0, 0, 0, .28), 0 2px 6px rgba(0, 0, 0, .16); animation: toast-in .22s cubic-bezier(.2, .8, .2, 1) both; }
+.kestrel .toast-text { min-width: 0; flex: 0 1 auto; text-wrap: pretty; }
+.kestrel .toast.note .toast-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kestrel .toast.note .icon-button { color: var(--s-muted); }
+.kestrel .toast.note .icon-button:hover { color: var(--s-ink); background: color-mix(in srgb, var(--s-ink) 12%, transparent); }
+.kestrel .toast-undo { flex: none; padding: 3px 8px; font: inherit; font-weight: 500; color: var(--s-ink); background: color-mix(in srgb, var(--s-ink) 8%, transparent); border: 1px solid color-mix(in srgb, var(--s-ink) 22%, transparent); border-radius: 5px; cursor: pointer; }
+.kestrel .toast-undo:hover { background: color-mix(in srgb, var(--s-ink) 16%, transparent); }
+.kestrel .toast-undo:focus-visible { outline: 2px solid var(--s-muted); outline-offset: 1px; }
+/* In: it slides a little from the right and settles, quickly enough not to be waited for. */
+@keyframes toast-in { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .kestrel .toast.note { animation: none; } }

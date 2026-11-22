@@ -41,6 +41,67 @@ afterEach(() => app.close());
 
 const auth = { Authorization: `Bearer ${TOKEN}` };
 
+describe('a page of a conversation', () => {
+  const get = (path: string) => fetch(`${base}${path}`, { headers: auth });
+  beforeEach(() => ws.setDetail('s1', { messages: Array.from({ length: 5 }, (_, i) => ({ id: `m${i}`, author: 'agent' as const, time: '', text: `${i}` })) }));
+
+  test('without asking for one, the whole conversation as before', async () => {
+    const body = await (await get('/api/sessions/s1')).json();
+    expect(body.messages).toHaveLength(5);
+    expect(body.page).toBeUndefined();
+  });
+  test('the last N, then the N before a message', async () => {
+    const end = await (await get('/api/sessions/s1?last=2')).json();
+    expect(end.messages.map((m: { id: string }) => m.id)).toEqual(['m3', 'm4']);
+    expect(end.page).toEqual({ before: 'm3', total: 5 });
+    const before = await (await get('/api/sessions/s1?before=m3&limit=2')).json();
+    expect(before.messages.map((m: { id: string }) => m.id)).toEqual(['m1', 'm2']);
+  });
+  test('refuses a bad page, and says when the message is gone', async () => {
+    expect((await get('/api/sessions/s1?last=0')).status).toBe(400);
+    expect((await get('/api/sessions/s1?limit=2')).status).toBe(400);
+    const gone = await get('/api/sessions/s1?before=nope&limit=2');
+    expect(gone.status).toBe(404);
+    expect((await gone.json()).error).toMatch(/no longer in the conversation/);
+  });
+});
+
+describe('what the user has looked at', () => {
+  const post = (body: unknown) => fetch(`${base}/api/seen`, { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json', Origin: ORIGIN }, body: JSON.stringify(body) });
+
+  test('one record, changed through one action and pushed to every window', async () => {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${TOKEN}`, { origin: ORIGIN });
+    const pushed: any[] = [];
+    socket.on('message', (raw) => {
+      const m = JSON.parse(String(raw));
+      if (m.type === 'seen') pushed.push(m.seen);
+    });
+    await new Promise((resolve) => socket.once('open', resolve));
+    try {
+      await expect.poll(() => pushed.length).toBe(1);
+      expect(pushed[0]).toHaveProperty('s1');
+      expect((await (await post({ sessionIds: ['s1'], unread: true })).json()).seen.s1).toBe(0);
+      await expect.poll(() => pushed.at(-1)?.s1).toBe(0);
+      expect((await (await post({ sessionIds: ['s1'] })).json()).seen.s1).toBeGreaterThan(0);
+      await expect.poll(() => pushed.at(-1)?.s1).toBeGreaterThan(0);
+      expect((await (await fetch(`${base}/api/seen`, { headers: auth })).json()).seen.s1).toBeGreaterThan(0);
+    } finally {
+      socket.close();
+    }
+  });
+
+  test('refuses a malformed change, and is never kept in the window\'s ui-state again', async () => {
+    expect((await post({ sessionIds: 's1' })).status).toBe(400);
+    expect((await post({ sessionIds: ['s1', 's2'], unread: true })).status).toBe(400);
+    await ws.setUiState(JSON.stringify({ seen: { s1: 7 } }));
+    const put = await fetch(`${base}/api/ui-state`, { method: 'PUT', headers: { ...auth, 'Content-Type': 'application/json', Origin: ORIGIN }, body: JSON.stringify({ tabs: {}, seen: { s1: 1 } }) });
+    expect(put.status).toBe(204);
+    expect(JSON.parse((await ws.getUiState())!).seen).toBeUndefined();
+    // What the older window kept was moved into the record before the write, not lost.
+    expect((await ws.seen.view()).s1).toBe(7);
+  });
+});
+
 describe('access rules', () => {
   test('binds to loopback only', () => {
     expect((app.server.address() as AddressInfo).address).toBe('127.0.0.1');
@@ -133,8 +194,17 @@ describe('api', () => {
       const missing = await post('/api/workstreams/nope', { name: 'x' }, 'PATCH');
       expect(missing.status).toBe(409);
       expect((await missing.json()).error).toBe('No such workstream.');
-      expect((await fetch(`${base}/api/workstreams/${id}/sessions/${children[0]!.id}`, { method: 'DELETE', headers: auth })).status).toBe(204);
+      const removed = await fetch(`${base}/api/workstreams/${id}/sessions/${children[0]!.id}`, { method: 'DELETE', headers: auth });
+      expect(removed.status).toBe(200);
+      expect(await removed.json()).toEqual({ index: 1 });
       expect((await ws.state()).workstreams[0]!.sessionIds).toEqual(['s1']);
+      const putBack = (body: unknown) => fetch(`${base}/api/workstreams/${id}/sessions`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      expect((await putBack({ sessionId: children[0]!.id, index: 'one' })).status).toBe(400);
+      expect((await putBack({ sessionId: children[0]!.id, index: 1 })).status).toBe(204);
+      expect((await ws.state()).workstreams[0]!.sessionIds).toEqual(['s1', children[0]!.id]);
+      const lead = await fetch(`${base}/api/workstreams/${id}/sessions/s1`, { method: 'DELETE', headers: auth });
+      expect(lead.status).toBe(409);
+      expect((await lead.json()).error).toMatch(/leads this workstream/);
       expect((await fetch(`${base}/api/workstreams/${id}`, { method: 'DELETE', headers: auth })).status).toBe(204);
       expect((await ws.state()).workstreams).toEqual([]);
       expect((await ws.state()).sessions.map((x) => x.id)).toContain(children[0]!.id);

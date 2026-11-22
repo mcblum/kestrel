@@ -5,6 +5,7 @@
 # so it runs beside your real Kestrel and never touches it.
 #
 #   pnpm demo                 open the demo (made on the first run, kept afterwards)
+#   pnpm demo --sidebar      busy organization workspace for sidebar demos
 #   pnpm demo --fresh         throw the demo's data away first and make it again
 #   pnpm demo --story         the one-moment scene instead: one task across three projects, one
 #                             question waiting, the rest folded (its own data, ~/.kestrel-demo-story)
@@ -17,11 +18,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 fresh=0
 story=0
+sidebar=0
 reviews=0
 for arg in "$@"; do
   case "$arg" in
     --fresh) fresh=1 ;;
     --story) story=1 ;;
+    --sidebar) sidebar=1 ;;
     --reviews) story=1; reviews=1 ;;
     --light) export KESTREL_APP_THEME=light ;;
     --dark) export KESTREL_APP_THEME=dark ;;
@@ -30,7 +33,10 @@ for arg in "$@"; do
   esac
 done
 
-if [ "$reviews" = 1 ]; then
+if [ "$sidebar" = 1 ]; then
+  export KESTREL_DEMO_SCENE=sidebar
+  DIR="${KESTREL_DEMO_DIR:-$HOME/.kestrel-demo-sidebar}"
+elif [ "$reviews" = 1 ]; then
   export KESTREL_DEMO_SCENE=story-reviews
   DIR="${KESTREL_DEMO_DIR:-$HOME/.kestrel-demo-story-reviews}"
 elif [ "$story" = 1 ]; then

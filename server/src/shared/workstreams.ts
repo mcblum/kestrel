@@ -220,6 +220,15 @@ function sessionList(sessions: readonly Pick<Session, 'id' | 'title'>[]): string
  * stopped, finished or idle-but-unfinished workstream can be archived. One rule for the menu
  * (the item disabled with this as its hint) and the server (refused with it).
  */
+/**
+ * Why a session cannot be taken out of a workstream, or null when it can (Matt, 2026-11-22). The
+ * lead is the workstream's row and the conversation the work was asked in, so it stays; the
+ * workstream itself is deleted instead. Used by the server and the menu alike.
+ */
+export function removeRefusal(workstream: Pick<Workstream, 'sessionIds'>, sessionId: string): string | null {
+  return leadOf(workstream) === sessionId ? 'It leads this workstream: delete the workstream instead' : null;
+}
+
 export function archiveRefusal(workstream: Pick<Workstream, 'name' | 'sessionIds'>, sessions: readonly Pick<Session, 'id' | 'title' | 'state'>[]): string | null {
   const members = new Set(workstream.sessionIds);
   const open = sessions.filter((s) => members.has(s.id) && isOpenWork(s));

@@ -8,6 +8,8 @@ import { isOnlyTab } from '@kestrel/server/tabs';
 import { tabActions, useTabs } from '../tabsStore.ts';
 import { tabRoute } from '../route.ts';
 import { viewTitle } from '../pages/viewTitle.ts';
+import { tabMenuRow } from '@kestrel/server/tab-menu';
+import { openRowMenu } from './sidebarMenuTarget.ts';
 
 const TAB_MIME = 'application/x-kestrel-tab';
 
@@ -53,6 +55,13 @@ const TabButton = memo(function TabButton({ tab, index, active, pinned }: { tab:
         if (id && accepts(e)) (e.preventDefault(), tabActions.move(id, index));
       }}
       onMouseDown={(e) => e.button === 1 && !pinned && (e.preventDefault(), tabActions.close(tab.id))}
+      // A right-click opens the menu of what the tab holds, the same as its sidebar row's (shared/tab-menu.ts).
+      onContextMenu={(e) => {
+        const row = tabMenuRow(tab, route?.view ?? null);
+        if (!row) return;
+        e.preventDefault();
+        openRowMenu(row.kind, row.id, { x: e.clientX, y: e.clientY });
+      }}
     >
       <button className="tab-main" tabIndex={active ? 0 : -1} onClick={() => tabActions.activate(tab.id)} title={title}>
         {route ? route.view.kind === 'tag' ? <Tag aria-hidden /> : route.view.kind === 'workstream' ? <Waypoints aria-hidden /> : route.view.kind === 'pull-requests' ? <GitPullRequest aria-hidden /> : route.view.kind === 'code-reviews' || route.view.kind === 'review-request' ? <Eye aria-hidden /> : route.view.kind === 'code' ? <Code aria-hidden /> : <LayoutDashboard aria-hidden /> : tab.kind === 'new' ? <Plus aria-hidden /> : <span className={`status-dot ${dot.className}`} aria-label={dot.label || undefined} />}

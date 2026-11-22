@@ -83,6 +83,19 @@ export class Delegation {
   private readonly moveAsked = new Set<string>();
   private readonly afterTurn = new Map<string, { move: Target & { folder: ProjectFolder } } | { archive: string } | { replacedBy: string }>();
 
+  /**
+   * `Workspace.delegate`, and a workstream it made is given its colour (Matt, 2026-11-22;
+   * `nextWorkstreamColour`). The colour is only a look: failing to store it does not fail the work.
+   */
+  private async delegateIn(...args: Parameters<Workspace['delegate']>): ReturnType<Workspace['delegate']> {
+    const result = await this.ws.delegate(...args);
+    if (result.created && result.workstream) {
+      const live = (await this.ws.state()).workstreams.map((w) => w.id);
+      await this.rt.colours.autoColourWorkstream(result.workstream.id, live).catch((error) => console.error('[kestrel] could not colour the workstream', result.workstream?.id, error));
+    }
+    return result;
+  }
+
   constructor(
     private readonly rt: SessionRuntime,
     private readonly ws: Workspace,
@@ -357,7 +370,7 @@ export class Delegation {
     if (!(await this.approve(caller, 'delegate', `Start ${resolved.length} session${resolved.length === 1 ? '' : 's'}`, lines, 'Start', resolved.some((t) => t.ask)))) {
       return { text: 'The user declined. Nothing was started. Ask what they would like instead, or do the part that belongs here yourself.' };
     }
-    const { children, workstream, created } = await this.ws.delegate(callerId, resolved.map((t) => ({ projectId: t.project.id, folderId: t.folder?.id ?? null, brief: t.brief, agent: t.agent, title: titleFrom(t.brief) })), named);
+    const { children, workstream, created } = await this.delegateIn(callerId, resolved.map((t) => ({ projectId: t.project.id, folderId: t.folder?.id ?? null, brief: t.brief, agent: t.agent, title: titleFrom(t.brief) })), named);
     // The user sees, where they are, that the work now has one place to follow it. Nothing moved.
     if (workstream) this.rt.notice(callerId, workstreamNotice(workstream.name, created, children.map((c, i) => `${targetName(resolved[i]!)} · ${c.title}`)), 'info');
     for (const child of children) this.noteStarted(callerId, child.id, 'delegate');
@@ -642,7 +655,7 @@ export class Delegation {
     const host = guest ? state.sessions.find((s) => s.id === guest.hostId) : undefined;
     if (guest && !host) throw new Refused('The session whose worktree it worked in is gone.');
     await this.ws.checkLimits(parentId, 1, { depth: true });
-    const { children } = await this.ws.delegate(parentId, [{ projectId: project.id, folderId: folder?.id ?? null, brief: run.brief, agent: to.agent, title: child.title }]);
+    const { children } = await this.delegateIn(parentId, [{ projectId: project.id, folderId: folder?.id ?? null, brief: run.brief, agent: to.agent, title: child.title }]);
     const next = children[0]!;
     this.noteStarted(parentId, next.id, 'delegate');
     const prompt = [guest && host ? guestIntro(guest.role, host.title) : '', takeoverIntro(from, guest !== null), run.brief].filter(Boolean).join('\n\n');
@@ -705,7 +718,7 @@ export class Delegation {
     const folder = project.folders.find((f) => f.id === author.folderId) ?? null;
     await this.ws.checkLimits(authorId, 1, { depth: true });
     const reviewer = `${preset.name} (${presetSummary(preset)})`;
-    const { children } = await this.ws.delegate(authorId, [{ projectId: project.id, folderId: folder?.id ?? null, brief: `Review: ${author.title}`, agent: preset.agent, title: `Review: ${author.title}` }]);
+    const { children } = await this.delegateIn(authorId, [{ projectId: project.id, folderId: folder?.id ?? null, brief: `Review: ${author.title}`, agent: preset.agent, title: `Review: ${author.title}` }]);
     const child = children[0]!;
     this.noteStarted(authorId, child.id, 'delegate');
     const guest: Guest = { hostId: authorId, role: 'review', writes: false };
@@ -823,7 +836,7 @@ export class Delegation {
     if (!project) throw new Refused('This session has no project.');
     const folder = project.folders.find((f) => f.id === host.folderId) ?? null;
     await this.ws.checkLimits(hostId, 1, { depth: true });
-    const { children } = await this.ws.delegate(hostId, [{ projectId: project.id, folderId: folder?.id ?? null, brief: text, agent: preset.agent, title: titleFrom(text) }]);
+    const { children } = await this.delegateIn(hostId, [{ projectId: project.id, folderId: folder?.id ?? null, brief: text, agent: preset.agent, title: titleFrom(text) }]);
     const child = children[0]!;
     this.noteStarted(hostId, child.id, 'delegate');
     const launched = await this.rt.launchChild(child, project, folder, `${guestIntro(role, host.title)}\n\n${text}`, 'delegate', preset.model, this.modeOf(hostId), { effort: preset.effort, fast: preset.fast }, { guest: { hostId, role, writes: true }, host }, { role, brief: text, tried: runners.slice(0, runners.indexOf(preset) + 1).map((p) => p.id) });

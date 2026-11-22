@@ -60,6 +60,7 @@ import { startReview, type StartReviewOptions } from './review-requests/start.ts
 import type { ReviewingComments } from './review-requests/reviewing.ts';
 import { ReviewReplies } from './review-requests/reply.ts';
 import { ReviewPrefs } from './review-settings/prefs.ts';
+import { ColourPrefs } from './colours/prefs.ts';
 import { execRunner } from './pull-requests/github.ts';
 import type { ReviewRequest } from './shared/review-requests.ts';
 import { moveKind } from './suggestions/move-kind.ts';
@@ -174,6 +175,8 @@ export class SessionRuntime implements McpSessions {
   readonly crashReports: CrashReports;
   /** Settings → Git → Review requests (review-settings/prefs.ts). */
   readonly reviewPrefs: ReviewPrefs;
+  /** Settings → Colours: the review and workstream colours, and each tag's (colours/prefs.ts). */
+  readonly colours: ColourPrefs;
   /** The "Reviewing" comments on a request (review-requests/reviewing.ts); null where no host is asked. */
   private readonly reviewing: ReviewingComments | null;
   /** The `post_review` tool, and posting a review card to its host (review-requests/reply.ts). */
@@ -213,6 +216,7 @@ export class SessionRuntime implements McpSessions {
     this.commitSigning = new CommitSigning(opts.commitSigning);
     this.crashReports = new CrashReports(opts.crashReports);
     this.reviewPrefs = new ReviewPrefs(opts.reviewPrefs);
+    this.colours = new ColourPrefs(opts.colours);
     this.reviewing = opts.reviewing ?? null;
     this.reviewReplies = new ReviewReplies({
       session: async (id) => (await workspace.state()).sessions.find((s) => s.id === id),

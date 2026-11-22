@@ -244,14 +244,16 @@ export async function runMenuAction(action: MenuAction, newTab = false): Promise
       await actions.setWorkstreamStatus(action.workstreamId, action.status);
       return;
     case 'archive-workstream':
-      await actions.archiveWorkstream(action.workstreamId, action.archived);
+      if (action.withSessions && action.archived) await actions.archiveWorkstreamAndSessions(action.workstreamId);
+      else await actions.archiveWorkstream(action.workstreamId, action.archived, action.withSessions === true);
       return;
     case 'stop-workstream':
       await actions.stopWorkstream(action.workstreamId);
       return;
     case 'delete-workstream': {
       const workstream = appStore.get().workspace?.workstreams.find((w) => w.id === action.workstreamId);
-      if (workstream) actions.deleteWorkstream(workstream);
+      if (workstream && action.withSessions) void actions.deleteWorkstreamAndSessions(workstream);
+      else if (workstream) actions.deleteWorkstream(workstream);
       return;
     }
     case 'retry-command':

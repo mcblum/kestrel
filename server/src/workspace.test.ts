@@ -355,14 +355,28 @@ describe.each([
         expect((await ws.state()).workstreams[0]).toMatchObject({ name: 'Invoices', objective: 'Export invoices.' });
         await expect(ws.renameWorkstream(id, '  ')).rejects.toThrow(/needs a name/);
         await expect(ws.renameWorkstream('missing', 'x')).rejects.toThrow(Refused);
-        await ws.removeFromWorkstream(id, children[0]!.id);
+        expect(await ws.removeFromWorkstream(id, children[0]!.id)).toEqual({ index: 1 });
         expect((await ws.state()).workstreams[0]!.sessionIds).toEqual(['o']);
         await expect(ws.removeFromWorkstream(id, children[0]!.id)).rejects.toThrow(/not in/);
-        // The last reference out takes the workstream with it; the sessions and the link stay.
-        await ws.removeFromWorkstream(id, 'o');
-        expect(await db.listWorkstreams()).toEqual([]);
+        // The lead stays: the workstream is deleted instead. The sessions and the link stay either way.
+        await expect(ws.removeFromWorkstream(id, 'o')).rejects.toThrow(/leads this workstream/);
         expect(await db.listSessions()).toHaveLength(2);
         expect(await db.listLinks()).toHaveLength(1);
+      });
+
+      test('Undo puts a removed session back where it was, never ahead of the lead', async () => {
+        await add('o', 'bellbird');
+        const { workstream, children } = await ws.delegate('o', [{ projectId: 'platform', brief: 'a' }, { projectId: 'docs', brief: 'b' }, { projectId: 'docs', brief: 'c' }]);
+        const id = workstream!.id;
+        const [a, b, c] = children.map((s) => s.id);
+        const { index } = await ws.removeFromWorkstream(id, b!);
+        await ws.addBackToWorkstream(id, b!, index);
+        expect((await ws.state()).workstreams[0]!.sessionIds).toEqual(['o', a, b, c]);
+        await expect(ws.addBackToWorkstream(id, b!, 2)).rejects.toThrow(/already in/);
+        await ws.removeFromWorkstream(id, a!);
+        await ws.addBackToWorkstream(id, a!, 0);
+        expect((await ws.state()).workstreams[0]!.sessionIds).toEqual(['o', a, b, c]);
+        await expect(ws.addBackToWorkstream('missing', a!, 1)).rejects.toThrow(Refused);
       });
 
       test('deleting a workstream keeps its sessions, and a deleted or archived session leaves it', async () => {
@@ -413,7 +427,7 @@ describe.each([
         await ws.putWait({ ...wait, waiterId: 'o', targetId: a });
         await ws.removeFromWorkstream(workstream.id, b);
         expect((await ws.state()).waits).toMatchObject([{ waiterId: 'o', targetId: a }]);
-        await ws.removeFromWorkstream(workstream.id, 'o');
+        await ws.removeFromWorkstream(workstream.id, a);
         expect(await db.listWaits()).toEqual([]);
       });
 

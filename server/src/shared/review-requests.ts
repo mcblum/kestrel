@@ -109,8 +109,10 @@ const isString = (v: unknown): v is string => typeof v === 'string';
 export const askedBy = (request: Pick<FoundReviewRequest, 'requestedBy' | 'author'>): string => request.requestedBy || request.author;
 
 /** A review row's second line: "Storefront #412 · priya". The project's name when it is one, else the repository's. */
-export function reviewRowDetail(request: Pick<FoundReviewRequest, 'host' | 'number' | 'repository' | 'requestedBy' | 'author'>, projectName?: string | null): string {
-  return [`${projectName || repositoryName(request.repository)} ${requestNumberLabel(request)}`, askedBy(request)].filter(Boolean).join(' · ');
+export function reviewRowDetail(request: Pick<FoundReviewRequest, 'host' | 'number' | 'repository' | 'requestedBy' | 'author'>, projectName?: string | null, { place = true }: { place?: boolean } = {}): string {
+  // `place: false` under its own project, which already says where (Matt, 2026-11-22).
+  const where = place ? `${projectName || repositoryName(request.repository)} ${requestNumberLabel(request)}` : requestNumberLabel(request);
+  return [where, askedBy(request)].filter(Boolean).join(' · ');
 }
 
 /** How long ago the request was opened ("4 days ago"); empty when the host did not say. */

@@ -18,6 +18,7 @@
 //     its own home too. They take no drops and cannot be reordered; dragging one out to a group, a
 //     project or PINNED moves the session itself, not the reference.
 // Not drawn at all while there is no workstream.
+import { useWorkstreamTint } from '../colours.ts';
 import { useMemo, type ReactNode } from 'react';
 import { Waypoints } from 'lucide-react';
 import type { TreeNode, WorkspaceState, Workstream } from '@kestrel/server/model';
@@ -56,7 +57,7 @@ interface BlockProps {
 function WorkstreamBlock({ workstream, present, onPage, activeId, workspace, renderNode }: BlockProps) {
   const { id, name, sessionIds } = workstream;
   const open = useTabs((v) => !v.sidebar.collapsed.includes(foldKey(id)));
-  const seen = useTabs((v) => v.seen);
+  const seen = useApp((s) => s.seen);
   const renaming = useApp((s) => s.renaming === id);
   const byId = useApp((s) => s.sessionsById);
   // The lead, and under it the sessions it brought in, most recent activity first at each level.
@@ -74,6 +75,8 @@ function WorkstreamBlock({ workstream, present, onPage, activeId, workspace, ren
   // here (or the workstream's page is open), and only marks it as open when it was opened elsewhere.
   const leadOpen = lead !== undefined && activeId === lead.id;
   const state = onPage || (leadOpen && viaReference) ? ' active' : leadOpen ? ' open-elsewhere' : '';
+  // The workstream's own colour, if it has one: its icon and the line down the side of its sessions (colours.ts).
+  const tint = useWorkstreamTint(id);
   const toggle = () => tabActions.toggleCollapsed(foldKey(id));
   const openLead = (newTab: boolean) => {
     if (!lead) return openView({ kind: 'workstream', id }, newTab);
@@ -81,14 +84,14 @@ function WorkstreamBlock({ workstream, present, onPage, activeId, workspace, ren
     openSession(lead.id, newTab);
   };
   return (
-    <div className={`tag-block workstream-block${reorder.edge ? ` drop-${reorder.edge}` : ''}`} {...reorder.props}>
+    <div className={`tag-block workstream-block${reorder.edge ? ` drop-${reorder.edge}` : ''}${tint.className}`} style={tint.style} {...reorder.props}>
       <div className="fold-row">
         <button
           type="button"
           className={`side-link tag-link workstream-link${state}`}
-          // A right-click is the session's menu, as on any session row; the … is the workstream's.
-          data-menu-kind={lead ? 'session' : 'workstream'}
-          data-menu-id={lead ? lead.id : id}
+          // One menu for the workstream wherever it is asked for: a right-click here, its …, its tab (Matt, 2026-11-22).
+          data-menu-kind="workstream"
+          data-menu-id={id}
           draggable={!renaming && !renamingLead}
           onDragStart={startDrag(WORKSTREAM_MIME, id)}
           {...opener(openLead)}
@@ -98,8 +101,24 @@ function WorkstreamBlock({ workstream, present, onPage, activeId, workspace, ren
         >
           <Waypoints aria-hidden />
           <span className="fold-label workstream-label">
-            <span className="tree-main">
-              {lead && renamingLead ? <RenameInput label="Session name" value={lead.title} onDone={(next) => next !== lead.title && void actions.renameSession(lead.id, next)} /> : lead ? lead.title : name}
+            <span className="workstream-first">
+              <span className="tree-main">
+                {lead && renamingLead ? <RenameInput label="Session name" value={lead.title} onDone={(next) => next !== lead.title && void actions.renameSession(lead.id, next)} /> : lead ? lead.title : name}
+              </span>
+              {/* After the title, as a project's chevron follows its name (Matt, 2026-11-22). */}
+              {/* The fold; the row itself opens the lead's conversation. A span, since a button cannot hold a button. */}
+              <span
+                className="fold-toggle"
+                role="button"
+                tabIndex={0}
+                aria-expanded={open}
+                aria-label={`${open ? 'Hide' : 'Show'} the sessions of ${name}`}
+                onClick={(event) => (event.stopPropagation(), toggle())}
+                onDoubleClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => (event.key === 'Enter' || event.key === ' ') && (event.preventDefault(), event.stopPropagation(), toggle())}
+              >
+                <FoldChevron open={open} />
+              </span>
             </span>
             <span className="tree-where">
               {renaming ? (
@@ -112,19 +131,6 @@ function WorkstreamBlock({ workstream, present, onPage, activeId, workspace, ren
                 </>
               )}
             </span>
-          </span>
-          {/* The chevron is the fold; the row itself opens the lead's conversation. A span, since a button cannot hold a button. */}
-          <span
-            className="fold-toggle"
-            role="button"
-            tabIndex={0}
-            aria-expanded={open}
-            aria-label={`${open ? 'Hide' : 'Show'} the sessions of ${name}`}
-            onClick={(event) => (event.stopPropagation(), toggle())}
-            onDoubleClick={(event) => event.stopPropagation()}
-            onKeyDown={(event) => (event.key === 'Enter' || event.key === ' ') && (event.preventDefault(), event.stopPropagation(), toggle())}
-          >
-            <FoldChevron open={open} />
           </span>
           {dots.length > 0 && (
             <span className="row-dots row-dot">

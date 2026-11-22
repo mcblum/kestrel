@@ -16,9 +16,10 @@ export const MAX_HANDOFFS_IN_A_ROW = 5;
 import { worktreeRepo } from './worktree-repo.ts';
 import { fitsGroup, joinRefusal, moveGroupRefusal } from './shared/project-groups.ts';
 import { visibleWaits } from './shared/waits.ts';
-import { afterUserMessage, archiveRefusal, childGroupId, delegateWorkstream, shownWorkstreams, visibleWorkstreams, workstreamName, workstreamObjective, workstreamOf } from './shared/workstreams.ts';
+import { afterUserMessage, archiveRefusal, removeRefusal, childGroupId, delegateWorkstream, shownWorkstreams, visibleWorkstreams, workstreamName, workstreamObjective, workstreamOf } from './shared/workstreams.ts';
 import { nameTakenBy, projectRecord, type NewProject } from './project-record.ts';
 import { Refused } from './refused.ts';
+import { SeenStore } from './seen.ts';
 import { deriveState, trailFor, withoutArchived } from './workspace-derive.ts';
 import { checkLimits, checkLive, copyTags, EMPTY_DETAIL, insertSession, projectNamer, refuseWhileWorking, type DelegateTask, type NewSession } from './workspace-records.ts';
 import * as settings from './workspace-settings.ts';
@@ -32,6 +33,8 @@ export class Workspace {
   readonly onboarding: Onboarding;
   /** Settings → Workflow → Delegation limits: what delegate, handoff and spawn are checked against. */
   readonly limits: DelegationLimitsPrefs;
+  /** The one record of what the user has looked at, for every window and a paired phone (seen.ts). */
+  readonly seen: SeenStore;
   private cache: WorkspaceState | null = null;
   private loading: Promise<WorkspaceState> | null = null;
   private version = 0;
@@ -43,6 +46,13 @@ export class Workspace {
   ) {
     this.onboarding = new Onboarding(db);
     this.limits = new DelegationLimitsPrefs({ settings: db });
+    this.seen = new SeenStore({
+      settings: db,
+      sessions: async () => {
+        const state = await this.state();
+        return [...state.sessions, ...state.archived.sessions];
+      },
+    });
   }
 
   /** Called after every committed write. Listeners should read `state()` when they are ready to. */
@@ -704,16 +714,37 @@ export class Workspace {
     return result.restored;
   }
 
-  /** Take a session out of a workstream. Only the reference goes: the session and its links stay. The last one out removes the workstream. */
-  async removeFromWorkstream(id: string, sessionId: string): Promise<void> {
-    await this.db.transaction(async (tx) => {
+  /**
+   * Take a session out of a workstream. Only the reference goes: the session and its links stay, its
+   * waits go. The lead stays (`removeRefusal`). Answers the place it had, for `addBackToWorkstream`.
+   */
+  async removeFromWorkstream(id: string, sessionId: string): Promise<{ index: number }> {
+    const index = await this.db.transaction(async (tx) => {
       const workstream = (await tx.listWorkstreams()).find((w) => w.id === id);
       if (!workstream) throw new Refused('No such workstream.');
-      if (!workstream.sessionIds.includes(sessionId)) throw new Refused(`That session is not in “${workstream.name}”.`);
-      const left = workstream.sessionIds.filter((s) => s !== sessionId);
+      const at = workstream.sessionIds.indexOf(sessionId);
+      if (at < 0) throw new Refused(`That session is not in “${workstream.name}”.`);
+      const refusal = removeRefusal(workstream, sessionId);
+      if (refusal) throw new Refused(`${refusal}.`);
       await tx.deleteWaitsOf(sessionId);
-      if (left.length === 0) await tx.deleteWorkstream(id);
-      else await tx.setWorkstreamSessions(id, left);
+      await tx.setWorkstreamSessions(id, workstream.sessionIds.filter((s) => s !== sessionId));
+      return at;
+    });
+    this.changed();
+    return { index };
+  }
+
+  /** Undo of `removeFromWorkstream`: put the session back at the place it had, never ahead of the lead. */
+  async addBackToWorkstream(id: string, sessionId: string, index: number): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const workstreams = await tx.listWorkstreams();
+      const workstream = workstreams.find((w) => w.id === id);
+      if (!workstream) throw new Refused('No such workstream.');
+      if (!(await tx.getSession(sessionId))) throw new Refused('That session no longer exists.');
+      const other = workstreamOf(workstreams, sessionId);
+      if (other) throw new Refused(other.id === id ? `That session is already in “${workstream.name}”.` : `That session is in “${other.name}” now.`);
+      const at = Math.min(Math.max(1, Math.trunc(index)), workstream.sessionIds.length);
+      await tx.setWorkstreamSessions(id, [...workstream.sessionIds.slice(0, at), sessionId, ...workstream.sessionIds.slice(at)]);
     });
     this.changed();
   }

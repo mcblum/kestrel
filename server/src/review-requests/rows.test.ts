@@ -56,6 +56,8 @@ describe('what a review row says', () => {
   it('names the project when there is one, else the repository, then who asked', () => {
     expect(reviewRowDetail(found(412, { requestedBy: 'kim' }), 'Bellbird')).toBe('Bellbird #412 · kim');
     expect(reviewRowDetail(found(412, { requestedBy: 'kim' }))).toBe('storefront #412 · kim');
+    // Under its own project the project is not named again.
+    expect(reviewRowDetail(found(412, { requestedBy: 'kim' }), 'Bellbird', { place: false })).toBe('#412 · kim');
   });
 
   it('names the author when the host did not say who asked', () => {

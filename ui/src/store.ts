@@ -13,6 +13,7 @@ import { pinKey, placePin, type PinRef } from '@kestrel/server/pins';
 import { normalizeProject } from '@kestrel/server/project-folders';
 import { isPullRequestLookup, type PullRequestLookup } from '@kestrel/server/details';
 import { asSourced, type Sourced } from '@kestrel/server/sourced';
+import { sanitizeSeen, type Seen } from '@kestrel/server/unread';
 import { asReviewRequestsView, NO_REVIEW_REQUESTS, type ReviewRequestsView } from '@kestrel/server/review-requests';
 import { counted } from '@kestrel/server/toasts';
 import { toasts } from './toasts.ts';
@@ -100,7 +101,9 @@ export interface AppState {
   reviewRequests: ReviewRequestsView;
   /** Other server data, one entry per route path (data/resources.ts). */
   resources: ReadonlyMap<string, Sourced<unknown>>;
-  /** Open tabs, the composer's last choices, the sidebar's layout and what was seen, kept on the server (tabsStore.ts owns the writes). */
+  /** When each session was last looked at, as the server pushes it (server/src/seen.ts); null until the first push. */
+  seen: Seen | null;
+  /** Open tabs, the composer's last choices and the sidebar's layout, kept on the server (tabsStore.ts owns the writes). */
   tabs: TabsView;
   /** The simulators, each one's screen and state, each session's chosen device and each device's latest problem (simulatorStore.ts owns the writes). */
   simulator: SimulatorState;
@@ -133,7 +136,7 @@ async function refreshLaunch(): Promise<boolean> {
   }
 }
 
-const initialState: AppState = { connection: launch ? 'connecting' : 'no-server', live: new Map(), renaming: null, tagging: null, openedFromReference: null, workspace: null, sessionsById: new Map(), details: new Map(), pullRequests: new Map(), reviewRequests: NO_REVIEW_REQUESTS, pullRequestsVersion: 0, resources: new Map(), tabs: { loaded: false, state: initialTabs(), remembered: DEFAULT_REMEMBERED, sidebar: EMPTY_SIDEBAR, seen: null }, simulator: { devices: { loaded: false, devices: [], unavailable: null }, infos: new Map(), chosen: new Map(), errors: new Map() }, signIn: {}, error: null };
+const initialState: AppState = { connection: launch ? 'connecting' : 'no-server', live: new Map(), renaming: null, tagging: null, openedFromReference: null, workspace: null, sessionsById: new Map(), details: new Map(), pullRequests: new Map(), reviewRequests: NO_REVIEW_REQUESTS, seen: null, pullRequestsVersion: 0, resources: new Map(), tabs: { loaded: false, state: initialTabs(), remembered: DEFAULT_REMEMBERED, sidebar: EMPTY_SIDEBAR }, simulator: { devices: { loaded: false, devices: [], unavailable: null }, infos: new Map(), chosen: new Map(), errors: new Map() }, signIn: {}, error: null };
 
 /** The one store (Zustand). Everything the app knows about the server lives here, once. */
 const appStoreApi = createStore<AppState>()(() => initialState);
@@ -447,6 +450,14 @@ function sendWatch(type: 'watch' | 'unwatch', sessionId: string) {
 }
 
 let retry = 500;
+/** The record of what was looked at, whole, as pushed: kept as it was when nothing in it changed. */
+function applySeen(raw: unknown) {
+  const next = sanitizeSeen(raw);
+  const prev = current().seen;
+  if (prev && Object.keys(prev).length === Object.keys(next).length && Object.entries(next).every(([id, at]) => prev[id] === at)) return;
+  set({ seen: next });
+}
+
 function connect() {
   if (!launch) return;
   const socket = new WebSocket(`ws://127.0.0.1:${launch.port}/ws?token=${launch.token}`);
@@ -459,6 +470,7 @@ function connect() {
     else if (message.type === 'live') applyLive(message.sessionId, message.patch);
     else if (message.type === 'pull-requests') applyPullRequests(message);
     else if (message.type === 'review-requests') applyReviewRequests(message.view);
+    else if (message.type === 'seen') applySeen(message.seen);
     else handlerFor(message.type)?.message(message);
   };
   socket.onopen = () => {
@@ -696,7 +708,24 @@ export const actions = {
   /** Say what a workstream is for; an empty objective clears it. */
   setWorkstreamObjective: (id: string, objective: string) => act(() => call(`/api/workstreams/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ objective }) })),
   /** Take a session out of a workstream. Only the reference goes; the session stays where it is filed. */
-  removeFromWorkstream: (id: string, sessionId: string) => act(() => call(`/api/workstreams/${encodeURIComponent(id)}/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' })),
+  /** Take a session out of a workstream, said in a toast whose Undo puts it back at the place it had. */
+  removeFromWorkstream: (id: string, sessionId: string): Promise<unknown> => {
+    const title = current().sessionsById.get(sessionId)?.title;
+    const name = current().workspace?.workstreams.find((w) => w.id === id)?.name;
+    let index = 1;
+    return announced(
+      async () => {
+        const removed = await call<{ index: number }>(`/api/workstreams/${encodeURIComponent(id)}/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+        index = removed?.index ?? index;
+        return removed;
+      },
+      false,
+      () => `Removed ${quoted(title, 'the session')} from ${quoted(name, 'the workstream')}`,
+      () => actions.addBackToWorkstream(id, sessionId, index),
+    );
+  },
+  /** Undo of `removeFromWorkstream`; itself not announced. */
+  addBackToWorkstream: (id: string, sessionId: string, index: number) => act(() => call(`/api/workstreams/${encodeURIComponent(id)}/sessions`, { method: 'POST', body: JSON.stringify({ sessionId, index }) })),
   /** Mark a workstream's work finished, or not finished after all. */
   setWorkstreamStatus: (id: string, status: 'active' | 'complete', quiet = false): Promise<unknown> => {
     const name = current().workspace?.workstreams.find((w) => w.id === id)?.name;
@@ -712,11 +741,34 @@ export const actions = {
   /** Archiving says so in a toast with Undo, which restores it; `announce: false` when it is itself an undo. */
   archiveWorkstream: async (id: string, archived: boolean, withSessions = false, announce = true) => {
     const name = current().workspace?.workstreams.find((w) => w.id === id)?.name;
-    const done = await act(() => call(`/api/workstreams/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(withSessions ? { archived, sessions: true } : { archived }) }));
+    // The answer has no body: true says it was stored (undefined, from act, that it was refused).
+    const done = await act(() => call(`/api/workstreams/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(withSessions ? { archived, sessions: true } : { archived }) }).then(() => true));
     if (done && archived && announce) toasts.show(`Archived the workstream ${name ? `“${name}”` : ''}`.trim(), () => actions.archiveWorkstream(id, false, false, false));
     return done;
   },
   stopWorkstream: (id: string) => act(() => call<{ stopped: number }>(`/api/workstreams/${encodeURIComponent(id)}/stop`, { method: 'POST', body: '{}' })),
+  /**
+   * The full clean-up when the work is done (Matt, 2026-11-22): the workstream and every session in
+   * it archived, each through the same archive as alone (its project's archive script included). One
+   * toast; its Undo restores the workstream with the sessions archived with it.
+   */
+  archiveWorkstreamAndSessions: async (id: string) => {
+    const workstream = current().workspace?.workstreams.find((w) => w.id === id);
+    if (!workstream) return;
+    const archived = await actions.archiveWorkstream(id, true, false, false);
+    if (!archived) return;
+    let count = 0;
+    for (const sessionId of workstream.sessionIds) if (await actions.sendArchive('session', sessionId, true)) count += 1;
+    toasts.show(`Archived the workstream “${workstream.name}” and ${counted(count, 'session')}`, () => actions.archiveWorkstream(id, false, true, false));
+  },
+  /** Delete a workstream and its sessions for good, after asking: nothing of it can be brought back. */
+  async deleteWorkstreamAndSessions(workstream: { id: string; name: string; sessionIds: readonly string[] }): Promise<void> {
+    const n = workstream.sessionIds.length;
+    if (!window.confirm(`Delete the workstream “${workstream.name}” and its ${counted(n, 'session')} for good? Their conversations cannot be brought back. Each session's worktree folder is removed too, with anything in it that was never committed; a branch is deleted only if its commits are already in the main checkout's branch.`)) return;
+    // The grouping first, so it is not left half-emptied when a session cannot be deleted.
+    if (!(await act(() => call(`/api/workstreams/${encodeURIComponent(workstream.id)}`, { method: 'DELETE' }).then(() => true)))) return;
+    for (const sessionId of workstream.sessionIds) await act(() => call(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }));
+  },
   /** Delete a workstream, after asking. Its sessions stay where they are: only the grouping goes. */
   deleteWorkstream(workstream: { id: string; name: string; sessionIds: readonly string[] }): void {
     const n = workstream.sessionIds.length;

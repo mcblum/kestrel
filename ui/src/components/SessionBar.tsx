@@ -4,8 +4,9 @@
 // Beside the pane icons: the branch's pull request chip, and "Create PR" when it has no open one;
 // its menu also removes the worktree ("Worktree" offers that alone otherwise). A session reviewing
 // somebody else's request has "View PR #7" there instead, which opens it on its host (`requestButton`).
+import { useProjectTint } from '../colours.ts';
 import { WorkstreamChip } from './WorkstreamChip.tsx';
-import { ExternalLink, Folder, TriangleAlert } from 'lucide-react';
+import { ExternalLink, Folder, TriangleAlert, FolderGit2 } from 'lucide-react';
 import { fitsGroup } from '@kestrel/server/project-groups';
 import { lookupHost, type GitStatus, type PullRequest } from '@kestrel/server/details';
 import type { SessionDetail, SessionView } from '@kestrel/server/model';
@@ -69,10 +70,13 @@ function Where({ session }: { session: SessionView }) {
   const projects = useApp((s) => s.workspace?.projects) ?? [];
   const mark = filingMark(session.filing.status, session.filing.discarded);
   const name = projectName(session, projects);
+  // A pill in the project's colour, drawn like the workstream's chip beside it (Matt, 2026-11-22).
+  const tint = useProjectTint(session.filing.projectId ?? '');
   if (name === UNSCOPED) return <span className="bar-item bar-project bar-none">No project</span>;
   return (
-    <span className="bar-item bar-project">
-      {name}
+    <span className={`bar-item bar-project tag-chip project-chip${tint.className}`} style={tint.style}>
+      <FolderGit2 aria-hidden />
+      <span className="project-chip-name">{name}</span>
       <FilingTag mark={mark} />
     </span>
   );

@@ -4,10 +4,10 @@ import { guardLeave } from './unsaved.ts';
 import { DEFAULT_CONTROLS, withScope, activate, placement, activateNth, becomeSession, closeTab, isLastOverview, moveTab, openTarget, prune, replaceSession, retargetActive, sanitize, setControls, type Controls, type OpenTarget, type Preselect, type Tab, type TabsState } from '@kestrel/server/tabs';
 import { rememberPick, rememberSent, startControls, startFromOf, storedRemembered, withFixed, withStartFrom, type Remembered, type StartFrom, type StickyPick } from '@kestrel/server/sticky-controls';
 import { clampContextWidth, clampPaneWidth, clampSimWidth, clampWidth, place, placeProject, placeTag, placeWorkstream, sanitizeSidebar, toggleCollapsed, toggleHidden, type SidebarPrefs } from '@kestrel/server/sidebar';
-import { parseSessionOrder, type SessionOrder } from '@kestrel/server/session-order';
+import { activityAt, parseSessionOrder, type SessionOrder } from '@kestrel/server/session-order';
 import type { StackWeights } from '@kestrel/server/pane-layout';
 import type { ScopeKind } from '@kestrel/server/scope';
-import { markSeen, sanitizeSeen, seenAll, type Seen } from '@kestrel/server/unread';
+import { markSeen } from '@kestrel/server/unread';
 import { appStore, call, drafts, setApp, useApp } from './store.ts';
 
 export interface TabsView {
@@ -18,8 +18,6 @@ export interface TabsView {
   remembered: Remembered;
   /** The sidebar's order and what is collapsed. */
   sidebar: SidebarPrefs;
-  /** When each session was last looked at; null until the first run has recorded what exists. */
-  seen: Seen | null;
 }
 
 /** The tabs as they are now, for code outside React. They live in the app store's `tabs` slice. */
@@ -38,7 +36,7 @@ function save() {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     saveTimer = null;
-    void call('/api/ui-state', { method: 'PUT', body: JSON.stringify({ tabs: tabsView().state, remembered: tabsView().remembered, sidebar: tabsView().sidebar, ...(tabsView().seen ? { seen: tabsView().seen } : {}) }) }).catch(() => undefined);
+    void call('/api/ui-state', { method: 'PUT', body: JSON.stringify({ tabs: tabsView().state, remembered: tabsView().remembered, sidebar: tabsView().sidebar }) }).catch(() => undefined);
   }, 300);
 }
 
@@ -52,9 +50,9 @@ async function load() {
   if (loading || tabsView().loaded) return;
   loading = true;
   try {
-    const stored = await call<{ tabs?: unknown; remembered?: unknown; lastControls?: unknown; sidebar?: unknown; seen?: unknown }>('/api/ui-state');
+    const stored = await call<{ tabs?: unknown; remembered?: unknown; lastControls?: unknown; sidebar?: unknown }>('/api/ui-state');
     // A store from before 0.0.17 holds one `lastControls`; it is read once into `remembered`.
-    setView({ loaded: true, state: sanitize(stored.tabs), remembered: storedRemembered(stored), sidebar: sanitizeSidebar(stored.sidebar), seen: stored.seen === undefined ? null : sanitizeSeen(stored.seen) });
+    setView({ loaded: true, state: sanitize(stored.tabs), remembered: storedRemembered(stored), sidebar: sanitizeSidebar(stored.sidebar) });
     pruneMissing();
   } catch {
     loading = false;
@@ -108,19 +106,23 @@ function sync() {
 }
 
 /**
- * Keeps the record of what the user has looked at. The first time, everything that exists counts
- * as looked at. After that, the session in the tab in front is looked at whenever it changes,
- * as long as the window has focus.
+ * The session in the tab in front is looked at whenever it changes, as long as the window has focus.
+ * The record is the server's (server/src/seen.ts), so this asks it to mark the session, and every
+ * window, and a paired phone, hears the new record. Asked once per session and activity.
  */
+let asked = '';
 function trackSeen() {
-  const ws = appStore.get().workspace;
-  if (!tabsView().loaded || !ws) return;
-  let seen = tabsView().seen ?? seenAll(ws.sessions);
+  const { workspace: ws, seen } = appStore.get();
+  if (!tabsView().loaded || !ws || !seen) return;
   const tab = tabsView().state.tabs.find((t) => t.id === tabsView().state.activeId);
   const open = tab?.kind === 'session' && document.hasFocus() ? ws.sessions.find((s) => s.id === tab.sessionId) : undefined;
-  if (open) seen = markSeen(seen, open);
-  if (seen !== tabsView().seen) update({ seen });
+  if (!open || markSeen(seen, open) === seen) return;
+  const key = `${open.id}:${activityAt(open)}`;
+  if (key === asked) return;
+  asked = key;
+  void postSeen({ sessionIds: [open.id] });
 }
+const postSeen = (body: { sessionIds: string[]; unread?: true }) => call('/api/seen', { method: 'POST', body: JSON.stringify(body) }).catch(() => { asked = ''; });
 if (typeof window !== 'undefined') window.addEventListener('focus', trackSeen);
 appStore.subscribe(sync);
 // The app may already be connected when this module starts (a hot reload in development):
@@ -275,10 +277,8 @@ export const tabActions = {
   },
   /** Mark a session as not looked at, or as looked at, by hand. */
   setUnread(sessionId: string, unread: boolean): void {
-    const session = appStore.get().sessionsById.get(sessionId);
-    if (!session || !tabsView().seen) return;
-    const seen = tabsView().seen!;
-    update({ seen: unread ? { ...seen, [sessionId]: 0 } : markSeen(seen, session) });
+    asked = '';
+    void postSeen(unread ? { sessionIds: [sessionId], unread: true } : { sessionIds: [sessionId] });
   },
   /** Hide the sidebar, or show it again (⌘B). Remembered across restarts like its width. */
   toggleSidebar: () => update({ sidebar: toggleHidden(tabsView().sidebar) }),

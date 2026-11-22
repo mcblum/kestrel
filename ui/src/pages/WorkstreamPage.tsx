@@ -13,6 +13,7 @@ import { isArchived, isComplete, workstreamRows, workstreamSummary, WORKSTREAM_O
 import { opener, openSession } from '../route.ts';
 import { actions } from '../store.ts';
 import { PageHeader } from './PageHeader.tsx';
+import { WorkstreamColourPicker } from '../components/ColoursSetting.tsx';
 import { SessionTable } from './SessionTable.tsx';
 
 const NO_OBJECTIVE = 'No objective written yet.';
@@ -107,7 +108,7 @@ export function WorkstreamPage({ id, workspace }: { id: string; workspace: Works
     );
   return (
     <div className="page column collection">
-      <PageHeader title={workstream.name} line={`Workstream · ${isComplete(workstream) ? 'Complete · ' : ''}${workstreamSummary(members)}. Each session stays in its own project.`} menu={{ kind: 'workstream', id }} />
+      <PageHeader title={workstream.name} line={`Workstream · ${isComplete(workstream) ? 'Complete · ' : ''}${workstreamSummary(members)}. Each session stays in its own project.`} menu={{ kind: 'workstream', id }} actions={<WorkstreamColourPicker workstreamId={id} name={workstream.name} />} />
       {isArchived(workstream) && (
         <p className="workstream-archived" role="status">
           This workstream is archived: it is out of the sidebar, and its sessions are where they were. A new message in one of them brings it back.

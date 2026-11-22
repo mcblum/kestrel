@@ -23,7 +23,7 @@ import { inSidebarOrder, openedText, placeReview, requestNumberLabel, requestSta
 import { REVIEW_MIME, SESSION_MIME } from '../labels.ts';
 import { openView, opener, type Route } from '../route.ts';
 import { actions, appStore, useApp } from '../store.ts';
-import { useSessionOrder, useTabs } from '../tabsStore.ts';
+import { useSessionOrder } from '../tabsStore.ts';
 import { useMinuteNow } from '../useNow.ts';
 import { Heading, useSectionOpen } from './SidebarHeading.tsx';
 import { carries, InReviews, startDrag, useEdgeTarget } from './sidebarDrag.ts';
@@ -48,7 +48,6 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({ request, active
       data-menu-id={request.key}
       {...opener((newTab) => openView({ kind: 'review-request', id: request.key }, newTab))}
     >
-      <Eye aria-hidden />
       <span className="review-label">
         <span className="review-title">{request.title}</span>
         <span className="review-second">
@@ -113,7 +112,7 @@ const NO_SESSIONS: readonly never[] = [];
 export function useReviewsToLookAt(): number {
   const view = useApp((s) => s.reviewRequests);
   const sessions = useApp((s) => s.workspace?.sessions ?? NO_SESSIONS);
-  const seen = useTabs((v) => v.seen);
+  const seen = useApp((s) => s.seen);
   return useMemo(() => needsALook(view, sessions, seen).size, [view, sessions, seen]);
 }
 

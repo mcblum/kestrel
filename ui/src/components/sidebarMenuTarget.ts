@@ -6,13 +6,12 @@ import { sidebarMenu, type MenuTarget } from '@kestrel/server/menu';
 import { isPinned } from '@kestrel/server/pins';
 import { hostTerms } from '@kestrel/server/host-terms';
 import { fitsGroup } from '@kestrel/server/project-groups';
-import { workstreamOf } from '@kestrel/server/workstreams';
+import { removeRefusal, workstreamOf } from '@kestrel/server/workstreams';
 import type { Seen } from '@kestrel/server/unread';
 import type { FolderApp } from '@kestrel/server/file-menu';
 import { contextMenu } from '../menuState.ts';
 import { heldFolderApps, loadFolderApps } from './folderApps.ts';
 import { appStore } from '../store.ts';
-import { tabsView } from '../tabsStore.ts';
 import { projectPathOf } from './projectLabels.ts';
 import { dotFor } from './useRowDot.ts';
 
@@ -50,7 +49,7 @@ function sessionTarget(ws: WorkspaceState, id: string, seen: Seen | null, pinned
     pinned,
     canReveal: canReveal(),
     ...openIn(),
-    ...(workstream ? { workstream: { id: workstream.id, name: workstream.name } } : {}),
+    ...(workstream ? { workstream: { id: workstream.id, name: workstream.name, refusal: removeRefusal(workstream, s.id) } } : {}),
   };
 }
 
@@ -116,7 +115,7 @@ export function openRowMenu(kind: string | undefined, id: string, at: RowMenuAt,
   const show = () => {
     const ws = appStore.get().workspace;
     if (!ws) return;
-    const items = sidebarMenu(withPlace(menuTargetFor(ws, kind, id, tabsView().seen), onPage));
+    const items = sidebarMenu(withPlace(menuTargetFor(ws, kind, id, appStore.get().seen), onPage));
     if ('from' in at) contextMenu.openFrom(at.from, items, { gap: at.gap });
     else contextMenu.open(at.x, at.y, items);
   };

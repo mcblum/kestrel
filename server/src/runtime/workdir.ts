@@ -74,6 +74,8 @@ export interface RuntimeOptions {
   crashReports?: CrashReportsOptions;
   /** Where Settings → Git → Review requests is kept (review-settings/prefs.ts). */
   reviewPrefs?: { settings?: SettingStore };
+  /** Settings → Colours (colours/prefs.ts). */
+  colours?: { settings?: SettingStore };
   /** How a review is posted to its host (review-requests/post.ts); tests pass their own, so they never call gh or glab. */
   reviewRunner?: CommandRunner;
   /** The "Reviewing" comments on a request (review-requests/reviewing.ts). Default: none, so nothing asks a host unless the server was started to (index.ts). */

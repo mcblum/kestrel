@@ -3,7 +3,7 @@
 import { SaveBar } from '../components/SaveBar.tsx';
 import { thisComputer } from '../platform.ts';
 import { SettingHeading, SettingSection } from '../components/SettingHelp.tsx';
-import { Archive, Bot, GitBranch, Plug, SlidersHorizontal, Workflow as Workflow2, FolderGit2, Keyboard, Layers, Palette, Bell, TerminalSquare, Shield, Eye } from 'lucide-react';
+import { Archive, Bot, GitBranch, Plug, SlidersHorizontal, Workflow as Workflow2, FolderGit2, Keyboard, Layers, Palette, Bell, TerminalSquare, Shield, Eye, SwatchBook } from 'lucide-react';
 import { ArchivedSettings } from './ArchivedSettings.tsx';
 import { SetupSetting } from '../onboarding/SetupSetting.tsx';
 import { CreateProjectPage } from './CreateProjectPage.tsx';
@@ -13,6 +13,7 @@ import { TagSuggestionSettings } from '../components/TagSuggestionSettings.tsx';
 import { ProjectEditsSetting } from '../components/ProjectEditsSetting.tsx';
 import { CommandsKeptSetting } from '../components/CommandsKeptSetting.tsx';
 import { AppearanceSetting } from '../components/AppearanceSetting.tsx';
+import { ColoursSetting } from '../components/ColoursSetting.tsx';
 import { ShortcutsSetting } from '../components/ShortcutsSetting.tsx';
 import { PresetsSetting } from '../components/PresetsSetting.tsx';
 import { CodeReviewsSettings } from '../components/ReviewRequestsSetting.tsx';
@@ -147,6 +148,7 @@ export function SettingsPage({ section: asked = 'general' }: { section?: string 
         <div className="settings-nav-group">Personal</div>
         {item('general', 'General', <SlidersHorizontal aria-hidden />)}
         {item('appearance', 'Appearance', <Palette aria-hidden />)}
+        {item('colours', 'Colours', <SwatchBook aria-hidden />)}
         {item('notifications', 'Notifications', <Bell aria-hidden />)}
         {item('shortcuts', 'Keyboard shortcuts', <Keyboard aria-hidden />)}
         <div className="settings-nav-group">Agents</div>
@@ -166,6 +168,8 @@ export function SettingsPage({ section: asked = 'general' }: { section?: string 
       <div className="settings-body" key={section}>
         {section === 'appearance' ? (
           <AppearanceSetting page />
+        ) : section === 'colours' ? (
+          <ColoursSetting />
         ) : section === 'notifications' ? (
           <NotificationsSetting page />
         ) : section === 'environment' ? (

@@ -61,9 +61,11 @@
 .kestrel .studio-sidebar .side-heading > .icon-button svg { width: 14px; height: 14px; }
 .kestrel .studio-sidebar .side-heading > .icon-button:hover { background: var(--s-soft); color: var(--s-ink); }
 
-/* A project's own groups sit one --side-indent in, under the project's name, and so does what is in them. */
-.kestrel .studio-sidebar .project-block .folder-block > .folder-row { padding-left: calc(var(--edge) + var(--side-indent)); }
-.kestrel .studio-sidebar .project-block .folder-block .tree-row { padding-left: calc(var(--side-label-x) + (var(--depth, 0) + 1) * var(--side-indent)); }
+/* (Matt, 2026-11-22) A project's group starts its folder icon where the project's name starts, as a
+   session under the project does; the sessions in the group start where the group's name starts. */
+.kestrel .studio-sidebar .project-block .folder-block { --folder-label-x: calc(var(--side-label-x) + var(--slot) + 8px); }
+.kestrel .studio-sidebar .project-block .folder-block > .folder-row { padding-left: var(--side-label-x); }
+.kestrel .studio-sidebar .project-block .folder-block .tree-row { padding-left: calc(var(--folder-label-x) + var(--depth, 0) * var(--side-indent)); }
 .kestrel .studio-sidebar .project-block { outline: 1px solid transparent; outline-offset: -1px; }
 .kestrel .studio-sidebar .project-block.drop-over { outline-color: var(--s-muted); }
 
@@ -74,8 +76,93 @@
    children too, and stops at the last one. Grey, like the rest of the chrome; it takes no clicks.
    The line sits 4px in from where the parent's title starts and stops 5px short of the child's. */
 .kestrel .studio-sidebar .tree-children > li { position: relative; --elbow-x: calc(var(--side-label-x) + (var(--depth, 1) - 1) * var(--side-indent) + 4px); --elbow-line: color-mix(in srgb, var(--s-muted) 45%, transparent); }
-.kestrel .studio-sidebar .project-block .folder-block .tree-children > li { --elbow-x: calc(var(--side-label-x) + var(--depth, 1) * var(--side-indent) + 4px); }
+.kestrel .studio-sidebar .project-block .folder-block .tree-children > li { --elbow-x: calc(var(--folder-label-x) + (var(--depth, 1) - 1) * var(--side-indent) + 4px); }
 .kestrel .studio-sidebar .tree-children > li::before,
 .kestrel .studio-sidebar .tree-children > li:not(:last-child)::after { content: ''; position: absolute; z-index: 1; left: var(--elbow-x); top: 0; border-left: 1px solid var(--elbow-line); pointer-events: none; }
 .kestrel .studio-sidebar .tree-children > li::before { width: calc(var(--side-indent) - 9px); height: calc(var(--side-row) / 2); border-bottom: 1px solid var(--elbow-line); border-bottom-left-radius: 4px; }
 .kestrel .studio-sidebar .tree-children > li:not(:last-child)::after { bottom: 0; }
+
+/* A project and a tag are drawn alike (Matt, 2026-11-22): the name in semibold, a quiet guide line
+   down from the row's icon beside everything listed under it, and the titles under it starting
+   where the name starts. A workstream is a tag-block too, but keeps its own look (organize.css). */
+.kestrel .studio-sidebar :is(.project-block, .tag-block:not(.workstream-block)) > :is(.tree, .folder-block) { position: relative; }
+.kestrel .studio-sidebar :is(.project-block, .tag-block:not(.workstream-block)) > :is(.tree, .folder-block)::before {
+  content: ''; position: absolute; top: 0; bottom: 0;
+  left: calc(var(--edge) + var(--slot) / 2);
+  border-left: 1px solid color-mix(in srgb, var(--s-muted) 22%, transparent);
+  pointer-events: none;
+}
+/* A session listed here that is open from its other row (its workstream, a pin, a tag or its
+   project) marks it on this guide, not with a bar at the far left: the guide's stretch beside the
+   row turns active (Matt, 2026-11-22), so the far-left edge stays free. Overrides the bar in organize.css. */
+.kestrel .studio-sidebar :is(.project-block, .tag-block:not(.workstream-block)) .tree-row:is(.open-elsewhere, .selected):not(.drop-before)::before {
+  content: ''; position: absolute;
+  left: calc(var(--edge) + var(--slot) / 2 - 1px - var(--line-gap)); top: 1px; bottom: 1px; height: auto; transform: none;
+  width: 3px; border-radius: 1.5px; background: var(--guide, var(--s-muted)); opacity: 1;
+}
+.kestrel .studio-sidebar :is(.project-block, .tag-block:not(.workstream-block)) > .fold-row > .side-link { position: relative; padding-right: calc(var(--edge) + var(--slot) + 8px); }
+.kestrel .studio-sidebar :is(.project-block, .tag-block:not(.workstream-block)) > .fold-row .fold-label { font-weight: 600; }
+/* The chevron follows the name, as it did before (Matt, 2026-11-22); the status dot keeps the outermost slot. */
+.kestrel .studio-sidebar :is(.project-block, .tag-block:not(.workstream-block)) > .fold-row .row-dot { position: absolute; right: calc(var(--edge) + (var(--slot) - 6px) / 2); margin-right: 0; }
+
+/* Every trailing mark shares the centre of the same 16px action slot. Project dots
+   are positioned; other rows use the same inset in normal flow. Groups have no border
+   now, so they no longer need the old one-pixel compensation on their right edge. */
+.kestrel .studio-sidebar .folder-row { padding-right: var(--edge); }
+.kestrel .studio-sidebar :is(.status-dot, .row-icons, .row-dots).row-dot { margin-right: calc((var(--slot) - 6px) / 2); }
+.kestrel .studio-sidebar :is(.project-block, .tag-block:not(.workstream-block)) > .fold-row .row-dot { margin-right: 0; }
+
+/* A compact wordmark and a real Search button, outside the Mac titlebar drag region. */
+.kestrel .studio-sidebar .studio-brand { font-size: 18px; letter-spacing: -.6px; padding: 0 var(--edge) 10px; gap: 12px; }
+.kestrel .studio-sidebar .brand-search { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; padding: 4px 0 4px 6px; flex: none; background: transparent; color: var(--s-muted); font: inherit; font-size: 12px; font-weight: 400; letter-spacing: 0; border-radius: 4px; -webkit-app-region: no-drag; }
+.kestrel .studio-sidebar .brand-search svg { width: var(--slot); height: var(--slot); padding: 1px; box-sizing: border-box; }
+.kestrel .studio-sidebar .brand-search:hover { color: var(--s-ink); }
+
+/* A project's name is the sidebar's landmark (Matt, 2026-11-22): ink, a touch larger, and a little
+   room above every project after the first, so the blocks read apart at a glance. */
+.kestrel .studio-sidebar .project-block > .fold-row .fold-label { color: var(--s-ink); font-size: 12.5px; }
+.kestrel .studio-sidebar .project-block + .project-block { margin-top: 6px; }
+
+/* "N more": the sessions a project folds away (shared/sidebar-fold.ts), one quiet line where the
+   titles start. */
+.kestrel .studio-sidebar .tree .fold-more { list-style: none; }
+.kestrel .studio-sidebar .tree .fold-more > button {
+  display: block; width: 100%; box-sizing: border-box; height: var(--side-row); padding: 0 var(--edge) 0 var(--side-label-x);
+  border: 0; border-radius: 6px; background: none; color: var(--s-muted); font: inherit; font-size: 11.5px; text-align: left; cursor: pointer;
+}
+.kestrel .studio-sidebar .tree .fold-more > button:hover { background: var(--s-soft); color: var(--s-label); }
+
+/* The guide line runs unbroken past a selected or hovered row (Matt, 2026-11-22): inside a project or
+   tag, a row's background starts just right of the line, and the selected row thickens the line's
+   stretch beside it, as one open from its other row does. The title stays where it was. */
+.kestrel .studio-sidebar :is(.project-block, .tag-block:not(.workstream-block)) { --line-gap: calc(var(--edge) + var(--slot) / 2 + 6px); }
+.kestrel .studio-sidebar :is(.project-block, .tag-block:not(.workstream-block)) :is(.tree, .folder-block) :is(.tree-row, .folder-row) {
+  margin-left: var(--line-gap); width: calc(100% - var(--line-gap));
+}
+.kestrel .studio-sidebar :is(.project-block, .tag-block:not(.workstream-block)) .tree-row { padding-left: calc(var(--side-label-x) - var(--line-gap) + var(--depth, 0) * var(--side-indent)); }
+.kestrel .studio-sidebar .project-block .folder-block > .folder-row { padding-left: calc(var(--side-label-x) - var(--line-gap)); }
+.kestrel .studio-sidebar .project-block .folder-block .tree-row { padding-left: calc(var(--folder-label-x) - var(--line-gap) + var(--depth, 0) * var(--side-indent)); }
+.kestrel .studio-sidebar :is(.project-block, .tag-block:not(.workstream-block)) .tree .fold-more > button { margin-left: var(--line-gap); width: calc(100% - var(--line-gap)); padding-left: calc(var(--side-label-x) - var(--line-gap)); }
+
+/* A workstream's sessions sit on a guide line too, under its icon (Matt, 2026-11-22), drawn and
+   selected the same way as a project's; their elbows still say who started whom. */
+.kestrel .studio-sidebar .workstream-block { --line-gap: calc(var(--edge) + var(--slot) / 2 + 6px); }
+.kestrel .studio-sidebar .workstream-block > .tree-children { position: relative; }
+.kestrel .studio-sidebar .workstream-block > .tree-children::before {
+  content: ''; position: absolute; top: 0; bottom: 0; left: calc(var(--edge) + var(--slot) / 2);
+  border-left: 1px solid color-mix(in srgb, var(--s-muted) 22%, transparent); pointer-events: none;
+}
+.kestrel .studio-sidebar .workstream-block > .tree-children .tree-row {
+  margin-left: var(--line-gap); width: calc(100% - var(--line-gap));
+  padding-left: calc(var(--side-label-x) - var(--line-gap) + var(--depth, 0) * var(--side-indent));
+}
+.kestrel .studio-sidebar .workstream-block > .tree-children .tree-row:is(.open-elsewhere, .selected):not(.drop-before)::before {
+  content: ''; position: absolute; left: calc(var(--edge) + var(--slot) / 2 - 1px - var(--line-gap)); top: 1px; bottom: 1px; height: auto; transform: none;
+  width: 3px; border-radius: 1.5px; background: var(--guide, var(--s-muted)); opacity: 1;
+}
+
+/* Selecting a row changes its colour and background, never its weight (Matt, 2026-11-22): a heavier
+   title is wider, so the row's text moved. Each row keeps the weight it has at rest. */
+.kestrel .studio-sidebar .tree-row.selected .tree-title,
+.kestrel .studio-sidebar .side-link.active { font-weight: inherit; }
+.kestrel .studio-sidebar :is(.project-block, .tag-block:not(.workstream-block)) > .fold-row > .side-link.active .fold-label { font-weight: 600; }

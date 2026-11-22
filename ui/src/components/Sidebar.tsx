@@ -1,14 +1,15 @@
 import { bindingFor, formatBinding } from '@kestrel/server/shortcuts';
 import { isMac, useShortcuts } from '../shortcuts.ts';
-import { memo, useContext, useMemo, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
-import { Bird, Eye, Settings, Folder, FolderOpen, GitPullRequest, LayoutDashboard, Search, Plus } from 'lucide-react';
+import { memo, createContext, useContext, useMemo, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { Settings, Folder, FolderOpen, GitPullRequest, LayoutDashboard, Search, Plus } from 'lucide-react';
 import type { Group, Project, SessionView, TreeNode, WorkspaceState } from '@kestrel/server/model';
 import { emptyListKind, nestedIds, projectRowIds, sidebarHomes, type PinnedRow, type SidebarHomes } from '@kestrel/server/pinned-homes';
 import { EmptyList, RowPlus } from './SidebarCreate.tsx';
 import { SidebarWorkstreams } from './SidebarWorkstreams.tsx';
 import { RenameInput } from './SidebarRename.tsx';
 import { SIDEBAR_WIDTH, arrange } from '@kestrel/server/sidebar';
-import { orderSessions, orderTree } from '@kestrel/server/session-order';
+import { activityAt, orderSessions, orderTree } from '@kestrel/server/session-order';
+import { foldRows } from '@kestrel/server/sidebar-fold';
 import { orderPinned } from '@kestrel/server/pinned-order';
 import { activeHome, treeContains } from '@kestrel/server/active-home';
 import { summaryDot } from '@kestrel/server/unread';
@@ -38,10 +39,12 @@ import { openRowMenu } from './sidebarMenuTarget.ts';
 import { filingMark, GROUP_MIME, projectName, PROJECT_MIME, SESSION_MIME, statusText, UNSCOPED } from '../labels.ts';
 import { opener, openSession, openView, type Route, type View } from '../route.ts';
 import { selectsRow } from '@kestrel/server/routes';
+import { useProjectTint, useSessionTint } from '../colours.ts';
 import { actions, appStore, useApp } from '../store.ts';
 import { tabActions, useSessionOrder, useTabs } from '../tabsStore.ts';
 
 const UNGROUPED = 'ungrouped';
+const InProject = createContext(false);
 
 /** The open page selects this row (a project's folders page selects the project): routes.ts. */
 const isView = (route: Route | null, view: View) => selectsRow(route?.view ?? null, view);
@@ -60,6 +63,7 @@ function sessionTip(session: SessionView, projects: readonly Project[], dotLabel
   const mark = filingMark(session.filing.status, session.filing.discarded);
   const state = statusText(session);
   return [
+    ...(session.review ? ['Code review'] : []),
     session.title,
     project === UNSCOPED ? 'No project' : project,
     dotLabel && dotLabel !== state ? `${state} · ${dotLabel}` : state,
@@ -69,12 +73,12 @@ function sessionTip(session: SessionView, projects: readonly Project[], dotLabel
 }
 
 /** A review session's second line: its request's project (or repository), number and who asked; the number alone once the request is no longer listed. */
-function ReviewWhere({ review, fallback }: { review: ReviewMark; fallback: string }) {
+function ReviewWhere({ review, fallback, inProject }: { review: ReviewMark; fallback: string; /** Under its own project: the project is not named again. */ inProject: boolean }) {
   const request = useApp((s) => s.reviewRequests.requests.find((r) => r.key === review.key));
   const project = useApp((s) => (request?.projectId ? s.workspace?.projects.find((p) => p.id === request.projectId)?.name : undefined));
   const now = useMinuteNow();
   // With how long ago the request was opened, as its request row had.
-  return <>{request ? [reviewRowDetail(request, project), openedText(request, now)].filter(Boolean).join(' · ') : `${fallback} ${requestNumberLabel(review)}`}</>;
+  return <>{request ? [reviewRowDetail(request, project, { place: !inProject }), openedText(request, now)].filter(Boolean).join(' · ') : inProject ? requestNumberLabel(review) : `${fallback} ${requestNumberLabel(review)}`}</>;
 }
 
 const TreeRow = memo(function TreeRow({ node, depth, activeId, rootId, groupId, parentId }: { node: TreeNode; depth: number; activeId: string | null; /** The top session of this row's tree. */ rootId: string; /** The group this row is listed in; `undefined` in a project's list, where a drop only reorders. */ groupId: string | null | undefined; /** The row this one is drawn under, if any. */ parentId?: string }) {
@@ -86,6 +90,7 @@ const TreeRow = memo(function TreeRow({ node, depth, activeId, rootId, groupId, 
   const dot = useRowDot(session);
   const renaming = useApp((s) => s.renaming === node.sessionId);
   const inPinned = useContext(InPinned);
+  const inProject = useContext(InProject);
   const inTag = useContext(InTag);
   const inReviews = useContext(InReviews);
   const inWorkstream = useContext(InWorkstream);
@@ -97,6 +102,8 @@ const TreeRow = memo(function TreeRow({ node, depth, activeId, rootId, groupId, 
   // Sorted by most recent, rows show no place to drop between them: a session drag passes on to
   // the list around them, which moves it there if it came from elsewhere.
   const reorders = useSessionOrder() === 'custom';
+  // A coloured tag or group colours the title, over the review colour (Settings → Colours; colours.ts).
+  const tint = useSessionTint(session);
   if (!session || !projects) return null;
   const isOpen = activeId === session.id;
   const primary = isOpen && (reference ? viaReference : !viaReference);
@@ -117,7 +124,8 @@ const TreeRow = memo(function TreeRow({ node, depth, activeId, rootId, groupId, 
       {/* The row's button, with its Archive button laid over its right end on hover (sidebar-rows.css). */}
       <div className="tree-row-box">
         <button
-          className={`tree-row${session.review && !inWorkstream ? ' review-row' : ''}${isOpen ? (primary ? ' selected' : ' open-elsewhere') : ''}${inWorkstream ? ' reference' : ''}${session.filing.status === 'hidden' ? ' dimmed' : ''}${edge ? ` drop-${edge}` : ''}`}
+          className={`tree-row${session.review ? ' review-session' : ''}${session.review && !inWorkstream ? ' review-row' : ''}${isOpen ? (primary ? ' selected' : ' open-elsewhere') : ''}${inWorkstream ? ' reference' : ''}${session.filing.status === 'hidden' ? ' dimmed' : ''}${edge ? ` drop-${edge}` : ''}${tint.className}`}
+          style={tint.style}
           draggable={!renaming}
           onDragStart={startDrag(SESSION_MIME, session.id)}
           onDragOver={(event) => {
@@ -147,8 +155,6 @@ const TreeRow = memo(function TreeRow({ node, depth, activeId, rootId, groupId, 
           {...(renaming ? {} : cardTrigger({ kind: 'session', id: session.id, lineage: lineage ? { text: lineage, sessionId: relatedTitle ? relatedId : undefined } : null }))}
           aria-description={sessionTip(session, projects, dot.label, delegates > 0 && !relatedTitle ? `${lineage}; drag to move them together` : lineage)}
         >
-          {/* A session reviewing somebody else's request carries the mark its request row had, in the same place. */}
-          {session.review && !inWorkstream && <Eye className="review-mark" role="img" aria-label="Code review" />}
           {renaming && !reference ? (
             <span className="tree-title">
               <RenameInput label="Session name" value={session.title} onDone={(name) => name !== session.title && void actions.renameSession(session.id, name)} />
@@ -164,11 +170,11 @@ const TreeRow = memo(function TreeRow({ node, depth, activeId, rootId, groupId, 
                   </span>
                 </>
               ) : session.review ? (
-                // A review is two lines wherever it is drawn: what it reviews, then where and who asked.
+                // A review also says which request and who asked; outside its project, where too.
                 <>
                   <span className="tree-main">{session.title}</span>
                   <span className="tree-where">
-                    <ReviewWhere review={session.review} fallback={projectName(session, projects)} />
+                    <ReviewWhere review={session.review} fallback={projectName(session, projects)} inProject={inProject} />
                   </span>
                 </>
               ) : (
@@ -268,7 +274,7 @@ const FolderBlock = memo(function FolderBlock({ group, tree, route, activeId, on
   const members = useApp((st) => st.workspace?.sessions.filter((x) => x.groupId === group.id).length ?? count);
   const pinnedAway = members - count;
   // A group shows yellow or green when any session in it does, however deep in its tree.
-  const seen = useTabs((v) => v.seen);
+  const seen = useApp((s) => s.seen);
   const sessionsById = useApp((st) => st.sessionsById);
   const dot = useMemo(() => {
     const ids: string[] = [];
@@ -469,8 +475,10 @@ function ProjectBlock({ project, workspace, homes, leaveOut, route, activeId, on
   const order = useTabs((v) => v.sidebar.order);
   const mode = useSessionOrder();
   const lookup = useLookup();
-  const seen = useTabs((v) => v.seen);
+  const seen = useApp((s) => s.seen);
   const renaming = useApp((s) => s.renaming === project.id);
+  // The project's own colour, if it has one (Settings → Colours; colours.ts).
+  const tint = useProjectTint(project.id);
   const inProjectList = homes.inProjectList;
   const rows = useMemo(() => {
     const ids = new Set(projectRowIds(workspace.sessions, project.id, inProjectList, leaveOut));
@@ -479,6 +487,14 @@ function ProjectBlock({ project, workspace, homes, leaveOut, route, activeId, on
   // Its own groups, above its loose sessions, in the order the user left them; pinned ones are drawn under PINNED.
   const groups = useMemo(() => arrange(workspace.groups.filter((g) => g.projectId === project.id && !homes.pinnedGroups.has(g.id)), (g) => g.id, order), [workspace.groups, project.id, homes, order]);
   const grouped = useMemo(() => new Set(groups.map((g) => g.id)), [groups]);
+  // What needs the user first; quiet sessions and anything past the first few behind "N more" (shared/sidebar-fold.ts).
+  const moreKey = `more:${project.id}`;
+  const showAll = useTabs((v) => v.sidebar.collapsed.includes(moreKey));
+  const fold = useMemo(() => {
+    const split = foldRows(rows.map((session) => ({ id: session.id, dot: dotFor(session, seen), activityAt: activityAt(session), session })), { now: Date.now(), activeId });
+    return { shown: split.shown.map((x) => x.session), folded: split.folded.map((x) => x.session) };
+  }, [rows, seen, activeId]);
+  const drawn = showAll ? [...fold.shown, ...fold.folded] : fold.shown;
   // The row lights up for anything in it, its groups' sessions too.
   // The row lights up for anything drawn in it: its rows, what is nested under them, its groups' sessions.
   const nested = useMemo(() => new Set(nestedIds(rows.map((x) => x.id), homes.nestedInProject)), [rows, homes.nestedInProject]);
@@ -524,11 +540,12 @@ function ProjectBlock({ project, workspace, homes, leaveOut, route, activeId, on
     },
   };
   return (
-    <div className={`project-block${reorder.edge ? ` drop-${reorder.edge}` : ''}${over ? ' drop-over' : ''}`} {...(takesDrops ? dropProps : {})}>
+    <InProject.Provider value><div className={`project-block${reorder.edge ? ` drop-${reorder.edge}` : ''}${over ? ' drop-over' : ''}${tint.className}`} style={tint.style} {...(takesDrops ? dropProps : {})}>
       {/* No title tooltip: the hover card (ProjectCard.tsx) says where it lives and more. */}
       <div className="fold-row" {...cardTrigger({ kind: 'project', id: project.id })}>
         <button
-          className={`side-link${isView(route, view) ? ' active' : ''}`}
+          className={`side-link${isView(route, view) ? ' active' : ''}${tint.className}`}
+          style={tint.style}
           aria-expanded={open}
           data-menu-kind="project"
           data-menu-id={project.id}
@@ -551,12 +568,19 @@ function ProjectBlock({ project, workspace, homes, leaveOut, route, activeId, on
       {open &&
         (rows.length > 0 ? (
           <ul className="tree flat">
-            {rows.map((x) => (
+            {drawn.map((x) => (
               <TreeRow key={x.id} node={projectNode(x.id, homes)} depth={0} activeId={activeId} rootId={x.id} groupId={undefined} />
             ))}
+            {fold.folded.length > 0 && (
+              <li className="fold-more">
+                <button type="button" onClick={() => tabActions.toggleCollapsed(moreKey)} aria-expanded={showAll}>
+                  {showAll ? 'Show fewer' : `${fold.folded.length} more`}
+                </button>
+              </li>
+            )}
           </ul>
         ) : null)}
-    </div>
+    </div></InProject.Provider>
   );
 }
 
@@ -692,7 +716,7 @@ function KeptInSection({ section, workspace, homes, route, activeId }: { section
 export function Sidebar({ route, activeId, onSwitch }: { route: Route | null; activeId: string | null; onSwitch: () => void }) {
   const workspace = useApp((s) => s.workspace);
   const collapsed = useTabs((v) => v.sidebar.collapsed);
-  const seen = useTabs((v) => v.seen);
+  const seen = useApp((s) => s.seen);
   const homes = useHomes(workspace, hasReviewSection(useReviewSettings()));
   if (!workspace || !homes) return <aside className="studio-sidebar" />;
   return <SidebarBody workspace={workspace} homes={homes} collapsed={collapsed} route={route} activeId={activeId} onSwitch={onSwitch} />;
@@ -700,6 +724,7 @@ export function Sidebar({ route, activeId, onSwitch }: { route: Route | null; ac
 
 function SidebarBody({ workspace, homes, collapsed, route, activeId, onSwitch }: { workspace: WorkspaceState; homes: SidebarHomes; collapsed: readonly string[]; route: Route | null; activeId: string | null; onSwitch: () => void }) {
   const pinnedRows = usePinnedRows(workspace, homes);
+  const searchShortcut = formatBinding(bindingFor(useShortcuts(), 'switch'), isMac());
   // Where review requests are shown (Settings → Code reviews): the section, the row for their page, or both.
   const reviewSettings = useReviewSettings();
   const reviewsSection = hasReviewSection(reviewSettings);
@@ -726,10 +751,11 @@ function SidebarBody({ workspace, homes, collapsed, route, activeId, onSwitch }:
   return (
     <aside className="studio-sidebar" onContextMenu={onContextMenu}>
       <div className="studio-brand">
-        <span className="brandmark">
-          <Bird aria-hidden />
-        </span>{' '}
-        kestrel
+        <span className="sidebar-wordmark">kestrel</span>
+        <button className="brand-search" onClick={onSwitch} title={`Search${searchShortcut ? ` ${searchShortcut}` : ''}`}>
+          <Search aria-hidden />
+          <span>Search</span>
+        </button>
       </div>
       {/* The top menu: matching rows, then a gap, then the lists. New session is right below Overview (Matt, 2026-11-21): what is done most is not under the lists of what waits. */}
       <div className="top-menu">
@@ -741,11 +767,6 @@ function SidebarBody({ workspace, homes, collapsed, route, activeId, onSwitch }:
         </button>
         {nav({ kind: 'pull-requests' }, 'Pull requests', <GitPullRequest aria-hidden />)}
         {hasReviewLink(reviewSettings) && <ReviewsLink active={isView(route, { kind: 'code-reviews' })} />}
-        <button className="side-link" onClick={onSwitch}>
-          <Search aria-hidden />
-          <span className="link-label">Search</span>
-          <ShortcutHint command="switch" />
-        </button>
       </div>
       <nav aria-label="Sessions and projects" className="side-scroll">
         <SidebarPins rows={pinnedRows} render={(row) => <PinnedItem row={row} workspace={workspace} homes={homes} route={route} activeId={activeId} />} kept={keptPin && activeId ? <PinnedItem row={keptPin} workspace={workspace} homes={homes} route={route} activeId={activeId} only={activeId} /> : null} />

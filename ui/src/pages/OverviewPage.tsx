@@ -14,7 +14,6 @@ import { FILTER_LABEL, emptyState, inView, overviewLine } from '@kestrel/server/
 import { overviewSections, showsStatus } from '@kestrel/server/overview';
 import { runMenuAction } from '../commands.ts';
 import { item } from '@kestrel/server/menu';
-import { useTabs } from '../tabsStore.ts';
 import { AttentionRow } from './AttentionRow.tsx';
 import { ActivityGarden } from './ActivityGarden.tsx';
 import { OverviewIntro } from './OverviewIntro.tsx';
@@ -73,7 +72,7 @@ function WorktreeCleanupNotice() {
 }
 
 export function OverviewPage({ workspace }: { workspace: WorkspaceState }) {
-  const seen = useTabs((v) => v.seen);
+  const seen = useApp((s) => s.seen);
   const listed = useMemo(() => workspace.sessions.filter((s) => inView(s, { kind: 'overview' })), [workspace.sessions]);
   const { rows, counts } = useMemo(() => overviewSections(listed, seen), [listed, seen]);
 

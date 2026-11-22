@@ -17,6 +17,7 @@ import { ProjectChanges } from '../components/ProjectChanges.tsx';
 import { EmptyState } from './EmptyState.tsx';
 import { FilterBar } from './FilterBar.tsx';
 import { PageHeader } from './PageHeader.tsx';
+import { ProjectColourPicker, TagColourPicker } from '../components/ColoursSetting.tsx';
 import { ScopePage } from './ScopePage.tsx';
 import { SessionTable } from './SessionTable.tsx';
 import { viewTitle } from './viewTitle.ts';
@@ -77,7 +78,14 @@ export function ListPage({ view, workspace }: { view: Exclude<View, { kind: 'ove
   );
   const page = (
     <div className={`page column${menu ? ' collection' : ''}`}>
-      <PageHeader title={title} onNewSession={view.kind === 'unscoped' || tagged ? undefined : newSession} line={line} menu={menu} />
+      <PageHeader
+        title={title}
+        onNewSession={view.kind === 'unscoped' || tagged ? undefined : newSession}
+        line={line}
+        menu={menu}
+        // A project's, group's or tag's colour, as one circle in the corner (Settings → Colours has the same).
+        actions={project ? <ProjectColourPicker projectId={project.id} name={project.name} /> : tagged ? <TagColourPicker tag={view.id} /> : undefined}
+      />
       {project ? (
         <>
           <ProjectTabs projectId={project.id} tab={tab} />

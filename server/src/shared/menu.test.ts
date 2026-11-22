@@ -144,7 +144,7 @@ describe('delegation entries', () => {
 describe('a workstream’s menu', () => {
   const ids = (target: Parameters<typeof sidebarMenu>[0]) => sidebarMenu(target).map((i) => i.id);
   it('opens, renames and deletes; offers Stop only while something runs; has no New session', () => {
-    expect(ids({ kind: 'workstream', workstreamId: 'w', name: 'Invoices' })).toEqual(['open-workstream', 'open-new-tab', 'rename-workstream', 'complete-workstream', 'archive-workstream', 'delete-workstream']);
+    expect(ids({ kind: 'workstream', workstreamId: 'w', name: 'Invoices' })).toEqual(['open-workstream', 'open-new-tab', 'rename-workstream', 'complete-workstream', 'archive-workstream', 'archive-workstream-all', 'delete-workstream', 'delete-workstream-all']);
     expect(ids({ kind: 'workstream', workstreamId: 'w', name: 'Invoices', running: true })).toContain('stop-workstream');
     expect(ids({ kind: 'workstream', workstreamId: 'w', name: 'Invoices', onPage: true })).not.toContain('open-workstream');
   });
@@ -154,11 +154,20 @@ describe('a workstream’s menu', () => {
     const find = (target: Parameters<typeof sidebarMenu>[0], id: string) => sidebarMenu(target).find((i) => i.id === id);
     expect(find(base, 'complete-workstream')).toMatchObject({ label: 'Mark complete', action: { type: 'set-workstream-status', workstreamId: 'w', status: 'complete' } });
     expect(find({ ...base, complete: true }, 'reopen-workstream')).toMatchObject({ label: 'Mark as not complete', action: { type: 'set-workstream-status', status: 'active' } });
-    expect(find(base, 'archive-workstream')).toMatchObject({ label: 'Archive workstream', hint: 'Its sessions stay where they are', action: { type: 'archive-workstream', workstreamId: 'w', archived: true } });
+    expect(find(base, 'archive-workstream')).toMatchObject({ label: 'Archive workstream', action: { type: 'archive-workstream', workstreamId: 'w', archived: true } });
+    expect(find(base, 'archive-workstream')!.hint).toBeUndefined();
+    // The full clean-up in one go: the workstream and its sessions, archived or deleted.
+    expect(find(base, 'archive-workstream-all')).toMatchObject({ label: 'Archive workstream and sessions', action: { type: 'archive-workstream', workstreamId: 'w', archived: true, withSessions: true } });
+    expect(find(base, 'delete-workstream-all')).toMatchObject({ label: 'Delete workstream and sessions', action: { type: 'delete-workstream', workstreamId: 'w', withSessions: true } });
     const busy = find({ ...base, running: true, members: [{ id: 'a', title: 'Export', state: 'running' }, { id: 'b', title: 'Button', state: 'done' }] }, 'archive-workstream')!;
     expect(busy).toMatchObject({ label: 'Archive workstream', disabled: true });
     expect(busy.action).toBeUndefined();
     expect(busy.hint).toContain('“Export” is still working or waiting on you');
+    // Nothing is archived or deleted with its sessions while one is still at work; the grouping alone can go.
+    const busyBase = { ...base, running: true, members: [{ id: 'a', title: 'Export', state: 'running' as const }] };
+    expect(find(busyBase, 'archive-workstream-all')).toMatchObject({ disabled: true });
+    expect(find(busyBase, 'delete-workstream-all')).toMatchObject({ disabled: true });
+    expect(find(busyBase, 'delete-workstream')!.disabled).toBeUndefined();
     expect(find({ ...base, members: [{ id: 'b', title: 'Button', state: 'interrupted' }] }, 'archive-workstream')).toMatchObject({ action: { type: 'archive-workstream', archived: true } });
     expect(find({ ...base, archived: true }, 'restore-workstream')).toMatchObject({ label: 'Restore workstream', action: { type: 'archive-workstream', archived: false } });
     expect(find({ ...base, archived: true }, 'archive-workstream')).toBeUndefined();
@@ -169,6 +178,22 @@ describe('a workstream’s menu', () => {
     expect(ids(base)).not.toContain('leave-workstream');
     const leave = sidebarMenu({ ...base, workstream: { id: 'w', name: 'Invoices' } }).find((i) => i.id === 'leave-workstream')!;
     expect(leave).toMatchObject({ label: 'Remove from Invoices', action: { type: 'remove-from-workstream', workstreamId: 'w', sessionId: 's' } });
+  });
+
+  it('greys out Remove from on the lead, with the reason', () => {
+    const base = { kind: 'session' as const, sessionId: 'o', running: false, groupId: null, groups: [] };
+    const leave = sidebarMenu({ ...base, workstream: { id: 'w', name: 'Invoices', refusal: 'It leads this workstream: delete the workstream instead' } }).find((i) => i.id === 'leave-workstream')!;
+    expect(leave).toMatchObject({ disabled: true, hint: expect.stringContaining('leads') });
+    expect(leave.action).toBeUndefined();
+  });
+
+  it("opens the workstream's page from a session in one (its row, its tab), right after the session's own opening items", () => {
+    const base = { kind: 'session' as const, sessionId: 's', running: false, groupId: null, groups: [] };
+    expect(ids(base)).not.toContain('open-workstream');
+    const items = ids({ ...base, workstream: { id: 'w', name: 'Invoices' } });
+    expect(items.slice(0, 2)).toEqual(['open-new-tab', 'open-workstream']);
+    const open = sidebarMenu({ ...base, workstream: { id: 'w', name: 'Invoices' } }).find((i) => i.id === 'open-workstream')!;
+    expect(open).toMatchObject({ label: 'Open workstream page', action: { type: 'open-workstream', workstreamId: 'w' } });
   });
 
 });

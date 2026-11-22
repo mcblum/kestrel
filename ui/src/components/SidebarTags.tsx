@@ -15,8 +15,9 @@ import { orderSessions } from '@kestrel/server/session-order';
 import { tagDot, tagSessionIds } from '@kestrel/server/status';
 import { hasTag, sameTag, tagCounts, tagKey, type TagCount } from '@kestrel/server/tags';
 import { SESSION_MIME, TAG_MIME } from '../labels.ts';
+import { useTagTint } from '../colours.ts';
 import type { Route } from '../route.ts';
-import { actions } from '../store.ts';
+import { actions, useApp } from '../store.ts';
 import { tabActions, useSessionOrder, useTabs } from '../tabsStore.ts';
 import { Heading, useSectionOpen } from './SidebarHeading.tsx';
 import { FoldChevron, foldClick, RowMore, RowOpen } from './SidebarRowParts.tsx';
@@ -66,7 +67,7 @@ function TagBlock({ entry, present, active, sessions, renderSession }: TagProps)
   const key = tagKey(tag);
   const fold = `open:tag:${key}`;
   const open = useTabs((v) => v.sidebar.collapsed.includes(fold));
-  const seen = useTabs((v) => v.seen);
+  const seen = useApp((s) => s.seen);
   const mode = useSessionOrder();
   const ids = useMemo(() => {
     if (!open) return [];
@@ -78,12 +79,14 @@ function TagBlock({ entry, present, active, sessions, renderSession }: TagProps)
   const dot = rowDotClass(useMemo(() => tagDot(sessions, tag, seen), [sessions, tag, seen]));
   const reorder = useReorderTarget(TAG_MIME, (moving, after) => moving !== key && tabActions.placeTag(present, moving, key, after));
   const drop = useTagDrop(tag, sessions);
+  const tint = useTagTint(tag);
   return (
-    <div className={`tag-block${reorder.edge ? ` drop-${reorder.edge}` : ''}`} {...reorder.props}>
+    <div className={`tag-block${reorder.edge ? ` drop-${reorder.edge}` : ''}${tint.className}`} style={tint.style} {...reorder.props}>
       <div className="fold-row">
         <button
           type="button"
-          className={`side-link tag-link${active ? ' active' : ''}${drop.over ? ' drop-over' : ''}`}
+          className={`side-link tag-link${active ? ' active' : ''}${drop.over ? ' drop-over' : ''}${tint.className}`}
+          style={tint.style}
           aria-expanded={open}
           title={`${tag} · ${count} session${count === 1 ? '' : 's'}`}
           data-menu-kind="tag"

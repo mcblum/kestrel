@@ -96,3 +96,8 @@
 .kestrel .details-repository-link svg { width: 12px; height: 12px; color: var(--s-muted); }
 .kestrel .details-status-group { min-width: 0; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--s-line); }
 .kestrel .details-status-group > .details-line.details-group:first-of-type { margin-top: 0; }
+
+/* The project as a pill, like the workstream chip beside it (colours.css gives it the project's colour). */
+.kestrel .session-head .bar-project.project-chip { gap: 5px; padding: 0 8px; max-width: 260px; }
+.kestrel .session-head .project-chip svg { width: 11px; height: 11px; flex: none; }
+.kestrel .session-head .project-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

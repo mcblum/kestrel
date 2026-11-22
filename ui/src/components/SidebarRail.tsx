@@ -4,6 +4,7 @@
 // the pinned ones, then any waiting for an answer, as their initial with the row's dot (or, with no
 // dot, its open request's icon: RowRequest.tsx); the title is in the tooltip. The rest is one
 // click on the sidebar toggle away (the full sidebar, floating).
+import { useSessionTint } from '../colours.ts';
 import { useMemo, type MouseEvent } from 'react';
 import { Eye, GitPullRequest, LayoutDashboard, Plus, Search, Settings } from 'lucide-react';
 import { hasReviewLink } from '@kestrel/server/review-settings';
@@ -19,7 +20,7 @@ import { sessionDot } from '@kestrel/server/unread';
 import { runMenuAction } from '../commands.ts';
 import { opener, openSession, openView, type Route } from '../route.ts';
 import { useApp } from '../store.ts';
-import { useSessionOrder, useTabs } from '../tabsStore.ts';
+import { useSessionOrder } from '../tabsStore.ts';
 import { openRowMenu } from './sidebarMenuTarget.ts';
 import { rowDotClass } from './useRowDot.ts';
 import { asksForRequest } from '@kestrel/server/row-slot';
@@ -31,7 +32,7 @@ const DOT_LABEL: Record<RailSession['dot'], string> = { 'needs-you': 'Needs your
 function useRailSessions(): RailSession[] {
   const workspace = useApp((s) => s.workspace);
   const byId = useApp((s) => s.sessionsById);
-  const seen = useTabs((v) => v.seen);
+  const seen = useApp((s) => s.seen);
   const mode = useSessionOrder();
   return useMemo(() => {
     if (!workspace) return [];
@@ -46,11 +47,13 @@ function useRailSessions(): RailSession[] {
 
 function RailSessionButton({ entry, selected }: { entry: RailSession; selected: boolean }) {
   const session = useApp((s) => s.sessionsById.get(entry.id));
+  const tint = useSessionTint(session);
   if (!session) return null;
-  const tip = [session.title, DOT_LABEL[entry.dot]].filter(Boolean).join(' · ');
+  // A review says so in words too, as its row's hover card does: its violet initial is not the only sign.
+  const tip = [session.review ? 'Code review' : '', session.title, DOT_LABEL[entry.dot]].filter(Boolean).join(' · ');
   const dot = rowDotClass(entry.dot);
   return (
-    <button className={`rail-button rail-session${selected ? ' selected' : ''}`} aria-label={tip} title={tip} aria-current={selected ? 'page' : undefined} data-menu-kind="session" data-menu-id={session.id} {...opener((newTab) => openSession(session.id, newTab))}>
+    <button className={`rail-button rail-session${session.review ? ' review-session' : ''}${selected ? ' selected' : ''}${tint.className}`} style={tint.style} aria-label={tip} title={tip} aria-current={selected ? 'page' : undefined} data-menu-kind="session" data-menu-id={session.id} {...opener((newTab) => openSession(session.id, newTab))}>
       <span className="rail-initial" aria-hidden>
         {[...session.title.trim()][0]?.toUpperCase() ?? '·'}
       </span>

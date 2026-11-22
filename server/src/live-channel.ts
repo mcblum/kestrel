@@ -3,7 +3,8 @@
 import type { WebSocket } from 'ws';
 import type { LivePatch } from './model.ts';
 
-const FLUSH_MS = 40;
+/** How long live output is gathered before it is sent: at most one patch per session per this many ms. */
+export const LIVE_FLUSH_MS = 40;
 
 /** Merge two patches: the newer message replaces an older one with the same id. */
 export function mergePatch(a: LivePatch, b: LivePatch): LivePatch {
@@ -49,7 +50,7 @@ export class LiveChannel {
   publish(sessionId: string, patch: LivePatch): void {
     if (!this.isWatched(sessionId)) return;
     this.pending.set(sessionId, mergePatch(this.pending.get(sessionId) ?? {}, patch));
-    this.timer ??= setTimeout(() => this.flush(), FLUSH_MS);
+    this.timer ??= setTimeout(() => this.flush(), LIVE_FLUSH_MS);
   }
 
   private flush(): void {

@@ -14,7 +14,7 @@
 // A message names its files as `{ draftId, attachments: [id, …] }` on reply and on start; `draftRefs` reads that.
 import type { IncomingMessage } from 'node:http';
 import { readFileSync } from 'node:fs';
-import { ATTACHMENT_MAX_FILE_BYTES, ATTACHMENT_MAX_PER_MESSAGE, formatSize } from '../shared/attachments.ts';
+import { ATTACHMENT_MAX_FILE_BYTES, ATTACHMENT_MAX_PER_MESSAGE, formatSize, type Attachment } from '../shared/attachments.ts';
 import { Refused } from '../workspace.ts';
 import { isSafeId } from './naming.ts';
 import type { AttachmentStore, DraftRefs } from './store.ts';
@@ -45,14 +45,15 @@ async function upload(req: IncomingMessage, url: URL, draftId: string, store: At
   return { status: 201, body: attachment };
 }
 
+/** Only pictures are served as what they are; anything else is plain bytes, never run or rendered. */
+export const servedType = (attachment: Attachment): string => (attachment.kind === 'image' ? attachment.mediaType : 'application/octet-stream');
+
 /** Answers an attachment route, or null when the path is not one. Refusals are thrown as `Refused` (409). */
 export async function attachmentRoute(parts: readonly string[], method: string, req: IncomingMessage, url: URL, store: AttachmentStore): Promise<AttachmentAnswer | null> {
   if (parts[1] === 'sessions' && parts[3] === 'attachments' && parts.length === 5 && method === 'GET') {
     const stored = store.file(parts[2]!, parts[4]!);
     if (!stored) return { status: 404, body: { error: 'No such attachment' } };
-    // Only pictures are served as what they are; anything else is plain bytes, never run or rendered.
-    const type = stored.attachment.kind === 'image' ? stored.attachment.mediaType : 'application/octet-stream';
-    return { status: 200, bytes: readFileSync(stored.path), type };
+    return { status: 200, bytes: readFileSync(stored.path), type: servedType(stored.attachment) };
   }
   if (parts[1] !== 'attachments' || parts[2] !== 'drafts' || parts.length < 4) return null;
   const draftId = parts[3]!;

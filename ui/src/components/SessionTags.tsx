@@ -1,6 +1,8 @@
 // A session's tags, in its Details pane: small quiet chips, each opening the page of every session with
 // that tag and each removable, then "+ tag", which opens a text box in place. Enter adds, Escape or
 // leaving the box cancels. The tags already in use elsewhere are offered as you type.
+import { tagColour } from '@kestrel/server/colours';
+import { tintFor, useColours } from '../colours.ts';
 import { useMemo, type KeyboardEvent } from 'react';
 import { Plus, X } from 'lucide-react';
 import { TAG_MAX, hasTag, tagCounts } from '@kestrel/server/tags';
@@ -42,10 +44,13 @@ function TagInput({ sessionId, tags }: { sessionId: string; tags: readonly strin
 
 export function SessionTags({ sessionId, tags }: { sessionId: string; tags: readonly string[] }) {
   const tagging = useApp((s) => s.tagging === sessionId);
+  const colours = useColours();
   return (
     <span className="bar-item bar-tags">
-      {tags.map((tag) => (
-        <span key={tag} className="tag-chip">
+      {tags.map((tag) => {
+        const tint = tintFor(tagColour(colours, tag));
+        return (
+        <span key={tag} className={`tag-chip${tint.className}`} style={tint.style}>
           <button className="tag-chip-name" title={`Every session tagged ${tag}`} {...opener((newTab) => openTag(tag, newTab))}>
             {tag}
           </button>
@@ -53,7 +58,8 @@ export function SessionTags({ sessionId, tags }: { sessionId: string; tags: read
             <X aria-hidden />
           </button>
         </span>
-      ))}
+        );
+      })}
       {tagging ? (
         <TagInput sessionId={sessionId} tags={tags} />
       ) : (
