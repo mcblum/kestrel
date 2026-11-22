@@ -34,6 +34,14 @@ describe('what post_review accepts', () => {
     expect(draftReview({ verdict: 'comment', summary: 'x' }, SHA)).toMatchObject({ reply: { findings: [] } });
   });
 
+  it('requires an agent rationale even for clean approvals', () => {
+    expect(draftReview({ verdict: 'approve', summary: '', findings: [] }, SHA)).toHaveProperty('problem');
+    for (const verdict of ['comment', 'request_changes']) {
+      expect(draftReview({ verdict, summary: '' }, SHA)).toHaveProperty('problem');
+    }
+    expect(draftReview({ verdict: 'approve', summary: '', findings: [finding()] }, SHA)).toHaveProperty('problem');
+  });
+
   it('says what is wrong with a review it cannot use', () => {
     const bad = (f: Record<string, unknown>) => draftReview({ verdict: 'comment', summary: 'x', findings: [f] }, SHA);
     expect(draftReview({ verdict: 'lgtm', summary: 'x' }, SHA)).toMatchObject({ problem: expect.stringContaining('verdict must be one of') });
@@ -130,6 +138,18 @@ describe('the commands that post a review', () => {
     await expect(postReview(run, { host: 'github', number: 12, cwd: '/w' }, out())).rejects.toThrow(/GitHub did not take the review/);
   });
 
+  it('approves without a body on GitHub and without a note on GitLab', async () => {
+    const calls: string[][] = [];
+    const run = async (_bin: string, args: readonly string[]) => (calls.push([...args]), { stdout: '' });
+    const approval = out({ verdict: 'approve', summary: '' });
+    await postReview(run, { host: 'github', number: 12, cwd: '/w' }, approval);
+    expect(calls[0]).toContain('event=APPROVE');
+    expect(calls[0]!.some((arg) => arg.startsWith('body='))).toBe(false);
+    await postReview(run, { host: 'gitlab', number: 7, cwd: '/w' }, approval);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toEqual(glabApproveArgs(7, SHA));
+  });
+
   it('on GitLab approves first, then posts one note', async () => {
     const calls: string[][] = [];
     const run = async (_bin: string, args: readonly string[]) => (calls.push([...args]), { stdout: '' });
@@ -188,6 +208,73 @@ describe('posting a review card', () => {
     await expect(replies.post('s1', card()!.id!)).rejects.toThrow(/already posted/);
   });
 
+  it('keeps the rationale in Kestrel when approval omits the summary on the host', async () => {
+    const { replies, tool, calls, card } = setUp();
+    await tool({ verdict: 'approve', summary: 'The implementation covers the edge cases.' });
+    const posted = await replies.post('s1', card()!.id!, { withoutComment: true });
+    expect(posted.summary).toBe('The implementation covers the edge cases.');
+    expect(posted.posted?.withoutComment).toBe(true);
+    expect(calls[0]).toContain('event=APPROVE');
+    expect(calls[0]!.some((arg) => arg.startsWith('body='))).toBe(false);
+  });
+
+  it('only an approval goes up without comment', async () => {
+    const { replies, tool, calls, card } = setUp();
+    await tool({ verdict: 'comment', summary: 'A note.' });
+    await expect(replies.post('s1', card()!.id!, { withoutComment: true })).rejects.toThrow(/Only an approval/);
+    await expect(replies.post('s1', card()!.id!, { verdict: 'request_changes', withoutComment: true })).rejects.toThrow(/Only an approval/);
+    expect(calls).toEqual([]);
+  });
+
+  it('an approval without comment posts nothing else, whatever findings are kept, blocking ones too', async () => {
+    const { replies, tool, calls, card } = setUp();
+    await tool({ verdict: 'approve', summary: 'Mostly fine.', findings: [{ brief: 'Off by one.', priority: 'high', blocking: true, refs: [{ path: 'a.ts', line: 3 }] }, { brief: 'Typo.', priority: 'low', blocking: false }] });
+    // The card proposed asking for changes; the user approves all the same.
+    expect(card()?.review?.verdict).toBe('request_changes');
+    const posted = await replies.post('s1', card()!.id!, { verdict: 'approve', withoutComment: true });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain('event=APPROVE');
+    expect(calls[0]!.some((arg) => arg.startsWith('body=') || arg.startsWith('comments[]'))).toBe(false);
+    // The card keeps what was found.
+    expect(posted).toMatchObject({ summary: 'Mostly fine.', posted: { verdict: 'approve', withoutComment: true } });
+    expect(posted.findings).toHaveLength(2);
+  });
+
+  it('an approval with its summary takes its kept findings with it', async () => {
+    const { replies, tool, calls, card } = setUp();
+    await tool({ verdict: 'approve', summary: 'Fine.', findings: [{ brief: 'Off by one.', priority: 'high', blocking: true, refs: [{ path: 'a.ts', line: 3 }] }] });
+    await replies.post('s1', card()!.id!, { verdict: 'approve' });
+    expect(calls[0]).toContain('event=APPROVE');
+    expect(calls[0]).toContain('body=Fine.');
+    expect(calls[0]).toContain('comments[][path]=a.ts');
+  });
+
+  it('posts an approval without the draft summary and records exactly what was posted', async () => {
+    const { replies, tool, calls, card } = setUp();
+    await tool({ verdict: 'approve', summary: 'A long explanation of why everything is fine.' });
+    const posted = await replies.post('s1', card()!.id!, { verdict: 'approve', summary: '' });
+    expect(posted.summary).toBe('');
+    expect(posted.posted?.verdict).toBe('approve');
+    expect(calls[0]!.some((arg) => arg.startsWith('body='))).toBe(false);
+  });
+
+  it('refuses empty summaries for other verdicts and approvals retaining findings', async () => {
+    const { replies, tool, calls, card } = setUp();
+    await tool({ verdict: 'approve', summary: 'Fine.', findings: [{ brief: 'A typo.', blocking: false, priority: 'low' }] });
+    await expect(replies.post('s1', card()!.id!, { summary: '' })).rejects.toThrow(/summary is empty/);
+    await expect(replies.post('s1', card()!.id!, { verdict: 'comment', summary: '' })).rejects.toThrow(/summary is empty/);
+    expect(calls).toEqual([]);
+    const findings = card()!.review!.findings.map((f) => ({ ...f, dismissed: true }));
+    expect((await replies.post('s1', card()!.id!, { summary: '', findings })).summary).toBe('');
+  });
+
+  it('still rejects a silent approval when new commits arrive', async () => {
+    const { replies, tool, calls, card } = setUp({ request: ready({ number: 12, state: 'open', headSha: OTHER } as PullRequest) });
+    await tool({ verdict: 'approve', summary: 'The implementation is sound.' });
+    await expect(replies.post('s1', card()!.id!, { summary: '' })).rejects.toThrow(/new commits since/);
+    expect(calls).toEqual([]);
+  });
+
   it('never approves a request whose head has moved since the review', async () => {
     const { replies, tool, calls, card } = setUp({ request: ready({ number: 12, state: 'open', headSha: OTHER } as PullRequest) });
     await tool({ verdict: 'approve', summary: 'Good.' });
@@ -216,6 +303,18 @@ describe('posting a review card', () => {
     const startOnly = setUp({ settings: { mode: 'start', projects: 'all' } });
     await startOnly.tool({ verdict: 'approve', summary: 'Good.' });
     expect(startOnly.calls).toEqual([]);
+  });
+
+  it('on its own, a clean approval goes up alone, and a review with findings goes up whole', async () => {
+    const clean = setUp({ settings: { mode: 'reply', projects: 'all' } });
+    await clean.tool({ verdict: 'approve', summary: 'Why it is fine.' });
+    expect(clean.calls[0]).toContain('event=APPROVE');
+    expect(clean.calls[0]!.some((arg) => arg.startsWith('body='))).toBe(false);
+    expect(clean.card()?.review).toMatchObject({ summary: 'Why it is fine.', posted: { withoutComment: true, onItsOwn: true } });
+    const noted = setUp({ settings: { mode: 'reply', projects: 'all' } });
+    await noted.tool({ verdict: 'approve', summary: 'Fine, with a note.', findings: [{ brief: 'A typo.', priority: 'low', blocking: false }] });
+    expect(noted.calls[0]!.some((arg) => arg.startsWith('body=Fine, with a note.'))).toBe(true);
+    expect(noted.card()?.review?.posted?.withoutComment).toBeUndefined();
   });
 
   it('leaves the card for the user when posting on its own is refused', async () => {

@@ -17,7 +17,7 @@ const GH_EVENT = { comment: 'COMMENT', approve: 'APPROVE', request_changes: 'REQ
 /** `gh api` arguments that post a review of pull request `number` in the repository of the working folder. Pure. */
 export function ghReviewArgs(number: number, reply: OutgoingReview): string[] {
   const comments = reply.comments.flatMap((c) => ['-f', `comments[][path]=${c.path}`, '-F', `comments[][line]=${c.line}`, '-f', 'comments[][side]=RIGHT', '-f', `comments[][body]=${c.body}`]);
-  return ['api', '-X', 'POST', `repos/{owner}/{repo}/pulls/${number}/reviews`, '-f', `commit_id=${reply.sha}`, '-f', `event=${GH_EVENT[reply.verdict]}`, '-f', `body=${reply.summary}`, ...comments];
+  return ['api', '-X', 'POST', `repos/{owner}/{repo}/pulls/${number}/reviews`, '-f', `commit_id=${reply.sha}`, '-f', `event=${GH_EVENT[reply.verdict]}`, ...(reply.summary ? ['-f', `body=${reply.summary}`] : []), ...comments];
 }
 
 export const glabNoteArgs = (number: number, body: string): string[] => ['mr', 'note', String(number), `--message=${body}`];
@@ -64,7 +64,8 @@ export async function postReview(run: CommandRunner, target: PostReviewTarget, r
   try {
     // The approval first: if the head has moved it is refused, and then nothing at all is posted.
     if (reply.verdict === 'approve') await glab(glabApproveArgs(target.number, reply.sha));
-    await glab(glabNoteArgs(target.number, gitlabNote(reply)));
+    const note = gitlabNote(reply);
+    if (note.trim()) await glab(glabNoteArgs(target.number, note));
   } catch (error) {
     throw new Refused(`GitLab did not take the review: ${glabFailureReason(error)}`);
   }

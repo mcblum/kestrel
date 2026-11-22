@@ -12,9 +12,11 @@
 // while it is open; Dismiss all and Mark all read act on the requests not started that the filters
 // leave in sight, never on a review under way, which is dismissed by its own button. Dismissing posts nothing to
 // the host and stops no session: the request is only no longer listed as waiting.
+// Sort by (last activity or date opened, newest or oldest first) orders both groups, so it sits at
+// the right of the Waiting / Dismissed bar; it is this browser's own choice and is remembered there.
 import { memo, useMemo, useState } from 'react';
-import { CheckCheck, ExternalLink, Eye, RotateCcw, Search, X } from 'lucide-react';
-import { filterReviews, isFiltering, NO_REVIEW_FILTERS, placeChoices, REVIEW_WITHIN, REVIEW_WITHIN_LABEL, splitStarted, whoChoices, type ReviewFilters, type ReviewWithin } from '@kestrel/server/review-filter';
+import { ArrowDown, ArrowUp, CheckCheck, ExternalLink, Eye, RotateCcw, Search, X } from 'lucide-react';
+import { asReviewSort, filterReviews, isFiltering, REVIEW_SORT_BY, REVIEW_SORT_LABEL, sortDirectionLabel, sortReviews, type ReviewSort, type ReviewSortBy, NO_REVIEW_FILTERS, placeChoices, REVIEW_WITHIN, REVIEW_WITHIN_LABEL, splitStarted, whoChoices, type ReviewFilters, type ReviewWithin } from '@kestrel/server/review-filter';
 import { hostTerms } from '@kestrel/server/host-terms';
 import { openedText, requestStatus, reviewRowDetail, type ReviewRequest } from '@kestrel/server/review-requests';
 import { statusText } from '../labels.ts';
@@ -119,6 +121,25 @@ function Empty({ dismissed, off }: { dismissed: boolean; off: boolean }) {
   );
 }
 
+/** The order the page was last left in: a convenience of this browser, not server data. */
+const SORT_KEY = 'kestrel.code-reviews.sort';
+
+function storedSort(): ReviewSort {
+  try {
+    return asReviewSort(JSON.parse(window.localStorage.getItem(SORT_KEY) ?? 'null'));
+  } catch {
+    return asReviewSort(null);
+  }
+}
+
+function rememberSort(sort: ReviewSort): void {
+  try {
+    window.localStorage.setItem(SORT_KEY, JSON.stringify(sort));
+  } catch {
+    // Not remembered; the order still holds while the page is open.
+  }
+}
+
 /** How many reviews under way are listed before "Show all": many can be at work when reviews start on their own. */
 const REVIEWING_SHOWN = 10;
 
@@ -127,6 +148,8 @@ export function CodeReviewsPage({ dismissed }: { dismissed: boolean }) {
   const off = useReviewSettings().mode === 'off';
   const projects = useApp((s) => s.workspace?.projects);
   const [filters, setFilters] = useState<ReviewFilters>(NO_REVIEW_FILTERS);
+  const [sort, setSort] = useState(storedSort);
+  const changeSort = (next: ReviewSort) => (setSort(next), rememberSort(next));
   const [allReviewing, setAllReviewing] = useState(false);
   const now = useMinuteNow();
   const everything = dismissed ? view.dismissed : view.requests;
@@ -138,7 +161,8 @@ export function CodeReviewsPage({ dismissed }: { dismissed: boolean }) {
   // filters and untouched by them: what they took on. A dismissed request is in neither group.
   const sessions = useApp((s) => s.workspace?.sessions);
   const startedKeys = useMemo(() => new Set(dismissed ? [] : (sessions ?? []).flatMap((s) => (s.review ? [s.review.key] : []))), [sessions, dismissed]);
-  const groups = useMemo(() => splitStarted(everything, startedKeys), [everything, startedKeys]);
+  // Both groups are listed in the order chosen.
+  const groups = useMemo(() => splitStarted(sortReviews(everything, sort), startedKeys), [everything, sort, startedKeys]);
   // The filters, and the buttons at the top, are about the rest.
   const list = useMemo(() => filterReviews(groups.rest, filters, names, now), [groups.rest, filters, names, now]);
   const filtering = isFiltering(filters);
@@ -179,6 +203,21 @@ export function CodeReviewsPage({ dismissed }: { dismissed: boolean }) {
           {chip('Waiting', view.requests.length, !dismissed)}
           {chip('Dismissed', view.dismissed.length, dismissed, 'dismissed')}
         </div>
+        {/* The order is the whole page's, the reviews under way included, so it sits on the page's own bar and not with the filters (Matt, 2026-11-21). */}
+        {everything.length > 1 && (
+          <span className="reviews-sort">
+            <select aria-label="Sort by" className="form-control reviews-pick set" value={sort.by} onChange={(e) => changeSort({ ...sort, by: e.target.value as ReviewSortBy })}>
+              {REVIEW_SORT_BY.map((by) => (
+                <option key={by} value={by}>
+                  {REVIEW_SORT_LABEL[by]}
+                </option>
+              ))}
+            </select>
+            <button type="button" className="icon-button reviews-direction" aria-label={`${sortDirectionLabel(sort)}. Switch to ${sortDirectionLabel({ ...sort, descending: !sort.descending }).toLowerCase()}`} title={sortDirectionLabel(sort)} onClick={() => changeSort({ ...sort, descending: !sort.descending })}>
+              {sort.descending ? <ArrowDown aria-hidden /> : <ArrowUp aria-hidden />}
+            </button>
+          </span>
+        )}
       </div>
       {view.problems.length > 0 && (
         <ul className="prs-unasked" aria-label="Hosts that could not be asked">

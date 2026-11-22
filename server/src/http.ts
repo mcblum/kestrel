@@ -421,7 +421,7 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
       // Post a review of somebody else's pull request, as the user left its card (review-requests/reply.ts).
       if (runtime && parts[3] === 'review-reply' && parts.length === 4 && method === 'POST') {
         const body = await readJson(req);
-        return send(req, res, 200, await runtime.reviewReplies.post(parts[2]!, String(body.cardId ?? ''), { ...(body.verdict !== undefined ? { verdict: body.verdict } : {}), ...(body.summary !== undefined ? { summary: body.summary } : {}), ...(body.findings !== undefined ? { findings: body.findings } : {}) }));
+        return send(req, res, 200, await runtime.reviewReplies.post(parts[2]!, String(body.cardId ?? ''), { ...(body.verdict !== undefined ? { verdict: body.verdict } : {}), ...(body.summary !== undefined ? { summary: body.summary } : {}), ...(body.findings !== undefined ? { findings: body.findings } : {}), ...(body.withoutComment !== undefined ? { withoutComment: body.withoutComment } : {}) }));
       }
       if (runtime && parts[3] === 'review' && parts.length === 4 && (method === 'GET' || method === 'POST')) {
         // With who would review it, or why nobody can: whoever wrote the code does not review it.

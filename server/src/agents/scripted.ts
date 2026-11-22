@@ -173,6 +173,11 @@ function handle(emit: (e: AgentEvent) => void, id: string, tools: KestrelToolHos
       }
       // SCRIPTED: hands over a review, as a session reviewing somebody else's pull request ends
       // (refused, with the reason, in any other session).
+      // SCRIPTED: "/review clean" hands over an approval with nothing to fix, to see the card's "Approve without comment".
+      if (text.includes('/review clean')) {
+        void tools.postReview({ verdict: 'approve', summary: 'Makes the table header sticky and reads its offset from the scroll parent, so it holds inside a panel as well as on the page. The new test scrolls the container and checks where the header ends up. I found nothing to change.' });
+        return void timers.push(setTimeout(() => finish({ type: 'done', reason: 'complete' }), 400));
+      }
       if (text.includes('/review')) {
         // SAMPLE: the files the comments point at, so their code can be opened from the card.
         mkdirSync(join(cwd, 'ui/src'), { recursive: true });

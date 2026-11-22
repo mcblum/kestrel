@@ -71,6 +71,8 @@ export interface ReviewReply {
 }
 
 export interface ReviewPosted {
+  /** The host received only the approval: the summary, and any findings still kept, stayed in Kestrel. */
+  withoutComment?: boolean;
   at: number;
   verdict: ReviewVerdict;
   /** True when Kestrel posted it without the user's click (the setting's fourth choice). */
@@ -90,8 +92,8 @@ const isVerdict = (v: unknown): v is ReviewVerdict => REVIEW_VERDICTS.includes(v
 const isPriority = (v: unknown): v is FindingPriority => FINDING_PRIORITIES.includes(v as FindingPriority);
 
 /** A summary as given, or why it will not do. */
-export function summaryProblem(summary: unknown): string | null {
-  if (typeof summary !== 'string' || !summary.trim()) return 'summary is empty. Say what the change does and what you make of it.';
+export function summaryProblem(summary: unknown, allowEmpty = false): string | null {
+  if (typeof summary !== 'string' || (!allowEmpty && !summary.trim())) return 'summary is empty. Say what the change does and what you make of it.';
   if (summary.length > SUMMARY_MAX) return `summary is longer than ${SUMMARY_MAX} characters.`;
   return null;
 }
@@ -141,10 +143,12 @@ export function checkFindings(given: unknown, ids?: readonly string[]): { findin
 
 /** What `post_review` was given, checked: the review, or the reason it is not one. */
 export function draftReview(args: { verdict?: unknown; summary?: unknown; findings?: unknown }, sha: string): { reply: ReviewReply } | { problem: string } {
-  const problem = verdictProblem(args.verdict) ?? summaryProblem(args.summary);
+  const problem = verdictProblem(args.verdict);
   if (problem) return { problem };
   const checked = checkFindings(args.findings);
   if ('problem' in checked) return checked;
+  const summaryError = summaryProblem(args.summary);
+  if (summaryError) return { problem: summaryError };
   // As the agent hands it over nothing is dismissed, and each is named by its place.
   const findings = checked.findings.map(({ dismissed: _dropped, ...f }, i) => ({ ...f, id: `f${i + 1}` }));
   return { reply: { verdict: args.verdict as ReviewVerdict, summary: (args.summary as string).trim(), findings, sha } };
@@ -175,13 +179,25 @@ export interface OutgoingReview {
 export const keptFindings = (findings: readonly ReviewFinding[]): ReviewFinding[] => findings.filter((f) => !f.dismissed);
 
 /**
+ * An approval with nothing to say to the author: no finding is kept. It goes to the host as the
+ * approval alone unless the user asks for the summary to go with it (Matt, 2026-11-21: the summary
+ * says why the change is fine, which is for the reviewer, not a comment on somebody's pull
+ * request). This is only where the card's choice starts and what a review posted on its own does:
+ * the user may post any approval without comment, findings or not.
+ */
+export const isCleanApproval = (verdict: ReviewVerdict, findings: readonly ReviewFinding[]): boolean => verdict === 'approve' && keptFindings(findings).length === 0;
+
+/**
  * The verdict a card proposes, which follows its findings: asking for changes while a kept finding
  * blocks; and when none does, never asking for changes on the agent's word alone (the user
  * dismissed, or unmarked, what it was for), so a comment. An approval or a comment the agent chose
  * stands when nothing blocks.
  */
+/** The kept findings marked blocking: approving over any of them is confirmed first (the card's dialog). */
+export const blockingFindings = (findings: readonly ReviewFinding[]): ReviewFinding[] => keptFindings(findings).filter((f) => f.blocking);
+
 export function verdictFor(agentVerdict: ReviewVerdict, findings: readonly ReviewFinding[]): ReviewVerdict {
-  if (keptFindings(findings).some((f) => f.blocking)) return 'request_changes';
+  if (blockingFindings(findings).length > 0) return 'request_changes';
   return agentVerdict === 'request_changes' ? 'comment' : agentVerdict;
 }
 
@@ -210,9 +226,12 @@ export function findingBody(f: ReviewFinding): string {
 
 /**
  * What goes to the host for a review's kept findings: a comment on the first line each names, and
- * the ones that name no line written under the summary. Blocking and high priority first.
+ * the ones that name no line written under the summary. Blocking and high priority first. Nothing
+ * at all when the approval goes up without comment.
  */
-export function postable(reply: Pick<ReviewReply, 'summary' | 'findings'>): { summary: string; comments: ReviewLineComment[] } {
+export function postable(reply: Pick<ReviewReply, 'summary' | 'findings'>, withoutComment = false): { summary: string; comments: ReviewLineComment[] } {
+  // "Approve without comment": the approval alone. The summary and the findings stay on the card.
+  if (withoutComment) return { summary: '', comments: [] };
   const kept = orderFindings(keptFindings(reply.findings));
   const comments = kept.flatMap((f) => (f.refs[0] ? [{ path: f.refs[0].path, line: f.refs[0].line, body: findingBody(f) }] : []));
   const loose = kept.filter((f) => f.refs.length === 0).map(findingBody);

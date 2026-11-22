@@ -10,7 +10,7 @@ import type { ChatMessage, Session } from '../model.ts';
 import type { ByNumberProvider } from '../pull-requests/by-number.ts';
 import type { CommandRunner } from '../pull-requests/types.ts';
 import { hostTerms, type HostKind } from '../shared/host-terms.ts';
-import { draftReview, editedFindings, postable, REVIEW_ENDS_TURN, summaryProblem, verdictFor, verdictProblem, VERDICT_POSTED, type ReviewReply, type ReviewVerdict } from '../shared/review-reply.ts';
+import { draftReview, editedFindings, isCleanApproval, postable, REVIEW_ENDS_TURN, summaryProblem, verdictFor, verdictProblem, VERDICT_POSTED, type ReviewReply, type ReviewVerdict } from '../shared/review-reply.ts';
 import { repliesOnItsOwn, type ReviewAutomation } from '../shared/review-settings.ts';
 import type { TranscriptAction } from '../transcript.ts';
 import { Refused } from '../workspace.ts';
@@ -32,6 +32,8 @@ export interface ReviewRepliesHost {
 
 /** What the user changed on the card before posting it. */
 export interface ReplyEdit {
+  /** True: post the approval alone; the summary and any findings still kept stay in Kestrel. Only for an approval. */
+  withoutComment?: unknown;
   verdict?: unknown;
   summary?: unknown;
   /** The card's findings as the user left them: reworded, re-marked or dismissed (`editedFindings`). */
@@ -61,7 +63,8 @@ export class ReviewReplies {
       this.host.showCard(sessionId, { type: 'card', id, review });
       if (!repliesOnItsOwn(await this.host.settings(), session.startedIn)) return { text: `Shown to the user, who decides whether to post it. Nothing has been posted. ${REVIEW_ENDS_TURN}` };
       try {
-        const posted = await this.post(sessionId, id, {}, true);
+        // Posted as the card would be by default: a clean approval goes up without its summary.
+        const posted = await this.post(sessionId, id, { withoutComment: isCleanApproval(review.verdict, review.findings) }, true);
         return { text: `Posted as ${VERDICT_POSTED[posted.posted!.verdict]}, as the user chose for this project. ${REVIEW_ENDS_TURN}` };
       } catch (error) {
         if (!(error instanceof Refused)) throw error;
@@ -82,11 +85,17 @@ export class ReviewReplies {
     if (!session?.review || !draft) throw new Refused('There is no such review in this session.');
     if (draft.posted) throw new Refused('This review was already posted.');
     if (!session.worktreePath || session.worktreeDiscarded) throw new Refused("This session's worktree is gone, so the review cannot be posted from it.");
-    const problem = (edit.verdict !== undefined ? verdictProblem(edit.verdict) : null) ?? (edit.summary !== undefined ? summaryProblem(edit.summary) : null);
+    const problem = (edit.verdict !== undefined ? verdictProblem(edit.verdict) : null);
     if (problem) throw new Refused(problem);
     const edited = editedFindings(draft.findings ?? [], edit.findings);
     if ('problem' in edited) throw new Refused(edited.problem);
+    if (edit.summary !== undefined && typeof edit.summary !== 'string') throw new Refused('summary must be a string.');
     const reply: ReviewReply = { ...draft, findings: edited.findings, ...(edit.verdict !== undefined ? { verdict: edit.verdict as ReviewVerdict } : {}), ...(edit.summary !== undefined ? { summary: (edit.summary as string).trim() } : {}) };
+    const summaryError = summaryProblem(reply.summary, edit.withoutComment === true || isCleanApproval(reply.verdict, reply.findings));
+    if (summaryError) throw new Refused(summaryError);
+    if (edit.withoutComment !== undefined && typeof edit.withoutComment !== 'boolean') throw new Refused('withoutComment must be a boolean.');
+    const withoutComment = edit.withoutComment === true;
+    if (withoutComment && reply.verdict !== 'approve') throw new Refused('Only an approval can be posted without comment.');
     if (this.posting.has(cardId)) throw new Refused('This review is being posted.');
     this.posting.add(cardId);
     try {
@@ -107,9 +116,9 @@ export class ReviewReplies {
         );
       }
       // Kept findings go up as comments on their lines; dismissed ones stay on the card and go nowhere.
-      const how = await postReview(this.host.run, { host, number, cwd: session.worktreePath }, { verdict: reply.verdict, sha: reply.sha, ...postable(reply) });
+      const how = await postReview(this.host.run, { host, number, cwd: session.worktreePath }, { verdict: reply.verdict, sha: reply.sha, ...postable(reply, withoutComment) });
       const note = [how, moved ? `It was made of ${reply.sha.slice(0, 12)}; the ${terms.long} has new commits since.` : null].filter(Boolean).join(' ');
-      const posted: ReviewReply = { ...reply, posted: { at: this.host.now(), verdict: reply.verdict, ...(onItsOwn ? { onItsOwn: true } : {}), ...(note ? { note } : {}) } };
+      const posted: ReviewReply = { ...reply, posted: { at: this.host.now(), verdict: reply.verdict, ...(withoutComment ? { withoutComment: true } : {}), ...(onItsOwn ? { onItsOwn: true } : {}), ...(note ? { note } : {}) } };
       this.host.showCard(sessionId, { type: 'card', id: cardId, review: posted });
       return posted;
     } finally {

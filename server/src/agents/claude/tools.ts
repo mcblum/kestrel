@@ -145,7 +145,7 @@ export function kestrelMcpServer(host: KestrelToolHost, omit: readonly string[] 
         "Only when this session is reviewing somebody else's pull or merge request (Kestrel started it as a review): hand over your finished review. It is shown to the user as a card they can change and post; nothing reaches the host from this call unless the user chose that. Call it once, at the end, instead of commenting or approving on the host yourself. " + REVIEW_IS_LAST,
         {
           verdict: z.enum(['comment', 'approve', 'request_changes']).describe('What you would do: only comment, approve, or ask for changes.'),
-          summary: z.string().describe('In Markdown, a few sentences: what the change does and what you make of it overall. Do not list the problems here: each one is a finding.'),
+          summary: z.string().describe('Always include a concise rationale for the user, even for a clean approval. In Markdown, a few sentences: what the change does and what you make of it overall. Do not list the problems here: each one is a finding.'),
           findings: z
             .array(
               z.object({

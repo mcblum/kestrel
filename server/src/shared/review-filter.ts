@@ -1,5 +1,5 @@
 // The Code reviews page's filters: who asked, which project, how recently it was opened, and a
-// forgiving text search over what a row shows. Pure and browser-safe; `now` is passed in.
+// forgiving text search over what a row shows; and the order its rows are listed in. Pure and browser-safe; `now` is passed in.
 import { askedBy, repositoryName, requestNumberLabel, type ReviewRequest } from './review-requests.ts';
 
 /** How recently: opened within the last hour, day, week or month; `any` is no limit. */
@@ -81,6 +81,39 @@ export function filterReviews<T extends Listed>(requests: readonly T[], filters:
       (since === null || openedAtOf(r) >= since) &&
       (filters.text.trim() === '' || matchesText(searchText(r, names), filters.text)),
   );
+}
+
+/** What the page's rows are ordered by: when the request last changed, or when it was opened. */
+export type ReviewSortBy = 'activity' | 'opened';
+
+export const REVIEW_SORT_BY: readonly ReviewSortBy[] = ['activity', 'opened'];
+
+export const REVIEW_SORT_LABEL: Record<ReviewSortBy, string> = { activity: 'Last activity', opened: 'Date opened' };
+
+export interface ReviewSort {
+  by: ReviewSortBy;
+  /** Newest first when true. */
+  descending: boolean;
+}
+
+/** As the server lists them: most recently changed first. */
+export const DEFAULT_REVIEW_SORT: ReviewSort = { by: 'activity', descending: true };
+
+/** A stored sort, checked: whatever is not one reads as the default. */
+export function asReviewSort(raw: unknown): ReviewSort {
+  const given = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
+  if (!REVIEW_SORT_BY.includes(given.by as ReviewSortBy) || typeof given.descending !== 'boolean') return DEFAULT_REVIEW_SORT;
+  return { by: given.by as ReviewSortBy, descending: given.descending };
+}
+
+/** What the direction button says it will show first, and is called. */
+export const sortDirectionLabel = (sort: ReviewSort): string => (sort.descending ? 'Newest first' : 'Oldest first');
+
+/** The requests in the order asked for; the key settles a tie, so the order never flickers. Pure. */
+export function sortReviews<T extends Pick<ReviewRequest, 'key' | 'openedAt' | 'updatedAt'>>(requests: readonly T[], sort: ReviewSort): T[] {
+  const when = (r: T): number => (sort.by === 'opened' ? openedAtOf(r) : r.updatedAt);
+  const direction = sort.descending ? -1 : 1;
+  return [...requests].sort((a, b) => direction * (when(a) - when(b)) || a.key.localeCompare(b.key));
 }
 
 /**

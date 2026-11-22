@@ -1,6 +1,6 @@
 // The Code reviews page's filters: who asked, where, how recently, and the text search.
 import { describe, expect, it } from 'vitest';
-import { filterReviews, isFiltering, matchesText, NO_REVIEW_FILTERS, placeChoices, placeOf, splitStarted, whoChoices, type ReviewFilters } from './review-filter.ts';
+import { asReviewSort, DEFAULT_REVIEW_SORT, filterReviews, isFiltering, matchesText, NO_REVIEW_FILTERS, placeChoices, placeOf, sortReviews, splitStarted, whoChoices, type ReviewFilters } from './review-filter.ts';
 
 const HOUR = 3_600_000;
 const now = 1_800_000_000_000;
@@ -74,5 +74,32 @@ describe('the reviews the user has started come first', () => {
     const list = [{ key: 'a' }, { key: 'b' }, { key: 'c' }, { key: 'd' }];
     expect(splitStarted(list, new Set(['c', 'a']))).toEqual({ started: [{ key: 'a' }, { key: 'c' }], rest: [{ key: 'b' }, { key: 'd' }] });
     expect(splitStarted(list, new Set())).toEqual({ started: [], rest: list });
+  });
+});
+
+describe('ordering the Code reviews page', () => {
+  const r = (key: string, openedAt: number | undefined, updatedAt: number) => ({ key, updatedAt, ...(openedAt === undefined ? {} : { openedAt }) });
+  // a: opened first, changed last. b: opened last, changed first. c: the host gave no opening date.
+  const listed = [r('a', 100, 900), r('b', 300, 400), r('c', undefined, 200)];
+  const keys = (by: 'activity' | 'opened', descending: boolean) => sortReviews(listed, { by, descending }).map((x) => x.key);
+
+  it('by last activity or by date opened, newest or oldest first', () => {
+    expect(keys('activity', true)).toEqual(['a', 'b', 'c']);
+    expect(keys('activity', false)).toEqual(['c', 'b', 'a']);
+    expect(keys('opened', true)).toEqual(['b', 'c', 'a']);
+    expect(keys('opened', false)).toEqual(['a', 'c', 'b']);
+  });
+
+  it('settles a tie by key either way, and leaves the list it was given alone', () => {
+    const tied = [r('z', 5, 5), r('y', 5, 5)];
+    expect(sortReviews(tied, { by: 'opened', descending: true }).map((x) => x.key)).toEqual(['y', 'z']);
+    expect(sortReviews(tied, { by: 'opened', descending: false }).map((x) => x.key)).toEqual(['y', 'z']);
+    expect(tied.map((x) => x.key)).toEqual(['z', 'y']);
+  });
+
+  it('reads a stored sort, and the default for anything else', () => {
+    expect(asReviewSort({ by: 'opened', descending: false })).toEqual({ by: 'opened', descending: false });
+    expect(asReviewSort({ by: 'size', descending: true })).toEqual(DEFAULT_REVIEW_SORT);
+    expect(asReviewSort(null)).toEqual(DEFAULT_REVIEW_SORT);
   });
 });

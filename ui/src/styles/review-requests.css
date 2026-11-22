@@ -129,8 +129,13 @@
 /* The filter row under the chips: search, then who asked, which project, how recently. */
 .kestrel .reviews-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 0 20px; }
 .kestrel .reviews-filters .reviews-search { flex: 1 1 320px; max-width: 460px; border-bottom: 1px solid var(--s-line); padding: 3px 2px; }
-.kestrel .reviews-filters .form-control.reviews-pick { width: auto; max-width: 180px; min-height: 0; height: 26px; padding-top: 2px; padding-bottom: 2px; font-size: 11px; color: var(--s-muted); }
-.kestrel .reviews-filters .form-control.reviews-pick.set { color: var(--s-ink); }
+.kestrel :is(.reviews-filters, .reviews-sort) .form-control.reviews-pick { width: auto; max-width: 180px; min-height: 0; height: 26px; padding-top: 2px; padding-bottom: 2px; font-size: 11px; color: var(--s-muted); }
+.kestrel :is(.reviews-filters, .reviews-sort) .form-control.reviews-pick.set { color: var(--s-ink); }
+/* Sort by, at the right of the Waiting / Dismissed bar: what the rows are ordered by, and a button that turns the order round. */
+.kestrel .reviews-sort { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; }
+.kestrel .reviews-sort .reviews-direction { width: 26px; height: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--s-muted); }
+.kestrel .reviews-sort .reviews-direction:hover { color: var(--s-ink); }
+.kestrel .reviews-sort .reviews-direction svg { width: 13px; height: 13px; }
 .kestrel .reviews-shown { font-size: 11px; color: var(--s-muted); font-variant-numeric: tabular-nums; }
 .kestrel .studio-sidebar .side-link .review-unread { flex: none; min-width: 18px; box-sizing: border-box; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--s-ink) 88%, transparent); color: var(--s-bg); font-size: 10px; font-weight: 600; line-height: 1.5; text-align: center; font-variant-numeric: tabular-nums; }
 .kestrel .studio-sidebar .side-link .review-unread + .link-count { margin-left: -2px; }

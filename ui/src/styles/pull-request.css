@@ -148,6 +148,9 @@
 .pr-merge-dialog .worktree-commits { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 3px; max-height: 180px; overflow: auto; font-size: 12px; }
 .pr-merge-dialog .worktree-commits li { display: flex; gap: 8px; min-width: 0; }
 .pr-merge-dialog .worktree-commits li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The blocking findings named before an approval over them: whole sentences, so they wrap. */
+.pr-merge-dialog .review-approve-blocking { gap: 8px; }
+.pr-merge-dialog .review-approve-blocking li span { white-space: normal; }
 .pr-merge-dialog .worktree-commits code { flex: none; color: var(--s-muted); font-size: 11px; }
 .pr-merge-dialog .worktree-more { color: var(--s-muted); }
 .pr-merge-dialog .worktree-warning { margin: 14px 0 0; color: light-dark(#b3403a, #e07b74); font-size: 12px; }
