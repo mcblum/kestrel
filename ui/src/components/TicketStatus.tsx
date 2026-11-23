@@ -16,7 +16,7 @@ function itemsFor(ticket: Ticket, moves: Sourced<TicketMove[]>): MenuItem[] {
   if (moves.state === 'loading') return [own, { id: 'ticket-status:loading', label: 'Asking the tracker…', disabled: true }];
   if (moves.state === 'unavailable') return [own, { id: 'ticket-status:none', label: 'Cannot move it now', disabled: true, hint: moves.reason }];
   if (moves.value.length === 0) return [own, { id: 'ticket-status:none', label: 'No other status', disabled: true, hint: `${ticket.tracker} offers no other status for ${ticket.ref} now.` }];
-  return [own, ...moves.value.map((m, i) => ({ id: `ticket-status:move:${m.name}`, label: m.name, ...(i === 0 ? { separatorBefore: true } : {}) }))];
+  return [own, ...moves.value.map((m, i) => ({ id: `ticket-status:move:${m.name}`, label: m.label ?? m.name, ...(i === 0 ? { separatorBefore: true } : {}) }))];
 }
 
 export function TicketStatus({ ticket, className = 'secondary-button small' }: { ticket: Ticket; className?: string }) {

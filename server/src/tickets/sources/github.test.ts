@@ -1,8 +1,8 @@
 // GitHub issues as tickets: what `gh api` answers, mapped; never a real GitHub.
 import { describe, expect, it } from 'vitest';
 import type { CommandRunner } from '../../pull-requests/types.ts';
-import type { Ticket } from '../../shared/tickets.ts';
-import { githubCommentArgs, githubMoveArgs, githubAssignedArgs, githubIssueOfKey, githubTicketSource, mapGithubComments, mapGithubIssues } from './github.ts';
+import { marksDone, type Ticket } from '../../shared/tickets.ts';
+import { GITHUB_DONE, GITHUB_NOT_PLANNED, githubCommentArgs, githubMoveArgs, githubAssignedArgs, githubIssueOfKey, githubTicketSource, mapGithubComments, mapGithubIssues } from './github.ts';
 
 const ITEM = {
   number: 12,
@@ -68,17 +68,33 @@ describe('GitHub issues as tickets', () => {
 });
 
 describe('Moving a GitHub issue', () => {
-  it('closes an open issue and reopens it, saying gh’s reason when it cannot', async () => {
+  it('offers Done and Close while open, and Open again or the other way of closing once closed', async () => {
+    const [open] = mapGithubIssues(JSON.stringify({ items: [ITEM] }));
+    const source = githubTicketSource(async () => ({ stdout: '' }), '/');
+    expect(await source.statuses(open!)).toEqual({ state: 'ready', value: [GITHUB_DONE, GITHUB_NOT_PLANNED] });
+    expect(GITHUB_NOT_PLANNED).toEqual({ name: 'Closed', category: 'done', label: 'Close', notCompleted: true });
+    expect([marksDone(GITHUB_DONE), marksDone(GITHUB_NOT_PLANNED)]).toEqual([true, false]); // Done to the Done list, Close to Closed
+    expect(await source.statuses({ ...open!, status: GITHUB_DONE })).toEqual({ state: 'ready', value: [{ name: 'Open', category: 'todo' }, GITHUB_NOT_PLANNED] });
+    expect(await source.statuses({ ...open!, status: GITHUB_NOT_PLANNED })).toEqual({ state: 'ready', value: [{ name: 'Open', category: 'todo' }, GITHUB_DONE] });
+  });
+
+  it('closes an issue as completed (Done) or not planned (Close), reopens it, and says gh’s reason when it cannot', async () => {
     const calls: string[][] = [];
     const run: CommandRunner = async (_c, args) => {
       calls.push([...args]);
-      return { stdout: JSON.stringify({ ...ITEM, state: args.includes('state=closed') ? 'closed' : 'open' }), stderr: '' };
+      const closed = args.includes('state=closed');
+      const reason = args.includes('state_reason=not_planned') ? 'not_planned' : closed ? 'completed' : null;
+      return { stdout: JSON.stringify({ ...ITEM, state: closed ? 'closed' : 'open', state_reason: reason }), stderr: '' };
     };
     const [open] = mapGithubIssues(JSON.stringify({ items: [ITEM] }));
     const source = githubTicketSource(run, '/');
-    expect(await source.move(open!, 'Closed')).toEqual({ name: 'Closed', category: 'done' });
-    expect(calls[0]).toEqual(githubMoveArgs('acme/hooks', 12, 'Closed'));
-    expect(await source.move({ ...open!, status: { name: 'Closed', category: 'done' } }, 'In progress')).toEqual({ name: 'In progress', category: 'in-progress' });
+    expect(await source.move(open!, 'Done')).toEqual(GITHUB_DONE);
+    expect(calls[0]).toEqual(['api', '-X', 'PATCH', 'repos/acme/hooks/issues/12', '-f', 'state=closed', '-f', 'state_reason=completed']);
+    expect(await source.move(open!, 'Closed')).toEqual(GITHUB_NOT_PLANNED);
+    expect(calls[1]).toEqual(['api', '-X', 'PATCH', 'repos/acme/hooks/issues/12', '-f', 'state=closed', '-f', 'state_reason=not_planned']);
+    expect(calls[1]).toEqual(githubMoveArgs('acme/hooks', 12, 'Closed'));
+    expect(await source.move({ ...open!, status: GITHUB_DONE }, 'In progress')).toEqual({ name: 'In progress', category: 'in-progress' });
+    expect(calls[2]).toEqual(['api', '-X', 'PATCH', 'repos/acme/hooks/issues/12', '-f', 'state=open']);
     const failing: CommandRunner = async () => {
       throw Object.assign(new Error('x'), { stderr: 'HTTP 403: Must have admin rights' });
     };
@@ -111,7 +127,7 @@ describe('a GitHub milestone', () => {
 describe('one GitHub issue’s status, for a ticket that left the list', () => {
   it('asks gh for that issue: closed is done, open is what its labels say, a failure decides nothing', async () => {
     const asked: string[][] = [];
-    const answers: Record<string, string> = { '12': JSON.stringify({ ...ITEM, state: 'closed' }), '13': JSON.stringify({ ...ITEM, number: 13, state: 'open' }) };
+    const answers: Record<string, string> = { '12': JSON.stringify({ ...ITEM, state: 'closed', state_reason: 'not_planned' }), '13': JSON.stringify({ ...ITEM, number: 13, state: 'open' }), '15': JSON.stringify({ ...ITEM, number: 15, state: 'closed', state_reason: 'completed' }) };
     const run: CommandRunner = async (_bin, args) => {
       asked.push([...args]);
       const answer = answers[args[1]!.split('/').at(-1)!];
@@ -120,7 +136,8 @@ describe('one GitHub issue’s status, for a ticket that left the list', () => {
     };
     const source = githubTicketSource(run, '/');
     const ticket = (n: number) => ({ key: `github:acme/hooks#${n}`, ref: `hooks#${n}` }) as Ticket;
-    expect(await source.status(ticket(12))).toEqual({ state: 'ready', value: { name: 'Closed', category: 'done' } });
+    expect(await source.status(ticket(12))).toEqual({ state: 'ready', value: GITHUB_NOT_PLANNED });
+    expect(await source.status(ticket(15))).toEqual({ state: 'ready', value: GITHUB_DONE });
     expect(asked[0]).toEqual(['api', 'repos/acme/hooks/issues/12']);
     expect(await source.status(ticket(13))).toEqual({ state: 'ready', value: { name: 'In progress', category: 'in-progress' } });
     expect((await source.status(ticket(14))).state).toBe('unavailable');

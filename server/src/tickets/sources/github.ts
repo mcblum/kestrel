@@ -10,7 +10,28 @@ import { GITHUB_HOST, repositoryOfUrl } from '../../review-requests/github.ts';
 import { ready, unavailable, type Sourced } from '../../shared/sourced.ts';
 import { criteriaOf, type Ticket, type TicketComment, type TicketDetail, type TicketMove } from '../../shared/tickets.ts';
 import type { TicketSource } from '../source.ts';
-import { CLOSED_ISSUE, labelPriority, labelStatus, milestoneSprint, OPEN_ISSUE, openClosedMoves } from './gitlab.ts';
+import { labelPriority, labelStatus, milestoneSprint, OPEN_ISSUE } from './gitlab.ts';
+
+/**
+ * A GitHub issue closes two ways (Matt, 2026-11-22: "Let's just say 'Close' vs. 'Done' for GitHub"): Done
+ * closes it as completed, Close as not planned (GitHub's `state_reason`). Both are done to Kestrel.
+ * A closed issue with no reason, or an older one, reads as Done, as GitHub shows it.
+ */
+export const GITHUB_DONE: TicketMove = { name: 'Done', category: 'done' };
+export const GITHUB_NOT_PLANNED: TicketMove = { name: 'Closed', category: 'done', label: 'Close', notCompleted: true };
+
+/** Where an issue can move: Done or Close while it is open; open again, or closed the other way, once it is closed. Pure. */
+export function githubMoves(ticket: Pick<Ticket, 'status'>): TicketMove[] {
+  if (ticket.status.category !== 'done') return [GITHUB_DONE, GITHUB_NOT_PLANNED];
+  return [OPEN_ISSUE, ticket.status.name === GITHUB_NOT_PLANNED.name ? GITHUB_DONE : GITHUB_NOT_PLANNED];
+}
+
+/** The fields a move sends: closed as completed, closed as not planned, or open. Pure. */
+function moveFields(to: string): string[] {
+  if (to === GITHUB_DONE.name) return ['-f', 'state=closed', '-f', 'state_reason=completed'];
+  if (to === GITHUB_NOT_PLANNED.name) return ['-f', 'state=closed', '-f', 'state_reason=not_planned'];
+  return ['-f', 'state=open'];
+}
 
 export const GITHUB_TICKET_QUERY = 'is:issue is:open assignee:@me archived:false';
 /** At most this many tickets: one page. */
@@ -22,7 +43,7 @@ const isFields = (value: unknown): value is Fields => typeof value === 'object' 
 
 export const githubAssignedArgs = (): string[] => ['api', '-X', 'GET', 'search/issues', '-f', `q=${GITHUB_TICKET_QUERY}`, '-F', `per_page=${GITHUB_TICKET_LIMIT}`];
 export const githubIssueArgs = (repository: string, number: number): string[] => ['api', `repos/${repository}/issues/${number}`];
-export const githubMoveArgs = (repository: string, number: number, to: string): string[] => ['api', '-X', 'PATCH', `repos/${repository}/issues/${number}`, '-f', `state=${to === CLOSED_ISSUE.name ? 'closed' : 'open'}`];
+export const githubMoveArgs = (repository: string, number: number, to: string): string[] => ['api', '-X', 'PATCH', `repos/${repository}/issues/${number}`, ...moveFields(to)];
 export const githubCommentArgs = (repository: string, number: number, body: string): string[] => ['api', '-X', 'POST', `repos/${repository}/issues/${number}/comments`, '-f', `body=${body}`];
 export const githubCommentsArgs = (repository: string, number: number): string[] => ['api', `repos/${repository}/issues/${number}/comments?per_page=50`];
 
@@ -54,7 +75,10 @@ export function mapGithubIssue(item: Fields): Ticket | null {
 }
 
 /** An issue's status: closed, or what its labels say. Pure. */
-export const githubStatus = (item: Fields): TicketMove => (item.state === 'closed' ? CLOSED_ISSUE : labelStatus(labelsOf(item)));
+export function githubStatus(item: Fields): TicketMove {
+  if (item.state !== 'closed') return labelStatus(labelsOf(item));
+  return item.state_reason === 'completed' || item.state_reason === null || item.state_reason === undefined ? GITHUB_DONE : GITHUB_NOT_PLANNED;
+}
 
 /** The search's answer as tickets. Throws when it is not a search result. Pure. */
 export function mapGithubIssues(json: string): Ticket[] {
@@ -113,13 +137,13 @@ export function githubTicketSource(run: CommandRunner = execRunner, cwd: string 
         return unavailable(reasonOf(error));
       }
     },
-    statuses: async (ticket) => ready(openClosedMoves(ticket)),
+    statuses: async (ticket) => ready(githubMoves(ticket)),
     async move(ticket, to): Promise<TicketMove> {
       const where = githubIssueOfKey(ticket.key);
       if (!where) throw new Error(`${ticket.ref} is not a GitHub issue Kestrel can find.`);
       try {
         const parsed: unknown = JSON.parse(await gh(githubMoveArgs(where.repository, where.number, to)));
-        return isFields(parsed) ? githubStatus(parsed) : to === CLOSED_ISSUE.name ? CLOSED_ISSUE : OPEN_ISSUE;
+        return isFields(parsed) ? githubStatus(parsed) : ([OPEN_ISSUE, GITHUB_DONE, GITHUB_NOT_PLANNED].find((m) => m.name === to) ?? OPEN_ISSUE);
       } catch (error) {
         throw new Error(reasonOf(error));
       }

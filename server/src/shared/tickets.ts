@@ -49,7 +49,21 @@ export interface Ticket {
 export interface TicketMove {
   name: string;
   category: TicketCategory;
+  /**
+   * The word the status menu offers for it, where that differs from the status it leads to: GitHub's
+   * "Close" leads to Closed (not planned), beside "Done" (Matt, 2026-11-22). Absent: the name.
+   */
+  label?: string;
+  /**
+   * A done status that does not say the work was completed: GitHub's closed as not planned (Matt,
+   * 2026-11-23: "Done should mean that the work was completed"). Moved to from Kestrel, the ticket goes
+   * to Closed, not Done.
+   */
+  notCompleted?: true;
 }
+
+/** Whether a move made from Kestrel puts a ticket in Done (the work was completed) rather than Closed. Pure. */
+export const marksDone = (status: TicketMove): boolean => status.category === 'done' && status.notCompleted !== true;
 
 export interface TicketComment {
   author: string;
@@ -86,9 +100,20 @@ export interface ClosedTicket extends Ticket {
    * goes there at once, without waiting for its tracker to stop listing it.
    */
   doneHere?: true;
+  /**
+   * The user closed it from Kestrel without its work being completed (GitHub's Close, not planned): it is
+   * in Closed, and goes there at once, as `doneHere` goes to Done. Never both.
+   */
+  closedHere?: true;
 }
 
-/** The held closed tickets the user marked done here, and the ones that closed some other way. Pure. */
+/** How a ticket closed from Kestrel with this status is marked: Done when the work was completed, Closed otherwise. Pure. */
+export const closedHereMark = (status: TicketMove): Pick<ClosedTicket, 'doneHere' | 'closedHere'> => (marksDone(status) ? { doneHere: true } : { closedHere: true });
+
+/** Whether a held closed ticket was closed from Kestrel, either way, so it shows closed while its tracker still lists it. Pure. */
+export const closedFromHere = (t: Pick<ClosedTicket, 'doneHere' | 'closedHere'>): boolean => t.doneHere === true || t.closedHere === true;
+
+/** The held closed tickets the user marked done here (Done), and every other closed one, closed here or elsewhere (Closed). Pure. */
 export const doneHere = (closed: readonly ClosedTicket[]): ClosedTicket[] => closed.filter((t) => t.doneHere);
 export const closedElsewhere = (closed: readonly ClosedTicket[]): ClosedTicket[] => closed.filter((t) => !t.doneHere);
 
@@ -392,7 +417,7 @@ const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinit
 /** A stored or pushed closed ticket, checked. */
 function asClosedTicket(raw: unknown): ClosedTicket | null {
   const ticket = asTicket(raw);
-  return ticket && isObject(raw) && num(raw.closedAt) ? { ...ticket, closedAt: raw.closedAt, ...(raw.doneHere === true ? { doneHere: true as const } : {}) } : null;
+  return ticket && isObject(raw) && num(raw.closedAt) ? { ...ticket, closedAt: raw.closedAt, ...(raw.doneHere === true ? { doneHere: true as const } : raw.closedHere === true ? { closedHere: true as const } : {}) } : null;
 }
 
 /** Stored closed tickets, checked and capped. Pure. */

@@ -10,7 +10,7 @@
 // `stillOpen`). Done, it is held apart in `closed`; anything else, it was reassigned and goes. The last
 // ready list of every source is saved (`held`), so a ticket that closes while Kestrel is not running
 // is found on the first answer after it starts. Kestrel never asks a tracker for old closed tickets.
-import { findTicket, keptClosed, NO_TICKET_SETTINGS, orderTickets, ticketSourceOn, type ClosedTicket, type Ticket, type TicketMove, type TicketSettings, type TicketDetail, type TicketLink, type TicketsView } from '../shared/tickets.ts';
+import { closedFromHere, closedHereMark, findTicket, keptClosed, NO_TICKET_SETTINGS, orderTickets, ticketSourceOn, type ClosedTicket, type Ticket, type TicketMove, type TicketSettings, type TicketDetail, type TicketLink, type TicketsView } from '../shared/tickets.ts';
 import { LOADING, type Sourced } from '../shared/sourced.ts';
 import { withDismissed } from '../shared/review-requests.ts';
 
@@ -115,9 +115,9 @@ export class TicketStore {
     for (const t of this.closedTickets) if (t.source === kind && t.status.category !== 'done' && !now.has(t.key)) leaving.set(t.key, t);
     this.leaving = leaving;
     this.listedBy = new Map(this.listedBy).set(kind, listed);
-    // Back in the list is reopened, except a ticket marked done here that its tracker still lists as done.
+    // Back in the list is reopened, except a ticket closed here that its tracker still lists as done.
     const listedDone = new Set(listed.filter((t) => t.status.category === 'done').map((t) => t.key));
-    const closed = this.closedTickets.filter((t) => !now.has(t.key) || (t.doneHere === true && listedDone.has(t.key)));
+    const closed = this.closedTickets.filter((t) => !now.has(t.key) || (closedFromHere(t) && listedDone.has(t.key)));
     if (closed.length !== this.closedTickets.length) this.keepClosed(closed);
     this.saveHeld();
   }
@@ -133,7 +133,7 @@ export class TicketStore {
     if (!ticket) return;
     this.leaving = new Map([...this.leaving].filter(([k]) => k !== key));
     const was = this.closedTickets.find((t) => t.key === key);
-    const closed: ClosedTicket = { ...ticket, status, closedAt: was?.closedAt ?? at, ...(was?.doneHere ? { doneHere: true as const } : {}) };
+    const closed: ClosedTicket = { ...ticket, status, closedAt: was?.closedAt ?? at, ...(was?.doneHere ? { doneHere: true as const } : was?.closedHere ? { closedHere: true as const } : {}) };
     this.known = new Map(this.known).set(key, closed);
     this.keepClosed([closed, ...this.closedTickets.filter((t) => t.key !== key)]);
     this.saveHeld();
@@ -229,11 +229,13 @@ export class TicketStore {
     const swap = <T extends Ticket>(t: T): T => (t.key === key ? { ...t, status } : t);
     this.listedBy = new Map([...this.listedBy].map(([kind, list]) => [kind, list.map(swap)]));
     if (this.leaving.has(key)) this.leaving = new Map(this.leaving).set(key, moved);
-    // Marked done here: it is in Done at once. Moved out of done: it is no longer one the user marked done.
+    // Closed here: in Done at once when the work was completed, in Closed at once when not (closedHereMark).
+    // Moved out of done: it is no longer one the user closed here.
     const was = this.closedTickets.find((t) => t.key === key);
     const others = this.closedTickets.filter((t) => t.key !== key);
-    if (status.category === 'done') this.keepClosed([{ ...moved, closedAt: was?.closedAt ?? at, doneHere: true }, ...others]);
-    else if (was) this.keepClosed([{ ...held, status, closedAt: was.closedAt }, ...others]);
+    const { doneHere: _d, closedHere: _c, ...plain } = { ...(moved as Ticket & Partial<ClosedTicket>) };
+    if (status.category === 'done') this.keepClosed([{ ...plain, closedAt: was?.closedAt ?? at, ...closedHereMark(status) }, ...others]);
+    else if (was) this.keepClosed([{ ...plain, status, closedAt: was.closedAt }, ...others]);
     this.saveHeld();
     const sources = new Map([...this.sources].map(([kind, entry]) => [kind, entry.tickets.some((t) => t.key === key) ? { ...entry, tickets: entry.tickets.map((t) => (t.key === key ? moved : t)) } : entry]));
     this.replace(sources);
@@ -285,9 +287,9 @@ export class TicketStore {
     const gone = new Set(this.dismissedKeys);
     const seen = new Set(this.seenKeys);
     const usedKinds = new Set(used);
-    // A ticket marked done here shows as done even while its tracker still lists it.
-    const doneKeys = new Set(this.closedTickets.filter((t) => t.doneHere).map((t) => t.key));
-    const closed = on ? this.closedTickets.filter((t) => usedKinds.has(t.source) && (t.doneHere === true || !listedKeys.has(t.key))) : [];
+    // A ticket closed here shows as closed (in Done or Closed) even while its tracker still lists it.
+    const doneKeys = new Set(this.closedTickets.filter(closedFromHere).map((t) => t.key));
+    const closed = on ? this.closedTickets.filter((t) => usedKinds.has(t.source) && (closedFromHere(t) || !listedKeys.has(t.key))) : [];
     const closedKeys = new Set(closed.map((t) => t.key));
     const attachedKeys = [...new Set(this.links.map((l) => l.ticketKey))].filter((key) => !listedKeys.has(key) && !closedKeys.has(key));
     return {

@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { Refused } from '../refused.ts';
 import { ready, unavailable, type Sourced } from '../shared/sourced.ts';
-import { asClosedTickets, CLOSED_TICKET_LIMIT, findTicket, keptClosed, type ClosedTicket, type Ticket, type TicketMove } from '../shared/tickets.ts';
+import { asClosedTickets, closedElsewhere, closedHereMark, CLOSED_TICKET_LIMIT, doneHere, findTicket, keptClosed, marksDone, type ClosedTicket, type Ticket, type TicketMove } from '../shared/tickets.ts';
 import { fakeTicketSource } from './sources/fake.ts';
 import type { TicketSource } from './source.ts';
 import { TicketStore, type TicketStoreOptions } from './store.ts';
@@ -302,5 +302,72 @@ describe('a ticket the user marked done here', () => {
   it('keeps the mark across a restart', () => {
     const saved = asClosedTickets(JSON.parse(JSON.stringify([{ ...ticket('A-1'), status: DONE, closedAt: NOW, doneHere: true }])));
     expect(saved.map((t) => t.doneHere)).toEqual([true]);
+  });
+});
+
+describe('a ticket the user closed here without completing it (GitHub’s Close, not planned)', () => {
+  // Matt, 2026-11-23: "Things that are closed should land in the closed list, not done … Done should mean that the work was completed."
+  const NOT_PLANNED: TicketMove = { name: 'Closed', category: 'done', label: 'Close', notCompleted: true };
+
+  it('is in Closed at once, not Done, while its tracker still lists it', async () => {
+    const { store, sync, sources } = setup();
+    sources[0]!.state.listed = [ticket('A-1'), ticket('A-2')];
+    await sync.check();
+
+    store.setStatus('jira:A-1', NOT_PLANNED, NOW + 10);
+
+    const view = store.view();
+    expect(view.tickets.map((t) => t.ref)).toEqual(['A-2']);
+    expect(doneHere(view.closed)).toEqual([]);
+    expect(closedElsewhere(view.closed).map((t) => [t.ref, t.closedHere, t.doneHere, t.closedAt])).toEqual([['A-1', true, undefined, NOW + 10]]);
+  });
+
+  it('a Done move lands in Done; moving a closed one to Done moves it from Closed to Done, and back again', async () => {
+    const { store, sync, sources } = setup();
+    sources[0]!.state.listed = [ticket('A-1'), ticket('A-2')];
+    await sync.check();
+
+    store.setStatus('jira:A-2', DONE, NOW + 5);
+    store.setStatus('jira:A-1', NOT_PLANNED, NOW + 10);
+    expect(doneHere(store.view().closed).map((t) => t.ref)).toEqual(['A-2']);
+    expect(closedElsewhere(store.view().closed).map((t) => t.ref)).toEqual(['A-1']);
+
+    store.setStatus('jira:A-1', DONE, NOW + 20);
+    expect(doneHere(store.view().closed).map((t) => [t.ref, t.doneHere, t.closedHere, t.closedAt])).toEqual([['A-1', true, undefined, NOW + 10], ['A-2', true, undefined, NOW + 5]]);
+    expect(closedElsewhere(store.view().closed)).toEqual([]);
+
+    store.setStatus('jira:A-1', NOT_PLANNED, NOW + 30);
+    expect(closedElsewhere(store.view().closed).map((t) => t.ref)).toEqual(['A-1']);
+  });
+
+  it('stays in Closed when it leaves the list and is found closed, and across a restart', async () => {
+    const { store, sync, sources, later } = setup();
+    sources[0]!.state.listed = [ticket('A-1')];
+    await sync.check();
+    store.setStatus('jira:A-1', NOT_PLANNED, NOW + 10);
+
+    sources[0]!.state.listed = [];
+    sources[0]!.state.statuses.set('A-1', NOT_PLANNED);
+    later(200_000);
+    await sync.check();
+    expect(store.view().closed.map((t) => [t.ref, t.closedHere, t.closedAt])).toEqual([['A-1', true, NOW + 10]]);
+    expect(asClosedTickets(JSON.parse(JSON.stringify(store.view().closed))).map((t) => t.closedHere)).toEqual([true]);
+  });
+
+  it('goes back to the waiting list when the move is undone', async () => {
+    const { store, sync, sources } = setup();
+    sources[0]!.state.listed = [ticket('A-1')];
+    await sync.check();
+    store.setStatus('jira:A-1', NOT_PLANNED, NOW + 10);
+    store.setStatus('jira:A-1', { name: 'Open', category: 'todo' }, NOW + 20);
+    expect(store.view().closed).toEqual([]);
+    expect(store.view().tickets.map((t) => t.ref)).toEqual(['A-1']);
+  });
+
+  it('is told apart by one function: completed work is Done, anything else closed is Closed', () => {
+    expect(marksDone(DONE)).toBe(true);
+    expect(marksDone(NOT_PLANNED)).toBe(false);
+    expect(closedHereMark(DONE)).toEqual({ doneHere: true });
+    expect(closedHereMark(NOT_PLANNED)).toEqual({ closedHere: true });
   });
 });
