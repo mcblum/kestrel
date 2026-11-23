@@ -116,3 +116,9 @@
 .kestrel .prose .footnotes h2 { font-size: 1em; margin-top: 0; }
 .kestrel .prose > :first-child { margin-top: 0; }
 .kestrel .prose > :last-child { margin-bottom: 0; }
+
+/* An inline code span naming a Markdown or PDF file: a click opens it in a tab of the session. */
+.kestrel .prose .inline-file { display: inline; padding: 0; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; }
+.kestrel .prose .inline-file code { text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: .2em; text-decoration-thickness: 1px; }
+.kestrel .prose .inline-file:hover code { text-decoration-color: currentColor; }
+.kestrel .prose .inline-file:focus-visible { outline: 2px solid var(--s-muted); outline-offset: 2px; border-radius: 4px; }

@@ -23,6 +23,8 @@
 //   (in a review session; any other refuses it);
 // - one containing "/edit notes.md" writes (appends a line to) that file in the session's folder,
 //   with a Write tool line that names it, so opening a file's diff from the conversation can be tried;
+// - one containing "/file plan.md" hands over that file from the session's folder with `send_file`,
+//   so a file card, and opening a Markdown or PDF file in a tab of the session, can be tried;
 // - one containing "/stream 20" streams a reply for 20 seconds, a few words at a time, the way a
 //   model writes, so a long conversation can be watched (and measured) while text streams in;
 // - anything else works for a while ("/hold 40" for 40 seconds; 25 by default), saying so every
@@ -162,6 +164,12 @@ function handle(emit: (e: AgentEvent) => void, id: string, tools: KestrelToolHos
           emit({ type: 'files-changed', paths });
           say(`Wrote ${paths[0]}.`);
         }
+        return void timers.push(setTimeout(() => finish({ type: 'done', reason: 'complete' }), 300));
+      }
+      // SCRIPTED: hands over a file from the session's folder, as an agent does with one it made.
+      const sent = /\/file\s+(\S+)/.exec(text);
+      if (sent) {
+        void tools.sendFile({ path: sent[1]!, caption: 'A file from this session’s folder' });
         return void timers.push(setTimeout(() => finish({ type: 'done', reason: 'complete' }), 300));
       }
       // SCRIPTED: leaves a next step and then goes on writing, as a real agent sometimes does: the box

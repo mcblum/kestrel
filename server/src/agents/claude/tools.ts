@@ -120,7 +120,7 @@ export function kestrelMcpServer(host: KestrelToolHost, omit: readonly string[] 
       ),
       tool(
         'send_file',
-        'Put a file you made for the user in front of them: a report, an export, an image. The file must already exist inside your working folder (or a registered project). They can open it from the conversation.',
+        'Put a file you made for the user in front of them: a document, a report, an export, an image. Call it whenever you wrote a file they asked for, instead of only naming its path. The file must already exist inside your working folder (or a registered project). They can open it from the conversation; a Markdown or PDF file opens inside Kestrel.',
         { path: z.string().describe('The file, relative to your working folder or absolute.'), caption: z.string().optional().describe('One line saying what it is.') },
         (args) => guarded(() => host.sendFile(args)),
       ),

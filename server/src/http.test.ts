@@ -309,6 +309,29 @@ describe('pictures', () => {
     expect((await raw('../x.png')).status).toBe(404);
   });
 
+  test('serves Markdown and PDF files for the file tab, and says why not for anything else', async () => {
+    const folder = (await (await fetch(`${picBase}/files?path=`, { headers: auth })).json()).root as string;
+    writeFileSync(join(folder, 'plan.md'), '# Plan');
+    writeFileSync(join(folder, 'report.pdf'), '%PDF-1.7');
+    const document = (path: string) => fetch(`${picBase}/document?path=${encodeURIComponent(path)}`, { headers: auth });
+
+    const markdown = await document('plan.md');
+    expect(markdown.status).toBe(200);
+    expect(markdown.headers.get('content-type')).toBe('text/markdown; charset=utf-8');
+    expect(await markdown.text()).toBe('# Plan');
+    const pdf = await document(join(folder, 'report.pdf'));
+    expect(pdf.headers.get('content-type')).toBe('application/pdf');
+    expect(await pdf.text()).toBe('%PDF-1.7');
+
+    const other = await document('notes.txt');
+    expect(other.status).toBe(404);
+    expect((await other.json()).error).toMatch(/Markdown and PDF/);
+    expect((await (await document('nope.md')).json()).error).toMatch(/No such file/);
+    writeFileSync(join(outsidePng, '..', 'secret.md'), 'no');
+    expect((await (await document(join(outsidePng, '..', 'secret.md'))).json()).error).toMatch(/outside this session/);
+    expect((await fetch(`${picBase}/document?path=plan.md`)).status).toBe(401);
+  });
+
   test('passes question answers through, and rejects malformed ones', async () => {
     const post = (body: unknown) => fetch(`${picBase}/answer`, { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     expect((await post({ requestId: 'q', answers: ['a'] })).status).toBe(400);

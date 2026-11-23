@@ -1,13 +1,16 @@
 // Jira Cloud issues as tickets, over Jira's REST API with the account's email and an API token the
 // user pasted in Settings → Tickets (credentials.ts). Open issues assigned to the
 // user (`assignee = currentUser()`, not done), the sprint each is in from the board's Sprint field
-// (an active sprint is the current one), an issue's description and comments, and moving an issue
+// (an active sprint is the current one), an issue's description and comments as Markdown
+// (jira-adf.ts; a comment goes back the other way), and moving an issue
 // through one of the transitions its workflow allows now. The fetch is
 // injected: tests never reach Jira.
 import { ready, reasonOf, unavailable, type Sourced } from '../../shared/sourced.ts';
 import { criteriaOf, type Ticket, type TicketCategory, type TicketDetail, type TicketMove, type TicketSprint } from '../../shared/tickets.ts';
 import type { JiraCredentials } from '../credentials.ts';
 import type { TicketSource } from '../source.ts';
+import { markdownToAdf } from 'marklassian';
+import { adfToMarkdown } from './jira-adf.ts';
 
 export const JIRA_TIMEOUT_MS = 15_000;
 export const JIRA_TICKET_LIMIT = 100;
@@ -87,16 +90,24 @@ export function mapJiraIssue(issue: Fields, site: string, sprintField: string | 
   };
 }
 
-/** An issue's description and comments from `GET /rest/api/2/issue` (wiki text, not the v3 document form). Pure. */
+/**
+ * An issue's description and comments from `GET /rest/api/3/issue`, as Markdown. Version 3 gives each
+ * as a document (ADF), whatever it was written in; `adfToMarkdown` is the one place it is converted. Pure.
+ */
 export function mapJiraDetail(raw: unknown): TicketDetail {
   const f = isFields(raw) && isFields(raw.fields) ? raw.fields : {};
-  const description = text(f.description);
+  const description = adfToMarkdown(f.description);
   const comments = isFields(f.comment) && Array.isArray(f.comment.comments) ? f.comment.comments.filter(isFields) : [];
   return {
     description,
     criteria: criteriaOf(description),
-    comments: comments.map((c) => ({ author: isFields(c.author) ? text(c.author.displayName) : '', at: Date.parse(text(c.created)) || 0, body: text(c.body) })).filter((c) => c.body.trim()),
+    comments: comments.map((c) => ({ author: isFields(c.author) ? text(c.author.displayName) : '', at: Date.parse(text(c.created)) || 0, body: adfToMarkdown(c.body) })).filter((c) => c.body.trim()),
   };
+}
+
+/** A comment written in Markdown as the document Jira's version 3 takes, so it shows formatted there and not as markup. Pure. */
+export function jiraCommentBody(markdown: string): unknown {
+  return markdownToAdf(markdown);
 }
 
 /** Why Jira said no, said plainly. */
@@ -196,7 +207,7 @@ export function jiraTicketSource(creds: JiraCredentials, fetcher?: Fetch): Ticke
     },
     async read(ticket): Promise<Sourced<TicketDetail>> {
       try {
-        return ready(mapJiraDetail(await client.get(`/rest/api/2/issue/${encodeURIComponent(ticket.ref)}?fields=description,comment`)));
+        return ready(mapJiraDetail(await client.get(`/rest/api/3/issue/${encodeURIComponent(ticket.ref)}?fields=description,comment`)));
       } catch (error) {
         return unavailable(reasonOf(error));
       }
@@ -223,8 +234,7 @@ export function jiraTicketSource(creds: JiraCredentials, fetcher?: Fetch): Ticke
       return target.move;
     },
     async comment(ticket, body): Promise<void> {
-      // Version 2 takes the comment as plain text, as `read` reads it; version 3 wants Atlassian's document format.
-      await client.post(`/rest/api/2/issue/${encodeURIComponent(ticket.ref)}/comment`, { body });
+      await client.post(`/rest/api/3/issue/${encodeURIComponent(ticket.ref)}/comment`, { body: jiraCommentBody(body) });
     },
   };
 }

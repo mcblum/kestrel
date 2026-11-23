@@ -2,8 +2,9 @@
 // working folder, a project page one of the project's directories (the default unless switched); a
 // group has no folder (its toolbar button is off). Listings and file contents are held once in the
 // app store (data/resources.ts): what was read shows at once and is asked for again on every visit.
+// In a session, a Markdown or PDF file can be opened rendered in a tab of the session (FileDocumentView.tsx).
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, File, Folder } from 'lucide-react';
+import { ChevronDown, ChevronRight, File, Folder, PanelTop } from 'lucide-react';
 import type { FileContent, FileEntry } from '@kestrel/server/files';
 import { parseScope } from '@kestrel/server/scope';
 import { useApp } from '../store.ts';
@@ -13,6 +14,8 @@ import { defaultFolder, folderOf, NO_FOLDER_YET } from '@kestrel/server/project-
 import { AddFolderLink } from './AddFolderLink.tsx';
 import { FolderSwitch } from './FolderSwitch.tsx';
 import { CopyButton } from './CopyButton.tsx';
+import { viewableKind } from '@kestrel/server/viewable-files';
+import { openSessionFile } from '../sessionView.ts';
 
 type Listing = { root: string; entries: FileEntry[] };
 /** The files routes answer with the value itself; a refusal is thrown and held as unavailable. */
@@ -83,6 +86,10 @@ export function FilesPane({ scopeKey }: { scopeKey: string }) {
 
 function FilesOf({ scopeKey, folderId }: { scopeKey: string; folderId: string | null }) {
   const [path, setPath] = useState<string | null>(null);
+  // A session can show a Markdown or PDF file in a tab of its own; a project page has no such tabs.
+  const session = parseScope(scopeKey)?.kind === 'session' ? scopeKey : null;
+  const root = useResource(session ? filesApi(scopeKey, 'files', '', folderId) : null, asListing).value;
+  const openInTab = session && path !== null && viewableKind(path) && root.state === 'ready' ? () => openSessionFile(session, `${root.value.root}/${path}`) : null;
   const answer = useResource(path === null ? null : filesApi(scopeKey, 'file', path, folderId), asContent).value;
   const content: FileContent | { kind: 'error'; message: string } | null =
     answer.state === 'ready' ? answer.value : answer.state === 'unavailable' ? { kind: 'error', message: answer.reason || 'Could not read this file.' } : null;
@@ -95,6 +102,11 @@ function FilesOf({ scopeKey, folderId }: { scopeKey: string; folderId: string | 
         <div className="file-view">
           <div className="file-view-head">
             <span>{path}</span>
+            {openInTab && (
+              <button type="button" className="copy-button" aria-label="Open in a tab" title="Open in a tab" onClick={openInTab}>
+                <PanelTop aria-hidden />
+              </button>
+            )}
             <CopyButton value={path} label="relative path" />
           </div>
           {!content ? (

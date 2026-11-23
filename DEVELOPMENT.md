@@ -76,6 +76,13 @@ data in `~/.kestrel-demo-story`; `KESTREL_DEMO_SCENE=story` is the switch
 requests waiting in CODE REVIEWS (`KESTREL_DEMO_SCENE=story-reviews`, data in
 `~/.kestrel-demo-story-reviews`).
 
+`pnpm demo --tickets` is the demo with tickets switched on and a sample tracker holding one sprint
+of tickets, one of them under way: open Tickets in the top menu, and try Work this ticket, moving a
+status and the cards that propose a change (`KESTREL_DEMO_SCENE=tickets`, data in
+`~/.kestrel-demo-tickets`). The sample tracker forgets its moves and comments when the server
+restarts. `pnpm demo --sidebar` seeds a busy organization's workspace, for looking at the sidebar
+with many projects, colours and pins.
+
 To start again from clean fake data, run with `KESTREL_FAKE=1` and delete
 `~/.kestrel-dev/kestrel-fake.sqlite*`. Worktrees live in `~/.kestrel-dev/worktrees/`.
 
@@ -88,7 +95,10 @@ To start again from clean fake data, run with `KESTREL_FAKE=1` and delete
 | `KESTREL_DEMO` | off | `1` opens the demo workspace (`pnpm demo`): fake data with the rest of the app filled in, the scripted agent, a store of its own |
 | `KESTREL_SAMPLE_REVIEWS` | 9 | With fake data, how many sample review requests wait in CODE REVIEWS (up to 1000) |
 | `KESTREL_SAMPLE_UNREAD` | all | With fake data, how many of those are unread (the most recent ones); the rest are marked read |
+| `KESTREL_SAMPLE_TICKETS` | 6 | With fake data or the demo, how many tickets the sample tracker holds (up to 1000), to see a long list |
 | `KESTREL_PERSISTENCE` | `sqlite` | `memory` keeps everything in memory |
+| `KESTREL_CRASH_DSN` | none | A test address for crash reports. A checkout never reports without it; with it, it reports there as `development` |
+| `KESTREL_TEST_CRASH_REPORT` | off | `1` sends one crash report from the server at launch and prints whether it left |
 
 ## Test
 

@@ -341,6 +341,15 @@ export async function fetchBlob(path: string, retried = false): Promise<Blob> {
   return res.blob();
 }
 
+/** A file's bytes where the server says in words why it cannot give them (the session's file tab): that reason is the error's message. */
+export async function fetchFile(path: string, retried = false): Promise<Blob> {
+  if (!launch) throw new Error('Kestrel server is not running');
+  const res = await fetch(`http://127.0.0.1:${launch.port}${path}`, { headers: { Authorization: `Bearer ${launch.token}` } });
+  if (res.status === 401 && !retried && (await refreshLaunch())) return fetchFile(path, true);
+  if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `Request failed (${res.status})`);
+  return res.blob();
+}
+
 /** Send a file's bytes (an attachment upload); the parsed answer, or an error in words (`messageFor`). */
 export async function sendBytes<T>(path: string, body: Blob, headers: Record<string, string>, retried = false): Promise<T> {
   if (!launch) throw new Error('Kestrel server is not running');

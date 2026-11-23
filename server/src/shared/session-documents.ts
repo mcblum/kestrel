@@ -1,4 +1,5 @@
-// The documents inside one session (Conversation, a pull request's page, the New PR form), as pure
+// The documents inside one session (Conversation, a pull request's page, the New PR form, a Markdown
+// or PDF file opened from the conversation or the Files pane), as pure
 // state changes. The UI keeps one of these per session (ui/src/sessionView.ts) and only calls these
 // functions, so the rules are tested here. Every function returns a new value and leaves its input
 // alone. The New PR draft lives here, not in a component, so it survives switching tabs and sessions,
@@ -8,6 +9,7 @@
 // With uncommitted changes, Create first asks in place (`pressCreate`, `confirming`), and a commit
 // made from the form may re-run the generated text only where the user typed none (`mayRegenerate`).
 import { hostTerms, requestLabel, type HostKind, type HostTerms } from './host-terms.ts';
+import { fileNameOf } from './viewable-files.ts';
 
 export type NewPullRequestMode = 'manual' | 'generated';
 
@@ -46,7 +48,9 @@ export interface NewPullRequestDocument {
 export type SessionDocument =
   | { id: 'conversation'; kind: 'conversation'; title: string }
   | NewPullRequestDocument
-  | { id: string; kind: 'pull-request'; number: number; title: string };
+  | { id: string; kind: 'pull-request'; number: number; title: string }
+  /** A file Kestrel shows itself (shared/viewable-files.ts): `path` as it was given, absolute or from the session's folder. */
+  | { id: string; kind: 'file'; path: string; title: string };
 
 export interface SessionDocuments {
   tabs: readonly SessionDocument[];
@@ -83,6 +87,9 @@ export function documentTitle(doc: SessionDocument, terms: HostTerms): string {
 }
 
 export const pullRequestDocument = (number: number): SessionDocument => ({ id: `pr-${number}`, kind: 'pull-request', number, title: `PR #${number}` });
+
+/** A file's tab: one per path, named for the file, so opening the same file again selects its tab. */
+export const fileDocument = (path: string): SessionDocument => ({ id: `file:${path}`, kind: 'file', path, title: fileNameOf(path) });
 
 export function newPullRequestOf(state: SessionDocuments): NewPullRequestDocument | undefined {
   return state.tabs.find((t): t is NewPullRequestDocument => t.kind === 'new-pull-request');

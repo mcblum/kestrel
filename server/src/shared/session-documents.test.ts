@@ -272,3 +272,18 @@ describe('uncommitted changes and the New PR form', () => {
     expect(requestButton({ branch: null }, none, ahead)).toBeNull();
   });
 });
+
+describe('a file in a tab', () => {
+  it('opens named for the file, once per path, and closes back to where it was opened from', async () => {
+    const { fileDocument } = await import('./session-documents.ts');
+    const first = openDocument(INITIAL_DOCUMENTS, fileDocument('/work/out/plan.md'));
+    expect(first.tabs.map((t) => documentTitle(t, hostTerms('github')))).toEqual(['Conversation', 'plan.md']);
+    expect(first.activeId).toBe('file:/work/out/plan.md');
+
+    const again = openDocument(openDocument(first, fileDocument('report.pdf')), fileDocument('/work/out/plan.md'));
+    expect(again.tabs).toHaveLength(3);
+    expect(again.activeId).toBe('file:/work/out/plan.md');
+
+    expect(closeDocument(first, 'file:/work/out/plan.md')).toEqual(INITIAL_DOCUMENTS);
+  });
+});

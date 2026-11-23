@@ -9,6 +9,7 @@ import { DetailsPanel } from './details/DetailsPanel.tsx';
 import { detailsRefreshKey, useGitStatus, usePullRequests } from './details/sources.ts';
 import { PullRequestView } from './PullRequestView.tsx';
 import { NewPullRequestView } from './NewPullRequestView.tsx';
+import { FileDocumentView } from './FileDocumentView.tsx';
 import { useSessionDocuments, openPullRequest, reconcilePullRequests } from '../sessionView.ts';
 import { takeAwaitingLookup } from '../newPullRequest.ts';
 import { SessionDocumentTabs } from './SessionDocumentTabs.tsx';
@@ -252,6 +253,7 @@ export function SessionWorkspace({ id }: { id: string }) {
           {docOpen && (
             <div id={`${id}-${activeDocument.id}-panel`} className="pr-panel" role="tabpanel" aria-labelledby={`${id}-${activeDocument.id}-tab`}>
               {activeDocument.kind === 'pull-request' && <PullRequestView source={pullRequests} number={activeDocument.number} />}
+              {activeDocument.kind === 'file' && <FileDocumentView key={activeDocument.id} sessionId={id} path={activeDocument.path} />}
               {activeDocument.kind === 'new-pull-request' && (
                 <NewPullRequestView sessionId={id} doc={activeDocument} terms={terms} branch={session.branch ?? ''} uncommitted={uncommittedCount(git.value) > 0} onCreated={pullRequests.refresh} />
               )}

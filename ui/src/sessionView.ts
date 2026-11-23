@@ -1,4 +1,4 @@
-// The documents open inside each session (Conversation, pull request pages, the New PR form): one
+// The documents open inside each session (Conversation, pull request pages, the New PR form, files): one
 // small store per session, independent of the app's session tabs. The rules are pure and live in
 // @kestrel/server/session-documents; this file only keeps the state and tells React it changed.
 import { useSyncExternalStore } from 'react';
@@ -9,6 +9,7 @@ import {
   closeDocument,
   confirmCreate,
   editNewPullRequest,
+  fileDocument,
   leaveConfirmCreate,
   newPullRequestCreated,
   newPullRequestCreating,
@@ -37,6 +38,10 @@ function update(id: string, state: SessionDocuments) {
 
 export function openPullRequest(id: string, pr: Pick<PullRequest, 'number'>) {
   update(id, openDocument(current(id), pullRequestDocument(pr.number)));
+}
+/** Opens a Markdown or PDF file in a tab of the session (or selects the tab it is already in). */
+export function openSessionFile(id: string, path: string) {
+  update(id, openDocument(current(id), fileDocument(path)));
 }
 export function selectSessionDocument(id: string, documentId: string) {
   const state = current(id);

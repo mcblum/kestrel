@@ -231,6 +231,8 @@ body { background: light-dark(#fafbf9, #171a19); }
 
 /* ---- tabs ------------------------------------------------------------------------------ */
 .kestrel .tab-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
+/* A page that scrolls here keeps the scrollbar's space when its list is short, so a filter that empties it does not shift the page. */
+.kestrel .tab-body:has(> .page) { scrollbar-gutter: stable; }
 /* One fixed-height row that never shows a scroll bar: too many tabs scroll sideways without one.
    The bottom rule is an inset shadow, not a border, so the active tab covers it from inside the
    strip; a negative margin reaching into a border would overflow the strip and show a bar. */
@@ -907,6 +909,9 @@ body { background: light-dark(#fafbf9, #171a19); }
 .kestrel .file-card-row { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; }
 .kestrel .file-card-icon { width: 14px; height: 14px; flex: none; color: var(--s-muted); }
 .kestrel .file-card-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--s-ink); }
+/* A Markdown or PDF file's name opens it in a tab of the session. */
+.kestrel .file-card-open { padding: 0; border: 0; background: none; font: inherit; font-weight: 500; text-align: left; cursor: pointer; }
+.kestrel .file-card-open:hover { text-decoration: underline; text-underline-offset: 3px; }
 .kestrel .file-card-note { flex: 0 10 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--s-muted); }
 .kestrel .file-card-actions { display: flex; gap: 2px; margin-left: auto; flex: none; }
 .kestrel .file-card .thumb-row { margin: 8px 0 0; }

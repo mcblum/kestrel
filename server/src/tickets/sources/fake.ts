@@ -102,9 +102,33 @@ const SAMPLES: readonly Sample[] = [
   },
 ];
 
+/** How many samples there are when no number is asked for. */
+export const SAMPLE_TICKET_COUNT = SAMPLES.length;
+const MAX_SAMPLE_TICKETS = 1000;
+
+/** What KESTREL_SAMPLE_TICKETS asks for: a whole number from 0 to 1000, else the usual count. Pure. */
+export function sampleTicketCount(raw: string | undefined): number {
+  const n = Number(raw);
+  return raw && Number.isInteger(n) && n >= 0 && n <= MAX_SAMPLE_TICKETS ? n : SAMPLE_TICKET_COUNT;
+}
+
+/** The sample a ref stands for: past the ones written out they repeat, as BELL-142-2, BELL-142-3 and so on. Pure. */
+function sampleOf(ref: string): Sample | undefined {
+  return SAMPLES.find((s) => s.ref === ref) ?? SAMPLES.find((s) => ref.startsWith(`${s.ref}-`));
+}
+
+/** `count` samples: the ones written out, then the same again with new refs, so a long list can be seen. Pure. */
+function samples(count: number): Sample[] {
+  return Array.from({ length: count }, (_, index) => {
+    const sample = SAMPLES[index % SAMPLES.length]!;
+    const round = Math.floor(index / SAMPLES.length);
+    return round === 0 ? sample : { ...sample, ref: `${sample.ref}-${round + 1}`, updatedAgo: sample.updatedAgo + round * DAY_MS };
+  });
+}
+
 /** The sample tickets as they would be at `now`. Pure. */
-export function sampleTickets(now: number): Ticket[] {
-  return SAMPLES.map((s, index) => ({
+export function sampleTickets(now: number, count: number = SAMPLE_TICKET_COUNT): Ticket[] {
+  return samples(count).map((s, index) => ({
     key: `fake:${s.ref}`,
     source: 'fake',
     tracker: 'Sample tracker',
@@ -124,7 +148,7 @@ export function sampleTickets(now: number): Ticket[] {
 
 /** A sample ticket's description and comments. Pure. */
 export function sampleDetail(ref: string, now: number): TicketDetail | null {
-  const sample = SAMPLES.find((s) => s.ref === ref);
+  const sample = sampleOf(ref);
   if (!sample) return null;
   return { description: sample.description, criteria: criteriaOf(sample.description), comments: sample.comments.map((c) => ({ author: c.author, at: now - c.ago, body: c.body })) };
 }
@@ -139,7 +163,7 @@ export const SAMPLE_STATUSES: readonly TicketMove[] = [
 ];
 
 /** The sample tracker. A move or a comment is kept for as long as the server runs, so the list and the ticket's page show it. */
-export function fakeTicketSource(now: () => number = Date.now): TicketSource {
+export function fakeTicketSource(now: () => number = Date.now, count: number = SAMPLE_TICKET_COUNT): TicketSource {
   const moved = new Map<string, TicketMove>();
   const comments = new Map<string, TicketComment[]>();
   const current = (t: Ticket): Ticket => {
@@ -150,9 +174,9 @@ export function fakeTicketSource(now: () => number = Date.now): TicketSource {
     kind: 'fake',
     name: 'Sample tracker',
     // Open tickets only, as a tracker answers: one moved to Done leaves the list, and Kestrel asks its status.
-    assignedToMe: async (): Promise<Sourced<Ticket[]>> => ready(sampleTickets(now()).map(current).filter((t) => t.status.category !== 'done')),
+    assignedToMe: async (): Promise<Sourced<Ticket[]>> => ready(sampleTickets(now(), count).map(current).filter((t) => t.status.category !== 'done')),
     status: async (ticket) => {
-      const held = sampleTickets(now()).find((t) => t.key === ticket.key);
+      const held = sampleTickets(now(), count).find((t) => t.key === ticket.key);
       return held ? ready(current(held).status) : unavailable(`${ticket.ref} is not one of the sample tickets`);
     },
     read: async (ticket) => {

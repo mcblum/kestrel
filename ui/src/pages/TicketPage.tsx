@@ -3,6 +3,7 @@
 // sections 5 and 6). It reads the one copy the server pushed (`tickets`); opening it asks the server
 // for the ticket's detail, which arrives in the same push. The project the work would start in is a
 // route answer (`useResource`), so the button says where before it is clicked.
+import { inlineText } from '@kestrel/server/markdown-text';
 import { useEffect, useRef, useState } from 'react';
 import { MessageSquarePlus, Play, RotateCcw } from 'lucide-react';
 import { TicketActionsMenu } from '../components/TicketActionsMenu.tsx';
@@ -192,7 +193,7 @@ export function TicketPage({ id }: { id: string }) {
           <h2>Acceptance criteria</h2>
           <ul className="ticket-criteria">
             {detail.value.criteria.map((c, i) => (
-              <li key={i}>{c}</li>
+              <li key={i}>{inlineText(c)}</li>
             ))}
           </ul>
         </section>

@@ -16,6 +16,18 @@ const CREDS = { site: SITE, email: 'me@example.com', token: 'secret-token' };
 
 type Call = { url: string; method: string; body?: string; auth: string };
 
+// What version 3 gives for text: a document, not a string.
+const para = (...content: unknown[]) => ({ type: 'doc', version: 1, content: [{ type: 'paragraph', content: content.map((c) => (typeof c === 'string' ? { type: 'text', text: c } : c)) }] });
+const DESCRIPTION = {
+  type: 'doc',
+  version: 1,
+  content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'Why' }] },
+    { type: 'heading', attrs: { level: 3 }, content: [{ type: 'text', text: 'Acceptance criteria' }] },
+    { type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hits the cache' }] }] }] },
+  ],
+};
+
 function scripted(answers: Record<string, { status?: number; body: unknown }>) {
   const calls: Call[] = [];
   const fetcher = async (url: string, init: { method?: string; headers: Record<string, string>; body?: string }) => {
@@ -64,7 +76,7 @@ describe('Jira as tickets', () => {
     const { calls, fetcher } = scripted({
       '/rest/api/3/field': { body: [{ id: 'customfield_10020', name: 'Sprint', schema: { custom: 'com.pyxis.greenhopper.jira:gh-sprint' } }] },
       '/rest/api/3/search/jql': { body: { issues: [ISSUE] } },
-      '/rest/api/2/issue/PLAT-12': { body: { fields: { description: 'Why\n\nh3. Acceptance criteria\n* Hits the cache', comment: { comments: [{ author: { displayName: 'Kim' }, created: '2026-11-21T00:00:00.000+0000', body: 'p95 doubled' }] } } } },
+      '/rest/api/3/issue/PLAT-12': { body: { fields: { description: DESCRIPTION, comment: { comments: [{ author: { displayName: 'Kim' }, created: '2026-11-21T00:00:00.000+0000', body: para('p95 ', { type: 'text', text: 'doubled', marks: [{ type: 'strong' }] }) }] } } } },
     });
     const source = jiraTicketSource(CREDS, fetcher);
     const list = await source.assignedToMe();
@@ -75,7 +87,7 @@ describe('Jira as tickets', () => {
     expect(JSON.parse(search.body!).fields).toContain('customfield_10020');
     expect(search.auth).toBe(`Basic ${Buffer.from('me@example.com:secret-token').toString('base64')}`);
     const detail = await source.read(t!);
-    expect(detail).toEqual({ state: 'ready', value: { description: 'Why\n\nh3. Acceptance criteria\n* Hits the cache', criteria: ['Hits the cache'], comments: [{ author: 'Kim', at: Date.parse('2026-11-21T00:00:00.000Z'), body: 'p95 doubled' }] } });
+    expect(detail).toEqual({ state: 'ready', value: { description: 'Why\n\n### Acceptance criteria\n\n- Hits the cache', criteria: ['Hits the cache'], comments: [{ author: 'Kim', at: Date.parse('2026-11-21T00:00:00.000Z'), body: 'p95 **doubled**' }] } });
   });
 
   it('says plainly when Jira refuses the token', async () => {
@@ -158,11 +170,17 @@ describe('Moving a Jira issue', () => {
     await expect(jiraTicketSource(CREDS, fetcher).move(ticket, 'Done')).rejects.toThrow('Jira said: Resolution is required.');
   });
 
-  it('adds a comment as plain text, and says Jira’s reason when it cannot', async () => {
-    const { fetcher, calls } = scripted({ 'POST /rest/api/2/issue/PLAT-7/comment': { status: 201, body: { id: '9' } } });
+  it('adds a comment written in Markdown as a document, and says Jira’s reason when it cannot', async () => {
+    const { fetcher, calls } = scripted({ 'POST /rest/api/3/issue/PLAT-7/comment': { status: 201, body: { id: '9' } } });
     await jiraTicketSource(CREDS, fetcher).comment(ticket, 'Started on this.');
-    expect(calls.at(-1)).toMatchObject({ method: 'POST', body: JSON.stringify({ body: 'Started on this.' }) });
-    const refusing = scripted({ 'POST /rest/api/2/issue/PLAT-7/comment': { status: 403, body: { errorMessages: ['You cannot comment here.'] } } });
+    expect(JSON.parse(calls.at(-1)!.body!)).toEqual({ body: { version: 1, type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Started on this.' }] }] } });
+    await jiraTicketSource(CREDS, fetcher).comment(ticket, 'Fixed in **two** places:\n\n- `cache.ts`\n- the [guide](https://example.com)');
+    const sent = JSON.parse(calls.at(-1)!.body!).body;
+    expect(sent.content.map((n: { type: string }) => n.type)).toEqual(['paragraph', 'bulletList']);
+    expect(sent.content[0].content[1]).toEqual({ type: 'text', text: 'two', marks: [{ type: 'strong' }] });
+    // What is sent reads back as what was typed.
+    expect(mapJiraDetail({ fields: { comment: { comments: [{ body: sent }] } } }).comments[0]!.body).toBe('Fixed in **two** places:\n\n- `cache.ts`\n- the [guide](https://example.com)');
+    const refusing = scripted({ 'POST /rest/api/3/issue/PLAT-7/comment': { status: 403, body: { errorMessages: ['You cannot comment here.'] } } });
     await expect(jiraTicketSource(CREDS, refusing.fetcher).comment(ticket, 'x')).rejects.toThrow('You cannot comment here.');
   });
 });

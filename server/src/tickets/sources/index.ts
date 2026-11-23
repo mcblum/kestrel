@@ -9,7 +9,7 @@ import type { AccountLogin } from '../../git-settings/github-login.ts';
 import { hostsOf, projectRemote, type ProjectsSource } from '../../review-requests/sync.ts';
 import type { TicketSourceStatus } from '../../shared/tickets.ts';
 import type { TicketSource } from '../source.ts';
-import { fakeTicketSource } from './fake.ts';
+import { fakeTicketSource, sampleTicketCount } from './fake.ts';
 import { githubTicketSource } from './github.ts';
 import { gitlabTicketSource } from './gitlab.ts';
 
@@ -44,7 +44,8 @@ interface GitlabHosts {
 }
 
 export function ticketSources(deps: TicketSourcesDeps): TicketSources {
-  const fake = fakeTicketSource();
+  // KESTREL_SAMPLE_TICKETS=80 makes the sample tracker hold that many, to see a long list.
+  const fake = fakeTicketSource(Date.now, sampleTicketCount(process.env.KESTREL_SAMPLE_TICKETS));
   const gitlabs = new Map<string, TicketSource>();
   const gitlabOf = (host: string): TicketSource => {
     let source = gitlabs.get(host);
@@ -86,7 +87,7 @@ export function ticketSources(deps: TicketSourcesDeps): TicketSources {
         login.available ? { id: 'github', state: 'ready', line: `Uses gh’s sign-in, as ${login.login}.` } : { id: 'github', state: 'needs-setup', line: `gh is not signed in: ${login.reason}.` },
         jira ? { id: 'jira', state: 'ready', line: 'Connected below.' } : { id: 'jira', state: 'needs-setup', line: 'Connect Jira below before turning it on.' },
         linear
-          ? { id: 'linear', state: 'ready', line: 'Connected below. Checked against Linear’s published API schema only, not yet against a workspace.' }
+          ? { id: 'linear', state: 'ready', line: 'Connected below.' }
           : { id: 'linear', state: 'needs-setup', line: 'Connect Linear below before turning it on.' },
       ];
     },

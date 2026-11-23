@@ -1,0 +1,28 @@
+/* A Markdown or PDF file in a tab of the session (FileDocumentView.tsx, PdfPages.tsx). */
+.kestrel .file-document { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; background: var(--s-paper); }
+.kestrel .file-document-head { display: flex; align-items: center; gap: 10px; flex: none; min-width: 0; padding: 8px 12px 8px 28px; border-bottom: 1px solid var(--s-line); font-size: 12px; }
+.kestrel .file-document-name { flex: none; font-weight: 600; color: var(--s-ink); }
+.kestrel .file-document-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; font-family: var(--mono); font-size: 11px; color: var(--s-muted); }
+.kestrel .file-document-actions { display: flex; gap: 2px; flex: none; }
+.kestrel .file-document-note { margin: 0; padding: 28px; color: var(--s-muted); font-size: 12px; }
+.kestrel .file-document-scroll { flex: 1; min-height: 0; overflow: auto; padding: 28px; scrollbar-gutter: stable; }
+.kestrel .file-document-text { max-width: 800px; margin-inline: auto; }
+
+.kestrel .pdf-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: none; padding: 4px 12px 4px 28px; border-bottom: 1px solid var(--s-line); font-size: 11px; color: var(--s-muted); }
+.kestrel .pdf-zoom { display: flex; align-items: center; gap: 2px; }
+.kestrel .pdf-zoom-level { min-width: 44px; padding: 2px 4px; border: 0; border-radius: 4px; background: none; color: var(--s-muted); font: inherit; font-variant-numeric: tabular-nums; cursor: pointer; }
+.kestrel .pdf-zoom-level:hover { background: var(--s-soft); color: var(--s-ink); }
+.kestrel .pdf-pages { flex: 1; min-height: 0; overflow: auto; padding: 20px 0; background: var(--s-side); scrollbar-gutter: stable; }
+/* A page is paper whatever the theme: a PDF's own colours are not Kestrel's to change. */
+.kestrel .pdf-page { position: relative; margin: 0 auto 16px; background: #fff; border: 1px solid var(--s-line); box-sizing: content-box; }
+.kestrel .pdf-page:last-child { margin-bottom: 0; }
+.kestrel .pdf-page canvas { display: block; width: 100%; height: 100%; }
+.kestrel .pdf-page .file-document-note { position: absolute; inset: 0; color: #555; }
+
+/* The page's text, laid over the picture of it so it can be selected. pdf.js places each run and sets
+   the variables; these are the rules it expects (its own stylesheet is for its whole viewer). */
+.kestrel .pdf-text { position: absolute; inset: 0; overflow: clip; line-height: 1; letter-spacing: normal; word-spacing: normal; text-align: initial; text-size-adjust: none; forced-color-adjust: none; transform-origin: 0 0; color-scheme: only light; --min-font-size: 1; --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size)); --min-font-size-inv: calc(1 / var(--min-font-size)); }
+.kestrel .pdf-text :is(span, br) { position: absolute; color: transparent; white-space: pre; cursor: text; transform-origin: 0% 0%; user-select: text; }
+.kestrel .pdf-text > :not(.markedContent), .kestrel .pdf-text .markedContent span:not(.markedContent) { z-index: 1; --font-height: 0; font-size: calc(var(--text-scale-factor) * var(--font-height)); --scale-x: 1; --rotate: 0deg; transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv)); }
+.kestrel .pdf-text .markedContent { display: contents; }
+.kestrel .pdf-text ::selection { background: color-mix(in srgb, Highlight 45%, transparent); }

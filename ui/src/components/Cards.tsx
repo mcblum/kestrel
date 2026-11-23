@@ -8,6 +8,8 @@ import { Markdown } from './Markdown.tsx';
 import { Thumb } from './Pictures.tsx';
 import { CopyButton } from './CopyButton.tsx';
 import { actions } from '../store.ts';
+import { viewableKind } from '@kestrel/server/viewable-files';
+import { openSessionFile } from '../sessionView.ts';
 
 // ---- task list --------------------------------------------------------------------------
 
@@ -84,9 +86,15 @@ export const FileCardView = memo(function FileCardView({ file, sessionId }: { fi
     <div className="file-card">
       <div className="file-card-row">
         <FileText className="file-card-icon" aria-hidden />
-        <span className="file-card-name" title={file.path}>
-          {file.name}
-        </span>
+        {viewableKind(file.name) ? (
+          <button type="button" className="file-card-name file-card-open" title={`Open ${file.path} in a tab`} onClick={() => openSessionFile(sessionId, file.path)}>
+            {file.name}
+          </button>
+        ) : (
+          <span className="file-card-name" title={file.path}>
+            {file.name}
+          </span>
+        )}
         {note && <span className="file-card-note">{note}</span>}
         <span className="file-card-actions">
           <button type="button" className="copy-button" aria-label={showInManager()} onClick={() => void actions.reveal(file.path)}>

@@ -420,6 +420,16 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
         if (stat.size > RAW_IMAGE_MAX_BYTES) return send(req, res, 413, { error: 'That image is larger than 10 MB.' });
         return sendBytes(req, res, type, readFileSync(file));
       }
+      // A Markdown or PDF file for the session's file tab (display.ts decides which files, and says why not).
+      if (runtime && method === 'GET' && parts.length === 4 && parts[3] === 'document') {
+        try {
+          const file = await runtime.display.viewableFile(parts[2]!, url.searchParams.get('path') ?? '');
+          return sendBytes(req, res, file.type, readFileSync(file.path));
+        } catch (error) {
+          if (error instanceof Refused) return send(req, res, 404, { error: error.message });
+          throw error;
+        }
+      }
       if (method === 'POST' && parts.length === 2) {
         const body = await readJson(req);
         const agent = body.agent as Agent;
