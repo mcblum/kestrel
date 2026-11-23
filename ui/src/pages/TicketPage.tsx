@@ -3,7 +3,7 @@
 // sections 5 and 6). It reads the one copy the server pushed (`tickets`); opening it asks the server
 // for the ticket's detail, which arrives in the same push. The project the work would start in is a
 // route answer (`useResource`), so the button says where before it is clicked.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MessageSquarePlus, Play, RotateCcw } from 'lucide-react';
 import { TicketActionsMenu } from '../components/TicketActionsMenu.tsx';
 import { TicketStatus } from '../components/TicketStatus.tsx';
@@ -108,9 +108,12 @@ export function TicketPage({ id }: { id: string }) {
   const now = useMinuteNow();
   const [starting, setStarting] = useState(false);
   // Opening a ticket is reading it, and asks its tracker for what it says now.
+  // Only on opening: a ticket marked unread by hand while its page is open stays unread.
+  const unreadNow = useRef(unread);
+  unreadNow.current = unread;
   useEffect(() => {
-    if (unread) void actions.markTicketsSeen([id], true);
-  }, [id, unread]);
+    if (unreadNow.current) void actions.markTicketsSeen([id], true);
+  }, [id]);
   useEffect(() => {
     void actions.readTicket(id);
   }, [id]);
@@ -146,7 +149,7 @@ export function TicketPage({ id }: { id: string }) {
               <RotateCcw aria-hidden /> Restore
             </button>
           )}
-          <TicketActionsMenu ticket={ticket} canDismiss={!closed && !dismissed} />
+          <TicketActionsMenu ticket={ticket} onPage />
         </div>
         {!leadExists && !closed && (
           <p className="detail-action-note">

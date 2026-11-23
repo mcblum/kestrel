@@ -29,6 +29,8 @@ const TicketRow = memo(function TicketRow({ ticket, active }: { ticket: Ticket; 
     <button
       type="button"
       className={`side-link review-link${active ? ' active' : ''}`}
+      data-menu-kind="ticket"
+      data-menu-id={ticket.key}
       title={`${ticket.title}\n${ticket.ref} · ${ticket.status.name}`}
       {...opener((newTab) => (lead ? openSession(lead, newTab) : openView({ kind: 'ticket', id: ticket.key }, newTab)))}
     >

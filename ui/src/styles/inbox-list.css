@@ -93,3 +93,7 @@
 .kestrel .detail-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .kestrel .detail-action-note { margin: 0; max-width: 720px; color: var(--s-label); font-size: 12px; line-height: 1.5; }
 .kestrel .detail-intro .review-dismissed-note { margin: 0; width: fit-content; }
+
+/* The hidden name of the service is placed against its own reference, not the page: left to the page,
+   one far down a long list made the whole window scroll. */
+.kestrel .inbox-reference { position: relative; }

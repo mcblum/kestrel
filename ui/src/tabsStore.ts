@@ -111,11 +111,15 @@ function sync() {
  * window, and a paired phone, hears the new record. Asked once per session and activity.
  */
 let asked = '';
+/** A session marked unread by hand while it is the tab in front: it stays unread until another tab is in front. */
+let heldUnread: string | null = null;
 function trackSeen() {
   const { workspace: ws, seen } = appStore.get();
   if (!tabsView().loaded || !ws || !seen) return;
   const tab = tabsView().state.tabs.find((t) => t.id === tabsView().state.activeId);
-  const open = tab?.kind === 'session' && document.hasFocus() ? ws.sessions.find((s) => s.id === tab.sessionId) : undefined;
+  const front = tab?.kind === 'session' ? tab.sessionId : null;
+  if (heldUnread !== null && front !== heldUnread) heldUnread = null;
+  const open = front !== null && front !== heldUnread && document.hasFocus() ? ws.sessions.find((s) => s.id === front) : undefined;
   if (!open || markSeen(seen, open) === seen) return;
   const key = `${open.id}:${activityAt(open)}`;
   if (key === asked) return;
@@ -278,6 +282,7 @@ export const tabActions = {
   /** Mark a session as not looked at, or as looked at, by hand. */
   setUnread(sessionId: string, unread: boolean): void {
     asked = '';
+    heldUnread = unread ? sessionId : heldUnread === sessionId ? null : heldUnread;
     void postSeen(unread ? { sessionIds: [sessionId], unread: true } : { sessionIds: [sessionId] });
   },
   /** Hide the sidebar, or show it again (⌘B). Remembered across restarts like its width. */

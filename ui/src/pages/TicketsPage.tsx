@@ -18,6 +18,7 @@ import { ticketLeadIn, workTicket } from '../tickets.ts';
 import { InboxReference, InboxSearch, InboxStartButton } from '../components/InboxList.tsx';
 import { TicketStatus } from '../components/TicketStatus.tsx';
 import { TicketActionsMenu } from '../components/TicketActionsMenu.tsx';
+import { openRowMenu } from '../components/sidebarMenuTarget.ts';
 import { PageHeader } from './PageHeader.tsx';
 
 /** The lead session working on a ticket, if one is. */
@@ -45,7 +46,14 @@ const TicketRow = memo(function TicketRow({ ticket, dismissed, underWay = false 
   const news = dot.className === 'green' || dot.className === 'amber';
   const leadStatus = lead ? `Lead: ${statusText(lead).toLowerCase()}` : '';
   return (
-    <li className={`inbox-row${unread || news ? ' unread' : ''}`}>
+    <li
+      className={`inbox-row${unread || news ? ' unread' : ''}`}
+      // Right-click: the ticket's own menu, the one its … and its sidebar row open (menu.ts).
+      onContextMenu={(event) => {
+        event.preventDefault();
+        openRowMenu('ticket', ticket.key, { x: event.clientX, y: event.clientY });
+      }}
+    >
       <span className="inbox-indicator">
         {dot.className !== 'none' ? (
           <span className={`status-dot ${dot.className}`} role="img" aria-label={dot.label} title={dot.label} />
@@ -71,7 +79,7 @@ const TicketRow = memo(function TicketRow({ ticket, dismissed, underWay = false 
         {lead && <span className="inbox-status-note" title={leadStatus}>{leadStatus}</span>}
         <TicketStatus ticket={ticket} />
       </span>
-      <TicketActionsMenu ticket={ticket} dismissed={dismissed} showDetails={Boolean(lead)} />
+      <TicketActionsMenu ticket={ticket} />
     </li>
   );
 });
@@ -80,14 +88,20 @@ const TicketRow = memo(function TicketRow({ ticket, dismissed, underWay = false 
 const ClosedRow = memo(function ClosedRow({ ticket }: { ticket: ClosedTicket }) {
   const now = useMinuteNow();
   return (
-    <li className="inbox-row">
+    <li
+      className="inbox-row"
+      onContextMenu={(event) => {
+        event.preventDefault();
+        openRowMenu('ticket', ticket.key, { x: event.clientX, y: event.clientY });
+      }}
+    >
       <span className="inbox-indicator"><CircleCheck aria-hidden /></span>
       <button type="button" className="inbox-open" title={ticket.title} {...opener((newTab) => openView({ kind: 'ticket', id: ticket.key }, newTab))}>
         <span className="inbox-title">{ticket.title}</span>
         <TicketMetadata ticket={ticket} time={`${ticket.doneHere ? 'Marked done' : 'Closed'} ${agoText(ticket.closedAt, now)}`} />
       </button>
       <span className="inbox-status"><TicketStatus ticket={ticket} /></span>
-      <TicketActionsMenu ticket={ticket} canDismiss={false} />
+      <TicketActionsMenu ticket={ticket} />
     </li>
   );
 });

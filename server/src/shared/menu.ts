@@ -56,6 +56,9 @@ export type MenuAction =
   | { type: 'open-link'; url: string }
   /** Mark a review request read, or unread again. */
   | { type: 'mark-review-read'; key: string; read: boolean }
+  | { type: 'mark-ticket-read'; key: string; read: boolean }
+  | { type: 'dismiss-ticket'; key: string; dismissed: boolean }
+  | { type: 'open-ticket'; key: string }
   | { type: 'delete-session'; sessionId: string }
   | { type: 'mark-unread'; sessionId: string; unread: boolean }
   /** Show a folder in Finder (or copy its path where there is no Finder). */
@@ -224,6 +227,8 @@ export type MenuTarget =
    * reviewing it, when it has one.
    */
   | { kind: 'review'; key: string; pinned: boolean; unread?: boolean; dismissed?: boolean; url?: string; service?: string; sessionId?: string }
+  /** A ticket's row, in the sidebar or on the Tickets page. `unread` is left out where it has no read state (a closed ticket); `canDismiss` false for one that is closed. */
+  | { kind: 'ticket'; key: string; unread?: boolean; dismissed?: boolean; canDismiss?: boolean; url?: string; tracker?: string; details?: boolean }
   | {
       kind: 'workstream';
       workstreamId: string;
@@ -380,6 +385,23 @@ export function sidebarMenu(target: MenuTarget): MenuItem[] {
         // A dismissed request is not drawn under PINNED, so it has no Pin.
         ...(target.dismissed ? [] : pinItem('review', k, target.pinned)),
         { id: 'dismiss-review', label: target.dismissed ? 'Restore' : 'Dismiss', action: { type: 'dismiss-review', key: k, dismissed: !target.dismissed }, separatorBefore: true },
+      ];
+    }
+    case 'ticket': {
+      const k = target.key;
+      const read: MenuItem[] = target.unread !== undefined && !target.dismissed ? [{ id: 'mark-ticket-read', label: target.unread ? 'Mark as read' : 'Mark as unread', action: { type: 'mark-ticket-read', key: k, read: target.unread } }] : [];
+      const tracker: MenuItem[] = target.url
+        ? [
+            { id: 'open-link', label: `Open in ${target.tracker ?? 'its tracker'}`, action: { type: 'open-link', url: target.url } },
+            { id: 'copy-link', label: 'Copy link', action: { type: 'copy', text: target.url, what: 'Link' } },
+          ]
+        : [];
+      const dismiss: MenuItem[] = target.canDismiss === false ? [] : [{ id: 'dismiss-ticket', label: target.dismissed ? 'Restore' : 'Dismiss', action: { type: 'dismiss-ticket', key: k, dismissed: !target.dismissed }, separatorBefore: true }];
+      return [
+        ...(target.details === false ? [] : [{ id: 'open-ticket', label: 'View ticket details', action: { type: 'open-ticket', key: k } as MenuAction }]),
+        ...tracker,
+        ...read.map((item, i) => (i === 0 ? { ...item, separatorBefore: true } : item)),
+        ...dismiss,
       ];
     }
     case 'tag':

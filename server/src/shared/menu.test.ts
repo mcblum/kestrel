@@ -289,3 +289,24 @@ describe('a command’s menu in the Commands pane', () => {
     });
   });
 });
+
+describe('a ticket’s menu', () => {
+  const labels = (items: ReturnType<typeof sidebarMenu>) => items.map((i) => i.label);
+
+  it('marks a read ticket unread and an unread one read, through the one action', () => {
+    const read = sidebarMenu({ kind: 'ticket', key: 'jira:A-1', unread: false, url: 'https://tracker.example.com/A-1', tracker: 'Jira' });
+    expect(labels(read)).toEqual(['View ticket details', 'Open in Jira', 'Copy link', 'Mark as unread', 'Dismiss']);
+    expect(read.find((i) => i.id === 'mark-ticket-read')?.action).toEqual({ type: 'mark-ticket-read', key: 'jira:A-1', read: false });
+    const unread = sidebarMenu({ kind: 'ticket', key: 'jira:A-1', unread: true });
+    expect(unread.find((i) => i.id === 'mark-ticket-read')).toMatchObject({ label: 'Mark as read', action: { type: 'mark-ticket-read', key: 'jira:A-1', read: true } });
+  });
+
+  it('offers no read state for a dismissed or closed ticket, and no Dismiss for a closed one', () => {
+    expect(labels(sidebarMenu({ kind: 'ticket', key: 'k', unread: false, dismissed: true }))).toEqual(['View ticket details', 'Restore']);
+    expect(labels(sidebarMenu({ kind: 'ticket', key: 'k', canDismiss: false }))).toEqual(['View ticket details']);
+  });
+
+  it('has no way to the ticket’s page from that page', () => {
+    expect(labels(sidebarMenu({ kind: 'ticket', key: 'k', unread: true, details: false }))).toEqual(['Mark as read', 'Dismiss']);
+  });
+});

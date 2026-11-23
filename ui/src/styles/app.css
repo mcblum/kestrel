@@ -1,6 +1,9 @@
 /* App-level additions on top of the prototype's styles: a full-window shell with panes that
    scroll on their own, the tree sidebar, the handoff trail, drag and drop, and diff colours. */
 html, body, #root { height: 100%; margin: 0; }
+/* The window itself never scrolls: every pane scrolls inside the shell. Something laid out past the
+   shell's foot (a hidden label deep in a long list) must not make the whole window scrollable. */
+html, body { overflow: hidden; }
 body { background: light-dark(#fafbf9, #171a19); }
 /* The colour scheme is the root's (styles/appearance.css), so a theme chosen in Settings applies here; this undoes the prototype's own. */
 .kestrel { height: 100%; color-scheme: inherit; }

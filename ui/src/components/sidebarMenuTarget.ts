@@ -63,6 +63,7 @@ function projectTarget(ws: WorkspaceState, id: string, pinned: boolean): MenuTar
 
 /** Opened from the item's own page header, the menu has no way to that page. */
 function withPlace(target: MenuTarget, onPage: boolean): MenuTarget {
+  if (onPage && target.kind === 'ticket') return { ...target, details: false };
   return onPage && (target.kind === 'project' || target.kind === 'folder' || target.kind === 'workstream') ? { ...target, onPage } : target;
 }
 
@@ -87,6 +88,21 @@ export function menuTargetFor(ws: WorkspaceState, kind: string | undefined, id: 
       ...(request && !waiting ? { dismissed: true } : {}),
       ...(request?.url ? { url: request.url, service: hostTerms(request.host).service } : {}),
       ...(sessionId ? { sessionId } : {}),
+    };
+  }
+  if (kind === 'ticket') {
+    const held = appStore.get().tickets;
+    const closed = held.closed.some((t) => t.key === id);
+    const dismissed = held.dismissed.some((t) => t.key === id);
+    const ticket = held.tickets.find((t) => t.key === id) ?? held.dismissed.find((t) => t.key === id) ?? held.closed.find((t) => t.key === id);
+    if (!ticket) return { kind: 'empty' };
+    return {
+      kind: 'ticket',
+      key: id,
+      // A closed ticket has no read state and is not dismissed or restored.
+      ...(closed ? { canDismiss: false } : { unread: held.unread.includes(id) }),
+      ...(dismissed ? { dismissed: true } : {}),
+      ...(ticket.url ? { url: ticket.url, tracker: ticket.tracker } : {}),
     };
   }
   if (kind === 'workstream') {
@@ -121,6 +137,6 @@ export function openRowMenu(kind: string | undefined, id: string, at: RowMenuAt,
   };
   // The first menu asks which apps can open a folder (a local answer, held from then on) so it
   // can offer Open in; if that cannot be had, the menu opens without it.
-  if (kind === 'review' || heldFolderApps()) show();
+  if (kind === 'review' || kind === 'ticket' || heldFolderApps()) show();
   else void loadFolderApps().then(show, show);
 }

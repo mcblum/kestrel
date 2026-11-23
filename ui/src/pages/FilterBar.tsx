@@ -1,21 +1,23 @@
-import { Search } from 'lucide-react';
 import { filterChips, type FilterCounts, type Filters } from '@kestrel/server/status';
+import { InboxSearch } from '../components/InboxList.tsx';
 
-/** The one filter row: status chips with their counts, and search. */
+/**
+ * The one filter bar of a sessions list: status tabs with their counts, then search. Laid out and
+ * styled as the bars on Pull requests, Code reviews and Tickets are (styles/inbox-list.css).
+ */
 export function FilterBar({ counts, filters, onChange }: { counts: FilterCounts; filters: Filters; onChange: (next: Filters) => void }) {
   return (
-    <div className="filter-row">
-      <div className="chips" role="group" aria-label="Filter by status">
+    <div className="inbox-controls">
+      <div className="chips inbox-tabs" role="group" aria-label="Filter by status">
         {filterChips(counts).map((chip) => (
-          <button key={chip.key} className={`chip${filters.status === chip.key ? ' selected' : ''}`} aria-pressed={filters.status === chip.key} onClick={() => onChange({ ...filters, status: chip.key })}>
+          <button key={chip.key} type="button" className={`chip${filters.status === chip.key ? ' selected' : ''}`} aria-pressed={filters.status === chip.key} onClick={() => onChange({ ...filters, status: chip.key })}>
             {chip.label} <span className="chip-count">{chip.count}</span>
           </button>
         ))}
       </div>
-      <label className="session-search">
-        <Search aria-hidden />
-        <input value={filters.query} onChange={(e) => onChange({ ...filters, query: e.target.value })} placeholder="Search" aria-label="Search sessions" />
-      </label>
+      <div className="inbox-toolbar" role="group" aria-label="Search sessions">
+        <InboxSearch label="Search sessions" value={filters.query} onChange={(query) => onChange({ ...filters, query })} />
+      </div>
     </div>
   );
 }

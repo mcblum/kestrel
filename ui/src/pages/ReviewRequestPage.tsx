@@ -2,7 +2,7 @@
 // belongs to, and its description. It reads the one copy the server pushed (`reviewRequests`); a
 // request no longer there has been reviewed, merged, closed or taken back. One the user dismissed
 // is still shown, saying so, with Restore in place of Dismiss.
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { ExternalLink, Eye, FolderPlus, RotateCcw, X } from 'lucide-react';
 import { hostTerms } from '@kestrel/server/host-terms';
 import { openedText, requestNumberLabel } from '@kestrel/server/review-requests';
@@ -26,9 +26,12 @@ export function ReviewRequestPage({ id }: { id: string }) {
   const [starting, setStarting] = useState(false);
   // Opening a request is reading it.
   const unread = useApp((s) => s.reviewRequests.unread.includes(id));
+  // Only on opening: a request marked unread by hand while its page is open stays unread.
+  const unreadNow = useRef(unread);
+  unreadNow.current = unread;
   useEffect(() => {
-    if (unread) void actions.markReviewsSeen([id], true);
-  }, [id, unread]);
+    if (unreadNow.current) void actions.markReviewsSeen([id], true);
+  }, [id]);
   const start = async (newTab: boolean) => {
     if (reviewId) return void openSession(reviewId, newTab);
     setStarting(true);

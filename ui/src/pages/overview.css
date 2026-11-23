@@ -52,7 +52,8 @@
 .kestrel .overview-notice-message { flex: 1; min-width: 0; margin: 0; }
 .kestrel .overview-notice-detail { color: var(--s-muted); white-space: nowrap; }
 .kestrel .overview-notice button { flex: none; }
-.kestrel .overview-view-all { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; }
+/* At the right, its arrow under the rows' times above it. */
+.kestrel .overview-view-all { display: flex; align-items: center; gap: 6px; margin: 8px 6px 0 auto; padding: 0; }
 .kestrel .overview-view-all svg { width: 12px; height: 12px; }
 
 .kestrel .overview-page .stable.compact.with-project .trow {

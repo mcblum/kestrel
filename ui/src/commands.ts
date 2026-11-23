@@ -153,6 +153,15 @@ export async function runMenuAction(action: MenuAction, newTab = false): Promise
     case 'mark-review-read':
       await actions.markReviewsSeen([action.key], action.read, true);
       return;
+    case 'mark-ticket-read':
+      await actions.markTicketsSeen([action.key], action.read, true);
+      return;
+    case 'dismiss-ticket':
+      await actions.dismissTickets([action.key], action.dismissed);
+      return;
+    case 'open-ticket':
+      openView({ kind: 'ticket', id: action.key });
+      return;
     case 'dismiss-review':
       await actions.dismissReviews([action.key], action.dismissed);
       return;
