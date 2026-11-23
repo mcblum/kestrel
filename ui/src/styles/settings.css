@@ -99,6 +99,9 @@
 .kestrel .preset-list .saved-action-remove { height: 34px; }
 .kestrel .preset-use-default { justify-self: start; padding: 0; font-size: 11px; color: var(--s-muted); }
 .kestrel .preset-use-default:hover { color: var(--s-ink); }
+/* A preset whose model its agent does not list now: an error, so the error colour. */
+.kestrel .preset-model-problem { margin: 0; font-size: 11px; line-height: 1.5; color: var(--command-error, var(--s-red)); }
+.kestrel .preset-model-problem code { font-size: .95em; }
 .kestrel .preset-actions { align-items: center; padding-top: 12px; }
 .kestrel .preset-save-status { margin-left: auto; font-size: 11px; color: var(--s-muted); }
 @container (max-width: 580px) {

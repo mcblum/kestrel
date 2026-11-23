@@ -17,6 +17,7 @@ import { listSkills, startsWithSlash } from './skills.ts';
 import { CodexMapper, fileChanges, turnEnd, type FileChange } from './map.ts';
 import { codexPolicy, policyParams, sandboxPolicy } from './policy.ts';
 import { listAnswer, withListChoices, writableRoots } from './allow-list.ts';
+import { gitFolders } from '../../worktree-repo.ts';
 import { commandNamesProtected } from '../../shared/protected-files.ts';
 import { CodexUnavailable, type AppServer, type ExitInfo, type Launch } from './process.ts';
 import { RpcClosed, type IncomingRequest, type RpcConnection } from './rpc.ts';
@@ -118,6 +119,8 @@ export class CodexHandle implements AgentHandle {
   }
 
   agentSessionId = () => this.threadId;
+  /** What the session's level means for Codex now; a session another session started is confined (policy.ts). */
+  private policy = () => codexPolicy(this.opts.permission, this.opts.confineShell === true);
   busy = () => this.running;
 
   send(text: string, attachments?: readonly AgentAttachment[]): void {
@@ -210,7 +213,7 @@ export class CodexHandle implements AgentHandle {
       // skill goes as one (skills.ts). Any other message costs nothing extra.
       const skills = startsWithSlash(text) ? await listSkills(server.rpc, this.opts.directory) : [];
       for (let next: CodexInput[] | null = codexInput(text, attachments, skills); next; ) {
-        const policy = codexPolicy(this.opts.permission);
+        const policy = this.policy();
         const mapper = new CodexMapper(this.opts.directory, this.opts.browserElement as ElementLookup | undefined);
         this.mapper = mapper;
         const turn = await this.oneTurn(server.rpc, next, policy.plan);
@@ -246,7 +249,7 @@ export class CodexHandle implements AgentHandle {
   }
 
   private async oneTurn(rpc: RpcConnection, input: CodexInput[], plan: boolean): Promise<unknown> {
-    const policy = codexPolicy(this.opts.permission);
+    const policy = this.policy();
     const speed = speedParams(this.opts, this.opts.fast ? await this.deps.fastTier(this.opts.model ?? '') : null);
     const done = new Promise<unknown>((resolve, reject) => (this.waiter = { resolve, reject }));
     done.catch(() => undefined); // observed below; a rejection before then must not go unhandled
@@ -259,8 +262,10 @@ export class CodexHandle implements AgentHandle {
       input: [...input, ...notes],
       approvalPolicy: policy.approvalPolicy,
       approvalsReviewer: policy.approvalsReviewer,
-      // Read-and-write folders on the always-allowed list are writable too, from the next turn after a change.
-      sandboxPolicy: sandboxPolicy(policy.sandbox, writableRoots(this.opts.sandboxAllow?.entries() ?? [])),
+      // Writable beyond the working folder: the checkout's own git folders, which Codex's sandbox
+      // otherwise keeps read-only so that every `git add` or `git commit` asks to leave it (policy.ts),
+      // and the read-and-write folders on the always-allowed list, from the next turn after a change.
+      sandboxPolicy: sandboxPolicy(policy.sandbox, [...gitFolders(this.opts.directory), ...writableRoots(this.opts.sandboxAllow?.entries() ?? [])]),
       ...(this.opts.model ? { model: this.opts.model } : {}),
       ...speed,
       // Set every turn: a plan turn leaves the thread in plan mode otherwise. The mode's settings
@@ -359,7 +364,7 @@ export class CodexHandle implements AgentHandle {
 
   private async startServer(): Promise<AppServer> {
     this.emit({ type: 'status', text: 'Starting Codex…' });
-    const policy = codexPolicy(this.opts.permission);
+    const policy = this.policy();
     const access = this.opts.kestrelMcp;
     const server = this.deps.launch({
       env: { ...this.deps.env, ...this.opts.env, ...(access ? { [MCP_TOKEN_ENV]: access.token } : {}) },
@@ -466,11 +471,11 @@ export class CodexHandle implements AgentHandle {
     }
     // A command or more access the user put on the always-allowed list is accepted without a card (allow-list.ts).
     // Never for a command that names Kestrel's own credential store: that is refused below (shared/protected-files.ts).
-    const listed = commandNamesProtected(JSON.stringify(params), this.opts.protectedFiles ?? []) ? null : listAnswer(request.method, params, codexPolicy(this.opts.permission), this.opts);
+    const listed = commandNamesProtected(JSON.stringify(params), this.opts.protectedFiles ?? []) ? null : listAnswer(request.method, params, this.policy(), this.opts);
     if (listed) return server.rpc.respond(request.id, listed);
     const cardId = `codex-${++this.cardSeq}`;
     const handling = handleRequest(request.method, params, cardId, {
-      policy: codexPolicy(this.opts.permission),
+      policy: this.policy(),
       directory: this.opts.directory,
       changes: (itemId) => this.mapper?.changes.get(itemId),
       element: this.opts.browserElement,
@@ -488,7 +493,7 @@ export class CodexHandle implements AgentHandle {
       await this.tell(verdict.message);
       return server.rpc.respond(request.id, reply.result);
     }
-    const card = await withListChoices(handling.request, request.method, params, codexPolicy(this.opts.permission), this.opts);
+    const card = await withListChoices(handling.request, request.method, params, this.policy(), this.opts);
     if (this.stopping) return server.rpc.respond(request.id, handling.cancel);
     this.cards.set(cardId, { rpcId: request.id, reply: handling.reply, cancel: handling.cancel });
     this.emit({ type: 'needs-input', request: card });

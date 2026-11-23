@@ -59,7 +59,7 @@ function command(id: string, params: Obj, ctx: ApprovalContext): Handling {
   const decline = { decision: 'decline' };
   if (changesNothing(ctx.policy)) return { kind: 'answer', result: decline };
   if (ctx.policy.acceptAll) return { kind: 'answer', result: accept };
-  // Manual and Accept edits: any command Codex asks about. Auto: one that leaves the sandbox.
+  // Manual and Accept edits: any command Codex asks about. Auto, in a session another session started: one that leaves the sandbox.
   const actions = Array.isArray(params.commandActions) ? params.commandActions.filter(isObj) : [];
   const shown = actions.length === 1 && str(actions[0]!.command) ? str(actions[0]!.command) : str(params.command);
   const { title, detail } = describeApproval('Bash', { command: shown, description: str(params.reason) }, ctx.directory);
@@ -131,7 +131,7 @@ function permissions(id: string, params: Obj, ctx: ApprovalContext): Handling {
   const refuse = { permissions: {}, scope: 'turn' };
   if (changesNothing(ctx.policy)) return { kind: 'answer', result: refuse };
   if (ctx.policy.acceptAll) return { kind: 'answer', result: grant };
-  // Manual, Accept edits, and Auto (more access is leaving the sandbox): a card.
+  // Manual, Accept edits, and Auto in a session another session started (more access is leaving the sandbox): a card.
   const fs = isObj(asked.fileSystem) ? asked.fileSystem : {};
   const writes = Array.isArray(fs.write) ? fs.write.filter((p): p is string => typeof p === 'string') : [];
   const network = isObj(asked.network) && asked.network.enabled === true;

@@ -7,6 +7,8 @@ import { codexPolicy } from './policy.ts';
 
 const DIR = '/scratch/work';
 const ctx = (level: PermissionLevel, changes: FileChange[] = []): ApprovalContext => ({ policy: codexPolicy(level), directory: DIR, changes: () => changes });
+/** Auto in a session another session started: it asks before it leaves its sandbox. */
+const childAuto: ApprovalContext = { ...ctx('auto'), policy: codexPolicy('auto', true) };
 const COMMAND = { itemId: 'e1', command: "/bin/zsh -lc 'touch x'", commandActions: [{ type: 'unknown', command: 'touch x' }] };
 const IN_FOLDER: FileChange[] = [{ path: `${DIR}/a.txt`, kind: 'add', diff: 'x\n' }];
 const OUTSIDE: FileChange[] = [{ path: '/scratch/outside/b.txt', kind: 'add', diff: 'y\n' }];
@@ -27,9 +29,9 @@ describe('command approvals', () => {
     expect(h.cancel).toEqual({ decision: 'decline' });
   });
 
-  it('Bypass never shows a card; Auto asks for a command Codex asks about (one leaving the sandbox); Plan and Read only refuse', () => {
-    expect(handleRequest('item/commandExecution/requestApproval', COMMAND, 'c', ctx('bypass'))).toEqual({ kind: 'answer', result: { decision: 'accept' } });
-    expect(card(handleRequest('item/commandExecution/requestApproval', COMMAND, 'c', ctx('auto'))).request).toMatchObject({ tool: 'Bash', detail: 'touch x' });
+  it('Bypass and Auto never show a card; Auto in a session another session started asks for a command Codex asks about (one leaving the sandbox); Plan and Read only refuse', () => {
+    for (const level of ['bypass', 'auto'] as const) expect(handleRequest('item/commandExecution/requestApproval', COMMAND, 'c', ctx(level))).toEqual({ kind: 'answer', result: { decision: 'accept' } });
+    expect(card(handleRequest('item/commandExecution/requestApproval', COMMAND, 'c', childAuto)).request).toMatchObject({ tool: 'Bash', detail: 'touch x' });
     for (const level of ['plan', 'readonly'] as const) expect(handleRequest('item/commandExecution/requestApproval', COMMAND, 'c', ctx(level))).toEqual({ kind: 'answer', result: { decision: 'decline' } });
   });
 });
@@ -106,10 +108,10 @@ describe('other requests', () => {
     expect(h.reply({ optionId: 'allow' })).toEqual({ result: { permissions: { fileSystem: { write: ['/elsewhere'] } }, scope: 'turn' } });
   });
 
-  it('extra access asks in Auto too (it leaves the sandbox), is granted in Bypass and refused in Read only', () => {
+  it('extra access is granted in Auto and Bypass, asks in Auto in a session another session started (it leaves the sandbox), and is refused in Read only', () => {
     const params = { permissions: { fileSystem: { write: ['/elsewhere'] } } };
-    expect(handleRequest('item/permissions/requestApproval', params, 'c', ctx('auto')).kind).toBe('card');
-    expect(handleRequest('item/permissions/requestApproval', params, 'c', ctx('bypass'))).toEqual({ kind: 'answer', result: { permissions: { fileSystem: { write: ['/elsewhere'] } }, scope: 'turn' } });
+    expect(handleRequest('item/permissions/requestApproval', params, 'c', childAuto).kind).toBe('card');
+    for (const level of ['auto', 'bypass'] as const) expect(handleRequest('item/permissions/requestApproval', params, 'c', ctx(level))).toEqual({ kind: 'answer', result: { permissions: { fileSystem: { write: ['/elsewhere'] } }, scope: 'turn' } });
     expect(handleRequest('item/permissions/requestApproval', params, 'c', ctx('readonly'))).toEqual({ kind: 'answer', result: { permissions: {}, scope: 'turn' } });
   });
 

@@ -168,9 +168,16 @@ export function presetSummary(preset: Pick<ModelPreset, 'agent' | 'model' | 'eff
 /** The controls with a preset applied: its agent, model, effort and fast mode; everything else stays. */
 export const applyPreset = (controls: Controls, preset: ModelPreset): Controls => ({ ...controls, agent: preset.agent, model: preset.model, effort: preset.effort, fast: preset.fast });
 
-/** The preset the controls now match exactly, if any: what the preset control shows as chosen. */
-export const matchingPreset = (presets: readonly ModelPreset[], controls: Pick<Controls, 'agent' | 'model' | 'effort' | 'fast'>): ModelPreset | undefined =>
-  presets.find((p) => p.agent === controls.agent && p.model === controls.model && p.effort === (controls.effort ?? '') && p.fast === (controls.fast ?? false));
+/**
+ * The preset the controls now match exactly, if any: what the preset control shows as chosen. Two
+ * presets may name the same agent, model, effort and fast mode under different names; then it is the
+ * one the user picked last (`preferred`, a preset id), and the first in the list only when that is
+ * neither of them.
+ */
+export function matchingPreset(presets: readonly ModelPreset[], controls: Pick<Controls, 'agent' | 'model' | 'effort' | 'fast'>, preferred?: string): ModelPreset | undefined {
+  const matches = presets.filter((p) => p.agent === controls.agent && p.model === controls.model && p.effort === (controls.effort ?? '') && p.fast === (controls.fast ?? false));
+  return matches.find((p) => p.id === preferred) ?? matches[0];
+}
 
 /** A new preset from what the controls hold now. */
 export const presetFrom = (name: string, controls: Pick<Controls, 'agent' | 'model' | 'effort' | 'fast'>): Omit<ModelPreset, 'id'> => ({ name, agent: controls.agent, model: controls.model, effort: controls.effort ?? '', fast: controls.fast ?? false });
@@ -242,11 +249,15 @@ export const nextRunner = (runners: readonly ModelPreset[], tried: readonly stri
  * Whether a failure says the agent cannot go on for now on this account or model: out of usage,
  * rate limited, out of credit or quota, or not signed in (`kind: 'auth'`, said by the caller). Read
  * from the agent's own words, which differ by agent; anything else (a crash, a bad request) is
- * not a reason to give the work to someone else.
+ * not a reason to give the work to someone else. A model the agent refuses by name is one too
+ * (Matt, 2026-11-23): the preset names a model its sign-in does not offer, and the next may run.
  */
 export function cannotRunNow(reason: string): boolean {
-  return /usage limit|rate.?limit|limit reached|too many requests|\b429\b|quota|out of (usage|credits?|tokens)|insufficient (credits?|quota|balance)|credit balance|billing|overloaded|not signed in|sign in again|unauthori[sz]ed|\b401\b|log ?in again|authenticat/i.test(reason);
+  return CANNOT_RUN.test(reason) || MODEL_REFUSED.test(reason);
 }
+const CANNOT_RUN = /usage limit|rate.?limit|limit reached|too many requests|\b429\b|quota|out of (usage|credits?|tokens)|insufficient (credits?|quota|balance)|credit balance|billing|overloaded|not signed in|sign in again|unauthori[sz]ed|\b401\b|log ?in again|authenticat/i;
+/** The agent refused the preset's model by name (one its sign-in does not offer): the next preset may well run. */
+const MODEL_REFUSED = /model\b.{0,80}\b(is not supported|not supported|does not exist|not found|do not have access|not available|unavailable)|\b(unknown|invalid|unsupported|unrecogni[sz]ed) model\b|model_not_found/i;
 
 /** A role's work in flight: what was asked and who has been tried, so it can be given to the next. Stored with the session. */
 export interface RoleRun {

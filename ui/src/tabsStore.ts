@@ -2,7 +2,7 @@
 // Electron window and a browser tab agree. Everything pure lives in @kestrel/server/tabs.
 import { guardLeave } from './unsaved.ts';
 import { DEFAULT_CONTROLS, withScope, activate, placement, activateNth, becomeSession, closeTab, isLastOverview, moveTab, openTarget, prune, replaceSession, retargetActive, sanitize, setControls, type Controls, type OpenTarget, type Preselect, type Tab, type TabsState } from '@kestrel/server/tabs';
-import { rememberPick, rememberSent, startControls, startFromOf, storedRemembered, withFixed, withStartFrom, type Remembered, type StartFrom, type StickyPick } from '@kestrel/server/sticky-controls';
+import { rememberPick, rememberPreset, rememberSent, startControls, startFromOf, storedRemembered, withFixed, withStartFrom, type Remembered, type StartFrom, type StickyPick } from '@kestrel/server/sticky-controls';
 import { clampContextWidth, clampPaneWidth, clampSimWidth, clampWidth, place, placeMenuItem, placeProject, placeTag, placeWorkstream, sanitizeSidebar, toggleCollapsed, toggleHidden, type SidebarPrefs } from '@kestrel/server/sidebar';
 import { activityAt, parseSessionOrder, type SessionOrder } from '@kestrel/server/session-order';
 import type { StackWeights } from '@kestrel/server/pane-layout';
@@ -143,6 +143,8 @@ const remembered = (controls: Controls): Remembered => rememberSent(controls, ta
 /** The controls a new session starts with now. */
 export const startingControls = (v: TabsView): Controls => startControls(v.remembered);
 export const startingFrom = (v: TabsView): StartFrom => startFromOf(v.remembered);
+/** The preset last picked by hand (its id): which of two otherwise identical presets shows as chosen. */
+export const pickedPreset = (v: TabsView): string | undefined => v.remembered.preset;
 const apply = (next: TabsState) => {
   if (next === tabsView().state) return;
   update({ state: next });
@@ -259,6 +261,8 @@ export const tabActions = {
    * Modes a session inherits or a plan approval switches to never come through here.
    */
   chooseControls: (pick: StickyPick) => Object.keys(pick).length > 0 && update({ remembered: rememberPick(tabsView().remembered, pick) }),
+  /** A preset was picked from the preset menu: remembered, so it shows as chosen even when another preset is the same. */
+  choosePreset: (presetId: string) => tabsView().remembered.preset !== presetId && update({ remembered: rememberPreset(tabsView().remembered, presetId) }),
   /** The choices a new session starts with (Settings). */
   setDefaults: (controls: Controls) => update({ remembered: startFromOf(tabsView().remembered) === 'fixed' ? withFixed(remembered(controls), controls) : remembered(controls) }),
   /** Whether new sessions start with what was used last or always the same (Settings → General). */

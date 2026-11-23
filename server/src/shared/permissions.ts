@@ -26,11 +26,12 @@ export const PERMISSION_LEVELS: readonly PermissionMode[] = [
     label: 'Auto',
     hint: 'Claude handles permission decisions',
     place: 'listed',
-    // Since 0.0.16 every Codex approval comes to Kestrel (policy.ts): Codex's reviewer decides nothing.
-    // OpenCode has no sandbox: Kestrel answers its asks (agents/opencode/policy.ts).
+    // Since 0.0.16 every Codex approval comes to Kestrel (policy.ts): Codex's reviewer decides nothing, and in
+    // Auto Kestrel accepts what Codex asks. OpenCode has no sandbox: Kestrel answers its asks (agents/opencode/policy.ts).
+    // A session another session started still asks before it leaves its worktree.
     byAgent: {
-      codex: 'Works in its sandbox without asking; asks to leave it unless always-allowed',
-      opencode: 'Edits and runs commands without asking (no sandbox); asks before a command reaches outside its folder unless always-allowed',
+      codex: 'Works in its sandbox and leaves it when it needs to, without asking',
+      opencode: 'Edits and runs commands without asking (no sandbox)',
     },
   },
   { id: 'ask', label: 'Manual', hint: 'Always ask before making changes', place: 'listed' },

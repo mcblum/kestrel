@@ -8,6 +8,11 @@
 //   approval   a turn asks to run `touch x` and completes with the decision as text
 //   command    a turn asks to run the message's text, wrapped as Codex wraps it (`/bin/zsh -lc '…'`),
 //              as a command leaving the sandbox; it completes with "ran it" or "skipped it"
+//   git        a turn runs the message's text as a command that writes the checkout's git folders
+//              (`git commit`). As codex-cli 0.167.2 does: under `untrusted` it asks; in workspace-write
+//              it runs without asking only when every git folder of the working folder is a writable
+//              root (`.git` is read-only otherwise, even inside the folder), else it asks to leave the
+//              sandbox; with full access it runs.
 //   stop       a turn starts and only ends when interrupted
 //   crash      the process writes to stderr and exits during the turn
 //   signedout  account/read says nobody is signed in
@@ -19,7 +24,8 @@
 // A steer when no turn is running is refused, as Codex refuses it; FAKE_CODEX_STEER=refuse refuses
 // every steer (a turn that ended before the steer arrived). A steer that is taken is given to the
 // model at once: a `userMessage` item with the steer's clientUserMessageId as its clientId.
-import { appendFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 
 const scenario = process.env.FAKE_CODEX_SCENARIO ?? 'reply';
@@ -48,6 +54,24 @@ function assessPatch(path, p) {
   if (sandbox.type === 'dangerFullAccess' || (sandbox.type === 'workspaceWrite' && roots.some((r) => within(path, r)))) return 'apply';
   if (p.approvalPolicy === 'never') return 'reject';
   return p.approvalsReviewer === 'auto_review' ? 'review' : 'ask';
+}
+
+/** The folders git writes for the checkout in `dir`: its `.git`, or a linked worktree's own git folder and the repository's. */
+function gitFoldersOf(dir) {
+  const own = join(dir, '.git');
+  if (!existsSync(own)) return [];
+  if (statSync(own).isDirectory()) return [realpathSync(own)];
+  const gitDir = realpathSync(resolve(dir, /^gitdir:\s*(.+)$/m.exec(readFileSync(own, 'utf8'))[1].trim()));
+  return [gitDir, dirname(dirname(gitDir))];
+}
+
+/** Whether a command that writes the git folders runs without asking, given the turn's settings. */
+function gitRunsUnasked(p) {
+  if (p.approvalPolicy === 'untrusted') return false;
+  const sandbox = p.sandboxPolicy ?? {};
+  if (sandbox.type === 'dangerFullAccess') return true;
+  const roots = sandbox.writableRoots ?? [];
+  return sandbox.type === 'workspaceWrite' && gitFoldersOf(cwd).every((folder) => roots.some((r) => within(folder, r)));
 }
 
 async function patchTurn(turnId, params) {
@@ -94,6 +118,13 @@ async function runTurn(turnId, params) {
   }
   if (scenario === 'stop') return; // ends on turn/interrupt
   if (scenario === 'edit') return patchTurn(turnId, params);
+  if (scenario === 'git') {
+    const command = `/bin/zsh -lc '${text}'`;
+    const unasked = gitRunsUnasked(params);
+    const answer = unasked ? null : await ask('item/commandExecution/requestApproval', { threadId: THREAD, turnId, itemId: `exec-${turnId}`, command, cwd, reason: 'Allow Git to write its index and create the commit?' });
+    message(turnId, `msg-${turnId}`, unasked || answer.result?.decision === 'accept' ? 'ran it' : 'skipped it');
+    return complete(turnId, 'completed');
+  }
   if (scenario === 'command') {
     const command = `/bin/zsh -lc '${text}'`;
     const answer = await ask('item/commandExecution/requestApproval', { threadId: THREAD, turnId, itemId: `exec-${turnId}`, command, cwd, reason: 'needs to write outside the sandbox' });

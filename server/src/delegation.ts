@@ -6,7 +6,7 @@ import { originUrl } from './git.ts';
 import { hostTerms } from './shared/host-terms.ts';
 import { ALREADY_A_REVIEW, CONVERT_DECLINED, convertAsk, converted, noProjectFor, NOT_A_REQUEST, NOT_FIRST_MESSAGE, parseRequestRef, requestHome } from './review-requests/convert.ts';
 import { cannotRunNow, fallbackAsk, fallbackNotice, fallbackTold, modeOfRole, nextRunner, noFallbackLeft, noReviewerReason, NOT_CONNECTED, orchestrateMove, orchestrateNotice, orchestratorsOf, pickReviewer, presetForRole, presetSummary, reviewersOf, ROLE_LABEL, ROLES, runnersOf, takeoverIntro, whenUnavailable, type Author, type ModelPreset, type Role, type RoleRun, type WhoDoesWhat } from './shared/who-does-what.ts';
-import { archivedAfterHandoff, HANDOFF_ARCHIVE_DECLINED, handoffArchiveAsk, MOVE_DECLINED, moveApproved, moveAsk, movedNotice, movedTold, moveFailed, notArchived, projectWorkedIn } from './shared/session-move.ts';
+import { archivedAfterHandoff, HANDOFF_ARCHIVE_DECLINED, handoffArchiveAsk, MOVE_DECLINED, moveApproved, moveAsk, movedNotice, movedQuietly, movedTold, moveFailed, notArchived, projectWorkedIn } from './shared/session-move.ts';
 import { MOVE_KIND } from './suggestions/move-kind.ts';
 import { scriptFailure } from './shared/project-scripts.ts';
 import { randomUUID } from 'node:crypto';
@@ -270,7 +270,7 @@ export class Delegation {
     }
     const where = targetName(pending.move);
     try {
-      await this.moveNow(session.id, pending.move.project.id, pending.move.folder.id);
+      await this.moveNow(session.id, pending.move.project.id, pending.move.folder.id, true);
       return true;
     } catch (error) {
       this.rt.notice(session.id, moveFailed(where, error instanceof Error ? error.message : String(error)), 'error');
@@ -278,8 +278,13 @@ export class Delegation {
     }
   }
 
-  /** Move a session with no project into a folder of a project now (it is between turns), say so, and wake it there. What the user reads once it has. */
-  async moveNow(sessionId: string, projectId: string, folderId: string): Promise<string> {
+  /**
+   * Move a session with no project into a folder of a project now (it is between turns) and say so.
+   * `wake`: the session asked for the move to carry on with its work there, so it is woken in the
+   * new folder. Moved by the user (Kestrel's offer), it has nothing to carry on with: it is told with
+   * its next turn, not woken to answer a notice. What the user reads once it has moved.
+   */
+  async moveNow(sessionId: string, projectId: string, folderId: string, wake = false): Promise<string> {
     const project = (await this.ws.state()).projects.find((p) => p.id === projectId);
     const folder = project?.folders.find((f) => f.id === folderId);
     if (!project || !folder) throw new Refused('That project or folder is no longer registered.');
@@ -287,7 +292,11 @@ export class Delegation {
     const moved = await this.rt.moveToProject(sessionId, project, folder);
     const line = movedNotice(where, moved.branch);
     this.rt.notice(sessionId, line, 'info');
-    await this.rt.reply(sessionId, movedTold(where, moved.directory, moved.branch), {}, { fromAgent: true });
+    if (wake) await this.rt.reply(sessionId, movedTold(where, moved.directory, moved.branch), {}, { fromAgent: true });
+    else {
+      const session = (await this.ws.state()).sessions.find((s) => s.id === sessionId);
+      if (session) await this.rt.queueNews(session, movedQuietly(where, moved.directory, moved.branch));
+    }
     return line;
   }
 

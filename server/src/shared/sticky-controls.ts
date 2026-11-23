@@ -26,6 +26,12 @@ export interface Remembered {
    * project last used by the next session started in one). Only the mode still follows the last used.
    */
   fixed?: FixedStart;
+  /**
+   * The preset last picked by hand, by id. It only tells apart presets that name the same agent,
+   * model, effort and fast mode: the picker shows this one as chosen, not the first in the list
+   * (`matchingPreset`). Absent until one is picked, and on older stores.
+   */
+  preset?: string;
 }
 
 export const START_FROM = ['last', 'fixed'] as const;
@@ -87,6 +93,9 @@ export function rememberSent(sent: Pick<Controls, 'agent' | 'projectId'>, r: Rem
   return sent.agent === r.agent && sent.projectId === r.projectId ? r : { ...r, agent: sent.agent, projectId: sent.projectId };
 }
 
+/** After a preset was picked by hand: it is the one shown as chosen among presets that are otherwise the same. */
+export const rememberPreset = (r: Remembered, presetId: string): Remembered => (r.preset === presetId ? r : { ...r, preset: presetId });
+
 /** Choose whether new sessions follow the last used or a fixed start; turning `fixed` on starts from what they start with now. */
 export function withStartFrom(r: Remembered, startFrom: StartFrom): Remembered {
   if (startFrom === startFromOf(r)) return r;
@@ -137,7 +146,7 @@ export function storedRemembered(stored: { remembered?: unknown; lastControls?: 
       ? // A fixed start stored before it held a project keeps the project remembered then, from now on.
         { agent: r.fixed.agent, model: str(r.fixed.model), effort: str(r.fixed.effort), fast: r.fixed.fast === true, projectId: ('projectId' in r.fixed ? str(r.fixed.projectId) : str(r.projectId)) || null }
       : null;
-    return { agent: r.agent, projectId: str(r.projectId) || null, byAgent, ...(fixed ? { fixed, startFrom: r.startFrom === 'fixed' ? ('fixed' as const) : ('last' as const) } : {}) };
+    return { agent: r.agent, projectId: str(r.projectId) || null, byAgent, ...(str(r.preset) ? { preset: str(r.preset) } : {}), ...(fixed ? { fixed, startFrom: r.startFrom === 'fixed' ? ('fixed' as const) : ('last' as const) } : {}) };
   }
   const old = stored.lastControls;
   if (!isObj(old) || !isSelectableAgent(old.agent)) return DEFAULT_REMEMBERED;

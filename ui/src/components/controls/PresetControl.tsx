@@ -10,6 +10,7 @@ import { AGENT_LABEL } from '@kestrel/server/model';
 import type { Controls } from '@kestrel/server/tabs';
 import { applyPreset, matchingPreset, type ModelPreset } from '@kestrel/server/who-does-what';
 import { openView } from '../../route.ts';
+import { pickedPreset, tabActions, useTabs } from '../../tabsStore.ts';
 import { useWhoDoesWhat } from '../../whoDoesWhat.ts';
 import { Popup } from '../Popup.tsx';
 import { usePresetText } from './usePresetText.ts';
@@ -23,7 +24,8 @@ export function PresetControl({ value, running, onChange }: { value: Controls; r
   const host = useRef<HTMLSpanElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const rows = useRef<(HTMLButtonElement | null)[]>([]);
-  const current = matchingPreset(presets, value);
+  // Two presets may be the same but for their names: the one picked last is the one shown.
+  const current = matchingPreset(presets, value, useTabs(pickedPreset));
   const count = presets.length + 1; // every preset, then Edit presets
   /** A running session keeps its agent, so another agent's preset cannot be applied to it. */
   const locked = (preset: ModelPreset): boolean => running && preset.agent !== value.agent;
@@ -44,7 +46,9 @@ export function PresetControl({ value, running, onChange }: { value: Controls; r
   const choose = (preset: ModelPreset) => {
     if (locked(preset)) return;
     close(true);
-    if (preset.id !== current?.id) onChange(applyPreset(value, preset));
+    if (preset.id === current?.id) return;
+    tabActions.choosePreset(preset.id);
+    onChange(applyPreset(value, preset));
   };
   const edit = () => {
     close(false);

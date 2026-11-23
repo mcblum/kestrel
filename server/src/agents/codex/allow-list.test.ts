@@ -25,7 +25,8 @@ function setup(permission: StartOptions['permission'], sandboxAllow: SandboxAllo
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'kestrel-codex-allow-')));
   const log = join(dir, 'received.jsonl');
   const adapter = codexAdapter({ launch: nodeLauncher(FAKE), env: { ...process.env, FAKE_CODEX_SCENARIO: 'command', FAKE_CODEX_LOG: log, CODEX_HOME: dir }, log: () => undefined });
-  const options: StartOptions = { directory: dir, instruction: 'x', tools: NO_TOOLS, permission, sandboxAllow };
+  // A session another session started: the one that asks before it leaves its sandbox in Auto, so the one the list answers for.
+  const options: StartOptions = { directory: dir, instruction: 'x', tools: NO_TOOLS, permission, sandboxAllow, confineShell: true };
   const events: AgentEvent[] = [];
   const waiters: (() => void)[] = [];
   const emit = (e: AgentEvent) => {

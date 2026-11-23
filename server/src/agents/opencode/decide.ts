@@ -136,6 +136,8 @@ function outsideFolder(ask: Ask, call: ToolCall | undefined, ctx: DecideContext,
   const fallback = { title: 'Reach outside the session folder', detail: `OpenCode asks to work in:\n${folders.map((f) => `- ${f}`).join('\n')}` };
   if (ctx.policy.acceptOutside) return once;
   if (tool === 'bash') {
+    // Auto in a session the user started does not ask (Matt, 2026-11-23); one another session started does.
+    if (ctx.policy.acceptCommands && !ctx.confined) return once;
     if (listed(str(call?.input.command), ctx)) return once;
     const always = offer ? offerOptions(offer) : [];
     const shown = card(ask, call, ctx, fallback, always.length ? { options: [ALLOW[0]!, ...always, ALLOW[1]!], sandboxOffer: offer! } : {});

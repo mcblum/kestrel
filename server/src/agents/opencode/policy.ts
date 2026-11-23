@@ -9,9 +9,10 @@
 //   Manual (ask)     every edit, command and other tool that changes something is a card.
 //   Accept edits     edits inside the folder are accepted; edits outside it, every command and
 //                    every other such tool are cards.
-//   Auto             edits and commands run without asking; a command or edit that OpenCode sees
+//   Auto             edits, commands and other tools run without asking, outside the folder too.
+//                    In a session another session started, a command or edit that OpenCode sees
 //                    reaching outside the folder is a card, unless the user's always-allowed list
-//                    covers the command. Other tools run.
+//                    covers the command.
 //   Bypass           everything runs without asking. The edit rule still applies.
 //   Plan             OpenCode's own `plan` agent, with the edit tools taken away; commands are
 //                    cards. The finished answer is the plan: a "Plan ready" card moves the

@@ -170,9 +170,19 @@ describe('Kestrel’s own offer to move', () => {
     // The answer was not held up: the turn is over, and nothing has moved.
     expect((await row(session.id))!.state).toBe('done');
     expect((await row(session.id))!.startedIn).toBeNull();
+    const turnsBefore = claude.turns.length;
     await runtime.suggestions.answer(session.id, offer()!.id, 'move');
-    await until(() => claude.turns.some((t) => t.text.includes('You are now in configuration-management')), 'the session woken in the project');
-    expect((await row(session.id))!.startedIn).toBe(config.id);
+    await until(async () => (await row(session.id))!.startedIn === config.id, 'the session to move');
+    await runtime.idle(session.id);
+    // The user moved it, and nothing was asked of the agent: it is not woken to answer a notice.
+    expect(claude.turns).toHaveLength(turnsBefore);
+    expect((await row(session.id))!.state).toBe('done');
+    // It hears where it is with the user's next message.
+    await runtime.reply(session.id, 'Now fix the tracker');
+    await until(() => claude.turns.length === turnsBefore + 1, 'the next turn');
+    expect(claude.turns.at(-1)!.text).toContain('the user moved this session to configuration-management');
+    expect(claude.turns.at(-1)!.text).toContain('needs no reply or action');
+    expect(claude.turns.at(-1)!.text).toContain('Now fix the tracker');
     expect((await workspace.state()).sessions).toHaveLength(1);
   });
 

@@ -20,6 +20,15 @@ export function useCapabilities(agent: Agent): AgentCapabilities {
 }
 
 /**
+ * Ask these agents again what they offer, whatever is held: for a screen where a stale list does
+ * harm (Settings → Model presets, where a model is chosen to be saved). The server asks the agent
+ * again once its own copy is old (`MODELS_TTL_MS`); what is held shows until the answer differs.
+ */
+export function refreshCapabilities(agents: readonly Agent[]): void {
+  for (const agent of new Set(agents)) void fetchResource(pathOf(agent), asCapabilities);
+}
+
+/**
  * Ask every agent what it offers before any draft needs it. A draft drawn before the answer came
  * showed "Default" and then the model it stands for, and an agent switched to for the first time
  * did the same, so a fresh Codex draft and one switched away and back drew different models

@@ -20,6 +20,12 @@ describe('presets', () => {
     expect(matchingPreset([daily, astra], controls)).toBe(astra);
     expect(matchingPreset([daily, astra], { ...controls, effort: 'low' })).toBeUndefined();
     expect(matchingPreset([daily], { agent: 'claude', model: '', fast: true })).toBe(daily);
+    // Two presets that differ only in name: the one picked last, else the first.
+    const twin = { ...astra, id: 'twin', name: 'Reviewer' };
+    expect(matchingPreset([astra, twin], controls)).toBe(astra);
+    expect(matchingPreset([astra, twin], controls, 'twin')).toBe(twin);
+    expect(matchingPreset([astra, twin], controls, 'gone')).toBe(astra);
+    expect(matchingPreset([daily, astra], controls, daily.id)).toBe(astra);
   });
 
   it('are made from the controls, and say what they are', () => {
@@ -118,6 +124,8 @@ describe('a role’s fallbacks and the Orchestrate role', () => {
 
   it('passes work on only for a failure that says the model cannot run now', () => {
     for (const reason of ['Rate limit reached', 'OpenCode: Rate limited', 'quota gone', 'You have hit your usage limit', 'Claude is not signed in', 'HTTP 429', 'Insufficient credits']) expect(cannotRunNow(reason), reason).toBe(true);
+    // A model the agent refuses by name: the preset cannot run on this sign-in, and the next may.
+    for (const reason of ["The 'openai.gpt-6.2-sol' model is not supported when using Codex with a ChatGPT account.", 'The model `x` does not exist or you do not have access to it.', 'Unknown model: opus-9', 'model_not_found']) expect(cannotRunNow(reason), reason).toBe(true);
     for (const reason of ['TypeError: x is undefined', 'The agent could not be started: spawn ENOENT', 'context window exceeded']) expect(cannotRunNow(reason), reason).toBe(false);
   });
 

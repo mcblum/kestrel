@@ -20,6 +20,17 @@ export interface ModelSettings {
   fast?: boolean;
 }
 
+/**
+ * Whether a saved model name is one the agent does not list now: the agent answered for itself
+ * (`fromSdk`), the name is not its default (''), and no entry has it as its id or stands for it.
+ * A name saved under one sign-in can stop being offered under another (Codex through a cloud
+ * provider names models `openai.…`; a ChatGPT sign-in takes the plain names), and a session
+ * started on it fails. False while the agent has not answered: nothing is known then.
+ */
+export function modelNotListed(models: readonly Pick<ModelOption, 'id' | 'resolves'>[], fromSdk: boolean, model: string): boolean {
+  return fromSdk && model !== '' && !models.some((m) => m.id === model || m.resolves === model);
+}
+
 const EFFORT_LABEL: Record<string, string> = { minimal: 'Minimal', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' };
 
 export const effortLabel = (effort: string): string => EFFORT_LABEL[effort] ?? effort.charAt(0).toUpperCase() + effort.slice(1);

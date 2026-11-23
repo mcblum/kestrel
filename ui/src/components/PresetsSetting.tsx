@@ -4,14 +4,15 @@
 import { useDraft } from '../unsaved.ts';
 import { useEffect, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import { AGENT_LABEL } from '@kestrel/server/model';
+import { AGENT_LABEL, type Agent } from '@kestrel/server/model';
 import { MAX_PRESETS, missingStarters, ROW_LABEL, rowList, STARTER_PRESETS, whoDoesWhatProblem, withoutPreset, withRowList, type ModelPreset, type RoleRow, type WhoDoesWhat } from '@kestrel/server/who-does-what';
+import { modelNotListed } from '@kestrel/server/model-choice';
 import { OLDER_SERVER, RESTART_REASON } from '../store.ts';
 import { startingControls, useTabs } from '../tabsStore.ts';
 import { saveWhoDoesWhat, useWhoDoesWhatResource } from '../whoDoesWhat.ts';
 import { ModelControl } from './controls/ModelControl.tsx';
 import { ProviderControl } from './controls/ProviderControl.tsx';
-import { useCapabilities } from './controls/useCapabilities.ts';
+import { refreshCapabilities, useCapabilities } from './controls/useCapabilities.ts';
 import { WhoDoesWhatSetting } from './WhoDoesWhatSetting.tsx';
 import { SettingHeading } from './SettingHelp.tsx';
 
@@ -39,6 +40,12 @@ function PresetRow({ row, index, onChange, onRemove }: { row: Row; index: number
       <div className="preset-model-field" role="group" aria-label={`Model and effort for ${row.name || `preset ${index + 1}`}`}>
         <span className="preset-mobile-label" aria-hidden="true">Model / effort</span>
         <ModelControl models={caps.models} value={{ model: row.model, effort: row.effort, fast: row.fast }} running={false} placeholder={row.unchosen ? 'Choose a model' : undefined} onChange={(s) => onChange({ model: s.model, effort: s.effort ?? '', fast: s.fast ?? false, unchosen: false })} />
+        {/* A name saved under another sign-in (a cloud provider's `openai.…`): said here, before a session fails on it. */}
+        {!row.unchosen && modelNotListed(caps.models, caps.fromSdk, row.model) && (
+          <p className="preset-model-problem" role="status">
+            {AGENT_LABEL[row.agent]} does not list <code>{row.model}</code> with the way it is signed in now, so a session on this preset is likely to fail to start. Choose one of the models it lists.
+          </p>
+        )}
         {row.unchosen && (
           <button type="button" className="link-button preset-use-default" aria-label={`Use ${AGENT_LABEL[row.agent]}'s default for ${row.name || `preset ${index + 1}`}`} onClick={() => onChange({ unchosen: false })}>Use default</button>
         )}
@@ -59,6 +66,10 @@ function Editor({ stored }: { stored: WhoDoesWhat }) {
   useEffect(() => setRows(initial()), [stored.presets]); // eslint-disable-line react-hooks/exhaustive-deps
   const [draft, setDraft] = useState(stored);
   useEffect(() => setDraft(stored), [stored]);
+  // Opening this screen asks each preset's agent for its models again: a sign-in or provider changed
+  // since the list was read must not leave only the old choices here.
+  const agents = [...new Set(rows.map((r) => r.agent))].sort().join(',');
+  useEffect(() => refreshCapabilities(agents.split(',').filter(Boolean) as Agent[]), [agents]);
   const missing = missingStarters(rows.map((r) => r.name));
   const waiting = rows.filter((r) => r.unchosen).length;
   const next = { ...draft, presets: sent(rows) };

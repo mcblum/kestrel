@@ -24,6 +24,15 @@ export const movedNotice = (where: string, branch: string | null): string => `Mo
 export const movedTold = (where: string, directory: string, branch: string | null): string =>
   `[Kestrel] You are now in ${where}: your working folder is ${directory}${branch ? `, a worktree of your own on branch ${branch}` : ''}. It is the same conversation; only where you work changed, and you can now edit files and run commands here. Carry on with what the user asked.`;
 
+/**
+ * What the agent is told when the user moved the session themselves (Kestrel's offer, answered
+ * after the turn had ended): there is nothing to carry on with, so it is not woken to read this. It
+ * goes along with the user's next message (Matt, 2026-11-23: woken, the model thought and replied
+ * to a notice that asked nothing of it).
+ */
+export const movedQuietly = (where: string, directory: string, branch: string | null): string =>
+  `[Kestrel] Since your last turn the user moved this session to ${where}: your working folder is now ${directory}${branch ? `, a worktree of your own on branch ${branch}` : ''}, and you can edit files and run commands there. It is the same conversation. This needs no reply or action by itself; go by what the user asks next.`;
+
 /** What the user reads when the move could not be made; the session is as it was. */
 export const moveFailed = (where: string, reason: string): string => `This session could not be moved to ${where}: ${reason} It is still where it was.`;
 

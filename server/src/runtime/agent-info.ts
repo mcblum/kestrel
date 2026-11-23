@@ -30,11 +30,18 @@ export interface AgentAvailability {
   signIn: Agent[];
 }
 
-export type AgentInfoHost = Pick<RuntimeHost, 'workspace' | 'adapters' | 'emitLive' | 'onEvent' | 'scratch' | 'toolHost' | 'optionsFor' | 'sessionOrThrow' | 'recordFor'>;
+export type AgentInfoHost = Pick<RuntimeHost, 'workspace' | 'adapters' | 'emitLive' | 'onEvent' | 'scratch' | 'toolHost' | 'optionsFor' | 'sessionOrThrow' | 'recordFor' | 'now'>;
+
+/**
+ * How long a model list is kept before the agent is asked again. What an agent offers follows how
+ * it is signed in and configured (Codex pointed at a cloud provider, then at a ChatGPT sign-in), and
+ * that can change while Kestrel runs: kept for the whole run, the picker showed the old list until a restart.
+ */
+export const MODELS_TTL_MS = 5 * 60_000;
 
 export class AgentInfo {
-  /** The models an agent offers. Cached once it has answered from the SDK. */
-  private readonly modelCache = new Map<Agent, ModelList>();
+  /** The models an agent offers, and when it said so. Kept for `MODELS_TTL_MS` once it has answered from the SDK. */
+  private readonly modelCache = new Map<Agent, { at: number; list: ModelList }>();
   /** What "/" offers before a session exists, by agent and folder: asked once per server run, and again only after it could not say. */
   private readonly draftSlash = new Map<string, Promise<SlashCommand[] | null>>();
   /** A context measurement being asked of a session's agent, so a second click waits for the first answer. */
@@ -78,10 +85,19 @@ export class AgentInfo {
     const adapter = this.host.adapters[agent];
     if (!adapter) throw new Refused(`${AGENT_LABEL[agent]} is not available in Kestrel.`);
     const cached = this.modelCache.get(agent);
-    if (cached) return cached;
+    if (cached && this.host.now() - cached.at < MODELS_TTL_MS) return cached.list;
     const found = await adapter.models();
-    if (found.fromSdk) this.modelCache.set(agent, found);
-    return found;
+    // An agent that answered with nothing but its Default entry did not list its models (the
+    // listing failed or came back empty while the agent itself was reachable): that is not an
+    // answer to keep, and the page is told the agent has not listed them, so it asks again
+    // instead of the picker holding one option until Kestrel restarts.
+    const listed = found.fromSdk && found.models.some((m) => m.id !== '');
+    if (listed) {
+      this.modelCache.set(agent, { at: this.host.now(), list: found });
+      return found;
+    }
+    // It could not say this time: the last list it gave still stands; with none, what it has, as unknown.
+    return cached?.list ?? { ...found, fromSdk: false };
   }
 
   /**

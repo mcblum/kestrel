@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_REMEMBERED, pickBetween, picksModel, rememberPick, rememberSent, startControls, startFromOf, storedRemembered, withFixed, withStartFrom, type Remembered } from './sticky-controls.ts';
+import { DEFAULT_REMEMBERED, pickBetween, picksModel, rememberPick, rememberPreset, rememberSent, startControls, startFromOf, storedRemembered, withFixed, withStartFrom, type Remembered } from './sticky-controls.ts';
 import { DEFAULT_CONTROLS, type Controls } from './tabs.ts';
 
 const claude = { model: 'opus', effort: 'high', fast: true, permission: 'auto' as const };
@@ -128,6 +128,14 @@ describe('a fixed start for new sessions', () => {
     // A fixed start stored before it held a project keeps the project remembered then.
     const older = { ...last, startFrom: 'fixed', fixed: { agent: 'claude', model: 'opus', effort: 'high', fast: false } };
     expect(storedRemembered({ remembered: older }).fixed?.projectId).toBe('p1');
+  });
+
+  it('remembers the preset picked by hand, through a save and a later pick', () => {
+    const picked = rememberPreset(last, 'twin');
+    expect(rememberPreset(picked, 'twin')).toBe(picked);
+    expect(storedRemembered({ remembered: JSON.parse(JSON.stringify(picked)) }).preset).toBe('twin');
+    expect(rememberSent({ agent: 'codex', projectId: null }, picked).preset).toBe('twin');
+    expect(storedRemembered({ remembered: JSON.parse(JSON.stringify(last)) }).preset).toBeUndefined();
   });
 
   it('is read back from stored state, and an unreadable one is the last used', () => {

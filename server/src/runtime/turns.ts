@@ -189,11 +189,28 @@ export async function answerCard(host: TurnHost, sessionId: string, requestId: s
   await deliverHeld(host.midTurn, sessionId, rec);
 }
 
+/**
+ * Stop asked of a session with nothing running. One that still reads as at work (it failed, or its
+ * agent went away while it waited) is settled as stopped: the menu offers Stop for it and holds
+ * Archive and Delete back, so refusing left no way to put it away (Matt, 2026-11-23). Any other
+ * session is refused, as before.
+ */
+async function settleIdle(host: TurnHost, sessionId: string, rec: Live | undefined): Promise<void> {
+  const session = (await host.workspace.state()).sessions.find((s) => s.id === sessionId);
+  if (session?.state !== 'running' && session?.state !== 'attention') throw new Refused('This session is not running.');
+  if (rec) {
+    rec.stopped = true;
+    rec.pendingInput.clear();
+    host.setQueue(sessionId, rec, afterTurn(rec.queue, 'stopped'));
+  }
+  await host.workspace.setState(sessionId, 'done', await host.delegation.doneNote(sessionId, true), { ...ACTIVITY, stopped: true });
+}
+
 /** Stop a running turn, or abandon a start still deciding its title or making its worktree. */
 export async function stopTurn(host: TurnHost, sessionId: string): Promise<void> {
   const rec = host.records.get(sessionId);
   const starting = !!rec?.launching && !rec.handle;
-  if (!rec || (!starting && !rec.handle?.busy())) throw new Refused('This session is not running.');
+  if (!rec || (!starting && !rec.handle?.busy())) return settleIdle(host, sessionId, rec);
   rec.stopped = true;
   // Whatever was queued waits for the user instead of going by itself.
   host.setQueue(sessionId, rec, afterTurn(rec.queue, 'stopped'));

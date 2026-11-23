@@ -2,9 +2,11 @@
 // the same JSON-RPC over stdio. No clocks: every wait is for an event.
 import { mkdirSync, mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { NO_TOOLS } from '../test-support.ts';
+import { makeRepo } from '../../test-repo.ts';
 import type { AgentEvent, AgentHandle, StartOptions } from '../types.ts';
 import { codexAdapter, nodeLauncher } from './index.ts';
 import { appliedUnasked, IMPLEMENT_PLAN, LATE_NOTE } from './handle.ts';
@@ -424,6 +426,86 @@ describe('Codex adapter, the edit rule (another project, another session’s wor
     await t.next('done', () => true, before);
     const told = [...t.received().filter((m) => m.method === 'turn/steer').map((m) => m.params.input[0].text), ...t.received().filter((m) => m.method === 'turn/start')[1].params.input.map((i: { text: string }) => i.text)];
     expect(told.some((text: string) => text.endsWith(note))).toBe(true);
+    await handle.close!();
+  });
+});
+
+describe('Codex adapter: git in the session’s own checkout', () => {
+  const worktreeOf = (repo: string) => {
+    const worktree = `${repo}-wt`;
+    execFileSync('git', ['worktree', 'add', '-q', worktree, '-b', 'wt'], { cwd: repo, stdio: 'ignore' });
+    return worktree;
+  };
+  const cards = (t: ReturnType<typeof setup>) => t.events.filter((e) => e.type === 'needs-input');
+  const said = (t: ReturnType<typeof setup>) => t.events.filter((e) => e.type === 'message').at(-1);
+
+  it.each(['auto', 'bypass'] as const)('%s: a commit in the session’s own repository runs with no card', async (level) => {
+    const repo = makeRepo();
+    const t = setup('git', level, { directory: () => repo });
+    const handle = t.adapter.start(t.options, 'git commit -m x', t.emit);
+    await t.next('done');
+    expect(cards(t)).toEqual([]);
+    expect(said(t)).toMatchObject({ text: 'ran it' });
+    await handle.close!();
+  });
+
+  it.each(['auto', 'bypass'] as const)('%s: a commit in the session’s own worktree runs with no card', async (level) => {
+    const repo = makeRepo();
+    const t = setup('git', level, { directory: () => worktreeOf(repo) });
+    const handle = t.adapter.start(t.options, 'git commit -m x', t.emit);
+    await t.next('done');
+    expect(cards(t)).toEqual([]);
+    expect(said(t)).toMatchObject({ text: 'ran it' });
+    await handle.close!();
+  });
+
+  it.each(['auto', 'bypass'] as const)('%s: an edit in the session’s own folder is made with no card', async (level) => {
+    const repo = makeRepo();
+    const t = setup('edit', level, { directory: () => repo, env: () => ({ FAKE_CODEX_EDIT: join(repo, 'new.txt') }) });
+    const handle = t.adapter.start(t.options, 'write it', t.emit);
+    await t.next('done');
+    expect(cards(t)).toEqual([]);
+    expect(existsSync(join(repo, 'new.txt'))).toBe(true);
+    await handle.close!();
+  });
+
+  it('Auto: the git folders are writable roots of the turn’s sandbox, a worktree’s own and its repository’s', async () => {
+    const repo = makeRepo();
+    const worktree = worktreeOf(repo);
+    const t = setup('git', 'auto', { directory: () => worktree });
+    const handle = t.adapter.start(t.options, 'git commit -m x', t.emit);
+    await t.next('done');
+    expect(t.received().find((m) => m.method === 'turn/start').params.sandboxPolicy).toMatchObject({ type: 'workspaceWrite', writableRoots: [join(repo, '.git'), join(repo, '.git', 'worktrees', basename(worktree))] });
+    await handle.close!();
+  });
+
+  it('Manual still asks about a commit: every command is a card there by design', async () => {
+    const t = setup('git', 'ask', { directory: () => makeRepo() });
+    const handle = t.adapter.start(t.options, 'git commit -m x', t.emit);
+    const card = await t.next('needs-input');
+    handle.answer(card.request.id, { optionId: 'allow' });
+    await t.next('done');
+    expect(said(t)).toMatchObject({ text: 'ran it' });
+    await handle.close!();
+  });
+
+  it('Auto: a command Codex asks to run outside its sandbox runs with no card in a session the user started', async () => {
+    const t = setup('command', 'auto');
+    const handle = t.adapter.start(t.options, 'uv run script.py', t.emit);
+    await t.next('done');
+    expect(cards(t)).toEqual([]);
+    expect(said(t)).toMatchObject({ text: 'ran it' });
+    await handle.close!();
+  });
+
+  it('Auto: the same command is a card in a session another session started, which is held to its worktree', async () => {
+    const t = setup('command', 'auto');
+    const handle = t.adapter.start({ ...t.options, confineShell: true }, 'uv run script.py', t.emit);
+    const card = await t.next('needs-input');
+    expect(card.request).toMatchObject({ tool: 'Bash' });
+    handle.answer(card.request.id, { optionId: 'deny' });
+    await t.next('done');
+    expect(said(t)).toMatchObject({ text: 'skipped it' });
     await handle.close!();
   });
 });

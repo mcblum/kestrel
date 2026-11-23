@@ -13,10 +13,15 @@
 //   Accept edits        the same, but Kestrel accepts file changes inside the working folder;
 //                       a change outside it and every command are still cards.
 //   Auto                on-request + workspace-write: commands and edits inside the sandbox run
-//                       without asking. A file change Codex asks about (one outside it) is let
-//                       through; a command or a request for more access that leaves the sandbox is
-//                       a card, unless the user's always-allowed list covers it (allow-list.ts).
-//                       Its read-and-write folders are writable roots. A file change inside the sandbox is never asked about, so the edit
+//                       without asking, and so does what Codex asks about: a file change outside
+//                       it is let through once the edit rule passed it, and a command or a request
+//                       for more access that leaves the sandbox is accepted at once (Matt,
+//                       2026-11-23: "if we're in auto ... it should be auto"). The sandbox still
+//                       holds whatever Codex does not ask to take outside it. A session another
+//                       session started (`confined`) is the exception: leaving the sandbox is a
+//                       card there, unless the user's always-allowed list covers it (allow-list.ts),
+//                       as for a Claude child. The list's read-and-write folders are writable roots.
+//                       A file change inside the sandbox is never asked about, so the edit
 //                       rule cannot stop it: Kestrel checks it once applied and says so (handle.ts).
 //   Bypass              untrusted + danger-full-access: Codex asks about every file change and every
 //                       command it does not know to be safe, and Kestrel accepts each at once. Asking
@@ -24,6 +29,11 @@
 //   Plan                never + read-only + Codex's plan collaboration mode: reads and plans;
 //                       the finished plan is a "Plan ready" card that moves the session on.
 //   Read only           never + read-only: reads anything, writes nothing, nothing to ask.
+// In workspace-write Codex keeps a checkout's `.git` read-only even inside the working folder (and a
+// linked worktree's git folder is outside it anyway), so every command that writes there (`git add`,
+// `git commit`, `git checkout -b`) asked to leave the sandbox: in Auto, a card for each (found live on
+// codex-cli 0.167.2, 2026-11-23). The checkout's git folders are therefore writable roots of every
+// turn (`gitFolders` in worktree-repo.ts; handle.ts), as a Claude child's sandbox already has them.
 // Network is on in workspace-write (`sandbox_workspace_write.network_access`), as for Claude.
 import type { PermissionLevel } from '../../shared/permissions.ts';
 
@@ -44,13 +54,14 @@ export interface CodexPolicy {
   readOnly: boolean;
   /** File changes Kestrel accepts without a card, once its edit rule has passed them: inside the working folder (Accept edits), anywhere (Auto, Bypass), or none. */
   acceptEdits: 'none' | 'folder' | 'anywhere';
-  /** Kestrel accepts every command and request for more access without a card (Bypass). */
+  /** Kestrel accepts every command and request for more access without a card (Bypass; Auto in a session the user started). */
   acceptAll: boolean;
   /** Kestrel's tools that act on something (browser clicks, simulator taps…) are cards. */
   askBeforeKestrelActions: boolean;
 }
 
-export function codexPolicy(level: PermissionLevel): CodexPolicy {
+/** `confined`: a session another session started (`confineShell`), which asks before it leaves its sandbox in Auto. */
+export function codexPolicy(level: PermissionLevel, confined = false): CodexPolicy {
   const base = { approvalsReviewer: 'user' as Reviewer, plan: false, readOnly: false, acceptEdits: 'none' as CodexPolicy['acceptEdits'], acceptAll: false, askBeforeKestrelActions: false };
   switch (level) {
     case 'ask':
@@ -58,7 +69,7 @@ export function codexPolicy(level: PermissionLevel): CodexPolicy {
     case 'edits':
       return { ...base, approvalPolicy: 'untrusted', sandbox: 'workspace-write', acceptEdits: 'folder', askBeforeKestrelActions: true };
     case 'auto':
-      return { ...base, approvalPolicy: 'on-request', sandbox: 'workspace-write', acceptEdits: 'anywhere' };
+      return { ...base, approvalPolicy: 'on-request', sandbox: 'workspace-write', acceptEdits: 'anywhere', acceptAll: !confined };
     case 'bypass':
       return { ...base, approvalPolicy: 'untrusted', sandbox: 'danger-full-access', acceptEdits: 'anywhere', acceptAll: true };
     case 'plan':

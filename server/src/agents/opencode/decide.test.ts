@@ -47,11 +47,13 @@ describe('decide', () => {
     expect(d.reply({ optionId: 'deny', text: 'not now' })).toEqual({ reply: 'reject', message: 'The user declined this: not now' });
   });
 
-  it('reaching outside the folder: reads are allowed, a command asks unless Bypass', () => {
+  it('reaching outside the folder: reads are allowed; a command runs in Auto and Bypass, and asks in Manual and in a session another session started', () => {
     const outside = ask('external_directory', ['/etc/*'], { filepath: '/etc/hosts' });
     expect(kind(decide(outside, call('read', { filePath: '/etc/hosts' }), ctx('ask')))).toBe('once');
     const cmd = ask('external_directory', ['/tmp/*']);
-    expect(kind(decide(cmd, call('bash', { command: 'ls /tmp' }), ctx('auto')))).toBe('card');
+    expect(kind(decide(cmd, call('bash', { command: 'ls /tmp' }), ctx('auto')))).toBe('once');
+    expect(kind(decide(cmd, call('bash', { command: 'ls /tmp' }), ctx('auto', { confined: true })))).toBe('card');
+    expect(kind(decide(cmd, call('bash', { command: 'ls /tmp' }), ctx('ask')))).toBe('card');
     expect(kind(decide(cmd, call('bash', { command: 'ls /tmp' }), ctx('bypass')))).toBe('once');
   });
 

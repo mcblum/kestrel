@@ -69,7 +69,9 @@ describe('permissionHint', () => {
     // Since 0.0.16 every Codex approval comes to Kestrel: Codex decides nothing for the user.
     expect(permissionHint(mode('auto'), 'codex')).not.toMatch(/Codex handles/);
     expect(permissionHint(mode('auto'), 'codex')).toMatch(/sandbox/);
-    expect(permissionHint(mode('auto'), 'codex')).toMatch(/always-allowed/);
+    // Auto does not ask (Matt, 2026-11-23): what Codex asks to take outside its sandbox is accepted.
+    expect(permissionHint(mode('auto'), 'codex')).toMatch(/without asking/);
+    expect(permissionHint(mode('auto'), 'opencode')).toMatch(/without asking/);
     // Codex's Accept edits takes file changes in its folder only; one outside it is still a card.
     expect(permissionHint(mode('edits'), 'codex')).toMatch(/folder/);
     expect(permissionHint(mode('edits'), 'claude')).toBe(mode('edits').hint);

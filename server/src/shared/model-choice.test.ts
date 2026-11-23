@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ModelOption } from '../agents/types.ts';
-import { defaultName, effortLabel, family, fitToModel, modelLabel, modelMenu, pickFromMenu, shownEffort, splitModels } from './model-choice.ts';
+import { defaultName, effortLabel, family, fitToModel, modelLabel, modelMenu, pickFromMenu, shownEffort, splitModels, modelNotListed } from './model-choice.ts';
 
 const ALL = ['low', 'medium', 'high', 'xhigh', 'max'];
 // Shaped like what Claude's SDK 0.3.322 returned (agents/claude/models.ts maps it).
@@ -165,5 +165,20 @@ describe('pickFromMenu', () => {
     expect(pickFromMenu(MODELS, s, 'effort:')).toEqual({ ...s, effort: '' });
     expect(pickFromMenu(MODELS, s, 'fast')).toEqual({ ...s, fast: false });
     expect(pickFromMenu(MODELS, s, 'more-models')).toBe(s);
+  });
+});
+
+describe('a saved model the agent does not list', () => {
+  const models = [{ id: '', resolves: 'gpt-6.2-sol' }, { id: 'gpt-6.2-sol', resolves: 'gpt-6.2-sol' }, { id: 'sol', resolves: 'gpt-6.1-sol' }];
+
+  it('is said only once the agent has answered, and never of its default', () => {
+    expect(modelNotListed(models, true, 'openai.gpt-6.2-sol')).toBe(true);
+    expect(modelNotListed(models, false, 'openai.gpt-6.2-sol')).toBe(false);
+    expect(modelNotListed(models, true, '')).toBe(false);
+  });
+
+  it('is not said of a listed model, by its id or by the model an entry stands for', () => {
+    expect(modelNotListed(models, true, 'gpt-6.2-sol')).toBe(false);
+    expect(modelNotListed(models, true, 'gpt-6.1-sol')).toBe(false);
   });
 });
