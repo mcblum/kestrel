@@ -1,0 +1,29 @@
+/* Tickets (pages/TicketsPage.tsx, TicketPage.tsx, components/TicketChip.tsx). */
+.kestrel .ticket-sessions { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 12.5px; }
+.kestrel .ticket-criteria { margin: 0; padding-left: 20px; max-width: 720px; display: grid; gap: 4px; font-size: 13px; line-height: 1.5; }
+.kestrel .ticket-comments { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; max-width: 720px; }
+.kestrel .ticket-comment-head { margin-bottom: 2px; font-size: 12px; }
+.kestrel .ticket-chip { max-width: 340px; }
+.kestrel .workstream-ticket { margin: -4px 0 14px; display: flex; }
+
+/* The ticket chip and its status beside it: one group, the status a chip that opens the moves. */
+.ticket-chip-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.ticket-status-chip svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* The sprint groups sit inside the one list section, under the filters. */
+.kestrel .tickets-sprint + .tickets-sprint { margin-top: 18px; }
+
+.kestrel .tickets-page .page-section > h2 ~ .tickets-sprint h2 { color: var(--s-label); font-size: 11px; }
+
+/* A comment typed on the ticket's page, under the comments it joins. */
+.kestrel .ticket-add-comment { margin-top: 14px; max-width: 720px; display: grid; gap: 8px; }
+.kestrel .ticket-add-comment textarea { box-sizing: border-box; width: 100%; min-height: 72px; resize: vertical; font: inherit; font-size: 13px; line-height: 1.5; }
+.kestrel .ticket-add-comment-actions { display: flex; justify-content: flex-end; }

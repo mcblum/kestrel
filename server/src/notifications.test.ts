@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { notificationsRoute } from './notifications/api.ts';
 import { NotifyPrefsStore } from './notifications/prefs.ts';
-import { silentReason, tellsSomehow, bannerProblem, DEFAULT_NOTIFY, NOTIFY_KIND_LABEL, notifies, notifyEvents, notifyProblem, parseTarget, reviewNotifyEvents, sanitizeNotify, targetOf, type Looking } from './shared/notifications.ts';
+import { silentReason, tellsSomehow, bannerProblem, DEFAULT_NOTIFY, NOTIFY_KIND_LABEL, notifies, notifyEvents, notifyProblem, parseTarget, reviewNotifyEvents, sanitizeNotify, targetOf, ticketNotifyEvents, ticketsBefore, type Looking } from './shared/notifications.ts';
 
 type S = Parameters<typeof notifyEvents>[1][number];
 const session = (id: string, state: S['state'], note = '', extra: Partial<S> = {}): S => ({ id, title: `Session ${id}`, state, note, ...extra });
@@ -55,7 +55,7 @@ describe('what the user is told about', () => {
   });
 
   it('only the events switched on', () => {
-    const prefs = { ...DEFAULT_NOTIFY, events: { 'needs-you': true, failed: false, done: false, 'review-request': false } };
+    const prefs = { ...DEFAULT_NOTIFY, events: { 'needs-you': true, failed: false, done: false, 'review-request': false, ticket: false } };
     const before = [session('a', 'running'), session('b', 'running')];
     expect(told(before, [session('a', 'done'), session('b', 'attention', 'Needs you · ?')], { prefs }).map(([kind]) => kind)).toEqual(['needs-you']);
   });
@@ -68,11 +68,11 @@ describe('what the user is told about', () => {
 
 describe('the settings', () => {
   it('are on for all three with no sound until changed, and say when nothing is on', () => {
-    expect(DEFAULT_NOTIFY).toEqual({ enabled: true, banner: true, sound: 'none', events: { 'needs-you': true, failed: true, done: true, 'review-request': true } });
+    expect(DEFAULT_NOTIFY).toEqual({ enabled: true, banner: true, sound: 'none', events: { 'needs-you': true, failed: true, done: true, 'review-request': true, ticket: true } });
     expect(notifies(DEFAULT_NOTIFY)).toBe(true);
     expect(notifies({ ...DEFAULT_NOTIFY, banner: false })).toBe(false);
     expect(notifies({ ...DEFAULT_NOTIFY, banner: false, sound: 'ping' })).toBe(true);
-    expect(notifies({ ...DEFAULT_NOTIFY, events: { 'needs-you': false, failed: false, done: false, 'review-request': false } })).toBe(false);
+    expect(notifies({ ...DEFAULT_NOTIFY, events: { 'needs-you': false, failed: false, done: false, 'review-request': false, ticket: false } })).toBe(false);
   });
 
   it('refuse what they cannot use, with the reason, and read back anything unreadable as the default', () => {
@@ -80,7 +80,7 @@ describe('the settings', () => {
     expect(notifyProblem({ ...DEFAULT_NOTIFY, sound: 'gong' })).toBe('sound must be one of: none, chime, ping, pop.');
     expect(notifyProblem({ banner: 'yes', sound: 'none', events: {} })).toBe('banner must be true or false.');
     expect(notifyProblem({ banner: true, sound: 'none', events: { done: true } })).toMatch(/events must say true or false/);
-    expect(sanitizeNotify({ banner: false, sound: 'gong', events: { done: false } })).toEqual({ enabled: true, banner: false, sound: 'none', events: { 'needs-you': true, failed: true, done: false, 'review-request': true } });
+    expect(sanitizeNotify({ banner: false, sound: 'gong', events: { done: false } })).toEqual({ enabled: true, banner: false, sound: 'none', events: { 'needs-you': true, failed: true, done: false, 'review-request': true, ticket: true } });
   });
 
   it('are served and stored over HTTP', async () => {
@@ -88,7 +88,7 @@ describe('the settings', () => {
     const route = (method: string, body: Record<string, unknown> = {}) => notificationsRoute(['api', 'notifications'], method, async () => body, store);
     expect(await route('GET')).toEqual({ status: 200, body: { prefs: DEFAULT_NOTIFY } });
     expect(await route('PUT', { banner: true })).toMatchObject({ status: 400 });
-    const quiet = { banner: false, sound: 'chime', events: { 'needs-you': true, failed: true, done: false, 'review-request': true } };
+    const quiet = { banner: false, sound: 'chime', events: { 'needs-you': true, failed: true, done: false, 'review-request': true, ticket: true } };
     expect(await route('PUT', quiet)).toEqual({ status: 200, body: { prefs: { enabled: true, ...quiet } } });
     expect(await store.prefs()).toEqual({ enabled: true, ...quiet });
     expect(await notificationsRoute(['api', 'other'], 'GET', async () => ({}), store)).toBeNull();
@@ -167,9 +167,49 @@ describe('told, or never told (0.0.23)', () => {
     expect(tellsSomehow({ banner: false, sound: 'ping' })).toBe(true);
     expect(tellsSomehow({ banner: false, sound: 'none' })).toBe(false);
     expect(silentReason({ ...DEFAULT_NOTIFY, banner: false })).toBe('Nothing will tell you: turn on the desktop notification or pick a sound.');
-    expect(silentReason({ ...DEFAULT_NOTIFY, events: { 'needs-you': false, failed: false, done: false, 'review-request': false } })).toMatch(/Nothing is ticked/);
+    expect(silentReason({ ...DEFAULT_NOTIFY, events: { 'needs-you': false, failed: false, done: false, 'review-request': false, ticket: false } })).toMatch(/Nothing is ticked/);
     expect(silentReason(DEFAULT_NOTIFY)).toBeNull();
     // Turned off on purpose is not a mistake to point out.
     expect(silentReason({ ...off, banner: false })).toBeNull();
+  });
+});
+
+describe('a ticket newly assigned', () => {
+  const t = (ref: string, source = 'fake') => ({ key: `${source}:${ref}`, source, tracker: 'Sample tracker', ref, title: `Do ${ref}`, status: { name: 'To Do', category: 'todo' as const }, project: 'Shop', url: '', openedAt: 0, updatedAt: 0, sprint: { name: 'Sprint 24', current: true } });
+  const view = (tickets: ReturnType<typeof t>[], opts: { unread?: string[]; sources?: string[]; on?: boolean } = {}) => ({
+    tickets,
+    unread: opts.unread ?? tickets.map((x) => x.key),
+    sources: opts.sources ?? [...new Set(tickets.map((x) => x.source))],
+    settings: { on: opts.on ?? true, off: [], show: 'page' as const },
+  });
+
+  it('is told once, opening the ticket’s page, when a source already asked lists a new unread ticket', () => {
+    const before = ticketsBefore(view([t('A-1')]));
+    const [event, ...rest] = ticketNotifyEvents(before, view([t('A-1'), t('A-2')]), DEFAULT_NOTIFY);
+    expect(rest).toEqual([]);
+    expect(event).toEqual({ kind: 'ticket', sessionId: '', ticketKey: 'fake:A-2', title: 'A-2: Do A-2', body: 'Assigned to you in Sample tracker, in Sprint 24.' });
+    expect(parseTarget(targetOf(event!))).toEqual({ ticketKey: 'fake:A-2' });
+    expect(ticketNotifyEvents(ticketsBefore(view([t('A-1'), t('A-2')])), view([t('A-1'), t('A-2')]), DEFAULT_NOTIFY)).toEqual([]);
+  });
+
+  it('is not told on the first push, when tickets or a source are first turned on, while off, for a read or dismissed ticket, or with the event off', () => {
+    expect(ticketNotifyEvents(null, view([t('A-1')]), DEFAULT_NOTIFY)).toEqual([]);
+    // Tickets turned on: the list fills from sources not asked before.
+    expect(ticketNotifyEvents(ticketsBefore(view([])), view([t('A-1'), t('A-2')]), DEFAULT_NOTIFY)).toEqual([]);
+    // A second source switched on: its tickets are not news; the first source's new one is.
+    const before = ticketsBefore(view([t('A-1')]));
+    expect(ticketNotifyEvents(before, view([t('A-1'), t('A-2'), t('J-1', 'jira')]), DEFAULT_NOTIFY).map((e) => e.ticketKey)).toEqual(['fake:A-2']);
+    expect(ticketNotifyEvents(before, view([t('A-1'), t('A-2')], { on: false }), DEFAULT_NOTIFY)).toEqual([]);
+    expect(ticketNotifyEvents(before, view([t('A-1'), t('A-2')], { unread: [] }), DEFAULT_NOTIFY)).toEqual([]);
+    expect(ticketNotifyEvents(before, view([t('A-1')]), DEFAULT_NOTIFY)).toEqual([]); // a dismissed ticket is not listed
+    expect(ticketNotifyEvents(before, view([t('A-1'), t('A-2')]), { ...DEFAULT_NOTIFY, events: { ...DEFAULT_NOTIFY.events, ticket: false } })).toEqual([]);
+  });
+
+  it('is on by default, and settings from before it keep it on', () => {
+    expect(DEFAULT_NOTIFY.events.ticket).toBe(true);
+    expect(NOTIFY_KIND_LABEL.ticket).toBe('A ticket is assigned to me');
+    const older = { banner: true, sound: 'none', events: { 'needs-you': true, failed: true, done: false, 'review-request': true } };
+    expect(notifyProblem(older)).toBeNull();
+    expect(sanitizeNotify(older).events.ticket).toBe(true);
   });
 });

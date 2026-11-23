@@ -5,6 +5,8 @@
 // with the reason, is listed under the tree. The sessions are references: each row opens the
 // session where it lives. Everything shown comes from the workspace in the store; only the
 // objective being typed is local.
+import { WorkstreamTicketChip } from '../components/TicketChip.tsx';
+import { useWorkstreamTicket } from '../tickets.ts';
 import { useMemo, useState } from 'react';
 import type { SessionView, WorkspaceState } from '@kestrel/server/model';
 import { orderSessions } from '@kestrel/server/session-order';
@@ -40,6 +42,17 @@ function WaitLine({ wait, members }: { wait: ShownWait; members: readonly Sessio
     <p className="quiet workstream-wait">
       <SessionLink id={wait.waiterId} members={members} /> is waiting on <SessionLink id={wait.targetId} members={members} />: {wait.reason}
     </p>
+  );
+}
+
+/** The ticket the work is for, at the top, with its live status (tickets: section 7). */
+function WorkstreamTicket({ id }: { id: string }) {
+  const found = useWorkstreamTicket(id);
+  if (!found) return null;
+  return (
+    <div className="workstream-ticket">
+      <WorkstreamTicketChip workstreamId={id} />
+    </div>
   );
 }
 
@@ -108,7 +121,7 @@ export function WorkstreamPage({ id, workspace }: { id: string; workspace: Works
     );
   return (
     <div className="page column collection">
-      <PageHeader title={workstream.name} line={`Workstream · ${isComplete(workstream) ? 'Complete · ' : ''}${workstreamSummary(members)}. Each session stays in its own project.`} menu={{ kind: 'workstream', id }} actions={<WorkstreamColourPicker workstreamId={id} name={workstream.name} />} />
+      <PageHeader title={workstream.name} line={`Workstream · ${isComplete(workstream) ? 'Complete · ' : ''}${workstreamSummary(members)}. Each session stays in its own project.`} menu={{ kind: 'workstream', id }} mark={<WorkstreamColourPicker workstreamId={id} name={workstream.name} />} />
       {isArchived(workstream) && (
         <p className="workstream-archived" role="status">
           This workstream is archived: it is out of the sidebar, and its sessions are where they were. A new message in one of them brings it back.
@@ -117,6 +130,7 @@ export function WorkstreamPage({ id, workspace }: { id: string; workspace: Works
           </button>
         </p>
       )}
+      <WorkstreamTicket id={id} />
       <section className="page-section">
         <h2>Objective</h2>
         <Objective id={id} objective={workstream.objective} />

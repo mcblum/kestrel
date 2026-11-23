@@ -1,4 +1,5 @@
 import { bindingFor, formatBinding } from '@kestrel/server/shortcuts';
+import { TicketsLink } from './TicketsLink.tsx';
 import { isMac, useShortcuts } from '../shortcuts.ts';
 import { memo, createContext, useContext, useMemo, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { Settings, Folder, FolderOpen, GitPullRequest, LayoutDashboard, Search, Plus } from 'lucide-react';
@@ -7,7 +8,7 @@ import { emptyListKind, nestedIds, projectRowIds, sidebarHomes, type PinnedRow, 
 import { EmptyList, RowPlus } from './SidebarCreate.tsx';
 import { SidebarWorkstreams } from './SidebarWorkstreams.tsx';
 import { RenameInput } from './SidebarRename.tsx';
-import { SIDEBAR_WIDTH, arrange } from '@kestrel/server/sidebar';
+import { SIDEBAR_WIDTH, arrange, menuOrder, type MenuItem } from '@kestrel/server/sidebar';
 import { activityAt, orderSessions, orderTree } from '@kestrel/server/session-order';
 import { foldRows } from '@kestrel/server/sidebar-fold';
 import { orderPinned } from '@kestrel/server/pinned-order';
@@ -26,6 +27,9 @@ import { UpdateNotice } from './UpdateNotice.tsx';
 import { Heading } from './SidebarHeading.tsx';
 import { SidebarTags } from './SidebarTags.tsx';
 import { SidebarPins } from './SidebarPins.tsx';
+import { SidebarTickets } from './SidebarTickets.tsx';
+import { hasTicketSection, ticketsOn } from '@kestrel/server/tickets';
+import { ticketLeadIn } from '../tickets.ts';
 import { ReviewRequestRow, ReviewsLink, SidebarReviews } from './SidebarReviews.tsx';
 import { openedText, requestNumberLabel, reviewingIds, reviewRowDetail, type ReviewMark } from '@kestrel/server/review-requests';
 import { hasReviewLink, hasReviewSection } from '@kestrel/server/review-settings';
@@ -36,7 +40,7 @@ import { cameFromText } from '@kestrel/server/session-card';
 import { HoverCardHost } from './HoverCard.tsx';
 import { FoldChevron, foldClick, RowMore, RowOpen } from './SidebarRowParts.tsx';
 import { openRowMenu } from './sidebarMenuTarget.ts';
-import { filingMark, GROUP_MIME, projectName, PROJECT_MIME, SESSION_MIME, statusText, UNSCOPED } from '../labels.ts';
+import { filingMark, GROUP_MIME, MENU_MIME, projectName, PROJECT_MIME, SESSION_MIME, statusText, UNSCOPED } from '../labels.ts';
 import { opener, openSession, openView, type Route, type View } from '../route.ts';
 import { selectsRow } from '@kestrel/server/routes';
 import { useProjectTint, useSessionTint } from '../colours.ts';
@@ -639,8 +643,20 @@ function ResizeHandle() {
 }
 
 /** Where everything is drawn once pins are taken into account (shared/pinned-homes.ts). */
+/** The sessions leading a listed ticket, as "session=key" pairs in one string, while the sidebar has a TICKETS section; else empty. One string, so the homes are worked out again only when it changes. */
+function useTicketLeadsKey(): string {
+  return useApp((s) => {
+    if (!hasTicketSection({ on: ticketsOn(s.tickets), show: s.tickets.settings.show })) return '';
+    return s.tickets.tickets.flatMap((t) => {
+      const lead = ticketLeadIn(s, t.key);
+      return lead ? [`${lead}=${t.key}`] : [];
+    }).join(' ');
+  });
+}
+
 function useHomes(workspace: WorkspaceState | null, reviewsSection: boolean): SidebarHomes | null {
   const requests = useApp((s) => s.reviewRequests.requests);
+  const ticketLeadsKey = useTicketLeadsKey();
   // The same set while the same sessions are reviewing, so the homes are not worked out again for nothing.
   const reviewingKey = useMemo(() => [...reviewingIds(workspace?.sessions ?? [], requests)].join(' '), [workspace?.sessions, requests]);
   // The keys still listed, as one string for the same reason.
@@ -649,8 +665,9 @@ function useHomes(workspace: WorkspaceState | null, reviewsSection: boolean): Si
     if (!workspace) return workspace;
     const reviewing = new Set(reviewingKey ? reviewingKey.split(' ') : []);
     const reviewKeyOf = new Map(workspace.sessions.flatMap((s) => (s.review && reviewing.has(s.id) ? [[s.id, s.review.key] as const] : [])));
-    return sidebarHomes({ ...workspace, reviewing, reviewKeyOf, listedReviews: new Set(listedKey ? listedKey.split(' ') : []), reviewsSection });
-  }, [workspace?.pins, workspace?.trees, workspace?.sessions, reviewingKey, listedKey, reviewsSection]); // eslint-disable-line react-hooks/exhaustive-deps
+    const ticketLeads = new Map(ticketLeadsKey ? ticketLeadsKey.split(' ').map((pair) => pair.split('=') as [string, string]) : []);
+    return sidebarHomes({ ...workspace, reviewing, reviewKeyOf, listedReviews: new Set(listedKey ? listedKey.split(' ') : []), reviewsSection, ticketLeads });
+  }, [workspace?.pins, workspace?.trees, workspace?.sessions, reviewingKey, listedKey, reviewsSection, ticketLeadsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 /** PINNED's rows in the session order: dragged, or newest activity first (shared/pinned-order.ts). */
@@ -722,12 +739,24 @@ export function Sidebar({ route, activeId, onSwitch }: { route: Route | null; ac
   return <SidebarBody workspace={workspace} homes={homes} collapsed={collapsed} route={route} activeId={activeId} onSwitch={onSwitch} />;
 }
 
+/** One row of the top menu: dragged by itself, and a place another row can be dropped beside (Matt, 2026-11-22). A row that is not shown takes no room. */
+function MenuSlot({ id, children }: { id: MenuItem; children: React.ReactNode }) {
+  const reorder = useReorderTarget(MENU_MIME, (moving, after) => tabActions.placeMenuItem(moving, id, after));
+  return (
+    <div className={`menu-slot${reorder.edge ? ` drop-${reorder.edge}` : ''}`} draggable onDragStart={startDrag(MENU_MIME, id)} {...reorder.props}>
+      {children}
+    </div>
+  );
+}
+
 function SidebarBody({ workspace, homes, collapsed, route, activeId, onSwitch }: { workspace: WorkspaceState; homes: SidebarHomes; collapsed: readonly string[]; route: Route | null; activeId: string | null; onSwitch: () => void }) {
   const pinnedRows = usePinnedRows(workspace, homes);
   const searchShortcut = formatBinding(bindingFor(useShortcuts(), 'switch'), isMac());
   // Where review requests are shown (Settings → Code reviews): the section, the row for their page, or both.
   const reviewSettings = useReviewSettings();
   const reviewsSection = hasReviewSection(reviewSettings);
+  const sidebarPrefs = useTabs((v) => v.sidebar);
+  const menu = useMemo(() => menuOrder(sidebarPrefs), [sidebarPrefs]);
   // Folded PINNED still shows the open session if it is drawn there.
   const keptPin = activeId ? pinnedHolder(pinnedRows, workspace, homes, activeId) : undefined;
 
@@ -748,6 +777,20 @@ function SidebarBody({ workspace, homes, collapsed, route, activeId, onSwitch }:
     </button>
   );
 
+  // The top menu's rows by id; the user's order decides where each is drawn (`menuOrder`).
+  const menuRows: Record<MenuItem, React.ReactNode> = {
+    overview: nav({ kind: 'overview' }, 'Overview', <LayoutDashboard aria-hidden />),
+    'new-session': (
+      <button className="side-link" {...opener((newTab) => void runMenuAction(item.newSession().action!, newTab))}>
+        <Plus aria-hidden />
+        <span className="link-label">New session</span>
+      </button>
+    ),
+    'pull-requests': nav({ kind: 'pull-requests' }, 'Pull requests', <GitPullRequest aria-hidden />),
+    'code-reviews': hasReviewLink(reviewSettings) ? <ReviewsLink active={isView(route, { kind: 'code-reviews' })} /> : null,
+    tickets: <TicketsLink active={route?.view.kind === 'tickets' || route?.view.kind === 'ticket'} />,
+  };
+
   return (
     <aside className="studio-sidebar" onContextMenu={onContextMenu}>
       <div className="studio-brand">
@@ -759,18 +802,16 @@ function SidebarBody({ workspace, homes, collapsed, route, activeId, onSwitch }:
       </div>
       {/* The top menu: matching rows, then a gap, then the lists. New session is right below Overview (Matt, 2026-11-21): what is done most is not under the lists of what waits. */}
       <div className="top-menu">
-        {nav({ kind: 'overview' }, 'Overview', <LayoutDashboard aria-hidden />)}
-        <button className="side-link" {...opener((newTab) => void runMenuAction(item.newSession().action!, newTab))}>
-          <Plus aria-hidden />
-          <span className="link-label">New session</span>
-          <ShortcutHint command="new-session" />
-        </button>
-        {nav({ kind: 'pull-requests' }, 'Pull requests', <GitPullRequest aria-hidden />)}
-        {hasReviewLink(reviewSettings) && <ReviewsLink active={isView(route, { kind: 'code-reviews' })} />}
+        {menu.map((id) => (
+          <MenuSlot key={id} id={id}>
+            {menuRows[id]}
+          </MenuSlot>
+        ))}
       </div>
       <nav aria-label="Sessions and projects" className="side-scroll">
         <SidebarPins rows={pinnedRows} render={(row) => <PinnedItem row={row} workspace={workspace} homes={homes} route={route} activeId={activeId} />} kept={keptPin && activeId ? <PinnedItem row={keptPin} workspace={workspace} homes={homes} route={route} activeId={activeId} only={activeId} /> : null} />
         {reviewsSection && <SidebarReviews route={route} rows={homes.reviews} activeId={activeId} limit={reviewSettings.sidebarLimit} renderSession={(node) => <TreeRow node={node} depth={0} activeId={activeId} rootId={node.sessionId} groupId={undefined} />} />}
+        <SidebarTickets route={route} rows={homes.tickets} activeId={activeId} renderSession={(node) => <TreeRow node={node} depth={0} activeId={activeId} rootId={node.sessionId} groupId={undefined} />} />
         {/* What the user is in the middle of comes first: the work that reaches across projects, then the directory. */}
         <SidebarWorkstreams workspace={workspace} route={route} activeId={activeId} renderNode={(node) => <TreeRow key={node.sessionId} node={node} depth={1} activeId={activeId} rootId={node.sessionId} groupId={undefined} />} />
         {/* Groups that span projects and sessions with no project. Not drawn while there are none: a new group is made from the sidebar's right-click menu. */}
@@ -795,10 +836,4 @@ function SidebarBody({ workspace, homes, collapsed, route, activeId, onSwitch }:
       <HoverCardHost />
     </aside>
   );
-}
-
-/** A command's key beside its button, as it is now; nothing when it has none. */
-function ShortcutHint({ command }: { command: string }) {
-  const keys = formatBinding(bindingFor(useShortcuts(), command), isMac());
-  return keys ? <kbd>{keys}</kbd> : null;
 }

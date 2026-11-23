@@ -16,11 +16,12 @@ import { runMenuAction } from '../commands.ts';
 import { item } from '@kestrel/server/menu';
 import { AttentionRow } from './AttentionRow.tsx';
 import { ActivityGarden } from './ActivityGarden.tsx';
-import { OverviewIntro } from './OverviewIntro.tsx';
+import { PageHeader } from './PageHeader.tsx';
 import { ProjectTiles } from './ProjectTiles.tsx';
 import { ProjectsOnboarding } from './ProjectsOnboarding.tsx';
 import { StarterSurface } from './StarterSurface.tsx';
 import { SessionTable } from './SessionTable.tsx';
+import './overview.css';
 
 const OVERVIEW_HEADING = 'What will you build today?';
 
@@ -56,17 +57,15 @@ function WorktreeCleanupNotice() {
   const stale = loaded.state === 'ready' ? loaded.value.summary.stale : null;
   if (!stale?.count) return null;
   return (
-    <div className="overview-notices">
-      <div className="overview-notice">
-        <Archive className="overview-notice-icon" aria-hidden />
-        <p className="overview-notice-message">
-          {stale.count} worktree{stale.count === 1 ? '' : 's'} available for cleanup
-          {stale.bytes > 0 && <span className="overview-notice-detail"> · {sizeText(stale.bytes)}</span>}
-        </p>
-        <button type="button" className="link-button overview-notice-action" aria-label="Review worktrees available for cleanup" {...opener((newTab) => openView({ kind: 'settings', section: 'worktrees' }, newTab))}>
-          Review <ArrowRight aria-hidden />
-        </button>
-      </div>
+    <div className="overview-notice">
+      <Archive className="overview-notice-icon" aria-hidden />
+      <p className="overview-notice-message">
+        {stale.count} worktree{stale.count === 1 ? '' : 's'} available for cleanup
+        {stale.bytes > 0 && <span className="overview-notice-detail"> · {sizeText(stale.bytes)}</span>}
+      </p>
+      <button type="button" className="secondary-button small" aria-label="Review worktrees available for cleanup" {...opener((newTab) => openView({ kind: 'settings', section: 'worktrees' }, newTab))}>
+        Review <ArrowRight aria-hidden />
+      </button>
     </div>
   );
 }
@@ -83,7 +82,7 @@ export function OverviewPage({ workspace }: { workspace: WorkspaceState }) {
   if (empty === 'first-session')
     return (
       <div className="page column">
-        <OverviewIntro title={OVERVIEW_HEADING} line="Start in a project, or explore an idea without one." />
+        <PageHeader title={OVERVIEW_HEADING} line="Start in a project, or explore an idea without one." />
         {/* First run: the projects come first, several at once. */}
         {workspace.projects.length === 0 && <ProjectsOnboarding />}
         <StarterSurface />
@@ -93,31 +92,33 @@ export function OverviewPage({ workspace }: { workspace: WorkspaceState }) {
 
   return (
     <div className="overview-page">
-      <div className="page column overview-content">
-        <OverviewIntro title="Overview" line={overviewLine(counts)} onNewSession={newSession} />
-        {rows['needs-you'].length > 0 && (
-          <Section title={FILTER_LABEL['needs-you']} count={counts['needs-you']}>
-            <div className="queue">
-              {rows['needs-you'].map((s) => (
-                <AttentionRow key={s.id} session={s} workspace={workspace} />
-              ))}
-            </div>
-          </Section>
-        )}
-        <WorktreeCleanupNotice />
-        <TableSection title="Unread" count={counts.unread} rows={rows.unread} workspace={workspace} />
-        <TableSection title={FILTER_LABEL.working} count={counts.working} rows={rows.working} workspace={workspace} />
-        <TableSection title={FILTER_LABEL.review} count={counts.review} rows={rows.review} workspace={workspace} />
-        <TableSection title={FILTER_LABEL.interrupted} count={counts.interrupted} rows={rows.interrupted} workspace={workspace} />
-        <TableSection title="Recently done" count={counts.done} rows={rows.done} workspace={workspace}>
-          {counts.done > rows.done.length && (
-            <button type="button" className="link-button overview-view-all" aria-label="View all done sessions" {...opener((newTab) => openView({ kind: 'all', filter: 'done' }, newTab))}>
-              View all <ArrowRight aria-hidden />
-            </button>
+      <div className="overview-scroll">
+        <div className="page column inbox-page overview-content">
+          <PageHeader title="Overview" line={overviewLine(counts)} onNewSession={newSession} />
+          {rows['needs-you'].length > 0 && (
+            <Section title={FILTER_LABEL['needs-you']} count={counts['needs-you']}>
+              <div className="queue">
+                {rows['needs-you'].map((s) => (
+                  <AttentionRow key={s.id} session={s} workspace={workspace} />
+                ))}
+              </div>
+            </Section>
           )}
-        </TableSection>
+          <WorktreeCleanupNotice />
+          <TableSection title="Unread" count={counts.unread} rows={rows.unread} workspace={workspace} />
+          <TableSection title={FILTER_LABEL.working} count={counts.working} rows={rows.working} workspace={workspace} />
+          <TableSection title={FILTER_LABEL.review} count={counts.review} rows={rows.review} workspace={workspace} />
+          <TableSection title={FILTER_LABEL.interrupted} count={counts.interrupted} rows={rows.interrupted} workspace={workspace} />
+          <TableSection title="Recently done" count={counts.done} rows={rows.done} workspace={workspace}>
+            {counts.done > rows.done.length && (
+              <button type="button" className="link-button overview-view-all" aria-label="View all done sessions" {...opener((newTab) => openView({ kind: 'all', filter: 'done' }, newTab))}>
+                View all <ArrowRight aria-hidden />
+              </button>
+            )}
+          </TableSection>
+        </div>
       </div>
-      <footer className="overview-footer" aria-label="Recent activity">
+      <footer className="overview-activity" aria-label="Recent activity">
         <div className="column"><ActivityGarden workspace={workspace} /></div>
       </footer>
     </div>

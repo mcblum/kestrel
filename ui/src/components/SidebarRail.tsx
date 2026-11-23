@@ -4,8 +4,10 @@
 // the pinned ones, then any waiting for an answer, as their initial with the row's dot (or, with no
 // dot, its open request's icon: RowRequest.tsx); the title is in the tooltip. The rest is one
 // click on the sidebar toggle away (the full sidebar, floating).
+import { TicketsRailButton } from './TicketsLink.tsx';
 import { useSessionTint } from '../colours.ts';
-import { useMemo, type MouseEvent } from 'react';
+import { Fragment, useMemo, type MouseEvent, type ReactNode } from 'react';
+import { menuOrder, type MenuItem } from '@kestrel/server/sidebar';
 import { Eye, GitPullRequest, LayoutDashboard, Plus, Search, Settings } from 'lucide-react';
 import { hasReviewLink } from '@kestrel/server/review-settings';
 import { useReviewSettings } from '../reviewSettings.ts';
@@ -20,7 +22,7 @@ import { sessionDot } from '@kestrel/server/unread';
 import { runMenuAction } from '../commands.ts';
 import { opener, openSession, openView, type Route } from '../route.ts';
 import { useApp } from '../store.ts';
-import { useSessionOrder } from '../tabsStore.ts';
+import { useSessionOrder, useTabs } from '../tabsStore.ts';
 import { openRowMenu } from './sidebarMenuTarget.ts';
 import { rowDotClass } from './useRowDot.ts';
 import { asksForRequest } from '@kestrel/server/row-slot';
@@ -72,29 +74,44 @@ export function SidebarRail({ route, activeId, onSwitch }: { route: Route | null
   const reviewsLink = hasReviewLink(useReviewSettings());
   const newReviews = useReviewsToLookAt();
   // Right-click: the same menu the item's row has in the full sidebar.
+  const sidebarPrefs = useTabs((v) => v.sidebar);
+  const menu = useMemo(() => menuOrder(sidebarPrefs), [sidebarPrefs]);
   const onContextMenu = (event: MouseEvent) => {
     event.preventDefault();
     const el = (event.target as HTMLElement).closest<HTMLElement>('[data-menu-kind]');
     if (el) openRowMenu(el.dataset.menuKind, el.dataset.menuId ?? '', { x: event.clientX, y: event.clientY });
   };
+  // The same rows as the full sidebar's top menu, in the user's order (`menuOrder`).
+  const railRows: Record<MenuItem, ReactNode> = {
+    overview: (
+      <button className={`rail-button${overview ? ' active' : ''}`} data-menu-kind="overview" aria-label="Overview" aria-current={overview ? 'page' : undefined} {...opener((newTab) => openView({ kind: 'overview' }, newTab))}>
+        <LayoutDashboard aria-hidden />
+      </button>
+    ),
+    'new-session': (
+      <button className="rail-button" aria-label="New session" title="New session ⌘N" {...opener((newTab) => void runMenuAction(item.newSession().action!, newTab))}>
+        <Plus aria-hidden />
+      </button>
+    ),
+    'pull-requests': (
+      <button className={`rail-button${requests ? ' active' : ''}`} aria-label="Pull requests" title="Pull requests" aria-current={requests ? 'page' : undefined} {...opener((newTab) => openView({ kind: 'pull-requests' }, newTab))}>
+        <GitPullRequest aria-hidden />
+      </button>
+    ),
+    'code-reviews': reviewsLink ? (
+      <button className={`rail-button${reviews ? ' active' : ''}`} aria-label={newReviews ? `Code reviews, ${newReviews} to look at` : 'Code reviews'} title={newReviews ? `Code reviews · ${newReviews} to look at` : 'Code reviews'} aria-current={reviews ? 'page' : undefined} {...opener((newTab) => openView({ kind: 'code-reviews' }, newTab))}>
+        <Eye aria-hidden />
+        {newReviews > 0 && <span className="status-dot rail-dot green" aria-hidden />}
+      </button>
+    ) : null,
+    tickets: <TicketsRailButton active={route?.view.kind === 'tickets' || route?.view.kind === 'ticket'} />,
+  };
   return (
     <aside className="sidebar-rail-bar" aria-label="Sidebar" onContextMenu={onContextMenu}>
       <div className="rail-top">
-        <button className={`rail-button${overview ? ' active' : ''}`} data-menu-kind="overview" aria-label="Overview" aria-current={overview ? 'page' : undefined} {...opener((newTab) => openView({ kind: 'overview' }, newTab))}>
-          <LayoutDashboard aria-hidden />
-        </button>
-        <button className="rail-button" aria-label="New session" title="New session ⌘N" {...opener((newTab) => void runMenuAction(item.newSession().action!, newTab))}>
-          <Plus aria-hidden />
-        </button>
-        <button className={`rail-button${requests ? ' active' : ''}`} aria-label="Pull requests" title="Pull requests" aria-current={requests ? 'page' : undefined} {...opener((newTab) => openView({ kind: 'pull-requests' }, newTab))}>
-          <GitPullRequest aria-hidden />
-        </button>
-        {reviewsLink && (
-          <button className={`rail-button${reviews ? ' active' : ''}`} aria-label={newReviews ? `Code reviews, ${newReviews} to look at` : 'Code reviews'} title={newReviews ? `Code reviews · ${newReviews} to look at` : 'Code reviews'} aria-current={reviews ? 'page' : undefined} {...opener((newTab) => openView({ kind: 'code-reviews' }, newTab))}>
-            <Eye aria-hidden />
-            {newReviews > 0 && <span className="status-dot rail-dot green" aria-hidden />}
-          </button>
-        )}
+        {menu.map((id) => (
+          <Fragment key={id}>{railRows[id]}</Fragment>
+        ))}
         <button className="rail-button" aria-label="Search" title="Search ⌘K" onClick={onSwitch}>
           <Search aria-hidden />
         </button>

@@ -3,6 +3,7 @@
 /* A grid item: without this a long path would widen the whole page past the window. */
 .kestrel .page-head, .kestrel .page-head > * { min-width: 0; }
 .kestrel .page-head-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+.kestrel .page-head-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .kestrel .page-head-top h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kestrel .header-more { display: inline-flex; align-items: center; justify-content: center; padding: 0 6px; }
 .kestrel .header-more svg { width: 14px; height: 14px; }

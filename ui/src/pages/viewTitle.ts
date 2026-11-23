@@ -42,6 +42,10 @@ export function viewTitle(page: View, ws: (Pick<WorkspaceState, 'projects' | 'gr
       return 'Code reviews';
     case 'review-request':
       return 'Code review';
+    case 'tickets':
+      return 'Tickets';
+    case 'ticket':
+      return 'Ticket';
     case 'workstream':
       return (ws?.workstreams?.find((w) => w.id === view.id) ?? ws?.archivedWorkstreams?.find((w) => w.id === view.id))?.name ?? 'Workstream';
   }

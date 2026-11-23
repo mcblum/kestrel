@@ -43,8 +43,8 @@ export const AttentionRow = memo(function AttentionRow({ session, workspace }: {
   };
   const top = (
     <span className="qrow-top">
-      <strong>{session.title}</strong>
-      <span className="muted">
+      <strong className="inbox-title">{session.title}</strong>
+      <span className="qrow-meta">
         {projectName(session, workspace.projects)}
         <FilingTag mark={mark} /> · {AGENT_LABEL[session.agent]} · {age(session.updatedAt)}
       </span>
@@ -68,13 +68,13 @@ export const AttentionRow = memo(function AttentionRow({ session, workspace }: {
           <ApprovalDecision sessionId={session.id} card={approval} />
         </div>
       ) : (
-        <button className="qrow-main" {...opener(open)}>
+        <button type="button" className="qrow-main" {...opener(open)}>
           {top}
           {why}
           {planLine && <code className="qrow-detail">{planLine}</code>}
         </button>
       )}
-      <button className="secondary-button qrow-action" {...opener(open)}>
+      <button type="button" className="secondary-button small qrow-action" {...opener(open)}>
         {action} <ArrowUpRight aria-hidden />
       </button>
     </div>

@@ -54,10 +54,10 @@ const Row = memo(function Row({ session, projects, origin, showProject, showStat
     event.dataTransfer.effectAllowed = 'move';
   };
   return (
-    <div className={`trow${depth > 0 ? ' nested' : ''}`} role="row" aria-level={depth > 0 ? depth + 1 : undefined} draggable onDragStart={onDragStart} {...opener((newTab) => openSession(session.id, newTab))}>
+    <div className={`trow${compact ? ' inbox-row' : ''}${depth > 0 ? ' nested' : ''}`} role="row" aria-level={depth > 0 ? depth + 1 : undefined} draggable onDragStart={onDragStart} {...opener((newTab) => openSession(session.id, newTab))}>
       <span className="tcell tcell-main" style={depth > 0 ? ({ '--depth': depth } as CSSProperties) : undefined}>
         <span className="trow-title-line">
-        <button type="button" className="trow-title trow-title-button" onClick={e => { e.stopPropagation(); opener((newTab) => openSession(session.id, newTab)).onClick(e); }}>{session.title}</button>
+          <button type="button" className={`trow-title trow-title-button${compact ? ' inbox-title' : ''}`} title={compact ? session.title : undefined} onClick={e => { e.stopPropagation(); opener((newTab) => openSession(session.id, newTab)).onClick(e); }}>{session.title}</button>
           <RowTags tags={session.tags} />
         </span>
         <span className="trow-sub">

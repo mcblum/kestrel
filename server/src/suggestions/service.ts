@@ -53,7 +53,13 @@ export class Suggestions {
   }
 
   hostFor(sessionId: string): Pick<KestrelToolHost, 'suggest'> {
-    return { suggest: (args) => this.suggest(sessionId, args) };
+    return {
+      suggest: (args) => {
+        const kind = this.deps.registry.get(args.kind);
+        if (!('reason' in kind) && kind.kestrelOnly) return Promise.resolve({ isError: true, text: `Kestrel raises "${kind.kind}" suggestions itself; an agent cannot.` });
+        return this.suggest(sessionId, args);
+      },
+    };
   }
 
   /** The `suggest` tool: shown, applied by a standing rule, not shown (and why), or refused. Never throws. */
@@ -99,6 +105,16 @@ export class Suggestions {
     });
   }
 
+  /** Open cards of a kind that something else has since settled (Kestrel added the tag itself, say): each leaves `line` instead of asking. How many. */
+  settle(sessionId: string, kind: string, settled: (payload: unknown) => boolean, line: string): Promise<number> {
+    return this.serial(sessionId, async () => {
+      const ctx = await this.context(sessionId);
+      const open = ctx ? suggestionsIn(ctx.messages).filter((s) => s.kind === kind && s.state === 'open' && settled(s.payload)) : [];
+      for (const s of open) this.host.show(sessionId, { ...s, state: 'expired', answeredAt: this.now(), line });
+      return open.length;
+    });
+  }
+
   // ---- internals ---------------------------------------------------------------------------
 
   private async propose(sessionId: string, args: Record<string, unknown>): Promise<ToolResult> {
@@ -129,7 +145,7 @@ export class Suggestions {
       this.host.show(ctx.sessionId, { ...suggestion, state: 'expired', answeredAt: this.now(), line: 'Suggestion no longer applies' });
       throw new Refused(`That suggestion no longer applies: ${message(error)}`);
     }
-    const settled: Suggestion = { ...suggestion, state: force ?? pressed.state, answer: button, answeredAt: this.now(), line: pressed.line, ...(pressed.undo && kind.undo ? { undo: pressed.undo } : {}), ...(auto ? { auto: true } : {}) };
+    const settled: Suggestion = { ...suggestion, state: force ?? pressed.state, answer: button, answeredAt: this.now(), line: pressed.line, ...(pressed.undo && kind.undo ? { undo: pressed.undo } : {}), ...(pressed.opens ? { opens: pressed.opens } : {}), ...(auto ? { auto: true } : {}) };
     this.host.show(ctx.sessionId, settled);
     return settled;
   }

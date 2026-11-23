@@ -1,13 +1,8 @@
-.kestrel .overview-page { display: flex; flex-direction: column; flex: 1 0 auto; min-width: 0; width: 100%; }
-.kestrel .overview-content { flex: none; }
-.kestrel .overview-footer { container-type: inline-size; margin-top: auto; width: 100%; border-top: 1px solid var(--s-line); background: transparent; }
-.kestrel .overview-footer > .column { padding-block: 20px; }
-.kestrel .activity-garden { --garden-green: light-dark(#42785c, #9bc9ac); box-sizing: border-box; width: 100%; min-width: 0; display: grid; grid-template-columns: max-content minmax(326px, 1fr) 280px; align-items: center; gap: 16px 32px; }
+.kestrel .activity-garden { --garden-green: light-dark(#42785c, #9bc9ac); padding-top: 16px; border-top: 1px solid var(--s-line); min-width: 0; display: grid; grid-template-columns: max-content minmax(326px, 1fr) 280px; align-items: center; gap: 16px 32px; }
 .kestrel .activity-garden-calendar { position: relative; width: 326px; max-width: 100%; justify-self: center; }
 .kestrel .activity-garden-projects { width: 100%; max-width: 280px; justify-self: end; }
 .kestrel .activity-garden-day-detail { position: absolute; top: 100%; left: 0; right: 0; margin: 6px 0 0; font-size: 10px; color: var(--s-muted); text-align: center; }
-.kestrel .activity-garden h2 { display: flex; align-items: center; gap: 6px; margin: 0 0 5px; font-size: 12px; font-weight: 500; color: var(--s-muted); }
-.kestrel .activity-garden h2 svg { width: 16px; height: 16px; color: var(--garden-green); }
+.kestrel .activity-garden h2 { margin-bottom: 5px; }
 .kestrel .activity-garden-summary p { margin: 0; font-size: 12px; white-space: nowrap; }
 .kestrel .activity-garden-summary strong { font-size: 23px; font-weight: 500; letter-spacing: -.04em; margin-right: 3px; }
 .kestrel .activity-garden-calendar, .kestrel .activity-garden-projects { min-width: 0; }
@@ -47,7 +42,6 @@
    detail takes its own line instead of floating over the block below, and the projects get the room. */
 @container (max-width: 620px) {
   .kestrel .activity-garden { grid-template-columns: minmax(0, 1fr); gap: 18px; }
-  .kestrel .overview-footer > .column { padding-block: 16px; }
   .kestrel .activity-garden-calendar { width: 100%; max-width: 460px; justify-self: stretch; }
   .kestrel .activity-garden-grid { grid-template-columns: repeat(15, minmax(0, 1fr)); justify-content: stretch; margin-inline: 0; }
   .kestrel .activity-garden-day { height: auto; aspect-ratio: 1; }
@@ -56,5 +50,3 @@
   .kestrel .activity-garden-project-row { grid-template-columns: minmax(0, 1fr) minmax(64px, 30%) 3ch; padding-inline: 0; }
   .kestrel .activity-garden-selection ul { max-height: 180px; }
 }
-
-@container (max-width: 950px) { .kestrel .activity-garden-grid { grid-template-columns: repeat(15, minmax(0, 18px)); } }

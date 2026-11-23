@@ -54,6 +54,10 @@ export interface StartRequest {
   start?: WorktreeStart;
   /** A review of somebody else's request (shared/review-requests.ts). */
   review?: ReviewMark;
+  /** What the agent is told before the prompt, not shown as the user's (a ticket the message named). */
+  context?: string;
+  /** The user typed the prompt (the New session box, a phone): a ticket it names is taken up (shared/ticket-mention.ts). */
+  byUser?: boolean;
 }
 
 export type BringUpHost = Pick<
@@ -92,7 +96,7 @@ export async function startSession(host: BringUpHost, req: StartRequest): Promis
   host.records.set(id, rec);
   host.apply(id, rec, { type: 'user', id: `user-${randomUUID()}`, text: prompt, attachments });
   host.queue(rec, () => host.upkeep.persist(id, rec));
-  const launch: Launch = { agent: req.agent, project, source, folder, prompt, attachments, title, generateTitle: req.title === undefined, settings, ...(base ? { base } : {}), ...(req.start ? { start: req.start } : {}) };
+  const launch: Launch = { agent: req.agent, project, source, folder, prompt, ...(req.context ? { context: req.context } : {}), attachments, title, generateTitle: req.title === undefined, settings, ...(base ? { base } : {}), ...(req.start ? { start: req.start } : {}) };
   if (source?.isGit) {
     launchInBackground(host, id, rec, launch);
     return session;
@@ -143,7 +147,7 @@ async function bringUp(host: BringUpHost, id: string, rec: Live, adapter: AgentA
     if (signal?.aborted) throw new Abandoned();
     rec.launching = null;
     host.agents.set(id, launch.agent);
-    rec.handle = adapter.start(options, prompt, (event) => host.onEvent(id, rec, event), host.attachments.forAgent(id, launch.attachments));
+    rec.handle = adapter.start(options, [launch.context, prompt].filter(Boolean).join('\n\n'), (event) => host.onEvent(id, rec, event), host.attachments.forAgent(id, launch.attachments));
     return null;
   } catch (error) {
     rec.launching = null;

@@ -181,6 +181,13 @@ const SCENARIOS = {
     ctx.text(reply.reply === 'reject' ? `not run: ${reply.message}` : 'removed');
     ctx.finish();
   },
+  /** A read outside the folder (FAKE_OPENCODE_READ_PATH): OpenCode's external_directory ask. */
+  async 'ask-read'(ctx) {
+    const filePath = env.FAKE_OPENCODE_READ_PATH;
+    const reply = await asked(ctx, 'read', { filePath }, 'external_directory', [`${filePath.slice(0, filePath.lastIndexOf('/'))}/*`], { filepath: filePath });
+    ctx.text(reply.reply === 'reject' ? `not read: ${reply.message}` : 'read it');
+    ctx.finish();
+  },
   async 'ask-edit'(ctx) {
     const filePath = editPath(ctx);
     const reply = await asked(ctx, 'edit', { filePath, oldString: 'two', newString: 'three' }, 'edit', [filePath.startsWith(ctx.directory) ? filePath.slice(ctx.directory.length + 1) : filePath], { filepath: filePath, diff: '-two\n+three' });

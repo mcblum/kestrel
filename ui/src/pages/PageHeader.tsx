@@ -36,6 +36,7 @@ export function PageHeader({
   line,
   menu,
   actions,
+  mark,
 }: {
   title: string;
   /** `newTab` is a shift, Cmd or middle click. */
@@ -46,11 +47,16 @@ export function PageHeader({
   menu?: { kind: RowKind; id: string };
   /** Other buttons for the right of the title (a page with no New session: Pull requests' Refresh). */
   actions?: ReactNode;
+  /** What sits just before the title: the colour of the project, tag or workstream the page is of. */
+  mark?: ReactNode;
 }) {
   return (
     <header className="page-head">
       <div className="page-head-top">
-        <h1>{title}</h1>
+        <div className="page-head-title">
+          {mark}
+          <h1>{title}</h1>
+        </div>
         {(onNewSession || menu || actions) && (
           <div className="page-head-actions">
             {actions}

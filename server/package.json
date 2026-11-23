@@ -93,6 +93,8 @@
     "./toasts": "./src/shared/toasts.ts",
     "./sign-in": "./src/shared/sign-in.ts",
     "./review-requests": "./src/shared/review-requests.ts",
+    "./tickets": "./src/shared/tickets.ts",
+    "./ticket-changes": "./src/shared/ticket-changes.ts",
     "./review-settings": "./src/shared/review-settings.ts",
     "./colours": "./src/shared/colours.ts",
     "./review-reply": "./src/shared/review-reply.ts",
@@ -120,7 +122,8 @@
     "./pull-request-list": "./src/shared/pull-request-list.ts",
     "./background-tasks": "./src/shared/background-tasks.ts",
     "./task-row-name": "./src/shared/task-row-name.ts",
-    "./commands": "./src/shared/commands.ts"
+    "./commands": "./src/shared/commands.ts",
+    "./connect": "./src/shared/connect.ts"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",

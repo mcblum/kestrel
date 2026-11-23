@@ -16,6 +16,8 @@ export interface SidebarPrefs {
   tagOrder?: string[];
   /** Workstream ids, in the order the user dragged them. Absent in prefs stored before workstreams existed. */
   workstreamOrder?: string[];
+  /** The top menu's rows (`MENU_ITEMS`), in the order the user dragged them. Absent until one is dragged. */
+  menuOrder?: string[];
   /** Collapsed things: `sessions`, `projects`, or a group id. */
   collapsed: string[];
   /** Sidebar width in pixels, when the user has dragged it. */
@@ -38,6 +40,11 @@ export interface SidebarPrefs {
    */
   sessionOrder?: SessionOrder;
 }
+
+/** The rows of the sidebar's top menu, in the order Kestrel ships them (Matt, 2026-11-22: they can be dragged into another). */
+export const MENU_ITEMS = ['overview', 'new-session', 'pull-requests', 'code-reviews', 'tickets'] as const;
+export type MenuItem = (typeof MENU_ITEMS)[number];
+const isMenuItem = (id: string): id is MenuItem => (MENU_ITEMS as readonly string[]).includes(id);
 
 export const EMPTY_SIDEBAR: SidebarPrefs = { order: [], collapsed: [] };
 export const SIDEBAR_WIDTH = { min: 200, max: 520, initial: 252 } as const;
@@ -65,10 +72,11 @@ export function sanitizeSidebar(value: unknown): SidebarPrefs {
   const projectOrder = Array.isArray(v.projectOrder) ? { projectOrder: strings(v.projectOrder) } : {};
   const tagOrder = Array.isArray(v.tagOrder) ? { tagOrder: strings(v.tagOrder) } : {};
   const workstreamOrder = Array.isArray(v.workstreamOrder) ? { workstreamOrder: strings(v.workstreamOrder) } : {};
+  const menuOrder = Array.isArray(v.menuOrder) ? { menuOrder: strings(v.menuOrder).filter(isMenuItem) } : {};
   const hidden = v.hidden === true ? { hidden: true } : {};
   // Checked here rather than with session-order.ts's list, which imports this file.
   const sessionOrder = v.sessionOrder === 'recent' || v.sessionOrder === 'custom' ? { sessionOrder: v.sessionOrder as SessionOrder } : {};
-  return { order: strings(v.order), ...projectOrder, ...tagOrder, ...workstreamOrder, collapsed: strings(v.collapsed), ...width, ...paneWidth, ...changesWidth, ...contextWidth, ...simWidth, ...stack, ...hidden, ...sessionOrder };
+  return { order: strings(v.order), ...projectOrder, ...tagOrder, ...workstreamOrder, ...menuOrder, collapsed: strings(v.collapsed), ...width, ...paneWidth, ...changesWidth, ...contextWidth, ...simWidth, ...stack, ...hidden, ...sessionOrder };
 }
 
 /** Items in the user's order. Items the order does not know are new: they come first, as given. */
@@ -88,6 +96,23 @@ export function place(order: readonly string[], present: readonly string[], movi
   const at = target === null || target === moving ? -1 : rest.indexOf(target);
   const index = at === -1 ? rest.length : at + (after ? 1 : 0);
   return [...rest.slice(0, index), moving, ...rest.slice(index)];
+}
+
+/**
+ * Every top menu row, in the user's order. A row the saved order does not know (one added to Kestrel
+ * since it was dragged) goes after the ones it does, in the shipped order, so it never jumps to the top.
+ */
+export function menuOrder(prefs: SidebarPrefs): MenuItem[] {
+  const saved = (prefs.menuOrder ?? []).filter(isMenuItem);
+  return [...saved, ...MENU_ITEMS.filter((id) => !saved.includes(id))];
+}
+
+/** The prefs after top menu row `moving` is dropped beside row `target`. */
+export function placeMenuItem(prefs: SidebarPrefs, moving: string, target: string, after = false): SidebarPrefs {
+  if (!isMenuItem(moving) || !isMenuItem(target) || moving === target) return prefs;
+  const rest = menuOrder(prefs).filter((id) => id !== moving);
+  const index = rest.indexOf(target) + (after ? 1 : 0);
+  return { ...prefs, menuOrder: [...rest.slice(0, index), moving, ...rest.slice(index)] };
 }
 
 /** The prefs after project `moving` is dropped beside project `target`; `present` is every project shown. */

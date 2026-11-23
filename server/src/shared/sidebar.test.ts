@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EMPTY_SIDEBAR, PANE_WIDTH, SIDEBAR_WIDTH, arrange, clampPaneWidth, clampWidth, place, placeProject, placeTag, placeWorkstream, sanitizeSidebar, toggleCollapsed, toggleHidden } from './sidebar.ts';
+import { EMPTY_SIDEBAR, MENU_ITEMS, PANE_WIDTH, SIDEBAR_WIDTH, arrange, clampPaneWidth, clampWidth, menuOrder, place, placeMenuItem, placeProject, placeTag, placeWorkstream, sanitizeSidebar, toggleCollapsed, toggleHidden } from './sidebar.ts';
 
 const id = (x: string) => x;
 
@@ -122,5 +122,26 @@ describe('the order of workstreams', () => {
     expect(sanitizeSidebar(JSON.parse(JSON.stringify(placed))).workstreamOrder).toEqual(['c', 'a', 'b']);
     expect(sanitizeSidebar({}).workstreamOrder).toBeUndefined();
     expect(arrange(['new', 'a', 'b', 'c'], (id) => id, placed.workstreamOrder!)).toEqual(['new', 'c', 'a', 'b']);
+  });
+});
+
+describe('the top menu order', () => {
+  it('is the shipped order until a row is dragged', () => {
+    expect(menuOrder(EMPTY_SIDEBAR)).toEqual([...MENU_ITEMS]);
+  });
+
+  it('puts a dragged row before or after the row it is dropped on', () => {
+    const moved = placeMenuItem(EMPTY_SIDEBAR, 'pull-requests', 'overview');
+    expect(menuOrder(moved)).toEqual(['pull-requests', 'overview', 'new-session', 'code-reviews', 'tickets']);
+    expect(menuOrder(placeMenuItem(moved, 'overview', 'tickets', true))).toEqual(['pull-requests', 'new-session', 'code-reviews', 'tickets', 'overview']);
+  });
+
+  it('keeps a row the saved order does not know after the ones it does', () => {
+    expect(menuOrder({ ...EMPTY_SIDEBAR, menuOrder: ['new-session', 'overview'] })).toEqual(['new-session', 'overview', 'pull-requests', 'code-reviews', 'tickets']);
+  });
+
+  it('ignores anything that is not a menu row', () => {
+    expect(placeMenuItem(EMPTY_SIDEBAR, 'nope', 'overview')).toBe(EMPTY_SIDEBAR);
+    expect(sanitizeSidebar({ order: [], collapsed: [], menuOrder: ['tickets', 'nope', 3, 'overview'] }).menuOrder).toEqual(['tickets', 'overview']);
   });
 });

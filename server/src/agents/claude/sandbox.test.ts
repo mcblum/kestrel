@@ -21,6 +21,11 @@ describe("a child session's shell sandbox", () => {
     expect(shellSandbox({ ...child, directory: '/plain' }, repoOf)?.filesystem).toEqual({ allowWrite: ['/plain'] });
   });
 
+  it("can neither read nor write Kestrel's own credential files", () => {
+    const files = ['/data/trackers.sealed', '/data/trackers.json'];
+    expect(shellSandbox({ ...child, protectedFiles: files }, repoOf)?.filesystem).toEqual({ allowWrite: ['/data/worktrees/child', '/code/shop/.git'], denyRead: files, denyWrite: files });
+  });
+
   it('holds in every mode that asks, and not in Bypass or for a session that runs no commands', () => {
     for (const permission of ['ask', 'edits', 'auto', 'plan'] as const) expect(shellSandbox({ ...child, permission }, repoOf)?.enabled).toBe(true);
     expect(shellSandbox({ ...child, permission: 'bypass' }, repoOf)).toBeUndefined();

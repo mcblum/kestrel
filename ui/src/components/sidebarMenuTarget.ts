@@ -108,7 +108,7 @@ export function menuTargetFor(ws: WorkspaceState, kind: string | undefined, id: 
 }
 
 /** Where a row's menu opens: at a right-click's point, or from its … button. */
-export type RowMenuAt = { x: number; y: number } | { from: Element; gap: number };
+export type RowMenuAt = { x: number; y: number } | { from: Element; gap: number; returnFocus?: HTMLElement };
 
 /** Open the menu of a row; `onPage` when opened from that item's own page. */
 export function openRowMenu(kind: string | undefined, id: string, at: RowMenuAt, onPage = false): void {
@@ -116,11 +116,11 @@ export function openRowMenu(kind: string | undefined, id: string, at: RowMenuAt,
     const ws = appStore.get().workspace;
     if (!ws) return;
     const items = sidebarMenu(withPlace(menuTargetFor(ws, kind, id, appStore.get().seen), onPage));
-    if ('from' in at) contextMenu.openFrom(at.from, items, { gap: at.gap });
+    if ('from' in at) contextMenu.openFrom(at.from, items, { gap: at.gap, returnFocus: at.returnFocus });
     else contextMenu.open(at.x, at.y, items);
   };
   // The first menu asks which apps can open a folder (a local answer, held from then on) so it
   // can offer Open in; if that cannot be had, the menu opens without it.
-  if (heldFolderApps()) show();
+  if (kind === 'review' || heldFolderApps()) show();
   else void loadFolderApps().then(show, show);
 }

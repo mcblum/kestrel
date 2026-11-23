@@ -7,8 +7,11 @@
 //   POST  /api/sessions/:id/suggestions/:sid/undo                              200 { suggestion }
 //   GET   /api/suggestion-prefs/tags                                           200 { enabled, rules }
 //   PATCH /api/suggestion-prefs/tags  { enabled?: boolean, rule?: { key, value } }   200 { enabled, rules }
+//   GET   /api/suggestion-prefs/tickets                                        200 { answers }
+//   PATCH /api/suggestion-prefs/tickets  { change, source, answer: ask | always | never }  200 { answers }
 import { isSuggestionId } from '../shared/suggestions.ts';
 import { isRuleValue, parseRuleKey, ruleRows, type TagSuggestionPrefs } from '../shared/tag-rules.ts';
+import { ANSWER_SOURCES, isTicketChange, type AnswerSource } from '../shared/ticket-changes.ts';
 import type { Suggestions } from './service.ts';
 
 export type SuggestionAnswer = { status: number; body?: unknown };
@@ -22,6 +25,7 @@ const bad = (error: string): SuggestionAnswer => ({ status: 400, body: { error }
 
 export async function suggestionRoute(parts: readonly string[], method: string, readBody: ReadBody, suggestions: Suggestions): Promise<SuggestionAnswer | null> {
   if (parts[1] === 'suggestion-prefs' && parts[2] === 'tags' && parts.length === 3) return prefsRoute(method, readBody, suggestions);
+  if (parts[1] === 'suggestion-prefs' && parts[2] === 'tickets' && parts.length === 3) return ticketAnswersRoute(method, readBody, suggestions);
   if (parts[1] !== 'sessions' || parts[3] !== 'suggestions' || parts.length !== 6 || method !== 'POST' || !ACTIONS.has(parts[5]!)) return null;
   const [sessionId, suggestionId, action] = [parts[2]!, parts[4]!, parts[5]!];
   if (!isSuggestionId(suggestionId)) return bad('The suggestion id is not valid.');
@@ -49,4 +53,16 @@ async function prefsRoute(method: string, readBody: ReadBody, suggestions: Sugge
   if (typeof body.enabled === 'boolean') prefs = await suggestions.prefs.setTagsEnabled(body.enabled);
   if (rule) prefs = await suggestions.prefs.setTagRule(rule.key as string, rule.value as never);
   return { status: 200, body: prefsView(prefs) };
+}
+
+/** Settings → Tickets: the standing answers to ticket changes, each settable back to Ask. */
+async function ticketAnswersRoute(method: string, readBody: ReadBody, suggestions: Suggestions): Promise<SuggestionAnswer | null> {
+  if (method === 'GET') return { status: 200, body: { answers: await suggestions.prefs.ticketAnswers() } };
+  if (method !== 'PATCH') return null;
+  const body = await readBody();
+  if (!isTicketChange(body.change)) return bad('change must be in-progress, in-review or comment.');
+  if (!(ANSWER_SOURCES as readonly unknown[]).includes(body.source)) return bad('source is not a ticket source.');
+  if (body.answer !== 'ask' && body.answer !== 'always' && body.answer !== 'never') return bad('answer must be ask, always or never.');
+  const answers = await suggestions.prefs.setTicketAnswer(body.change, body.source as AnswerSource, body.answer === 'ask' ? null : body.answer);
+  return { status: 200, body: { answers } };
 }

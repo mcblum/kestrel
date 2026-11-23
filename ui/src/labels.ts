@@ -75,5 +75,7 @@ export const DIR_MIME = 'application/x-kestrel-directory';
 export const ATTACHMENT_MIME = 'application/x-kestrel-attachment';
 /** A tag row being dragged to a new place in the Tags list. */
 export const TAG_MIME = 'application/x-kestrel-tag';
+/** A row of the sidebar's top menu being dragged into another place. */
+export const MENU_MIME = 'application/x-kestrel-menu-item';
 /** A workstream's row, dragged to reorder the WORKSTREAMS section. */
 export const WORKSTREAM_MIME = 'application/x-kestrel-workstream';

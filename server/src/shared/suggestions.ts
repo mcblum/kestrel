@@ -40,6 +40,8 @@ export interface Suggestion {
   undo?: Record<string, unknown>;
   /** Applied by a standing rule ("Always"): never shown as a card. */
   auto?: boolean;
+  /** A session the line names: drawn as a link that opens it. */
+  opens?: string;
 }
 
 /** A suggestion's message id in the conversation. */

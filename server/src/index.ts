@@ -9,6 +9,7 @@ import { scriptedAdapter } from './agents/scripted.ts';
 import { titleProviders } from './agents/title-providers.ts';
 import { dataDir as resolveDataDir } from './data-dir.ts';
 import { createKestrelServer } from './http.ts';
+import { startConnect } from './connect/link/start.ts';
 import { startCrashReporter } from './crash-reports/start.ts';
 import { crashReportSetup } from './shared/crash-reports.ts';
 import { detailsSources } from './details-api.ts';
@@ -23,6 +24,17 @@ import { REVIEW_CHECK_MS, syncReviewRequests } from './review-requests/sync.ts';
 import { reviewStarter } from './review-requests/auto.ts';
 import { asDismissedKeys, asReviewOrder, reviewSessionTitle } from './shared/review-requests.ts';
 import { ready } from './shared/sourced.ts';
+import { asClosedTickets, asStoredTickets, asTicketLinks, asTicketSettings } from './shared/tickets.ts';
+import { TicketStore } from './tickets/store.ts';
+import { syncTickets } from './tickets/sync.ts';
+import { sessionTickets } from './tickets/session.ts';
+import { ticketSources } from './tickets/sources/index.ts';
+import { sampleSeenKeys, sampleTicketLinks } from './tickets/sources/fake.ts';
+import { plainCredentials, sealedCredentials } from './tickets/credentials.ts';
+import { PROTECTED_FILES } from './shared/protected-files.ts';
+import { JiraConnection, SAMPLE_TRACKERS_REASON } from './tickets/jira-connection.ts';
+import { LinearConnection } from './tickets/linear-connection.ts';
+import { readVaultKey } from './connect/link/vault.ts';
 import { SHUTDOWN_DEADLINE_MS, timedSteps } from './shared/shutdown.ts';
 import { SessionRuntime } from './runtime.ts';
 import { memoryPersistence } from './persistence/memory.ts';
@@ -35,7 +47,7 @@ import { seedSidebar } from './seed-sidebar.ts';
 import { LOOPBACK_HOST, newLaunchToken, sessionToken } from './security.ts';
 import { mcpUrl } from './kestrel-mcp.ts';
 import { Workspace } from './workspace.ts';
-import { sampleUsername } from './git-settings/github-login.ts';
+import { githubLoginLookup, sampleUsername } from './git-settings/github-login.ts';
 
 // Outside any repository, so worktrees never sit inside another project's tree.
 const dataDir = resolveDataDir();
@@ -47,9 +59,13 @@ const demo = process.env.KESTREL_DEMO === '1';
 // KESTREL_DEMO_SCENE=story (`pnpm demo --story`) is the demo cut down to one moment: one task across
 // three projects, one question waiting, nothing else asking for the eye (seed-story.ts).
 // KESTREL_DEMO_SCENE=story-reviews is the same moment with two review requests waiting in CODE REVIEWS.
+// KESTREL_DEMO_SCENE=tickets (`pnpm demo --tickets`) is the demo in a store of its own, for showing
+// tickets: the sample tracker's sprint (tickets/sources/fake.ts), which every fake run but the story
+// and sidebar scenes lists once tickets are turned on. This scene starts with them on.
 const sidebarDemo = demo && process.env.KESTREL_DEMO_SCENE === 'sidebar';
 const storyReviews = demo && process.env.KESTREL_DEMO_SCENE === 'story-reviews';
 const story = storyReviews || (demo && process.env.KESTREL_DEMO_SCENE === 'story');
+const ticketsDemo = demo && process.env.KESTREL_DEMO_SCENE === 'tickets';
 // KESTREL_FAKE=1 opens the separate seeded fake store. Real sessions work in both.
 const fake = demo || process.env.KESTREL_FAKE === '1';
 
@@ -135,7 +151,65 @@ if (crashReporting) {
     console.error(`[kestrel] crash reports could not start: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
-const app = createKestrelServer(workspace, { token, allowedOrigins: uiOrigins, port }, runtime, { details: { sources: details, sample: fake }, writers: titles, reviewRequests, crashReporting });
+// The user's tickets (tickets/): dismissed and read keys and the links to the work on them are kept
+// with the app's settings, through the persistence facade. With fake data the scripted sample
+// tracker stands in (tickets/sources/fake.ts); the story and sidebar scenes have none.
+const storedKeys = async (key: string): Promise<string[]> => db.getSetting(key).then((raw) => (raw ? asDismissedKeys(JSON.parse(raw)) : [])).catch(() => []);
+const keepSetting = (key: string, what: string) => (value: unknown) => void db.putSetting(key, JSON.stringify(value)).catch((error: unknown) => console.error(`[kestrel] could not store ${what}`, error));
+const tickets = new TicketStore({
+  dismissed: await storedKeys('ticket-dismissed'),
+  saveDismissed: keepSetting('ticket-dismissed', 'the dismissed tickets'),
+  // A fresh data directory on the sample tracker starts with a couple of tickets new, not all of them.
+  seen: (await db.getSetting('ticket-seen').catch(() => null)) === null && fake ? sampleSeenKeys() : await storedKeys('ticket-seen'),
+  saveSeen: keepSetting('ticket-seen', 'the read tickets'),
+  // The tickets demo starts with one ticket under way, so the Tickets page shows the group.
+  links: await db.getSetting('ticket-links').then(async (raw) => (raw ? asTicketLinks(JSON.parse(raw)) : ticketsDemo ? sampleTicketLinks(Date.now(), (await workspace.state()).workstreams) : [])).catch(() => []),
+  saveLinks: keepSetting('ticket-links', 'the tickets attached to work'),
+  // Settings → Tickets: off until the user turns it on; the tickets demo starts with it on.
+  settings: await db.getSetting('ticket-settings').then((raw) => (raw ? asTicketSettings(JSON.parse(raw)) : asTicketSettings({ on: ticketsDemo }))).catch(() => asTicketSettings(null)),
+  saveSettings: keepSetting('ticket-settings', 'the tickets setting'),
+  // The last list of every source, so a ticket that closes while Kestrel is not running is still found, and the closed ones.
+  held: await db.getSetting('ticket-held').then((raw) => (raw ? asStoredTickets(JSON.parse(raw)) : [])).catch(() => []),
+  saveHeld: keepSetting('ticket-held', 'the tickets last listed'),
+  closed: await db.getSetting('ticket-closed').then((raw) => (raw ? asClosedTickets(JSON.parse(raw)) : [])).catch(() => []),
+  saveClosed: keepSetting('ticket-closed', 'the closed tickets'),
+});
+// Jira Cloud's site, email and token are kept sealed under the app's key, as Connect's sign-in is.
+const vaultKey = readVaultKey();
+const credentials = vaultKey ? sealedCredentials(join(dataDir, PROTECTED_FILES.trackersSealed), vaultKey) : plainCredentials(join(dataDir, PROTECTED_FILES.trackersPlain));
+let checkTickets: () => void = () => undefined;
+const jira = new JiraConnection(credentials, { unavailable: fake ? SAMPLE_TRACKERS_REASON : null, changed: () => checkTickets() });
+const linear = new LinearConnection(credentials, { unavailable: fake ? SAMPLE_TRACKERS_REASON : null, changed: () => checkTickets() });
+const sourcesOfTickets = ticketSources({ fake, workspace, originOf: originUrl, glabSignIn: sharedGlabSignIn, githubLogin: githubLoginLookup(), jira: () => jira.ticketSource(), linear: () => linear.ticketSource() });
+const noTicketSources = story || sidebarDemo;
+// Kestrel Connect (connect/link/): signed in and switched on in Settings, it links to the relay.
+const connect = await startConnect({ dataDir, settings: db, fake, workspace, runtime, vaultKey });
+// The sync is made before the server, which hands its routes to it, and asks only while a window is connected.
+let watchedNow: () => boolean = () => false;
+const ticketSync = syncTickets(async () => (noTicketSources ? [] : sourcesOfTickets.list()), tickets, () => watchedNow());
+const ticketWork = {
+  projects: async () => (await workspace.state()).projects,
+  sessions: async () => (await workspace.state()).sessions,
+  workstreams: async () => (await workspace.state()).workstreams,
+  originOf: originUrl,
+  start: (req: Parameters<typeof runtime.start>[0]) => runtime.start(req),
+  tag: (id: string, tag: string) => workspace.tagSession(id, tag),
+  started: (id: string) => void runtime.proposeTicketStarted(id).catch((error: unknown) => console.error('[kestrel] could not propose the ticket’s move', error)),
+};
+// A session's ticket, for the `ticket` suggestion and the ticket tools (tickets/session.ts).
+runtime.useTickets(
+  sessionTickets({
+    store: tickets,
+    sync: ticketSync,
+    workstreams: async () => (await workspace.state()).workstreams,
+    liveSessions: async () => new Set((await workspace.state()).sessions.map((s) => s.id)), // archived ones are not listed,
+    tag: (id, tag) => workspace.tagSession(id, tag),
+    untag: (id, tag) => workspace.untagSession(id, tag),
+  }),
+);
+const app = createKestrelServer(workspace, { token, allowedOrigins: uiOrigins, port }, runtime, { details: { sources: details, sample: fake }, writers: titles, reviewRequests, tickets: { store: tickets, sync: ticketSync, work: ticketWork, jira, linear, sources: () => sourcesOfTickets.status() }, crashReporting, connect });
+watchedNow = () => app.watched();
+checkTickets = () => void ticketSync.check();
 await app.listen();
 // The one copy of every session's pull requests, kept current and pushed to every window.
 const pullRequestSync = syncPullRequests(workspace, details, fake, () => app.watched(), (sessionId) => app.watching(sessionId));
@@ -209,6 +283,8 @@ const shutdown = async () => {
       reviewRequestSync?.stop();
       clearInterval(reviewStartTimer);
     }],
+    ['tickets', async () => ticketSync.stop()],
+    ['connect', () => connect.close()],
     ['http', () => app.close()],
     ['store', () => db.close()],
   ]);

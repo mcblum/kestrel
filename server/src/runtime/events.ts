@@ -19,7 +19,7 @@ import { noteFromText, trackSubagent, type Live } from './record.ts';
 /** The events `onAgentEvent` deals with before the turn's own (`applyTurnEvent`). */
 type TurnEvent = Exclude<AgentEvent, { type: 'context' | 'picked-up' | 'unread' | 'outside-allowed' | 'slash-commands' | 'tool-output' | 'background-ended' | 'background-tasks' | 'image' | 'mode' | 'subagent-output' }>;
 
-export type EventHost = Pick<RuntimeHost, 'workspace' | 'agents' | 'upkeep' | 'background' | 'commands' | 'delegation' | 'display' | 'midTurn' | 'emitLive' | 'apply' | 'queue' | 'setQueue' | 'flushQueue'>;
+export type EventHost = Pick<RuntimeHost, 'workspace' | 'agents' | 'upkeep' | 'background' | 'commands' | 'delegation' | 'display' | 'midTurn' | 'emitLive' | 'apply' | 'queue' | 'setQueue' | 'flushQueue' | 'turnComplete'>;
 
 /** How full the context window is, as last measured: kept on the record and sent to watchers. */
 export function noteContext(host: Pick<RuntimeHost, 'emitLive'>, id: string, rec: Live, usage: ContextUsage): void {
@@ -145,6 +145,7 @@ async function turnEnded(host: EventHost, id: string, rec: Live, reason: 'comple
   await host.upkeep.flush(id, rec);
   releaseWaiters(rec);
   if (reason !== 'stopped') await host.delegation.onChildState(id, 'done', '');
+  if (end === 'complete') host.turnComplete(id);
   // The user's queued messages are the next turn; news from other sessions goes along with them.
   if (flush && rec.queue.items.length > 0 && !rec.handle?.busy()) return host.flushQueue(id);
   return host.delegation.drainInbox(id);

@@ -52,6 +52,9 @@ const GOOD: Record<string, Record<string, unknown>> = {
   'media.read': { sessionId: 's1', name: 'shot-1.png' },
   'attachment.read': { sessionId: 's1', attachmentId: 'a1' },
   'review.post': { sessionId: 's1', cardId: 'review-1', verdict: 'approve', withoutComment: true },
+  'suggestion.answer': { sessionId: 's1', suggestionId: 'g1', button: 'accept' },
+  'suggestion.dismiss': { sessionId: 's1', suggestionId: 'g1' },
+  'suggestion.undo': { sessionId: 's1', suggestionId: 'g1' },
 };
 
 describe('the operations', () => {

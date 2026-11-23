@@ -6,6 +6,7 @@ import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import type { CommandOutput } from '@kestrel/server/commands';
 import type { SignInProgress } from '@kestrel/server/sign-in';
+import type { ConnectView } from '@kestrel/server/connect';
 import type { Agent, ChatMessage, Group, LivePatch, PinKind, Project, SessionDetail, SessionQueue, SessionSettings, SessionView, WorkspaceState } from '@kestrel/server/model';
 import type { PermissionLevel } from '@kestrel/server/permissions';
 import type { BaseChoice } from '@kestrel/server/start-base';
@@ -15,6 +16,7 @@ import { isPullRequestLookup, type PullRequestLookup } from '@kestrel/server/det
 import { asSourced, type Sourced } from '@kestrel/server/sourced';
 import { sanitizeSeen, type Seen } from '@kestrel/server/unread';
 import { asReviewRequestsView, NO_REVIEW_REQUESTS, type ReviewRequestsView } from '@kestrel/server/review-requests';
+import { asTicketsView, NO_TICKETS, type TicketsView } from '@kestrel/server/tickets';
 import { counted } from '@kestrel/server/toasts';
 import { toasts } from './toasts.ts';
 import { initialTabs } from '@kestrel/server/tabs';
@@ -99,6 +101,8 @@ export interface AppState {
   pullRequestsVersion: number;
   /** The requests the user was asked to review, as the server pushes them (server/src/review-requests/store.ts). */
   reviewRequests: ReviewRequestsView;
+  /** The user's tickets and the links to the work on them, as the server pushes them (server/src/tickets/store.ts). */
+  tickets: TicketsView;
   /** Other server data, one entry per route path (data/resources.ts). */
   resources: ReadonlyMap<string, Sourced<unknown>>;
   /** When each session was last looked at, as the server pushes it (server/src/seen.ts); null until the first push. */
@@ -109,6 +113,8 @@ export interface AppState {
   simulator: SimulatorState;
   /** Each agent's sign-in started from Kestrel, while it is under way and how it ended (signIn.ts owns the writes). */
   signIn: Readonly<Partial<Record<Agent, SignInProgress>>>;
+  /** Kestrel Connect's sign-in, switch and link, as the server pushes it (connectStore.ts owns the writes); null until the first push. */
+  connect: ConnectView | null;
   error: string | null;
 }
 
@@ -136,7 +142,7 @@ async function refreshLaunch(): Promise<boolean> {
   }
 }
 
-const initialState: AppState = { connection: launch ? 'connecting' : 'no-server', live: new Map(), renaming: null, tagging: null, openedFromReference: null, workspace: null, sessionsById: new Map(), details: new Map(), pullRequests: new Map(), reviewRequests: NO_REVIEW_REQUESTS, seen: null, pullRequestsVersion: 0, resources: new Map(), tabs: { loaded: false, state: initialTabs(), remembered: DEFAULT_REMEMBERED, sidebar: EMPTY_SIDEBAR }, simulator: { devices: { loaded: false, devices: [], unavailable: null }, infos: new Map(), chosen: new Map(), errors: new Map() }, signIn: {}, error: null };
+const initialState: AppState = { connection: launch ? 'connecting' : 'no-server', live: new Map(), renaming: null, tagging: null, openedFromReference: null, workspace: null, sessionsById: new Map(), details: new Map(), pullRequests: new Map(), reviewRequests: NO_REVIEW_REQUESTS, tickets: NO_TICKETS, seen: null, pullRequestsVersion: 0, resources: new Map(), tabs: { loaded: false, state: initialTabs(), remembered: DEFAULT_REMEMBERED, sidebar: EMPTY_SIDEBAR }, simulator: { devices: { loaded: false, devices: [], unavailable: null }, infos: new Map(), chosen: new Map(), errors: new Map() }, signIn: {}, connect: null, error: null };
 
 /** The one store (Zustand). Everything the app knows about the server lives here, once. */
 const appStoreApi = createStore<AppState>()(() => initialState);
@@ -148,7 +154,7 @@ function set(patch: Partial<AppState>) {
 }
 
 /** For the modules that own a slice's writes: the tabs (tabsStore.ts), the simulator (simulatorStore.ts) and agent sign-ins (signIn.ts). */
-export function setApp(patch: Pick<Partial<AppState>, 'tabs' | 'simulator' | 'signIn'>) {
+export function setApp(patch: Pick<Partial<AppState>, 'tabs' | 'simulator' | 'signIn' | 'connect'>) {
   set(patch);
 }
 
@@ -271,6 +277,34 @@ export function applyReviewRequests(raw: unknown) {
   };
   const next: ReviewRequestsView = { requests: shared(view.requests, prev.requests), unread: shareJson(prev.unread, view.unread), dismissed: shared(view.dismissed, prev.dismissed), problems: shareJson(prev.problems, view.problems), order: shareJson(prev.order, view.order) };
   if (next.requests !== prev.requests || next.unread !== prev.unread || next.dismissed !== prev.dismissed || next.problems !== prev.problems || next.order !== prev.order) set({ reviewRequests: next });
+}
+
+/**
+ * The server's tickets, pushed whole. A ticket, a detail or a list that did not change keeps its
+ * identity, so the rows and pages that show them do not re-render.
+ */
+export function applyTickets(raw: unknown) {
+  const prev = current().tickets;
+  const view = asTicketsView(raw);
+  const byKey = new Map([...prev.tickets, ...prev.dismissed, ...prev.attached].map((t) => [t.key, t]));
+  const shared = <T extends { key: string }>(list: T[], held: T[], from: Map<string, T>) => {
+    const next = list.map((t) => shareJson(from.get(t.key), t));
+    return next.length === held.length && next.every((t, i) => t === held[i]) ? held : next;
+  };
+  const details = Object.fromEntries(Object.entries(view.details).map(([key, d]) => [key, shareJson(prev.details[key], d)]));
+  const next: TicketsView = {
+    tickets: shared(view.tickets, prev.tickets, byKey),
+    dismissed: shared(view.dismissed, prev.dismissed, byKey),
+    attached: shared(view.attached, prev.attached, byKey),
+    closed: shared(view.closed, prev.closed, new Map(prev.closed.map((t) => [t.key, t]))),
+    unread: shareJson(prev.unread, view.unread),
+    links: shareJson(prev.links, view.links),
+    details: Object.keys(details).length === Object.keys(prev.details).length && Object.entries(details).every(([k, d]) => prev.details[k] === d) ? prev.details : details,
+    problems: shareJson(prev.problems, view.problems),
+    sources: shareJson(prev.sources, view.sources),
+    settings: shareJson(prev.settings, view.settings),
+  };
+  if ((Object.keys(next) as (keyof TicketsView)[]).some((k) => next[k] !== prev[k])) set({ tickets: next });
 }
 
 /** Write one route's answer into `resources`; an answer identical to the one held keeps its identity. At most MAX_RESOURCES are kept, the least recently written dropped first. */
@@ -443,6 +477,7 @@ function featureSocket(prefix: string) {
 }
 export const terminalSocket = featureSocket('term-');
 export const browserSocket = featureSocket('browser-');
+export const connectSocket = featureSocket('connect-');
 export const simulatorSocket = featureSocket('sim-');
 const handlerFor = (type: unknown) => (typeof type === 'string' ? [...socketHandlers].find(([prefix]) => type.startsWith(prefix))?.[1] : undefined);
 function sendWatch(type: 'watch' | 'unwatch', sessionId: string) {
@@ -470,6 +505,7 @@ function connect() {
     else if (message.type === 'live') applyLive(message.sessionId, message.patch);
     else if (message.type === 'pull-requests') applyPullRequests(message);
     else if (message.type === 'review-requests') applyReviewRequests(message.view);
+    else if (message.type === 'tickets') applyTickets(message.view);
     else if (message.type === 'seen') applySeen(message.seen);
     else handlerFor(message.type)?.message(message);
   };
@@ -632,6 +668,42 @@ export const actions = {
     if (done && announce && keys.length > 0) toasts.show(`Marked ${counted(keys.length, 'review request')} as ${seen ? 'read' : 'unread'}`, () => actions.markReviewsSeen(keys, !seen));
     return done;
   },
+  /** Dismiss tickets, or restore dismissed ones; says so with Undo unless it is itself an undo. Posts nothing to the tracker. */
+  dismissTickets: async (keys: string[], dismissed: boolean, announce = true) => {
+    const done = await act(() => call('/api/tickets/dismissed', { method: 'PUT', body: JSON.stringify({ keys, dismissed }) }));
+    if (done && announce && keys.length > 0) toasts.show(`${dismissed ? 'Dismissed' : 'Restored'} ${counted(keys.length, 'ticket')}`, () => actions.dismissTickets(keys, !dismissed, false));
+    return done;
+  },
+  /** Mark tickets read, or unread again; `announce` for a deliberate marking. */
+  markTicketsSeen: async (keys: string[], seen: boolean, announce = false) => {
+    const done = await act(() => call('/api/tickets/seen', { method: 'PUT', body: JSON.stringify({ keys, seen }) }));
+    if (done && announce && keys.length > 0) toasts.show(`Marked ${counted(keys.length, 'ticket')} as ${seen ? 'read' : 'unread'}`, () => actions.markTicketsSeen(keys, !seen));
+    return done;
+  },
+  /** Ask the ticket's tracker for its description and comments; the answer arrives in the push. */
+  readTicket: (key: string) => act(() => call('/api/tickets/read', { method: 'POST', body: JSON.stringify({ key }) })),
+  /** Ask every tracker again now. */
+  /**
+   * Move a ticket to another status in its tracker (server tickets/move.ts, the one function every move
+   * goes through). A toast says what was done; Undo moves it back the same way, and is not announced.
+   * A refusal carries the tracker's own reason.
+   */
+  moveTicket: async (key: string, to: string, quiet = false): Promise<boolean> => {
+    const moved = await act(() => call<{ key: string; ref: string; from: { name: string }; to: { name: string } }>('/api/tickets/move', { method: 'POST', body: JSON.stringify({ key, to }) }));
+    if (moved && !quiet) toasts.show(`Moved ${moved.ref} to ${moved.to.name}`, () => void actions.moveTicket(key, moved.from.name, true));
+    return Boolean(moved);
+  },
+  /** Add a comment to a ticket in its tracker, as the user (server tickets/comment.ts). True when it was posted; a refusal carries the tracker's own reason. */
+  commentOnTicket: async (key: string, body: string): Promise<boolean> => {
+    const posted = await act(() => call<{ ref: string }>('/api/tickets/comment', { method: 'POST', body: JSON.stringify({ key, body }) }));
+    if (posted) toasts.show(`Commented on ${posted.ref}`);
+    return Boolean(posted);
+  },
+  /** Settings → Tickets: on or off, or the sources switched off. Saved as it is changed; the server pushes the view back. */
+  setTicketSettings: (change: { on?: boolean; off?: string[]; show?: string; matches?: Record<string, string[]> }) => act(() => call('/api/tickets/settings', { method: 'PUT', body: JSON.stringify(change) })),
+  refreshTickets: () => act(() => call('/api/tickets/refresh', { method: 'POST', body: '{}' })),
+  /** Work this ticket: its lead session, started now or already at work (server tickets/work.ts). `projectId` null starts it with no project; absent, in the matched one. */
+  workTicket: (input: { key: string; agent: Agent; model?: string; effort?: string; fast?: boolean; permission?: PermissionLevel; projectId?: string | null }) => act(() => call<{ id: string }>('/api/tickets/work', { method: 'POST', body: JSON.stringify(input) })),
   /** Pin to, or unpin from, the top of the sidebar. Undo does the other; `quiet` when it is itself an undo, or part of a larger move. */
   setPinned: (kind: PinKind, id: string, pinned: boolean, quiet = false): Promise<unknown> =>
     announced(() => call('/api/pins', { method: 'POST', body: JSON.stringify({ kind, id, pinned }) }), quiet, () => `${pinned ? 'Pinned' : 'Unpinned'} ${pinName(kind, id)}`, () => actions.setPinned(kind, id, !pinned, true)),

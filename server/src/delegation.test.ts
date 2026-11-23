@@ -1,13 +1,14 @@
 import { existsSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import type { DetectDeps } from './commit-signing/detect.ts';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { GIT_TEST_TIMEOUT_MS } from './test-timeouts.ts';
 import type { InputRequest } from './agents/types.ts';
 import { DEFAULT_LIMITS } from './limits.ts';
 import { REPORT_MAX, reportOf } from './delegation.ts';
 import type { PermissionLevel } from './shared/permissions.ts';
+import { PROTECTED_REFUSAL } from './shared/protected-files.ts';
 import { memoryPersistence } from './persistence/memory.ts';
 import { SessionRuntime } from './runtime.ts';
 import { FakeAgents, until, type Turn } from './test-agent.ts';
@@ -878,6 +879,25 @@ describe('a signed commit in a child (0.0.18)', () => {
     expect(parent!.options.commitSigning).toBeUndefined();
     expect(child!.options.confineShell).toBe(true);
     expect(child!.options.commitSigning).toEqual({ read: ['/Users/me/.gnupg'], sockets: ['/Users/me/.gnupg/S.gpg-agent'] });
+  });
+
+  it("a child is kept from Kestrel's credential store; the session the user started is not", async () => {
+    const w = await world(false);
+    w.agents.script = async (turn) => {
+      if (turn.text === 'split') await turn.options.tools.delegate({ tasks: [{ project: 'repoB', brief: 'Child B' }] });
+    };
+    await w.runtime.start({ agent: 'claude', projectId: w.a.id, prompt: 'split', permission: 'auto' });
+    await w.settle();
+    const [parent, child] = w.agents.starts;
+    const secrets = child!.options.protectedFiles!;
+    expect(secrets.map((f) => basename(f)).sort()).toEqual(['connect.json', 'connect.sealed', 'trackers.json', 'trackers.sealed']);
+    expect(secrets.every((f) => dirname(f) === w.data)).toBe(true);
+    expect(await child!.options.intercept!({ tool: 'Read', input: { file_path: join(w.data, 'trackers.json') } })).toEqual({ allow: false, message: PROTECTED_REFUSAL });
+    expect(await child!.options.intercept!({ tool: 'Bash', input: { command: `cat ${join(w.data, 'connect.sealed')}` } })).toEqual({ allow: false, message: PROTECTED_REFUSAL });
+    expect(await child!.options.intercept!({ tool: 'Read', input: { file_path: join(w.data, 'notes.txt') } })).toEqual({ allow: true });
+    // The top-level session is not confined: it can read the file, as the user can.
+    expect(parent!.options.protectedFiles).toBeUndefined();
+    expect(await parent!.options.intercept!({ tool: 'Read', input: { file_path: join(w.data, 'trackers.json') } })).toEqual({ allow: true });
   });
 
   it('a child of a repository that does not sign gets nothing for signing, nor with the switch off', async () => {

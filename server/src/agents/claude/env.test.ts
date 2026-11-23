@@ -5,7 +5,7 @@ import { baseOptions } from './options.ts';
 
 describe('the environment the SDK runs with', () => {
   it('keeps the environment (ssh agent, proxies, git settings) and drops what redirects sign-in', () => {
-    const env = { HOME: '/h', PATH: '/bin', SSH_AUTH_SOCK: '/s', HTTPS_PROXY: 'p', GIT_AUTHOR_NAME: 'n', CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'x', CLAUDE_CODE_USE_BEDROCK: '1', ANTHROPIC_API_KEY: 'k', ANTHROPIC_AUTH_TOKEN: 't', ANTHROPIC_BASE_URL: 'u' };
+    const env = { HOME: '/h', PATH: '/bin', SSH_AUTH_SOCK: '/s', HTTPS_PROXY: 'p', GIT_AUTHOR_NAME: 'n', CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'x', CLAUDE_CODE_USE_BEDROCK: '1', ANTHROPIC_API_KEY: 'k', ANTHROPIC_AUTH_TOKEN: 't', ANTHROPIC_BASE_URL: 'u', KESTREL_TOKEN: 'launch-token' };
     const out = claudeEnv(env);
     expect(out).toEqual({ HOME: '/h', PATH: '/bin', SSH_AUTH_SOCK: '/s', HTTPS_PROXY: 'p', GIT_AUTHOR_NAME: 'n' });
   });

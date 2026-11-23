@@ -93,6 +93,8 @@ export interface Launch {
   /** Where to work when there is no repository: the plain folder, or scratch. */
   folder: string;
   prompt: string;
+  /** What the agent is told before the prompt and the user does not see as theirs (a ticket the message named). */
+  context?: string;
   /** Files attached to the first message, already stored with the session (attachments/store.ts). */
   attachments?: readonly Attachment[];
   title: string;

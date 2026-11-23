@@ -43,12 +43,16 @@ export interface Pressed {
   state: 'answered' | 'dismissed';
   line: string;
   undo?: Record<string, unknown>;
+  /** A session the line names, drawn as a link to it. */
+  opens?: string;
 }
 
 export interface SuggestionKind {
   readonly kind: string;
   /** The button the card's small x stands for (the kind's "not now"). */
   readonly dismiss: string;
+  /** Raised by Kestrel only: the `suggest` tool refuses it. */
+  readonly kestrelOnly?: boolean;
   propose(ctx: KindContext, payload: Record<string, unknown>): Promise<Proposal>;
   press(ctx: KindContext, suggestion: Suggestion, button: string): Promise<Pressed>;
   /** Reverses what a press did; returns the new line. Absent: the kind has no Undo. */

@@ -145,6 +145,12 @@ export class ConnectDispatcher {
         return this.attachment(request.args);
       case 'review.post':
         return this.postReview(request.args);
+      case 'suggestion.answer':
+        return this.suggestion(request.args.sessionId, (s) => s.answer(request.args.sessionId, request.args.suggestionId, request.args.button));
+      case 'suggestion.dismiss':
+        return this.suggestion(request.args.sessionId, (s) => s.dismiss(request.args.sessionId, request.args.suggestionId));
+      case 'suggestion.undo':
+        return this.suggestion(request.args.sessionId, (s) => s.undo(request.args.sessionId, request.args.suggestionId));
     }
   }
 
@@ -212,6 +218,12 @@ export class ConnectDispatcher {
     await this.session(sessionId);
     await this.deps.workspace.seen.mark([sessionId]);
     return { seen: true };
+  }
+
+  /** A suggestion card's button, x or Undo, as the suggestion route does them (suggestions/api.ts): the settled card comes back. */
+  private async suggestion(sessionId: string, act: (suggestions: SessionRuntime['suggestions']) => Promise<unknown>) {
+    await this.session(sessionId);
+    return { suggestion: await act(this.deps.runtime.suggestions) };
   }
 
   /** As the review card's Post at the desk: the same edits, the same refusals (review-requests/reply.ts). */

@@ -173,6 +173,8 @@ export const KESTREL_TOOLS = [
   'post_review',
   'start_review',
   'suggest',
+  'ticket_read',
+  'ticket_update',
   'browser_navigate',
   'browser_read',
   'browser_click',
@@ -251,6 +253,10 @@ export interface KestrelToolHost {
   postReview(args: { verdict?: unknown; summary?: unknown; findings?: unknown }): Promise<ToolResult>;
   /** Drop an optional action into the conversation (suggestions/service.ts). Never waits for the user. */
   suggest(args: { kind: string } & Record<string, unknown>): Promise<ToolResult>;
+  /** A ticket as the tracker has it now (status, description, criteria, comments): the session's own, or a listed one named by `key`. Read only. */
+  ticketRead(args?: { key?: string }): Promise<ToolResult>;
+  /** Propose a change to the session's ticket (In progress, In review, a comment), as a `ticket` suggestion: never waits for the user. */
+  ticketUpdate(args: { change: string; body?: string; reason?: string }): Promise<ToolResult>;
   /** The session's browser pane, which the user watches. See browser-tools.ts. */
   browserNavigate(args: { url: string }): Promise<ToolResult>;
   browserRead(args: { max_chars?: number }): Promise<ToolResult>;
@@ -316,6 +322,11 @@ export interface StartOptions {
   outsideAllowed?: boolean;
   /** The always-allowed list (Settings → Workflow): its folders widen the sandbox, its commands skip the card. */
   sandboxAllow?: SandboxAllowAccess;
+  /**
+   * Kestrel's own credential files (shared/protected-files.ts), resolved, set with `confineShell`: a Claude
+   * child's sandbox cannot read them, and `intercept` refuses any call that reads, searches or names them.
+   */
+  protectedFiles?: string[];
   /** What a confined session's sandbox lets through so a signed commit works (shared/commit-signing.ts); absent when its repository does not sign or the user switched it off. */
   commitSigning?: SigningAccess;
   /**

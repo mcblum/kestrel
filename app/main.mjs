@@ -7,6 +7,7 @@
 // Dev: KESTREL_UI_URL points at the Vite dev server (`pnpm dev:app` sets it).
 // Otherwise the built UI is served from the app's own app://kestrel origin (paths.mjs says where
 // it is: ui/dist in a checkout, inside the app archive when packaged).
+import { vaultKey } from './vault-key.mjs';
 import { app, BrowserWindow, Menu, Notification, dialog, ipcMain, nativeTheme, net, protocol, session, shell, webContents } from 'electron';
 import { randomBytes } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
@@ -306,7 +307,7 @@ async function boot() {
   // folder for Kestrel (server-log.mjs says where that is on each platform).
   const writeLog = isPackaged ? openServerLog(app.getPath('logs')) : undefined;
   writeLog?.(`[kestrel] environment: ${shellEnv.source}\n`);
-  server = await startServer({ port: launch.port, token: launch.token, origin, dataDir: process.env.KESTREL_DATA_DIR, baseEnv: shellEnv.env, writeLog });
+  server = await startServer({ port: launch.port, token: launch.token, origin, dataDir: process.env.KESTREL_DATA_DIR, baseEnv: shellEnv.env, writeLog, vaultKey: vaultKey() });
   // If the server dies while the app is open there is nothing useful left to show.
   void server.exited.then((code) => {
     if (quitting) return;

@@ -161,3 +161,26 @@ describe('a review session leaves its home for CODE REVIEWS', () => {
     expect(ids([h.reviews[0]!.node])).toEqual(['a']);
   });
 });
+
+describe('a ticket’s lead leaves its home for TICKETS', () => {
+  const leads = (pins: PinRef[], entries: [string, string][], reviewingIds: string[] = []) => sidebarHomes({ pins, trees, sessions, reviewing: new Set(reviewingIds), ticketLeads: new Map(entries) });
+
+  it('none: nothing changes, and the same objects come back', () => {
+    const h = leads([], []);
+    expect(h.tickets).toEqual([]);
+    expect(h.away).toBe(h.pinnedAway);
+  });
+
+  it('leaves its group tree and its project list, and shows once with its ticket and what hangs under it', () => {
+    const h = leads([], [['a', 'fake:BELL-1']]);
+    expect(h.tickets.map((t) => [t.id, t.key])).toEqual([['a', 'fake:BELL-1']]);
+    expect(ids([h.tickets[0]!.node])).toEqual(['a', 'a1', 'a2']);
+    expect(ids(h.trees.g1!)).not.toContain('a');
+    expect(projectRowIds(sessions, 'p1', h.inProjectList, h.away)).not.toContain('a');
+  });
+
+  it('stays under PINNED or CODE REVIEWS when either draws it already', () => {
+    expect(leads([pin('session', 'a')], [['a', 'fake:BELL-1']]).tickets).toEqual([]);
+    expect(leads([], [['a', 'fake:BELL-1']], ['a']).tickets).toEqual([]);
+  });
+});

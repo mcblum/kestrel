@@ -1,9 +1,10 @@
 // Settings, in the main canvas: a list of sections on the left, the chosen one on the right. App-wide
 // only: a project's own settings are on its page's Settings tab. Nothing opens in a panel from the side.
+import { TicketsSettings } from '../components/TicketsSetting.tsx';
 import { SaveBar } from '../components/SaveBar.tsx';
 import { thisComputer } from '../platform.ts';
 import { SettingHeading, SettingSection } from '../components/SettingHelp.tsx';
-import { Archive, Bot, GitBranch, Plug, SlidersHorizontal, Workflow as Workflow2, FolderGit2, Keyboard, Layers, Palette, Bell, TerminalSquare, Shield, Eye, SwatchBook } from 'lucide-react';
+import { Archive, Bot, GitBranch, Plug, SlidersHorizontal, Workflow as Workflow2, FolderGit2, Keyboard, Layers, Palette, Bell, TerminalSquare, Shield, Eye, SwatchBook, Ticket } from 'lucide-react';
 import { ArchivedSettings } from './ArchivedSettings.tsx';
 import { SetupSetting } from '../onboarding/SetupSetting.tsx';
 import { CreateProjectPage } from './CreateProjectPage.tsx';
@@ -26,6 +27,8 @@ import { SandboxAllowSetting } from '../components/SandboxAllowSetting.tsx';
 import { DelegationLimitsSetting } from '../components/DelegationLimitsSetting.tsx';
 import { CommitSigningSetting } from '../components/CommitSigningSetting.tsx';
 import { CrashReportsSetting } from '../components/CrashReportsSetting.tsx';
+import { KestrelConnectSetting } from '../components/KestrelConnectSetting.tsx';
+import { ConnectPairPage } from '../components/ConnectPairPage.tsx';
 import { WorktreesSetting } from '../components/WorktreesSetting.tsx';
 import { SessionOrderSetting } from '../components/SessionOrderSetting.tsx';
 import { BranchPrefixSetting } from '../components/BranchPrefixSetting.tsx';
@@ -123,7 +126,9 @@ function Connections() {
   return (
     <>
       <SettingHeading level={1} title="Connections" help={<p className="settings-help">What Kestrel is connected to on {thisComputer()}.</p>} />
-      <section className="settings-section">
+      <KestrelConnectSetting />
+      <section className="settings-section connections-services">
+        <h2>Agents & services</h2>
         <ConnectionList rows={rows} />
       </section>
     </>
@@ -136,7 +141,7 @@ const RENAMED: Record<string, string> = { 'tag-suggestions': 'workflow' };
 export function SettingsPage({ section: asked = 'general' }: { section?: string }) {
   const section = RENAMED[asked] ?? asked;
   const item = (id: string, label: string, icon: React.ReactNode) => (
-    <button key={id} className={`side-link${section === id ? ' active' : ''}`} aria-current={section === id ? 'page' : undefined} {...opener((newTab) => openView({ kind: 'settings', section: id }, newTab))}>
+    <button key={id} className={`side-link${section.split('/')[0] === id ? ' active' : ''}`} aria-current={section.split('/')[0] === id ? 'page' : undefined} {...opener((newTab) => openView({ kind: 'settings', section: id }, newTab))}>
       {icon}
       <span className="link-label">{label}</span>
     </button>
@@ -160,12 +165,13 @@ export function SettingsPage({ section: asked = 'general' }: { section?: string 
         <div className="settings-nav-group">Workspace</div>
         {item('git', 'Git', <GitBranch aria-hidden />)}
         {item('code-reviews', 'Code reviews', <Eye aria-hidden />)}
+        {item('tickets', 'Tickets', <Ticket aria-hidden />)}
         {item('connections', 'Connections', <Plug aria-hidden />)}
         {item('worktrees', 'Storage', <FolderGit2 aria-hidden />)}
         {item('archived', 'Archived', <Archive aria-hidden />)}
       </nav>
       <div className="settings-main">
-      <div className="settings-body" key={section}>
+      <div className={`settings-body settings-${section.replaceAll('/', '-')}`} key={section}>
         {section === 'appearance' ? (
           <AppearanceSetting page />
         ) : section === 'colours' ? (
@@ -190,10 +196,14 @@ export function SettingsPage({ section: asked = 'general' }: { section?: string 
           <Git />
         ) : section === 'code-reviews' ? (
           <CodeReviewsSettings />
+        ) : section === 'tickets' ? (
+          <TicketsSettings />
         ) : section === 'workflow' ? (
           <Workflow />
         ) : section === 'connections' ? (
           <Connections />
+        ) : section === 'connections/pair' ? (
+          <ConnectPairPage />
         ) : section === 'archived' ? (
           <ArchivedSettings />
         ) : section === 'worktrees' ? (

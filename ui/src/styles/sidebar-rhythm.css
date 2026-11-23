@@ -101,7 +101,7 @@
   width: 3px; border-radius: 1.5px; background: var(--guide, var(--s-muted)); opacity: 1;
 }
 .kestrel .studio-sidebar :is(.project-block, .tag-block:not(.workstream-block)) > .fold-row > .side-link { position: relative; padding-right: calc(var(--edge) + var(--slot) + 8px); }
-.kestrel .studio-sidebar :is(.project-block, .tag-block:not(.workstream-block)) > .fold-row .fold-label { font-weight: 600; }
+.kestrel .studio-sidebar :is(.project-block, .tag-block:not(.workstream-block)) > .fold-row .fold-label { font-weight: 500; }
 /* The chevron follows the name, as it did before (Matt, 2026-11-22); the status dot keeps the outermost slot. */
 .kestrel .studio-sidebar :is(.project-block, .tag-block:not(.workstream-block)) > .fold-row .row-dot { position: absolute; right: calc(var(--edge) + (var(--slot) - 6px) / 2); margin-right: 0; }
 
@@ -120,7 +120,8 @@
 
 /* A project's name is the sidebar's landmark (Matt, 2026-11-22): ink, a touch larger, and a little
    room above every project after the first, so the blocks read apart at a glance. */
-.kestrel .studio-sidebar .project-block > .fold-row .fold-label { color: var(--s-ink); font-size: 12.5px; }
+/* Between ink and muted (Matt, 2026-11-22: full ink in semibold was very bright); the open one is ink. */
+.kestrel .studio-sidebar .project-block > .fold-row .fold-label { color: color-mix(in srgb, var(--s-ink) 68%, var(--s-muted)); font-size: 12.5px; }
 .kestrel .studio-sidebar .project-block + .project-block { margin-top: 6px; }
 
 /* "N more": the sessions a project folds away (shared/sidebar-fold.ts), one quiet line where the
@@ -165,4 +166,4 @@
    title is wider, so the row's text moved. Each row keeps the weight it has at rest. */
 .kestrel .studio-sidebar .tree-row.selected .tree-title,
 .kestrel .studio-sidebar .side-link.active { font-weight: inherit; }
-.kestrel .studio-sidebar :is(.project-block, .tag-block:not(.workstream-block)) > .fold-row > .side-link.active .fold-label { font-weight: 600; }
+.kestrel .studio-sidebar :is(.project-block, .tag-block:not(.workstream-block)) > .fold-row > .side-link.active .fold-label { font-weight: 600; color: var(--s-ink); }

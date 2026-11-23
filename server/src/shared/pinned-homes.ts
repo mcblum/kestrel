@@ -12,6 +12,8 @@
 //   - a session that is reviewing a request still waiting on the user (`reviewing`) leaves its usual
 //     home the same way and shows only under CODE REVIEWS, with what hangs under it; one that is
 //     also under PINNED (pinned itself, or inside a pinned item) stays there, once.
+//   - a session leading the work on a listed ticket (`ticketLeads`, given only while the sidebar has
+//     a TICKETS section) does the same under TICKETS, unless PINNED or CODE REVIEWS already draws it.
 // Pinning changes nothing else: membership and order are untouched, so unpinning puts an item
 // back exactly where it was. Where an unpinned session is drawn (its group, the Sessions list or
 // its project's list, exactly one of them) is decided first, by `sessionHomes` (session-homes.ts).
@@ -39,11 +41,21 @@ export interface HomesInput {
   listedReviews?: ReadonlySet<string>;
   /** False when the sidebar has no CODE REVIEWS section (shared/review-settings.ts): a review session then stays in its usual home. */
   reviewsSection?: boolean;
+  /** The sessions leading the work on a listed ticket, each with the ticket's key; given only while the sidebar has a TICKETS section. */
+  ticketLeads?: ReadonlyMap<string, string>;
 }
 
 /** One session row of the CODE REVIEWS section, with what hangs under it. */
 export interface ReviewRow {
   id: string;
+  node: TreeNode;
+}
+
+/** One session row of the TICKETS section: a ticket's lead, with what hangs under it. */
+export interface TicketLeadRow {
+  id: string;
+  /** The ticket it leads. */
+  key: string;
   node: TreeNode;
 }
 
@@ -69,7 +81,9 @@ export interface SidebarHomes {
   reviews: ReviewRow[];
   /** Sessions that have gone to CODE REVIEWS with a review session. */
   reviewAway: ReadonlySet<string>;
-  /** Everything that left its usual home, to PINNED or to CODE REVIEWS: a project's list leaves these out. */
+  /** The TICKETS section's lead rows, in the order of `sessions`. */
+  tickets: TicketLeadRow[];
+  /** Everything that left its usual home, to PINNED, CODE REVIEWS or TICKETS: a project's list leaves these out. */
   away: ReadonlySet<string>;
   /** Sessions drawn in a pinned session's own row (it and what hangs under it): a pinned project's list leaves them out. */
   inSessionRows: ReadonlySet<string>;
@@ -126,7 +140,7 @@ export function projectRowIds(sessions: readonly HomeSession[], projectId: strin
 const flatNode = (sessionId: string): TreeNode => ({ sessionId, via: null, movedFrom: null, children: [] });
 
 /** Where everything in the sidebar is drawn, given what is pinned. */
-export function sidebarHomes({ pins, trees: given, sessions, reviewing, reviewKeyOf, listedReviews, reviewsSection }: HomesInput): SidebarHomes {
+export function sidebarHomes({ pins, trees: given, sessions, reviewing, reviewKeyOf, listedReviews, reviewsSection, ticketLeads }: HomesInput): SidebarHomes {
   const { trees, inProjectList, nestedInProject: nestedBeforePins } = sessionHomes(given, sessions);
   const pinnedGroups = new Set(pins.filter((p) => p.kind === 'group').map((p) => p.id));
   const pinnedProjects = new Set(pins.filter((p) => p.kind === 'project').map((p) => p.id));
@@ -183,12 +197,25 @@ export function sidebarHomes({ pins, trees: given, sessions, reviewing, reviewKe
   const reviews: ReviewRow[] = candidates.filter((row) => !below.has(row.id));
   const reviewAway = new Set<string>();
   for (const row of reviews) idsOf([row.node], reviewAway);
-  const away = reviewAway.size ? new Set([...pinnedAway, ...reviewAway]) : pinnedAway;
+  // A ticket's lead goes to TICKETS the same way, unless PINNED or CODE REVIEWS draws it already.
+  const taken = new Set([...underPinned, ...reviewAway]);
+  const ticketCandidates = (ticketLeads?.size ? sessions : []).flatMap((session) => {
+    const key = ticketLeads!.get(session.id);
+    const node = key && !taken.has(session.id) ? nodes.get(session.id) : undefined;
+    return key && node ? [{ id: session.id, key, node }] : [];
+  });
+  const belowLead = new Set<string>();
+  for (const row of ticketCandidates) idsOf(row.node.children, belowLead);
+  const leads = ticketCandidates.filter((row) => !belowLead.has(row.id));
+  const ticketAway = new Set<string>();
+  for (const row of leads) idsOf([row.node], ticketAway);
+  const away = reviewAway.size || ticketAway.size ? new Set([...pinnedAway, ...reviewAway, ...ticketAway]) : pinnedAway;
   const pruned = Object.fromEntries(Object.entries(trees).map(([key, tree]) => [key, prune(tree, away)]));
   const nestedInProject = new Map([...nestedBeforePins].map(([id, below]) => [id, prune(below, away)] as const).filter(([, below]) => below.length > 0));
   // A review row's own children are what is left of them once pins are cut out.
   const reviewRows = reviews.map((row) => ({ id: row.id, node: prune([row.node], pinnedAway)[0] ?? row.node }));
-  return { pinned, trees: pruned, pinnedGroups, pinnedProjects, pinnedAway, reviews: reviewRows, reviewAway, away, inSessionRows, inProjectList, nestedInProject };
+  const ticketRows = leads.map((row) => ({ id: row.id, key: row.key, node: prune([row.node], pinnedAway)[0] ?? row.node }));
+  return { pinned, trees: pruned, pinnedGroups, pinnedProjects, pinnedAway, reviews: reviewRows, reviewAway, tickets: ticketRows, away, inSessionRows, inProjectList, nestedInProject };
 }
 
 /** What an empty list draws: a "Create a session…" row, or a quiet note that its sessions are all pinned. */

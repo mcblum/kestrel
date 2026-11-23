@@ -11,6 +11,8 @@
 #                             question waiting, the rest folded (its own data, ~/.kestrel-demo-story)
 #   pnpm demo --story --reviews   the same scene with two review requests waiting in CODE REVIEWS
 #                             (its own data, ~/.kestrel-demo-story-reviews)
+#   pnpm demo --tickets       the demo with a sample sprint of tickets to work (its own data,
+#                             ~/.kestrel-demo-tickets): open Tickets in the top menu
 #   pnpm demo --light|--dark  force the theme
 #
 # KESTREL_DEMO_DIR puts the data somewhere else.
@@ -20,20 +22,25 @@ fresh=0
 story=0
 sidebar=0
 reviews=0
+tickets=0
 for arg in "$@"; do
   case "$arg" in
     --fresh) fresh=1 ;;
     --story) story=1 ;;
     --sidebar) sidebar=1 ;;
     --reviews) story=1; reviews=1 ;;
+    --tickets) tickets=1 ;;
     --light) export KESTREL_APP_THEME=light ;;
     --dark) export KESTREL_APP_THEME=dark ;;
-    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $arg (try --help)" >&2; exit 2 ;;
   esac
 done
 
-if [ "$sidebar" = 1 ]; then
+if [ "$tickets" = 1 ]; then
+  export KESTREL_DEMO_SCENE=tickets
+  DIR="${KESTREL_DEMO_DIR:-$HOME/.kestrel-demo-tickets}"
+elif [ "$sidebar" = 1 ]; then
   export KESTREL_DEMO_SCENE=sidebar
   DIR="${KESTREL_DEMO_DIR:-$HOME/.kestrel-demo-sidebar}"
 elif [ "$reviews" = 1 ]; then

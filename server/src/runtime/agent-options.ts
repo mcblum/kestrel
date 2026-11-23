@@ -4,14 +4,15 @@
 import { guestEditRefusal, hostEditRefusal } from '../shared/worktree-guests.ts';
 import { hostSandboxSupport } from '../agents/claude/sandbox-support.ts';
 import { resolveEnv } from '../project-env/resolve.ts';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, realpathSync } from 'node:fs';
+import { join, sep } from 'node:path';
 import { resolveReal } from '../agents/claude/confine.ts';
 import { kestrelToolName } from '../agents/claude/map.ts';
 import type { Intercept, StartOptions, ToolAction } from '../agents/types.ts';
 import type { ChildOrigin } from '../delegation.ts';
 import type { Project, ProjectFolder, Session, SessionSettings } from '../model.ts';
 import { folderOf } from '../shared/project-folders.ts';
+import { PROTECTED_FILE_NAMES, protectedRefusal } from '../shared/protected-files.ts';
 import { otherProjectHolding, otherProjectRefusal, otherWorktreeHolding, otherWorktreeRefusal, within } from '../shared/project-edits.ts';
 import { Refused } from '../workspace.ts';
 import type { RuntimeHost } from './host.ts';
@@ -51,9 +52,21 @@ export async function startOptions(host: OptionsHost, sessionId: string, directo
   await host.sandboxAllow.entries();
   const signing = options.confineShell ? await host.commitSigning.accessFor(directory) : undefined;
   const { env } = await resolveEnv(await host.projectEnv.all(), project?.id ?? null, folder?.path ?? null);
-  const guarded: StartOptions = { ...options, ...(Object.keys(env).length > 0 ? { env } : {}), intercept: (action) => editVerdict(host, sessionId, project?.id ?? null, directory, action), sandboxAllow: host.sandboxAllow.access(), ...(signing ? { commitSigning: signing } : {}), ...(options.confineShell ? { sandboxSupport: hostSandboxSupport() } : {}) };
+  // A confined session never reaches Kestrel's own credential store (shared/protected-files.ts).
+  const secrets = options.confineShell ? protectedPaths(host.dataDir) : [];
+  const intercept = async (action: ToolAction): Promise<Intercept> => {
+    const refusal = protectedRefusal(action, secrets, (path) => resolveReal(path, directory), sep);
+    return refusal ? { allow: false, message: refusal } : editVerdict(host, sessionId, project?.id ?? null, directory, action);
+  };
+  const guarded: StartOptions = { ...options, ...(Object.keys(env).length > 0 ? { env } : {}), ...(secrets.length ? { protectedFiles: secrets } : {}), intercept, sandboxAllow: host.sandboxAllow.access(), ...(signing ? { commitSigning: signing } : {}), ...(options.confineShell ? { sandboxSupport: hostSandboxSupport() } : {}) };
   const mcpAccess = host.mcpAccess();
   return mcpAccess ? { ...guarded, kestrelMcp: mcpAccess(sessionId) } : guarded;
+}
+
+/** Kestrel's credential files in its data folder, by every spelling a path to them resolves to. */
+export function protectedPaths(dataDir: string): string[] {
+  const dirs = [...new Set([dataDir, existsSync(dataDir) ? realpathSync(dataDir) : dataDir])];
+  return dirs.flatMap((dir) => PROTECTED_FILE_NAMES.map((name) => join(dir, name)));
 }
 
 /**

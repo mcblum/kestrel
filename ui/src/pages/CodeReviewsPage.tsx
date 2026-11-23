@@ -1,99 +1,86 @@
-// Code reviews: every pull or merge request somebody asked the user to review by name, as the
-// server pushes them (`reviewRequests`), most recently changed first. Two lists, chosen by a chip
-// kept in the tab's path: the ones waiting, and the ones the user dismissed. Each row opens its
-// request (or the review session it has), links to its host, and is dismissed or restored by its
-// own button; the button at the top does the same to the whole list. A request not opened yet is
-// new: a green dot in place of its eye and its title brighter and bolder than a read one's, as
-// unread mail is, until it is opened or Mark all read.
-// The reviews the user has started (a session reviews the request) stand first, under Reviewing,
-// above the filters and untouched by them, so what they took on is always in sight (the first ten,
-// then Show all). The rest follow under Not started, with the filters: who asked, which project (or repository), how recently it was
-// opened, and a forgiving text search (shared/review-filter.ts). They are the page's own, kept
-// while it is open; Dismiss all and Mark all read act on the requests not started that the filters
-// leave in sight, never on a review under way, which is dismissed by its own button. Dismissing posts nothing to
-// the host and stops no session: the request is only no longer listed as waiting.
-// Sort by (last activity or date opened, newest or oldest first) orders both groups, so it sits at
-// the right of the Waiting / Dismissed bar; it is this browser's own choice and is remembered there.
+// Reviews assigned to the user. Active review sessions are grouped above the queue. The toolbar
+// filters both groups, while bulk mark-read and dismiss apply to the matching queue only.
 import { memo, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, CheckCheck, ExternalLink, Eye, RotateCcw, Search, X } from 'lucide-react';
-import { asReviewSort, filterReviews, isFiltering, REVIEW_SORT_BY, REVIEW_SORT_LABEL, sortDirectionLabel, sortReviews, type ReviewSort, type ReviewSortBy, NO_REVIEW_FILTERS, placeChoices, REVIEW_WITHIN, REVIEW_WITHIN_LABEL, splitStarted, whoChoices, type ReviewFilters, type ReviewWithin } from '@kestrel/server/review-filter';
+import { CheckCheck, RotateCcw, X } from 'lucide-react';
+import { asReviewSort, filterReviews, isFiltering, REVIEW_SORT_BY, REVIEW_SORT_LABEL, sortDirectionLabel, sortReviews, type ReviewSort, NO_REVIEW_FILTERS, placeChoices, REVIEW_WITHIN, REVIEW_WITHIN_LABEL, splitStarted, whoChoices, type ReviewFilters, type ReviewWithin } from '@kestrel/server/review-filter';
 import { hostTerms } from '@kestrel/server/host-terms';
-import { openedText, requestStatus, reviewRowDetail, type ReviewRequest } from '@kestrel/server/review-requests';
+import { askedBy, openedText, repositoryName, requestNumberLabel, requestStatus, type ReviewRequest } from '@kestrel/server/review-requests';
+import { InboxReference, InboxRowMenu, InboxSearch, InboxStartButton } from '../components/InboxList.tsx';
 import { statusText } from '../labels.ts';
 import { useRowDot } from '../components/useRowDot.ts';
 import { openRowMenu } from '../components/sidebarMenuTarget.ts';
 import { useReviewSettings } from '../reviewSettings.ts';
+import { startRequestedReview } from '../review.ts';
 import { openSession, openView, opener, showLocal } from '../route.ts';
 import { actions, useApp } from '../store.ts';
 import { useMinuteNow } from '../useNow.ts';
 import { PageHeader } from './PageHeader.tsx';
 
 const ReviewRow = memo(function ReviewRow({ request, dismissed }: { request: ReviewRequest; dismissed: boolean }) {
-  const projectName = useApp((s) => (request.projectId ? s.workspace?.projects.find((p) => p.id === request.projectId)?.name : undefined));
+  const project = useApp((s) => (request.projectId ? s.workspace?.projects.find((p) => p.id === request.projectId) : undefined));
   // The session reviewing it, when it has one: the row opens that, and says where it stands.
   const session = useApp((s) => s.workspace?.sessions.find((x) => x.review?.key === request.key));
   const terms = hostTerms(request.host);
   const opened = openedText(request, useMinuteNow());
   // New until it is opened or marked read; a dismissed one is never new.
   const unread = useApp((s) => !dismissed && s.reviewRequests.unread.includes(request.key));
-  const status = session ? `Review: ${statusText(session).toLowerCase()}` : requestStatus(request).label;
+  const status = session ? `Review: ${statusText(session).toLowerCase()}` : request.notStarted ? 'Could not start' : '';
+  const statusDetail = !session && request.notStarted ? requestStatus(request).label : status;
   // A review under way shows its session's own dot, as its sidebar row does: green when it has
   // finished a turn since the user last looked, yellow when it waits on an answer.
   const dot = useRowDot(dismissed ? undefined : session);
   const news = dot.className === 'green' || dot.className === 'amber';
   return (
     <li
-      className={`reviews-row${unread || news ? ' unread' : ''}`}
+      className={`inbox-row${unread || news ? ' unread' : ''}`}
       // Right-click: the request's own menu, the one its sidebar row has (menu.ts).
       onContextMenu={(event) => {
         event.preventDefault();
         openRowMenu('review', request.key, { x: event.clientX, y: event.clientY });
       }}
     >
-      {dot.className !== 'none' ? (
-        <span className={`status-dot ${dot.className} reviews-new`} role="img" aria-label={dot.label} title={dot.label} />
-      ) : unread ? (
-        <span className="status-dot green reviews-new" role="img" aria-label="New" title="New: you have not opened it yet" />
-      ) : (
-        <Eye aria-hidden className="reviews-mark" />
-      )}
-      <button type="button" className="reviews-open" title={request.title} {...opener((newTab) => {
+      <span className="inbox-indicator">
+        {dot.className !== 'none' ? (
+          <span className={`status-dot ${dot.className}`} role="img" aria-label={dot.label} title={dot.label} />
+        ) : unread ? (
+          <span className="status-dot green" role="img" aria-label="New review" title="New review" />
+        ) : null}
+      </span>
+      <button type="button" className="inbox-open" title={session ? `Open review session for ${request.title}` : request.title} {...opener((newTab) => {
           // Opening it is reading it, whichever it opens: its review session, or its own page.
           if (unread) void actions.markReviewsSeen([request.key], true);
           if (session) openSession(session.id, newTab);
           else openView({ kind: 'review-request', id: request.key }, newTab);
         })}>
-        <span className="reviews-title">{request.title}</span>
-        <span className="reviews-detail">{[reviewRowDetail(request, projectName), opened && `opened ${opened}`].filter(Boolean).join(' · ')}</span>
+        <span className="inbox-title">{request.title}</span>
+        <span className="inbox-meta">
+          <InboxReference service={terms.service}>{requestNumberLabel(request)}</InboxReference>
+          <span>{project?.name || repositoryName(request.repository)}</span>
+          {askedBy(request) && <span>{askedBy(request)}</span>}
+          {opened && <span>Opened {opened}</span>}
+        </span>
       </button>
-      <span className="reviews-status" title={status}>
-        {status}
+      <span className="inbox-status">
+        {status && <span className="inbox-status-note review-inbox-status" title={statusDetail}>{status}</span>}
+        {!dismissed && !session && project && (
+          <InboxStartButton label="Start review" reference={requestNumberLabel(request)} onStart={(newTab) => startRequestedReview(request.key, newTab)} />
+        )}
       </span>
-      {request.url && (
-        <a className="reviews-icon" href={request.url} target="_blank" rel="noreferrer" aria-label={`Open on ${terms.service}`} title={`Open on ${terms.service}`}>
-          <ExternalLink aria-hidden />
-        </a>
-      )}
-      <button type="button" className="secondary-button small reviews-dismiss" onClick={() => void actions.dismissReviews([request.key], !dismissed)}>
-        {dismissed ? <RotateCcw aria-hidden /> : <X aria-hidden />} {dismissed ? 'Restore' : 'Dismiss'}
-      </button>
+      <InboxRowMenu label={`Actions for ${requestNumberLabel(request)}`} onClick={(event) => {
+        openRowMenu('review', request.key, { from: event.currentTarget, gap: 4, returnFocus: event.currentTarget });
+      }} />
     </li>
   );
 });
 
 /** One select of the filter row; its first choice is no filter. */
 function Pick({ label, any, value, choices, onChange }: { label: string; any: string; value: string; choices: readonly (string | { value: string; label: string })[]; onChange: (value: string) => void }) {
+  const options = choices.map((choice) => typeof choice === 'string' ? { value: choice, label: choice } : choice);
   return (
-    <select aria-label={label} className={`form-control reviews-pick${value ? ' set' : ''}`} value={value} onChange={(e) => onChange(e.target.value)}>
+    <select aria-label={label} className={`form-control inbox-pick${value ? ' set' : ''}`} value={value} onChange={(e) => onChange(e.target.value)}>
       <option value="">{any}</option>
-      {choices.map((choice) => {
-        const option = typeof choice === 'string' ? { value: choice, label: choice } : choice;
-        return (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        );
-      })}
+      {value && !options.some((option) => option.value === value) && <option value={value}>{value}</option>}
+      {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
     </select>
   );
 }
@@ -142,6 +129,7 @@ function rememberSort(sort: ReviewSort): void {
 
 /** How many reviews under way are listed before "Show all": many can be at work when reviews start on their own. */
 const REVIEWING_SHOWN = 10;
+const SORT_OPTIONS = REVIEW_SORT_BY.flatMap((by) => [true, false].map((descending) => ({ by, descending })));
 
 export function CodeReviewsPage({ dismissed }: { dismissed: boolean }) {
   const view = useApp((s) => s.reviewRequests);
@@ -157,37 +145,35 @@ export function CodeReviewsPage({ dismissed }: { dismissed: boolean }) {
     const byId = new Map((projects ?? []).map((p) => [p.id, p.name]));
     return (id: string) => byId.get(id);
   }, [projects]);
-  // The reviews the user has started (a session reviews the request) stand first, above the
-  // filters and untouched by them: what they took on. A dismissed request is in neither group.
   const sessions = useApp((s) => s.workspace?.sessions);
   const startedKeys = useMemo(() => new Set(dismissed ? [] : (sessions ?? []).flatMap((s) => (s.review ? [s.review.key] : []))), [sessions, dismissed]);
-  // Both groups are listed in the order chosen.
   const groups = useMemo(() => splitStarted(sortReviews(everything, sort), startedKeys), [everything, sort, startedKeys]);
-  // The filters, and the buttons at the top, are about the rest.
+  const started = useMemo(() => filterReviews(groups.started, filters, names, now), [groups.started, filters, names, now]);
   const list = useMemo(() => filterReviews(groups.rest, filters, names, now), [groups.rest, filters, names, now]);
   const filtering = isFiltering(filters);
-  const reviewing = allReviewing ? groups.started : groups.started.slice(0, REVIEWING_SHOWN);
+  const matchCount = started.length + list.length;
+  const reviewing = allReviewing ? started : started.slice(0, REVIEWING_SHOWN);
   const shownUnread = useMemo(() => {
     const shown = new Set(list.map((r) => r.key));
     return dismissed ? [] : view.unread.filter((key) => shown.has(key));
   }, [list, view.unread, dismissed]);
   const all = () => void actions.dismissReviews(list.map((r) => r.key), !dismissed);
   const chip = (label: string, count: number, on: boolean, filter?: 'dismissed') => (
-    <button className={`chip${on ? ' selected' : ''}`} aria-pressed={on} onClick={() => showLocal(filter ? { kind: 'code-reviews', filter } : { kind: 'code-reviews' })}>
+    <button type="button" className={`chip${on ? ' selected' : ''}`} aria-pressed={on} onClick={() => showLocal(filter ? { kind: 'code-reviews', filter } : { kind: 'code-reviews' })}>
       {label} <span className="chip-count">{count}</span>
     </button>
   );
   const allLabel = dismissed ? (filtering ? `Restore ${list.length} shown` : 'Restore all') : filtering ? `Dismiss ${list.length} shown` : groups.started.length > 0 ? 'Dismiss all not started' : 'Dismiss all';
   return (
-    <div className="page column reviews-page">
+    <div className="page column inbox-page">
       <PageHeader
         title="Code reviews"
-        line="The pull and merge requests you were asked to review by name."
+        line="Reviews requested from you"
         actions={
           <>
             {shownUnread.length > 0 && (
               <button type="button" className="secondary-button small" onClick={() => void actions.markReviewsSeen(shownUnread, true, true)}>
-                <CheckCheck aria-hidden /> {filtering ? `Mark ${shownUnread.length} read` : 'Mark all read'}
+                <CheckCheck aria-hidden /> {filtering || shownUnread.length !== view.unread.length ? `Mark ${shownUnread.length} read` : 'Mark all read'}
               </button>
             )}
             {list.length > 0 && (
@@ -198,25 +184,38 @@ export function CodeReviewsPage({ dismissed }: { dismissed: boolean }) {
           </>
         }
       />
-      <div className="filter-row">
-        <div className="chips" role="group" aria-label="Waiting or dismissed">
+      <div className="inbox-controls">
+        <div className="chips inbox-tabs" role="group" aria-label="Review view">
           {chip('Waiting', view.requests.length, !dismissed)}
           {chip('Dismissed', view.dismissed.length, dismissed, 'dismissed')}
         </div>
-        {/* The order is the whole page's, the reviews under way included, so it sits on the page's own bar and not with the filters (Matt, 2026-11-21). */}
-        {everything.length > 1 && (
-          <span className="reviews-sort">
-            <select aria-label="Sort by" className="form-control reviews-pick set" value={sort.by} onChange={(e) => changeSort({ ...sort, by: e.target.value as ReviewSortBy })}>
-              {REVIEW_SORT_BY.map((by) => (
-                <option key={by} value={by}>
-                  {REVIEW_SORT_LABEL[by]}
-                </option>
-              ))}
-            </select>
-            <button type="button" className="icon-button reviews-direction" aria-label={`${sortDirectionLabel(sort)}. Switch to ${sortDirectionLabel({ ...sort, descending: !sort.descending }).toLowerCase()}`} title={sortDirectionLabel(sort)} onClick={() => changeSort({ ...sort, descending: !sort.descending })}>
-              {sort.descending ? <ArrowDown aria-hidden /> : <ArrowUp aria-hidden />}
-            </button>
-          </span>
+        {dismissed && <p className="inbox-view-note">Dismissed reviews are hidden from Waiting. Restore a review to bring it back.</p>}
+        {everything.length > 0 && (
+          <div className="inbox-toolbar" role="group" aria-label="Filter and sort reviews">
+            <InboxSearch label="Search reviews" value={filters.text} onChange={(text) => setFilters({ ...filters, text })} />
+            <Pick label="Who asked" any="Anyone" value={filters.who} choices={whoChoices(everything)} onChange={(who) => setFilters({ ...filters, who })} />
+            <Pick label="Project" any="Any project" value={filters.place} choices={placeChoices(everything, names)} onChange={(place) => setFilters({ ...filters, place })} />
+            <Pick label="Opened" any={REVIEW_WITHIN_LABEL.any} value={filters.within === 'any' ? '' : filters.within} choices={WITHIN_CHOICES} onChange={(within) => setFilters({ ...filters, within: (within || 'any') as ReviewWithin })} />
+            {everything.length > 1 && (
+              <select
+                aria-label="Sort reviews"
+                className="form-control inbox-pick set inbox-sort"
+                value={`${sort.by}-${sort.descending}`}
+                onChange={(event) => changeSort(SORT_OPTIONS[event.target.selectedIndex] ?? sort)}
+              >
+                {SORT_OPTIONS.map((option) => {
+                  const key = `${option.by}-${option.descending}`;
+                  return <option key={key} value={key}>{REVIEW_SORT_LABEL[option.by]} · {sortDirectionLabel(option).toLowerCase()}</option>;
+                })}
+              </select>
+            )}
+          </div>
+        )}
+        {filtering && everything.length > 0 && (
+          <div className="inbox-filter-summary">
+            <span role="status">{matchCount} of {everything.length} reviews</span>
+            <button type="button" className="link-button" onClick={() => setFilters(NO_REVIEW_FILTERS)}>Clear filters</button>
+          </div>
         )}
       </div>
       {view.problems.length > 0 && (
@@ -228,65 +227,32 @@ export function CodeReviewsPage({ dismissed }: { dismissed: boolean }) {
           ))}
         </ul>
       )}
-      {groups.started.length > 0 && (
-        <section className="page-section reviews-group">
-          <h2>
-            Reviewing <span className="section-count">· {groups.started.length}</span>
-          </h2>
-          <ul className="reviews-list">
-            {reviewing.map((request) => (
-              <ReviewRow key={request.key} request={request} dismissed={false} />
-            ))}
+      {started.length > 0 && (
+        <section className="page-section">
+          <h2>Reviewing <span className="section-count">· {started.length}</span></h2>
+          <ul className="inbox-list">
+            {reviewing.map((request) => <ReviewRow key={request.key} request={request} dismissed={false} />)}
           </ul>
-          {groups.started.length > REVIEWING_SHOWN && (
-            <button type="button" className="link-button reviews-all" onClick={() => setAllReviewing(!allReviewing)}>
-              {allReviewing ? `Show the first ${REVIEWING_SHOWN}` : `Show all ${groups.started.length}`}
+          {started.length > REVIEWING_SHOWN && (
+            <button type="button" className="link-button inbox-show-all" onClick={() => setAllReviewing(!allReviewing)}>
+              {allReviewing ? `Show the first ${REVIEWING_SHOWN}` : `Show all ${started.length}`}
             </button>
           )}
         </section>
       )}
       {everything.length === 0 ? (
         <Empty dismissed={dismissed} off={off} />
-      ) : (
-        groups.rest.length > 0 && (
-          <section className="page-section reviews-group">
-            {groups.started.length > 0 && (
-              <h2>
-                Not started <span className="section-count">· {groups.rest.length}</span>
-              </h2>
-            )}
-            <div className="reviews-filters" role="group" aria-label="Filter requests">
-              <label className="session-search reviews-search">
-                <Search aria-hidden />
-                <input value={filters.text} onChange={(e) => setFilters({ ...filters, text: e.target.value })} placeholder="Search title, project, person" aria-label="Search requests" />
-              </label>
-              <Pick label="Who asked" any="Anyone" value={filters.who} choices={whoChoices(groups.rest)} onChange={(who) => setFilters({ ...filters, who })} />
-              <Pick label="Project" any="Any project" value={filters.place} choices={placeChoices(groups.rest, names)} onChange={(place) => setFilters({ ...filters, place })} />
-              <Pick label="Opened" any={REVIEW_WITHIN_LABEL.any} value={filters.within === 'any' ? '' : filters.within} choices={WITHIN_CHOICES} onChange={(within) => setFilters({ ...filters, within: (within || 'any') as ReviewWithin })} />
-              {filtering && (
-                <>
-                  <span className="reviews-shown">
-                    {list.length} of {groups.rest.length}
-                  </span>
-                  <button type="button" className="link-button" onClick={() => setFilters(NO_REVIEW_FILTERS)}>
-                    Clear
-                  </button>
-                </>
-              )}
-            </div>
-            {list.length === 0 ? (
-              <div className="empty">
-                <h2>No request matches these filters</h2>
-              </div>
-            ) : (
-              <ul className="reviews-list">
-                {list.map((request) => (
-                  <ReviewRow key={request.key} request={request} dismissed={dismissed} />
-                ))}
-              </ul>
-            )}
-          </section>
-        )
+      ) : matchCount === 0 ? (
+        <div className="empty">
+          <h2>No review matches these filters</h2>
+        </div>
+      ) : list.length > 0 && (
+        <section className="page-section">
+          {groups.started.length > 0 && <h2>Not started <span className="section-count">· {list.length}</span></h2>}
+          <ul className="inbox-list">
+            {list.map((request) => <ReviewRow key={request.key} request={request} dismissed={dismissed} />)}
+          </ul>
+        </section>
       )}
     </div>
   );

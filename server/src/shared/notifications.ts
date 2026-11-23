@@ -1,5 +1,6 @@
 // Desktop notifications and sounds (0.0.20, matt/kestrel#17): when a session finishes, fails or
-// needs an answer, or (0.0.23) the user is asked to review a pull request, they are told even
+// needs an answer, (0.0.23) the user is asked to review a pull request, or (tickets) a ticket is
+// newly assigned to them, they are told even
 // with Kestrel in the background. Which of those, a
 // banner or not, and which sound are settings. Pure and browser-safe: what to say and when, from
 // two pushes of the workspace; showing the banner and playing the sound is the UI's
@@ -8,11 +9,12 @@ import type { Link, SessionView } from '../model.ts';
 import { PLATFORM_NAME, type Platform } from './platform.ts';
 import type { ReviewRequestsView } from './review-requests.ts';
 import { statusOf, type StatusKey } from './status.ts';
+import { ticketsOn, type TicketsView } from './tickets.ts';
 
-export type NotifyKind = 'done' | 'failed' | 'needs-you' | 'review-request';
-export const NOTIFY_KINDS: readonly NotifyKind[] = ['needs-you', 'failed', 'done', 'review-request'];
+export type NotifyKind = 'done' | 'failed' | 'needs-you' | 'review-request' | 'ticket';
+export const NOTIFY_KINDS: readonly NotifyKind[] = ['needs-you', 'failed', 'done', 'review-request', 'ticket'];
 /** Each reads on from the list's heading, "Tell me when", so they say "my", never "your" (Matt, 2026-11-21). */
-export const NOTIFY_KIND_LABEL: Record<NotifyKind, string> = { 'needs-you': 'A session needs my input', failed: 'A session fails', done: 'A session finishes', 'review-request': 'I’m asked to review a pull request' };
+export const NOTIFY_KIND_LABEL: Record<NotifyKind, string> = { 'needs-you': 'A session needs my input', failed: 'A session fails', done: 'A session finishes', 'review-request': 'I’m asked to review a pull request', ticket: 'A ticket is assigned to me' };
 
 export const SOUNDS = ['none', 'chime', 'ping', 'pop'] as const;
 export type SoundId = (typeof SOUNDS)[number];
@@ -30,7 +32,7 @@ export interface NotifyPrefs {
 }
 
 /** On for all of them, with no sound: silence is the least surprising default, a missed approval the most costly. */
-export const DEFAULT_NOTIFY: NotifyPrefs = { enabled: true, banner: true, sound: 'none', events: { 'needs-you': true, failed: true, done: true, 'review-request': true } };
+export const DEFAULT_NOTIFY: NotifyPrefs = { enabled: true, banner: true, sound: 'none', events: { 'needs-you': true, failed: true, done: true, 'review-request': true, ticket: true } };
 
 const isSound = (value: unknown): value is SoundId => (SOUNDS as readonly unknown[]).includes(value);
 
@@ -42,7 +44,8 @@ export function notifyProblem(value: unknown): string | null {
   if (v.enabled !== undefined && typeof v.enabled !== 'boolean') return 'enabled must be true or false.';
   if (typeof v.banner !== 'boolean') return 'banner must be true or false.';
   if (!isSound(v.sound)) return `sound must be one of: ${SOUNDS.join(', ')}.`;
-  if (!events || NOTIFY_KINDS.some((kind) => typeof events[kind] !== 'boolean')) return `events must say true or false for each of: ${NOTIFY_KINDS.join(', ')}.`;
+  // `ticket` came later: a client that does not know it yet leaves it as it was (absent reads as on).
+  if (!events || NOTIFY_KINDS.some((kind) => typeof events[kind] !== 'boolean' && !(kind === 'ticket' && events[kind] === undefined))) return `events must say true or false for each of: ${NOTIFY_KINDS.join(', ')}.`;
   return null;
 }
 
@@ -51,7 +54,7 @@ export function sanitizeNotify(value: unknown): NotifyPrefs {
   const v = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
   const events = (typeof v.events === 'object' && v.events !== null ? v.events : {}) as Record<string, unknown>;
   const event = (kind: NotifyKind): boolean => (typeof events[kind] === 'boolean' ? (events[kind] as boolean) : DEFAULT_NOTIFY.events[kind]);
-  return { enabled: v.enabled !== false, banner: typeof v.banner === 'boolean' ? v.banner : DEFAULT_NOTIFY.banner, sound: isSound(v.sound) ? v.sound : DEFAULT_NOTIFY.sound, events: { 'needs-you': event('needs-you'), failed: event('failed'), done: event('done'), 'review-request': event('review-request') } };
+  return { enabled: v.enabled !== false, banner: typeof v.banner === 'boolean' ? v.banner : DEFAULT_NOTIFY.banner, sound: isSound(v.sound) ? v.sound : DEFAULT_NOTIFY.sound, events: { 'needs-you': event('needs-you'), failed: event('failed'), done: event('done'), 'review-request': event('review-request'), ticket: event('ticket') } };
 }
 
 export interface NotifyEvent {
@@ -60,6 +63,8 @@ export interface NotifyEvent {
   sessionId: string;
   /** The review request it is about (its key in the store): a click opens that request's page. */
   requestKey?: string;
+  /** The ticket it is about (its key): a click opens the ticket's page. */
+  ticketKey?: string;
   /** The banner's first line: the session's title. */
   title: string;
   /** Its second line: what happened, in the status vocabulary, with the session's own note where it says more. */
@@ -142,13 +147,45 @@ export function reviewNotifyEvents(before: readonly string[] | null, after: Pick
     }));
 }
 
+/** What the ticket notifier remembers from one push of tickets to the next. */
+export interface TicketsSeenBefore {
+  /** The keys listed. */
+  keys: readonly string[];
+  /** The sources asked: a source new since then is being filled for the first time, and that is not news. */
+  sources: readonly string[];
+}
+
+/** The keys and sources of a tickets view, to compare the next push with. Pure. */
+export const ticketsBefore = (view: Pick<TicketsView, 'tickets' | 'sources'>): TicketsSeenBefore => ({ keys: view.tickets.map((t) => t.key), sources: view.sources });
+
+/**
+ * The tickets to tell the user about, from one push of them to the next: each listed now that was
+ * not before, is unread, and came from a source that was already being asked. So nothing on the
+ * first push (`before` null), nothing for the tickets already there when tickets or a source are first
+ * turned on (the source was not in `before.sources`), nothing while tickets or the source are off
+ * (they list nothing), nothing for a dismissed ticket (it is not listed), and nothing with the event
+ * switched off. Each ticket once: once listed, it is in `before`.
+ */
+export function ticketNotifyEvents(before: TicketsSeenBefore | null, after: Pick<TicketsView, 'tickets' | 'unread' | 'sources' | 'settings'>, prefs: NotifyPrefs): NotifyEvent[] {
+  if (!before || !prefs.enabled || !prefs.events.ticket || !ticketsOn(after)) return [];
+  const was = new Set(before.keys);
+  const asked = new Set(before.sources);
+  const unread = new Set(after.unread);
+  return after.tickets
+    .filter((t) => !was.has(t.key) && unread.has(t.key) && asked.has(t.source))
+    .map((t) => ({ kind: 'ticket' as const, sessionId: '', ticketKey: t.key, title: `${t.ref}: ${t.title}`, body: `Assigned to you in ${t.tracker}${t.sprint?.current ? `, in ${t.sprint.name}` : ''}.` }));
+}
+
 /** A banner's click target as the desktop shell carries it back: a session's id, or a review request's key behind this mark. */
 export const REVIEW_TARGET = 'review:';
-export const targetOf = (event: Pick<NotifyEvent, 'sessionId' | 'requestKey'>): string => (event.requestKey ? `${REVIEW_TARGET}${event.requestKey}` : event.sessionId);
-/** What a target names: `{ requestKey }`, `{ sessionId }`, or null for none (a test banner). */
-export function parseTarget(target: string): { requestKey: string } | { sessionId: string } | null {
+export const TICKET_TARGET = 'ticket:';
+export const targetOf = (event: Pick<NotifyEvent, 'sessionId' | 'requestKey' | 'ticketKey'>): string => (event.requestKey ? `${REVIEW_TARGET}${event.requestKey}` : event.ticketKey ? `${TICKET_TARGET}${event.ticketKey}` : event.sessionId);
+/** What a target names: `{ requestKey }`, `{ ticketKey }`, `{ sessionId }`, or null for none (a test banner). */
+export function parseTarget(target: string): { requestKey: string } | { ticketKey: string } | { sessionId: string } | null {
   if (!target) return null;
-  return target.startsWith(REVIEW_TARGET) ? { requestKey: target.slice(REVIEW_TARGET.length) } : { sessionId: target };
+  if (target.startsWith(REVIEW_TARGET)) return { requestKey: target.slice(REVIEW_TARGET.length) };
+  if (target.startsWith(TICKET_TARGET)) return { ticketKey: target.slice(TICKET_TARGET.length) };
+  return { sessionId: target };
 }
 
 /**

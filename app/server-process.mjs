@@ -32,11 +32,12 @@ function serverArgs(launch) {
  * `baseEnv` is the environment to run with (the login shell's, for a packaged app; see shell-env.mjs).
  * `writeLog`, when given, also gets everything the server prints (server-log.mjs).
  */
-export async function startServer({ port, token, origin, dataDir, baseEnv = process.env, writeLog }) {
+export async function startServer({ port, token, origin, dataDir, baseEnv = process.env, writeLog, vaultKey = null }) {
   const launch = serverLaunch();
   const child = spawn(process.execPath, serverArgs(launch), {
     cwd: launch.dir,
-    stdio: ['pipe', 'pipe', 'pipe'],
+    // fd 3 carries the protected store's key (vault-key.mjs), read once by the server and closed.
+    stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
     env: {
       ...baseEnv,
       ...bundledBinaries(),
@@ -52,8 +53,13 @@ export async function startServer({ port, token, origin, dataDir, baseEnv = proc
       KESTREL_NO_LAUNCH_FILE: '1',
       KESTREL_EXIT_ON_STDIN_CLOSE: '1',
       ...(dataDir ? { KESTREL_DATA_DIR: dataDir } : {}),
+      // Says where the key is, never what it is.
+      ...(vaultKey ? { KESTREL_VAULT_KEY_FD: '3' } : {}),
     },
   });
+  const keyPipe = child.stdio[3];
+  if (vaultKey) keyPipe.end(vaultKey.toString('base64'));
+  else keyPipe.end();
   let log = '';
   const exited = new Promise((resolve) => child.once('exit', (code) => resolve(code)));
   const ready = new Promise((resolve, reject) => {

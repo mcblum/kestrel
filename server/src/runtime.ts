@@ -19,6 +19,8 @@
 // (handoff, delegate, spawn), `display.ts` (widgets, files, next steps and pictures shown in the
 // conversation), `suggestions/` (optional actions the agent drops in), `browser-tools.ts` (the browser
 // pane, driven through the window that shows it) and `sim-tools.ts` (the iOS Simulator, driven by the server itself).
+import { finishedProposal, pullRequestProposals } from './tickets/moments.ts';
+import { sameTag } from './shared/tags.ts';
 import { commentOnPR } from './pull-requests/create.ts';
 import { hostTerms } from './shared/host-terms.ts';
 import { reviewRequestKey } from './shared/review-requests.ts';
@@ -32,7 +34,7 @@ import type { RoleRun } from './shared/who-does-what.ts';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AgentAdapter, AgentCapabilities, InputAnswer, InputRequest, Intercept, KestrelToolHost, ToolAction } from './agents/types.ts';
+import type { AgentAdapter, AgentCapabilities, InputAnswer, InputRequest, Intercept, KestrelToolHost, ToolAction, ToolResult } from './agents/types.ts';
 import { AttachmentStore } from './attachments/store.ts';
 import { BaseRefresh } from './base-refresh.ts';
 import { BrowserBridge } from './browser-bridge.ts';
@@ -64,6 +66,11 @@ import { ColourPrefs } from './colours/prefs.ts';
 import { execRunner } from './pull-requests/github.ts';
 import type { ReviewRequest } from './shared/review-requests.ts';
 import { moveKind } from './suggestions/move-kind.ts';
+import { TICKET_KIND, ticketKind } from './suggestions/ticket-kind.ts';
+import { TICKET_WORK_KIND, ticketWorkKind } from './suggestions/ticket-work-kind.ts';
+import { ticketMention } from './shared/ticket-mention.ts';
+import { NO_SESSION_TICKETS, type SessionTickets } from './tickets/session.ts';
+import { ticketLead, ticketOf, type Ticket } from './shared/tickets.ts';
 import { moveRefusal, moveToProject } from './runtime/move-project.ts';
 import { Commands } from './runtime/commands.ts';
 import { onAgentEvent, showImage } from './runtime/events.ts';
@@ -264,9 +271,23 @@ export class SessionRuntime implements McpSessions {
           },
           move: (id, projectId, folderId) => this.delegation.moveNow(id, projectId, folderId),
         }),
+        ticketKind({
+          ticketOf: (id) => this.tickets.ticketOf(id),
+          moveTo: (key, category) => this.tickets.moveTo(key, category),
+          moveBack: (key, to) => this.tickets.moveBack(key, to),
+          comment: (key, body) => this.tickets.comment(key, body),
+        }),
+        ticketWorkKind({
+          attach: (id, key, from) => this.ticketTaken(id, key, from),
+          detach: (id, key) => this.tickets.detach(id, key),
+          titleOf: async (id) => (await workspace.state()).sessions.find((s) => s.id === id)?.title ?? null,
+        }),
       ],
     });
-    this.stopReviewOffer = workspace.onRequestLinked((id, link) => this.offerReview(id, link));
+    this.stopReviewOffer = workspace.onRequestLinked((id, link) => {
+      this.offerReview(id, link);
+      void this.proposeTicketPullRequest(id, link).catch((error: unknown) => console.error('[kestrel] could not propose the ticket’s review', error));
+    });
     this.gitPrefs = new GitPrefs(opts.git);
     this.baseRefresh = new BaseRefresh({ enabled: () => this.gitPrefs.startFromLatest(), fetch: opts.baseFetch });
     this.projectEdits = new ProjectEdits(opts.projectEdits);
@@ -337,6 +358,7 @@ export class SessionRuntime implements McpSessions {
       notice: (id, text, level) => this.notice(id, text, level),
       onEvent: (id, rec, event) => onAgentEvent(this.host, id, rec, event),
       flushQueue: (id) => flushQueue(this.host, id),
+      turnComplete: (id) => void this.proposeTicketFinished(id).catch((error: unknown) => console.error('[kestrel] could not propose the ticket’s summary', error)),
       endRunning: (id) => this.endRunning(id),
       idle: (id) => this.idle(id),
       scratch: () => this.scratch(),
@@ -399,6 +421,40 @@ export class SessionRuntime implements McpSessions {
   /** The agent's own sign-in, run from Kestrel (agents/sign-in.ts). Refused for an agent Kestrel cannot sign in. */
   agentSignIn(agent: Agent): AgentSignIn {
     return this.info.signIn(agent);
+  }
+
+  /** The sessions' tickets (tickets/session.ts), set once the ticket store and sync exist; none until then. */
+  private tickets: SessionTickets = NO_SESSION_TICKETS;
+  useTickets(tickets: SessionTickets): void {
+    this.tickets = tickets;
+  }
+
+  /** Work on the session's ticket has started: Kestrel proposes moving it to In progress, unless it is already there or further, or the user said not to ask. Never waits. */
+  proposeTicketStarted(sessionId: string): Promise<ToolResult> {
+    return this.suggestions.suggest(sessionId, { kind: TICKET_KIND, change: 'in-progress', reason: 'Work on it has started here.' });
+  }
+
+  /** A pull request opened from work on a ticket: in the ticket's lead (else here), a comment with its link and In review are proposed, once for that request. */
+  private async proposeTicketPullRequest(sessionId: string, link: RequestLink): Promise<void> {
+    const proposals = pullRequestProposals(link);
+    if (proposals.length === 0) return;
+    const at = await this.tickets.situation(sessionId);
+    const attached = at && ticketOf(sessionId, at.links, at.workstreams);
+    if (!at || !attached) return;
+    const target = ticketLead(attached.ticketKey, at.links, at.workstreams, at.liveSessions) ?? sessionId;
+    for (const proposal of proposals) await this.suggestions.suggest(target, { kind: TICKET_KIND, ...proposal });
+  }
+
+  /** A turn of a ticket's lead ended: when nothing under it is still working and it stopped at pull requests, a comment with its report is proposed, once for the ticket. */
+  private async proposeTicketFinished(sessionId: string): Promise<void> {
+    const at = await this.tickets.situation(sessionId);
+    const attached = at && ticketOf(sessionId, at.links, at.workstreams);
+    if (!at || !attached || ticketLead(attached.ticketKey, at.links, at.workstreams, at.liveSessions) !== sessionId) return;
+    const ids = new Set([sessionId, ...(at.workstreams.find((w) => w.sessionIds.includes(sessionId))?.sessionIds ?? [])]);
+    const state = await this.workspace.state();
+    const requests = (await this.workspace.allRequestLinks()).filter((r) => ids.has(r.sessionId)).length;
+    const proposal = finishedProposal({ sessions: state.sessions.filter((s) => ids.has(s.id)), requests, report: this.lastAgentText(sessionId) });
+    if (proposal) await this.suggestions.suggest(sessionId, { kind: TICKET_KIND, ...proposal });
   }
 
   /** Where an out-of-process agent reaches a session's Kestrel tools (set once the HTTP server's port and token are known). */
@@ -496,8 +552,12 @@ export class SessionRuntime implements McpSessions {
    * A new session: its row at once, then its worktree and agent, in the background in a git project
    * (runtime/bring-up.ts). A failure to start the agent elsewhere is thrown.
    */
-  start(req: StartRequest): Promise<Session> {
-    return startSession(this.host, req);
+  async start(req: StartRequest): Promise<Session> {
+    if (!req.byUser) return startSession(this.host, req);
+    const mention = await this.ticketMentioned(null, req.prompt);
+    const session = await startSession(this.host, { ...req, ...(mention?.context ? { context: mention.context } : {}) });
+    if (mention) await this.suggestions.suggest(session.id, { kind: TICKET_WORK_KIND, ...mention.payload });
+    return session;
   }
 
   /**
@@ -531,8 +591,57 @@ export class SessionRuntime implements McpSessions {
    * A message for the agent: into the running turn ('delivered'), held for the next one ('queued'),
    * or a new turn ('sent'). A notice is refused while the agent works (runtime/turns.ts).
    */
-  reply(sessionId: string, text: string, change: Partial<SessionSettings> = {}, opts: ReplyOptions = {}): Promise<'sent' | 'delivered' | 'queued'> {
-    return reply(this.host, sessionId, text, change, opts);
+  async reply(sessionId: string, text: string, change: Partial<SessionSettings> = {}, opts: ReplyOptions = {}): Promise<'sent' | 'delivered' | 'queued'> {
+    if (opts.notice || opts.fromAgent) return reply(this.host, sessionId, text, change, opts);
+    const mention = await this.ticketMentioned(sessionId, text).catch(() => null);
+    // The ticket goes to the agent with the turn this message starts (or the next one, when it joins a running turn).
+    const session = mention?.context ? (await this.workspace.state()).sessions.find((s) => s.id === sessionId) : undefined;
+    const rec = session && mention?.context ? await this.queueNews(session, mention.context) : null;
+    let outcome: Awaited<ReturnType<typeof reply>>;
+    try {
+      outcome = await reply(this.host, sessionId, text, change, opts);
+    } catch (error) {
+      // The message was not sent: neither is what it would have brought along, nor is the ticket taken up.
+      if (rec) rec.inbox = rec.inbox.filter((t) => t !== mention?.context);
+      throw error;
+    }
+    if (mention) await this.suggestions.suggest(sessionId, { kind: TICKET_WORK_KIND, ...mention.payload });
+    return outcome;
+  }
+
+  /**
+   * A ticket the user's message names (shared/ticket-mention.ts): what to raise in the conversation,
+   * and what the agent is told with the turn. Null when the message names none, or the session keeps its own.
+   */
+  private async ticketMentioned(sessionId: string | null, text: string): Promise<{ payload: Record<string, unknown>; context: string | null } | null> {
+    const at = await this.tickets.situation(sessionId);
+    if (!at) return null;
+    const verdict = ticketMention(text, at);
+    if (verdict.type === 'attach') {
+      const brief = await this.tickets.brief(verdict.ticket.key);
+      return { payload: { mode: 'attach', key: verdict.ticket.key, ref: verdict.ticket.ref }, context: `The user's message names ticket ${verdict.ticket.ref}; Kestrel has made it this session's ticket. Here it is as the tracker has it.\n\n${brief}` };
+    }
+    if (verdict.type === 'elsewhere') {
+      return { payload: { mode: 'elsewhere', key: verdict.ticket.key, ref: verdict.ticket.ref, session: verdict.sessionId }, context: `The user's message names ticket ${verdict.ticket.ref}, which another session is already working on; it was not attached here.` };
+    }
+    if (verdict.type === 'several') return { payload: { mode: 'pick', tickets: verdict.tickets.map((t) => ({ key: t.key, ref: t.ref })) }, context: null };
+    return null;
+  }
+
+  /** A ticket taken up from a message or a pick: attached and tagged; Kestrel proposes In progress, and a pick gives the agent the ticket with its next turn. */
+  private async ticketTaken(sessionId: string, key: string, from: 'message' | 'pick'): Promise<Ticket> {
+    const ticket = await this.tickets.attach(sessionId, key);
+    // Not awaited: both go through this session's suggestions, which are handling the press that called this.
+    void (async () => {
+      if (from === 'pick') {
+        const session = (await this.workspace.state()).sessions.find((s) => s.id === sessionId);
+        if (session) await this.queueNews(session, `The user picked ticket ${ticket.ref} as this session's ticket. Here it is as the tracker has it.\n\n${await this.tickets.brief(key)}`);
+      }
+      // Attaching tagged the session with the key, so a card still asking to add that tag has its answer.
+      await this.suggestions.settle(sessionId, 'tag', (p) => { const tag = (p as { tag?: unknown } | null)?.tag; return typeof tag === 'string' && sameTag(tag, ticket.ref); }, `Tagged ${ticket.ref}`);
+      await this.proposeTicketStarted(sessionId);
+    })().catch((error: unknown) => console.error('[kestrel] could not follow up the ticket', error));
+    return ticket;
   }
 
   /** What the mid-turn messages need from here (runtime/mid-turn.ts). */
@@ -805,9 +914,23 @@ export class SessionRuntime implements McpSessions {
     return editVerdict(this.host, sessionId, ownProjectId, directory, action);
   }
 
-  /** The Kestrel tools one session gets (delegation, display, suggestions, browser, simulator). */
+  /** `ticket_read` and `ticket_update`: the session's ticket, read now; a change to it only ever proposed, as a `ticket` suggestion. */
+  private ticketTools(sessionId: string): Pick<KestrelToolHost, 'ticketRead' | 'ticketUpdate'> {
+    return {
+      ticketRead: async (args) => {
+        try {
+          return { text: await this.tickets.read(sessionId, args?.key) };
+        } catch (error) {
+          return { isError: true, text: error instanceof Error ? error.message : String(error) };
+        }
+      },
+      ticketUpdate: (args) => this.suggestions.suggest(sessionId, { ...args, kind: TICKET_KIND }),
+    };
+  }
+
+  /** The Kestrel tools one session gets (delegation, display, suggestions, tickets, browser, simulator). */
   private toolHost(sessionId: string): KestrelToolHost {
-    return { ...this.delegation.hostFor(sessionId), ...this.display.hostFor(sessionId), ...this.reviewReplies.hostFor(sessionId), ...this.suggestions.hostFor(sessionId), ...this.browser.hostFor(sessionId), ...this.sim.hostFor(sessionId) };
+    return { ...this.delegation.hostFor(sessionId), ...this.display.hostFor(sessionId), ...this.reviewReplies.hostFor(sessionId), ...this.suggestions.hostFor(sessionId), ...this.ticketTools(sessionId), ...this.browser.hostFor(sessionId), ...this.sim.hostFor(sessionId) };
   }
 
   private queue(rec: Live, work: () => Promise<unknown>): void {

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { otherProjectHolding, otherProjectRefusal } from '../../shared/project-edits.ts';
+import { PROTECTED_REFUSAL, protectedRefusal } from '../../shared/protected-files.ts';
 import { NO_TOOLS } from '../test-support.ts';
 import { KESTREL_TOOLS, type AgentEvent, type StartOptions } from '../types.ts';
 import { STOPPED } from './asks.ts';
@@ -374,6 +375,24 @@ describe('OpenCode adapter, the edit rule', () => {
       await handle.close!();
     });
   }
+});
+
+describe("OpenCode adapter, Kestrel's credential store", () => {
+  it('a confined session reading it is refused with the reason, with no card, in Auto', async () => {
+    const files = (dir: string) => [join(dir, 'data', 'trackers.json')];
+    const t = setup('ask-read', 'auto', {
+      env: (dir) => ({ FAKE_OPENCODE_READ_PATH: files(dir)[0]! }),
+      options: (dir) => ({ confineShell: true, protectedFiles: files(dir), intercept: async (action) => {
+        const refusal = protectedRefusal(action, files(dir), (p) => p);
+        return refusal ? { allow: false, message: refusal } : { allow: true };
+      } }),
+    });
+    const handle = t.adapter.start(t.options, 'read it', t.emit);
+    await t.next('done');
+    expect(t.requests('POST', /^\/permission\//)[0]!.body).toEqual({ reply: 'reject', message: PROTECTED_REFUSAL });
+    expect(t.events.some((e) => e.type === 'needs-input')).toBe(false);
+    await handle.close!();
+  });
 });
 
 describe('OpenCode adapter, availability and models', () => {

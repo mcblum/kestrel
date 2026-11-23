@@ -134,3 +134,58 @@
 
 /* Settings → Notifications: the test button with what it did beside it. */
 .kestrel .notify-test { display: flex; align-items: center; gap: 10px; }
+
+/* Tickets, reviews and connections share a readable, consistent settings rhythm. */
+.kestrel :is(.settings-tickets, .settings-code-reviews, .settings-connections) :is(.settings-help, .setting-help-content) { font-size: 13px; line-height: 1.6; color: var(--s-label); overflow-wrap: anywhere; }
+.kestrel :is(.settings-tickets, .settings-code-reviews, .settings-connections) .settings-section { gap: 10px; margin-top: 24px; }
+.kestrel :is(.settings-tickets, .settings-code-reviews, .settings-connections) .settings-section h2 { font-size: 14px; }
+.kestrel :is(.settings-tickets, .settings-code-reviews, .settings-connections) :is(.tag-rule-switch, .settings-choice) { font-size: 13px; }
+.kestrel :is(.settings-tickets, .settings-code-reviews, .settings-connections) :is(select.form-control, input.form-control) { font-size: 13px; height: 36px; }
+.kestrel .settings-status { flex: none; color: var(--s-label); font-size: 11px; line-height: 1.5; padding: 3px 8px; background: var(--s-soft); border-radius: 5px; }
+.kestrel .ticket-source { display: grid; gap: 6px; padding: 14px 0; border-bottom: 1px solid var(--s-line); }
+.kestrel .ticket-source:last-child { border-bottom: 0; }
+.kestrel .ticket-source-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.kestrel .ticket-source-header .tag-rule-switch { font-weight: 500; }
+.kestrel .ticket-source > .settings-help { padding-left: 28px; }
+.kestrel .ticket-answer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; }
+.kestrel .ticket-answer .form-control { width: auto; }
+.kestrel .ticket-answer .ticket-match { width: 320px; }
+.kestrel .ticket-source-setup { display: grid; gap: 10px; margin: 8px 0 0 28px; padding: 14px 16px; border-radius: 8px; background: var(--s-paper); border: 1px solid var(--s-line); }
+.kestrel .ticket-source-setup .setting-row { grid-template-columns: 120px minmax(0, 1fr); padding: 0; gap: 12px; }
+.kestrel .ticket-source-setup .settings-help svg { width: 13px; height: 13px; vertical-align: -2px; }
+.kestrel .settings-code-reviews .review-setting-mode { width: 100%; min-width: 0; max-width: 420px; margin: 0; }
+.kestrel .settings-code-reviews .review-setting-place { display: grid; gap: 8px; margin-top: 10px; }
+.kestrel .settings-code-reviews .review-setting-field { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin: 14px 0 0; font-size: 13px; font-weight: 500; }
+.kestrel .settings-code-reviews .review-setting-field:first-child { margin-top: 0; }
+.kestrel .settings-code-reviews .review-setting-field .form-control { width: 100%; max-width: 420px; font-weight: 400; }
+.kestrel .settings-code-reviews .review-setting-place > .settings-help { margin: 0; max-width: 60ch; }
+.kestrel .settings-code-reviews .review-setting-instructions { padding: 12px 14px; min-height: 320px; font-size: 13px; line-height: 1.6; }
+.kestrel .settings-code-reviews .review-setting-reset { flex-wrap: wrap; }
+.kestrel .settings-body .connect-feature { box-sizing: border-box; padding: 20px; border: 1px solid var(--s-line); border-radius: 10px; background: var(--s-paper); margin-top: 0; gap: 14px; }
+.kestrel .settings-body .connect-feature h2 { font-size: 17px; line-height: 24px; }
+.kestrel .connect-intro { margin: -6px 0 2px; font-size: 13px; color: var(--s-label); }
+.kestrel .connect-feature .sign-in { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+.kestrel .connect-feature .sign-in-note { font-size: 13px; color: var(--s-label); overflow-wrap: anywhere; }
+.kestrel .connect-devices { display: grid; gap: 12px; border-top: 1px solid var(--s-line); padding-top: 16px; margin-top: 2px; }
+.kestrel .connect-devices-heading { display: flex; align-items: center; gap: 8px; }
+.kestrel .connect-devices h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.kestrel .connect-device-list { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.kestrel .connect-device-list li { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-paper); }
+.kestrel .connect-device-icon { width: 20px; height: 20px; flex: none; color: var(--s-label); }
+.kestrel .connect-device-detail { display: grid; gap: 3px; min-width: 0; flex: 1; }
+.kestrel .connect-device-name { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.kestrel .connections-services .connection-list li { padding: 10px; font-size: 13px; flex-wrap: wrap; }
+.kestrel .connections-services .connection-list small { font-size: 12px; overflow-wrap: anywhere; }
+@container (max-width: 580px) {
+  .kestrel .ticket-source-setup { margin-left: 0; }
+  .kestrel .ticket-source-setup .setting-row, .kestrel .settings-code-reviews .review-setting-field { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .kestrel .settings-code-reviews .review-setting-place > .settings-help { margin-left: 0; }
+  .kestrel .settings-body .connect-feature { padding: 16px; }
+  .kestrel .connect-device-list li { flex-wrap: wrap; }
+}
+
+/* Review controls follow one left edge; descriptions stay with their control. */
+.kestrel .settings-code-reviews .settings-section { gap: 8px; margin-top: 28px; }
+.kestrel .settings-code-reviews .settings-section > .settings-help { max-width: 60ch; }
+.kestrel .settings-code-reviews .review-setting-projects { margin: 12px 0 0; padding: 0; }
+.kestrel .settings-code-reviews .review-setting-warning div { flex-wrap: wrap; }

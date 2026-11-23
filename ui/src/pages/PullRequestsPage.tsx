@@ -1,18 +1,16 @@
-// Pull requests: every pull or merge request linked to a session in sight (or to one archived in
-// the last week, which is named as archived), once each, grouped by
-// project in the sidebar's order (shared/pull-request-list.ts). Filter chips with counts (the chosen
-// one is kept in the tab's path), a Refresh button, and per row the same separate targets as every
-// other request: the number opens its tab inside its first session, the icon opens the host, the
-// status part merges (the usual confirmation) or opens the checks, and each linked session opens.
-import { useMemo } from 'react';
+// Pull and merge requests linked to a session, grouped in sidebar project order. The title opens
+// the request in its first live session, and the status retains its merge or checks action.
+import { useMemo, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import type { WorkspaceState } from '@kestrel/server/model';
 import { pullRequestStatus, type PullRequest } from '@kestrel/server/details';
-import { hostTerms } from '@kestrel/server/host-terms';
+import { hostTerms, requestNumber } from '@kestrel/server/host-terms';
 import { arrange } from '@kestrel/server/sidebar';
-import { countRequests, groupByProject, requestFilterChips, REQUEST_FILTER_EMPTY, type ListedRequest, type PullRequestList, type RequestFilter } from '@kestrel/server/pull-request-list';
+import { countRequests, groupByProject, matchesRequestFilter, requestFilterChips, REQUEST_FILTER_EMPTY, type ListedRequest, type PullRequestList, type RequestFilter } from '@kestrel/server/pull-request-list';
 import { pullRequestsView } from '@kestrel/server/routes';
+import { InboxReference, InboxRowMenu, InboxSearch } from '../components/InboxList.tsx';
 import { requestParts, useMergeConfirmation } from '../components/PullRequestParts.tsx';
+import { contextMenu } from '../menuState.ts';
 import { opener, openSession, openView, showLocal } from '../route.ts';
 import { openPullRequest } from '../sessionView.ts';
 import { useTabs } from '../tabsStore.ts';
@@ -40,6 +38,7 @@ function RequestRow({ entry, onRefresh }: { entry: ListedRequest; onRefresh: () 
   // sessions are all archived (it stays listed for a week) opens on its host instead.
   const first = entry.sessions.find((s) => !s.archived);
   const terms = hostTerms(entry.host);
+  const url = entry.pullRequest.url;
   const merge = useMergeConfirmation(first?.id, onRefresh);
   const onOpen = (pr: PullRequest) => {
     if (!first) return void window.open(pr.url, '_blank', 'noreferrer');
@@ -47,18 +46,29 @@ function RequestRow({ entry, onRefresh }: { entry: ListedRequest; onRefresh: () 
     openSession(first.id);
   };
   const parts = requestParts({ pr: entry.pullRequest, terms, onOpen, onMerge: entry.minimal ? undefined : merge.onMerge });
-  const title = entry.minimal ? `Not loaded: ${terms.service} could not be asked` : entry.pullRequest.title;
+  const number = requestNumber(terms, entry.pullRequest.number);
+  const title = entry.minimal ? `Could not load this ${terms.long}` : entry.pullRequest.title || `${terms.longTitle} ${number}`;
   const status = pullRequestStatus(entry.pullRequest);
   return (
-    <li className="prs-row">
-      <span className="prs-number">{parts.number}</span>
-      <span className={`prs-title${entry.minimal ? ' prs-title-missing' : ''}`} title={title}>
-        {title}
-      </span>
-      <span className="prs-external">{parts.external}</span>
+    <li className="inbox-row prs-row">
+      <button type="button" className="inbox-open" title={title} onClick={() => onOpen(entry.pullRequest)}>
+        <span className={`inbox-title${entry.minimal ? ' prs-title-missing' : ''}`}>{title}</span>
+        <span className="inbox-meta">
+          <InboxReference service={terms.service}>{number}</InboxReference>
+          {entry.pullRequest.author && <span>{entry.pullRequest.author}</span>}
+        </span>
+      </button>
       <span className={`prs-status pr-tone-${status.tone}`} title={entry.minimal ? 'The state it was last seen in' : undefined}>
         {parts.status}
       </span>
+      {url && (
+        <InboxRowMenu label={`Actions for ${number}`} onClick={(event) => {
+          contextMenu.openFrom(event.currentTarget, [
+            { id: 'open-link', label: `Open on ${terms.service}`, action: { type: 'open-link', url } },
+            { id: 'copy-link', label: 'Copy link', action: { type: 'copy', text: url, what: 'Link' } },
+          ], { returnFocus: event.currentTarget });
+        }} />
+      )}
       <span className="prs-sessions" aria-label={entry.sessions.length === 1 ? 'Session' : 'Sessions'}>
         {entry.sessions.map((s) =>
           s.archived ? (
@@ -80,14 +90,12 @@ function RequestRow({ entry, onRefresh }: { entry: ListedRequest; onRefresh: () 
 function Chips({ list, filter }: { list: PullRequestList; filter: RequestFilter }) {
   const chips = requestFilterChips(countRequests(list.requests));
   return (
-    <div className="filter-row">
-      <div className="chips" role="group" aria-label="Filter requests">
-        {chips.map((chip) => (
-          <button key={chip.key} className={`chip${filter === chip.key ? ' selected' : ''}`} aria-pressed={filter === chip.key} onClick={() => showLocal(pullRequestsView(chip.key))}>
-            {chip.label} <span className="chip-count">{chip.count}</span>
-          </button>
-        ))}
-      </div>
+    <div className="chips inbox-tabs" role="group" aria-label="Pull request view">
+      {chips.map((chip) => (
+        <button key={chip.key} type="button" className={`chip${filter === chip.key ? ' selected' : ''}`} aria-pressed={filter === chip.key} onClick={() => showLocal(pullRequestsView(chip.key))}>
+          {chip.label} <span className="chip-count">{chip.count}</span>
+        </button>
+      ))}
     </div>
   );
 }
@@ -106,35 +114,87 @@ function Unasked({ list, workspace }: { list: PullRequestList; workspace: Worksp
   );
 }
 
-function Groups({ list, filter, workspace, order, onRefresh }: { list: PullRequestList; filter: RequestFilter; workspace: WorkspaceState; order: readonly string[]; onRefresh: () => void }) {
-  const groups = groupByProject(list.requests, filter, order);
-  if (list.requests.length === 0)
-    return (
-      <div className="empty">
-        <h2>No pull or merge requests are linked to a session yet</h2>
-        <p>A request shows here once a session opens one, or one is found on a session’s branch. One whose session is archived stays for a week.</p>
-      </div>
-    );
-  if (groups.length === 0)
-    return (
-      <div className="empty">
-        <h2>{REQUEST_FILTER_EMPTY[filter]}</h2>
-      </div>
-    );
+function Groups({ groups, workspace, onRefresh }: { groups: ReturnType<typeof groupByProject>; workspace: WorkspaceState; onRefresh: () => void }) {
   return (
     <>
       {groups.map((group) => (
-        <section key={group.projectId ?? ''} className="page-section prs-project">
+        <section key={group.projectId ?? ''} className="page-section">
           <h2>
             {projectLabel(workspace, group.projectId)} <span className="section-count">· {group.requests.length}</span>
           </h2>
-          <ul className="prs-list">
+          <ul className="inbox-list">
             {group.requests.map((entry) => (
               <RequestRow key={`${entry.host}:${entry.pullRequest.number}`} entry={entry} onRefresh={onRefresh} />
             ))}
           </ul>
         </section>
       ))}
+    </>
+  );
+}
+
+function RequestsList({ list, filter, workspace, order, onRefresh }: { list: PullRequestList; filter: RequestFilter; workspace: WorkspaceState; order: readonly string[]; onRefresh: () => void }) {
+  const [text, setText] = useState('');
+  const [project, setProject] = useState('');
+  const [descending, setDescending] = useState(true);
+  const view = list.requests.filter((entry) => matchesRequestFilter(entry.pullRequest, filter));
+  const projects = [...new Set(view.map((entry) => entry.projectId ?? NO_PROJECT))]
+    .map((id) => ({ id, label: projectLabel(workspace, id === NO_PROJECT ? null : id) }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+  const words = text.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  const filtering = words.length > 0 || Boolean(project);
+  const matches = view.filter(({ pullRequest: pr, host, projectId, sessions }) => {
+    if (project && project !== (projectId ?? NO_PROJECT)) return false;
+    const terms = hostTerms(host);
+    const searchable = [pr.title, pr.author, requestNumber(terms, pr.number), terms.service, projectLabel(workspace, projectId), ...sessions.map((session) => session.title)].join(' ').toLowerCase();
+    return words.every((word) => searchable.includes(word));
+  });
+  matches.sort((a, b) => (descending ? b.pullRequest.number - a.pullRequest.number : a.pullRequest.number - b.pullRequest.number));
+  const groups = groupByProject(matches, filter, order);
+  return (
+    <>
+      <div className="inbox-controls">
+        <Chips list={list} filter={filter} />
+        {(view.length > 0 || filtering) && (
+          <div className="inbox-toolbar" role="group" aria-label="Filter and sort pull requests">
+            <InboxSearch label="Search pull requests" value={text} onChange={setText} />
+            {(projects.length > 1 || project) && (
+              <select aria-label="Project" className={`form-control inbox-pick${project ? ' set' : ''}`} value={project} onChange={(event) => setProject(event.target.value)}>
+                <option value="">Any project</option>
+                {project && !projects.some(({ id }) => id === project) && (
+                  <option value={project}>{projectLabel(workspace, project === NO_PROJECT ? null : project)}</option>
+                )}
+                {projects.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}
+              </select>
+            )}
+            {view.length > 1 && (
+              <select aria-label="Sort pull requests" className="form-control inbox-pick set inbox-sort" value={descending ? 'highest' : 'lowest'} onChange={(event) => setDescending(event.target.value === 'highest')}>
+                <option value="highest">Number · highest first</option>
+                <option value="lowest">Number · lowest first</option>
+              </select>
+            )}
+          </div>
+        )}
+        {filtering && (
+          <div className="inbox-filter-summary">
+            <span role="status">{matches.length} of {view.length} requests</span>
+            <button type="button" className="link-button" onClick={() => { setText(''); setProject(''); }}>Clear filters</button>
+          </div>
+        )}
+      </div>
+      <Unasked list={list} workspace={workspace} />
+      {list.requests.length === 0 ? (
+        <div className="empty">
+          <h2>No pull or merge requests are linked to a session yet</h2>
+          <p>A request shows here once a session opens one, or one is found on a session’s branch. One whose session is archived stays for a week.</p>
+        </div>
+      ) : groups.length === 0 ? (
+        <div className="empty">
+          <h2>{view.length === 0 ? REQUEST_FILTER_EMPTY[filter] : 'No request matches these filters'}</h2>
+        </div>
+      ) : (
+        <Groups groups={groups} workspace={workspace} onRefresh={onRefresh} />
+      )}
     </>
   );
 }
@@ -151,16 +211,12 @@ export function PullRequestsPage({ workspace, filter }: { workspace: WorkspaceSt
     </button>
   );
   return (
-    <div className="page column prs-page">
-      <PageHeader title="Pull requests" line="Every pull and merge request linked to a session, by project." actions={refreshButton} />
+    <div className="page column inbox-page">
+      <PageHeader title="Pull requests" line="Pull and merge requests linked to your sessions" actions={refreshButton} />
       {value.state === 'loading' && <p className="prs-note">Asking the hosts…</p>}
       {value.state === 'unavailable' && <p className="prs-note">Kestrel could not list the requests: {value.reason}</p>}
       {value.state === 'ready' && (
-        <>
-          <Chips list={value.value} filter={filter} />
-          <Unasked list={value.value} workspace={workspace} />
-          <Groups list={value.value} filter={filter} workspace={workspace} order={order} onRefresh={refresh} />
-        </>
+        <RequestsList list={value.value} filter={filter} workspace={workspace} order={order} onRefresh={refresh} />
       )}
     </div>
   );

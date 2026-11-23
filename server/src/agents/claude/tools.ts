@@ -179,6 +179,22 @@ export function kestrelMcpServer(host: KestrelToolHost, omit: readonly string[] 
         },
         (args) => guarded(() => host.suggest(args)),
       ),
+      tool(
+        'ticket_read',
+        "Read a ticket as its tracker has it now: status, description, acceptance criteria and comments. With no key, the ticket this session works on; with a key (PLAT-12), any ticket Kestrel lists, which reading does not attach. Read only. Refused when tickets are off, the session has no ticket, or Kestrel does not list that key.",
+        { key: z.string().optional().describe('A listed ticket’s key, like PLAT-12. Leave it out for this session’s own ticket.') },
+        (args) => guarded(() => host.ticketRead(args.key ? { key: args.key } : {})),
+      ),
+      tool(
+        'ticket_update',
+        "Propose a change to the ticket this session works on: move it to In progress or In review, or add a comment. It never waits: the user is shown a card and may allow, deny or answer once for all; a change they already allowed always is made at once. The result says which. Never move a ticket to done, reassign it or edit it, and never change it in the tracker any other way. Refused when the session has no ticket, its tracker is not connected, or tickets are off.",
+        {
+          change: z.enum(['in-progress', 'in-review', 'comment']).describe('What to change: move to In progress, move to In review, or add a comment.'),
+          body: z.string().optional().describe('For comment: the comment, in plain words, as it should appear on the ticket.'),
+          reason: z.string().optional().describe('One short line the user sees: why now (e.g. "The pull request is open").'),
+        },
+        (args) => guarded(() => host.ticketUpdate(args)),
+      ),
       // The browser pane beside this session's conversation. The user watches it.
       tool(
         'browser_navigate',

@@ -5,7 +5,9 @@ import type { Review } from '@kestrel/server/worktree-guests';
 import { ready, type Sourced } from '@kestrel/server/sourced';
 import { useResource } from './data/resources.ts';
 import type { ModelPreset } from '@kestrel/server/who-does-what';
-import { appStore, call, putResource } from './store.ts';
+import { openSession } from './route.ts';
+import { actions, appStore, call, putResource } from './store.ts';
+import { tabActions } from './tabsStore.ts';
 
 const pathOf = (sessionId: string) => `/api/sessions/${encodeURIComponent(sessionId)}/review`;
 /** Where a session's review stands, and who would review its work now (or why nobody can). */
@@ -30,6 +32,21 @@ export async function startReview(sessionId: string, comment = false): Promise<R
   const held = appStore.get().resources.get(pathOf(sessionId)) as Sourced<ReviewState> | undefined;
   putResource(pathOf(sessionId), ready({ ...(held?.state === 'ready' ? held.value : NOTHING), review }));
   return review;
+}
+
+const startingRequests = new Map<string, Promise<void>>();
+
+/** Start an assigned review and open its session, from the inbox or the request page. */
+export function startRequestedReview(key: string, newTab: boolean): Promise<void> {
+  const pending = startingRequests.get(key);
+  if (pending) return pending;
+  const start = actions.startReview(key).then((session) => {
+    if (!session) return;
+    tabActions.expect(session.id);
+    openSession(session.id, newTab);
+  }).finally(() => startingRequests.delete(key));
+  startingRequests.set(key, start);
+  return start;
 }
 
 const SKIPPED = 'kestrel.reviewSkipped';

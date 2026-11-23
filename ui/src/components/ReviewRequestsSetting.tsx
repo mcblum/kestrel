@@ -36,7 +36,7 @@ function Projects({ projects, registered }: { projects: ReviewProjects; register
   const ids = registered.map((p) => p.id);
   return (
     <fieldset className="notify-events review-setting-projects">
-      <legend>In which projects</legend>
+      <legend>Start reviews in</legend>
       <label className="settings-choice">
         <input type="radio" name="review-projects" checked={projects === 'all'} onChange={() => void save({ projects: 'all' })} />
         All projects
@@ -61,9 +61,9 @@ function Projects({ projects, registered }: { projects: ReviewProjects; register
 }
 
 const PLACE_NOTE: Record<ReviewPlace, string> = {
-  both: 'A CODE REVIEWS section in the sidebar, and a Code reviews row at its top that opens the page with all of them.',
-  sidebar: 'A CODE REVIEWS section in the sidebar. Its "Show more" opens the page with all of them.',
-  page: 'A Code reviews row at the top of the sidebar opens the page, with a dot and a count while some are new. A review session stays in its project.',
+  both: 'Show requests in the sidebar and on the Code reviews page.',
+  sidebar: 'Show requests in the sidebar. Choose "Show more" to see them all.',
+  page: 'Show a Code reviews link in the sidebar, with a count of new requests. Review sessions stay in their projects.',
 };
 
 /** The numbers offered for how many requests the sidebar lists; the stored one is added when it is not among them. */
@@ -75,7 +75,7 @@ function Place({ settings }: { settings: ReviewSettings }) {
   return (
     <div className="review-setting-place">
       <label className="review-setting-field">
-        <span>Show them</span>
+        <span>Where requests appear</span>
         <select aria-label="Where review requests are shown" className="form-control" value={settings.show} onChange={(e) => void save({ show: e.target.value as ReviewPlace })}>
           {REVIEW_PLACES.map((place) => (
             <option key={place} value={place}>
@@ -89,7 +89,7 @@ function Place({ settings }: { settings: ReviewSettings }) {
       {settings.show !== 'page' && (
         <>
           <label className="review-setting-field">
-            <span>In the sidebar, list</span>
+            <span>Sidebar limit</span>
             <select aria-label="How many review requests the sidebar lists" className="form-control" value={settings.sidebarLimit} onChange={(e) => void save({ sidebarLimit: Number(e.target.value) })}>
               {limits.map((n) => (
                 <option key={n} value={n}>
@@ -99,7 +99,7 @@ function Place({ settings }: { settings: ReviewSettings }) {
               ))}
             </select>
           </label>
-          <p className="settings-help">The most recent requests nobody has started on. The rest are behind "Show more". A review that is under way is always listed.</p>
+          <p className="settings-help">Limit the recent, unstarted requests shown in the sidebar. Reviews in progress are always shown.</p>
         </>
       )}
     </div>
@@ -250,7 +250,7 @@ function ReviewRunSettings() {
   const chosen = modes.find((m) => m.id === settings.permission);
   return (
     <>
-      <SettingSection title="Code reviews permissions mode" help={MODE_HELP}>
+      <SettingSection title="Review permissions" help={MODE_HELP}>
         <select aria-label="Code reviews permissions mode" className="form-control review-setting-mode" value={settings.permission} onChange={(e) => void save({ permission: e.target.value as PermissionLevel })}>
           {modes.map((mode) => (
             <option key={mode.id} value={mode.id}>
@@ -261,15 +261,16 @@ function ReviewRunSettings() {
         </select>
         {chosen && <p className="settings-help">{permissionHint(chosen)}.</p>}
       </SettingSection>
-      <SettingSection title="Review instructions" help={INSTRUCTIONS_HELP}>
-        <ReviewInstructions stored={settings.instructions} />
-      </SettingSection>
       <SettingSection title="When a review begins" help={ANNOUNCE_HELP}>
         <label className="tag-rule-switch">
           <input type="checkbox" checked={settings.announce} onChange={(e) => void save({ announce: e.target.checked })} />
           Post a "Reviewing" comment on the pull request
         </label>
         <p className="settings-help">{settings.announce ? 'Posted in your name on GitHub or GitLab as each review starts, by hand or on its own.' : 'Nothing is posted when a review starts.'}</p>
+      </SettingSection>
+      <SettingSection title="Review instructions" help={INSTRUCTIONS_HELP}>
+        <p className="settings-help">Instructions included in every review session. Edit them here, then save your changes.</p>
+        <ReviewInstructions stored={settings.instructions} />
       </SettingSection>
     </>
   );

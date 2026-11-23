@@ -85,6 +85,10 @@ export interface ConnectOpArgs {
   'attachment.read': { sessionId: string; attachmentId: string };
   /** Checked by ReviewReplies.post, as the desk's are: the same edits and the same refusals. */
   'review.post': { sessionId: string; cardId: string; verdict?: unknown; summary?: unknown; findings?: unknown; withoutComment?: unknown };
+  /** A suggestion card in the conversation (a tag, a ticket change, a move, a review offer): one of its buttons, its x, or Undo on the line it left. */
+  'suggestion.answer': { sessionId: string; suggestionId: string; button: string };
+  'suggestion.dismiss': { sessionId: string; suggestionId: string };
+  'suggestion.undo': { sessionId: string; suggestionId: string };
 }
 export type ConnectOp = keyof ConnectOpArgs;
 
@@ -196,6 +200,16 @@ export const CONNECT_OPS: { readonly [K in ConnectOp]: OpSpec } = {
     // The edits are passed on as they came: ReviewReplies.post checks them, for the desk and a phone alike.
     check: (a) => all({ sessionId: id(a, 'sessionId'), cardId: id(a, 'cardId'), verdict: { ok: true, value: a.verdict }, summary: { ok: true, value: a.summary }, findings: { ok: true, value: a.findings }, withoutComment: { ok: true, value: a.withoutComment } }),
   },
+  // A suggestion card is in the chat window, so a phone answers it as the desk does (Matt, 2026-11-22: "if it's
+  // in the chat window, the phone can interact with it"). Each calls what the suggestion route calls, for
+  // every kind alike; a kind's own refusals (Kestrel-only, nothing to undo) are the phone's too.
+  'suggestion.answer': {
+    mapsTo: 'POST /api/sessions/:id/suggestions/:sid/answer',
+    fields: ['sessionId', 'suggestionId', 'button'],
+    check: (a) => all({ sessionId: id(a, 'sessionId'), suggestionId: id(a, 'suggestionId'), button: id(a, 'button') }),
+  },
+  'suggestion.dismiss': { mapsTo: 'POST /api/sessions/:id/suggestions/:sid/dismiss', fields: ['sessionId', 'suggestionId'], check: (a) => all({ sessionId: id(a, 'sessionId'), suggestionId: id(a, 'suggestionId') }) },
+  'suggestion.undo': { mapsTo: 'POST /api/sessions/:id/suggestions/:sid/undo', fields: ['sessionId', 'suggestionId'], check: (a) => all({ sessionId: id(a, 'sessionId'), suggestionId: id(a, 'suggestionId') }) },
 };
 
 export const CONNECT_OP_NAMES = Object.keys(CONNECT_OPS) as ConnectOp[];

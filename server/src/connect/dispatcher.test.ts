@@ -18,6 +18,7 @@ import { MOVE_DECLINED } from '../shared/session-move.ts';
 import { CONNECT_PROTOCOL_VERSION, NEVER_REMOTE, type ConnectResponse, type Envelope } from '../shared/connect-ops.ts';
 import type { PullRequest } from '../shared/details.ts';
 import { ready } from '../shared/sourced.ts';
+import { openSuggestions } from '../shared/suggestions.ts';
 import { FakeAgents, until } from '../test-agent.ts';
 import { makeRepo } from '../test-repo.ts';
 import { Workspace } from '../workspace.ts';
@@ -273,6 +274,40 @@ describe.each(SELECTABLE_AGENTS)("Kestrel's own cards in a %s session, answered 
 });
 
 // ---- posting a review --------------------------------------------------------------------------
+
+describe.each(SELECTABLE_AGENTS)('a suggestion card answered from a phone, for a %s session', (agent) => {
+  /** A session whose agent suggested a tag on its first turn: the card waits in the conversation. */
+  async function suggested(d: Desk) {
+    d.fakes[agent].script = async (turn) => {
+      await turn.options.tools.suggest({ kind: 'tag', tag: 'PROJ-482', category: 'ticket', source: 'Jira', reason: 'The task names PROJ-482.' } as never);
+    };
+    const session = await d.start(agent, 'Fix the upload hang for PROJ-482');
+    await d.settle();
+    const [card] = openSuggestions(d.runtime.recordOf(session.id)!.messages);
+    return { sessionId: session.id, card: card! };
+  }
+
+  it('answers a button and undoes it, as the desk does', async () => {
+    const d = await desk();
+    const { sessionId, card } = await suggested(d);
+    const answered = await d.ok('suggestion.answer', { sessionId, suggestionId: card.id, button: 'tag' });
+    expect(answered.suggestion).toMatchObject({ id: card.id, state: 'answered', answer: 'tag' });
+    expect((await d.workspace.state()).sessions.find((s) => s.id === sessionId)!.tags).toContain('PROJ-482');
+    expect(await d.ask('suggestion.answer', { sessionId, suggestionId: card.id, button: 'tag' })).toMatchObject({ ok: false, reason: expect.any(String) });
+    const undone = await d.ok('suggestion.undo', { sessionId, suggestionId: card.id });
+    expect(undone.suggestion.undo).toBeUndefined();
+    expect((await d.workspace.state()).sessions.find((s) => s.id === sessionId)!.tags).not.toContain('PROJ-482');
+    expect(await d.ask('suggestion.undo', { sessionId, suggestionId: card.id })).toEqual({ ok: false, reason: 'There is nothing to undo there.' });
+  });
+
+  it('dismisses with the x, and refuses a card or session that is not there', async () => {
+    const d = await desk();
+    const { sessionId, card } = await suggested(d);
+    expect((await d.ok('suggestion.dismiss', { sessionId, suggestionId: card.id })).suggestion).toMatchObject({ state: 'dismissed' });
+    expect(await d.ask('suggestion.dismiss', { sessionId: 'gone', suggestionId: card.id })).toEqual({ ok: false, reason: 'That session is no longer in Kestrel.' });
+    expect(await d.ask('suggestion.answer', { sessionId, suggestionId: 'nope', button: 'tag' })).toMatchObject({ ok: false, reason: expect.any(String) });
+  });
+});
 
 describe('a review card posted from a phone', () => {
   const SHA = 'a'.repeat(40);

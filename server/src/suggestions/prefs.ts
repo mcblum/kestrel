@@ -1,7 +1,8 @@
 // Where the answers that outlive one suggestion are kept: the tag rules and the "Suggest tags"
-// switch (shared/tag-rules.ts), in the store's small named settings, so both persistence backends
+// switch (shared/tag-rules.ts), and the standing answers to ticket changes (shared/ticket-changes.ts), in the store's small named settings, so both persistence backends
 // keep them. Writes run one after another, so two quick changes never lose one.
 import { sanitizeTagPrefs, withRule, type RuleValue, type TagSuggestionPrefs } from '../shared/tag-rules.ts';
+import { asTicketAnswers, withTicketAnswer, type AnswerSource, type StandingAnswer, type TicketAnswer, type TicketChange } from '../shared/ticket-changes.ts';
 
 /** The part of Persistence this needs; tests and the in-memory default pass their own. */
 export interface SettingStore {
@@ -10,6 +11,7 @@ export interface SettingStore {
 }
 
 export const TAG_PREFS_KEY = 'tag-suggestions';
+export const TICKET_ANSWERS_KEY = 'ticket-suggestions';
 
 /** Settings kept in memory only, for a runtime started without a store (tests). */
 export function memorySettings(): SettingStore {
@@ -45,13 +47,36 @@ export class SuggestionPrefs {
     return this.change((prefs) => ({ ...prefs, enabled }));
   }
 
+  /** The standing answers to ticket changes, per kind of change and per source. */
+  async ticketAnswers(): Promise<TicketAnswer[]> {
+    const raw = await this.store.getSetting(TICKET_ANSWERS_KEY);
+    try {
+      return asTicketAnswers(raw ? JSON.parse(raw) : null);
+    } catch {
+      return [];
+    }
+  }
+
+  /** Set one standing answer; null sets it back to Ask. */
+  setTicketAnswer(change: TicketChange, source: AnswerSource, answer: StandingAnswer | null): Promise<TicketAnswer[]> {
+    return this.serial(async () => {
+      const updated = withTicketAnswer(await this.ticketAnswers(), change, source, answer);
+      await this.store.putSetting(TICKET_ANSWERS_KEY, JSON.stringify(updated));
+      return updated;
+    });
+  }
+
   private change(next: (prefs: TagSuggestionPrefs) => TagSuggestionPrefs): Promise<TagSuggestionPrefs> {
-    const work = this.writes.then(async () => {
+    return this.serial(async () => {
       const updated = next(await this.tags());
       await this.store.putSetting(TAG_PREFS_KEY, JSON.stringify(updated));
       return updated;
     });
-    this.writes = work.catch(() => undefined);
-    return work;
+  }
+
+  private serial<T>(work: () => Promise<T>): Promise<T> {
+    const next = this.writes.then(work);
+    this.writes = next.catch(() => undefined);
+    return next;
   }
 }

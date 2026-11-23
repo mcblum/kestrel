@@ -46,6 +46,7 @@ import { projectPath } from './shared/project-folders.ts';
 import { detailsRoute, detailsSources, type DetailsSources } from './details-api.ts';
 import { asReviewOrder } from './shared/review-requests.ts';
 import type { ReviewRequestStore } from './review-requests/store.ts';
+import { ticketsRoute, type TicketsApi } from './tickets/api.ts';
 import { reviewSettingsRoute } from './review-settings/api.ts';
 import { coloursRoute } from './colours/api.ts';
 import { pullRequestListRoute } from './pull-request-list-api.ts';
@@ -55,6 +56,8 @@ import type { TitleProvider } from './agents/title-providers.ts';
 import { onboardingRoute } from './onboarding/api.ts';
 import { controlsRoute, speedFields } from './controls-api.ts';
 import { signInRoute } from './sign-in-api.ts';
+import { connectRoute } from './connect/link/api.ts';
+import type { KestrelConnect } from './connect/link/connect.ts';
 import { fileOpenRoute, runCommand, type FileOpenDeps } from './file-open-api.ts';
 import { appIcons } from './app-icons.ts';
 import { hostPlatform } from './host.ts';
@@ -156,6 +159,10 @@ export interface KestrelServerOptions {
   details?: { sources: DetailsSources; sample: boolean };
   /** The requests the user was asked to review, pushed to every window (review-requests/store.ts). */
   reviewRequests?: ReviewRequestStore;
+  /** The user's tickets, pushed to every window, and their routes (tickets/). */
+  tickets?: TicketsApi;
+  /** Kestrel Connect: its Settings routes, and its state pushed to every window (connect/link/). */
+  connect?: KestrelConnect;
   /** How this copy reports its own failures, or null when it never does (shared/crash-reports.ts). Default: never. */
   crashReporting?: CrashReportSetup | null;
   /** Who may write a generated pull request's text: the title providers (index.ts). Default: none. */
@@ -222,6 +229,9 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
     if (parts[0] !== 'api') return send(req, res, 404, { error: 'Not found' });
 
     if (method === 'GET' && parts[1] === 'state' && parts.length === 2) return send(req, res, 200, await currentStateJson());
+
+    const connected = options.connect ? await connectRoute(parts, method, () => readJson(req), options.connect) : null;
+    if (connected) return send(req, res, connected.status, connected.body);
 
     const onboarding = await onboardingRoute(parts, method, () => readJson(req), workspace.onboarding);
     if (onboarding) return send(req, res, onboarding.status, onboarding.body);
@@ -328,6 +338,9 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
       options.reviewRequests.markSeen(keys, body.seen);
       return send(req, res, 200, { ok: true });
     }
+    // Tickets: dismiss, mark read, a ticket's detail, Work this ticket (tickets/api.ts).
+    const ticketAnswer = await ticketsRoute(parts, method, url, () => readJson(req), options.tickets);
+    if (ticketAnswer) return send(req, res, ticketAnswer.status, ticketAnswer.body);
     // Start reviewing a request the user was asked to review, or open the review already started (review-requests/start.ts).
     if (parts[1] === 'review-requests' && parts[2] === 'start' && parts.length === 3 && method === 'POST') {
       if (!runtime || !options.reviewRequests) return send(req, res, 409, { error: 'Reviews need a running agent runtime.' });
@@ -418,7 +431,7 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
           if (body.base !== undefined && !isBaseChoice(body.base)) throw new BadRequest('base must be "default" or "current"');
           if (body.rememberBase !== undefined && typeof body.rememberBase !== 'boolean') throw new BadRequest('rememberBase must be true or false');
           const base = body.base === undefined ? {} : { base: body.base as BaseChoice, rememberBase: body.rememberBase === true };
-          const session = await runtime.start({ agent, projectId: optionalId(body.projectId, 'projectId'), folderId: optionalId(body.folderId, 'folderId'), prompt: messageText(body.prompt, 'prompt', draft !== null), draft, model, permission: body.permission as never, ...speed(body), ...(body.modelChosen === true ? { modelChosen: true } : {}), groupId: optionalId(body.groupId, 'groupId'), ...base });
+          const session = await runtime.start({ agent, projectId: optionalId(body.projectId, 'projectId'), folderId: optionalId(body.folderId, 'folderId'), prompt: messageText(body.prompt, 'prompt', draft !== null), draft, model, permission: body.permission as never, ...speed(body), ...(body.modelChosen === true ? { modelChosen: true } : {}), groupId: optionalId(body.groupId, 'groupId'), ...base, byUser: true });
           return send(req, res, 201, session);
         }
         const session = await workspace.addSession({
@@ -751,6 +764,8 @@ async function files(req: IncomingMessage, res: ServerResponse, runtime: Session
     // Every session's pull requests the server already holds; changes follow as they come.
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'pull-requests', all: detailsConfig.sources.store.all() }));
     if (options.reviewRequests && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'review-requests', view: options.reviewRequests.view() }));
+    if (options.tickets && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'tickets', view: options.tickets.store.view() }));
+    if (options.connect && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'connect-state', view: options.connect.view() }));
     workspace.seen.view().then((seen) => ws.readyState === ws.OPEN && ws.send(JSON.stringify({ type: 'seen', seen })), (error) => console.error('[kestrel] could not send what was seen', error));
   });
 
@@ -778,6 +793,17 @@ async function files(req: IncomingMessage, res: ServerResponse, runtime: Session
   // The review requests, whole, whenever they change: the list is short.
   const unsubscribeReviewRequests = options.reviewRequests?.onChange((view) => {
     const json = JSON.stringify({ type: 'review-requests', view });
+    for (const ws of sockets.clients) if (ws.readyState === ws.OPEN) ws.send(json);
+  });
+
+  // The tickets, whole, whenever they change: the list is short.
+  const unsubscribeTickets = options.tickets?.store.onChange((view) => {
+    const json = JSON.stringify({ type: 'tickets', view });
+    for (const ws of sockets.clients) if (ws.readyState === ws.OPEN) ws.send(json);
+  });
+
+  const unsubscribeConnect = options.connect?.onChange((view) => {
+    const json = JSON.stringify({ type: 'connect-state', view });
     for (const ws of sockets.clients) if (ws.readyState === ws.OPEN) ws.send(json);
   });
 
@@ -823,6 +849,8 @@ async function files(req: IncomingMessage, res: ServerResponse, runtime: Session
         unsubscribePullRequests();
         unsubscribeSeen();
         unsubscribeReviewRequests?.();
+        unsubscribeTickets?.();
+        unsubscribeConnect?.();
         unsubscribeLive?.();
         unsubscribeSimShow?.();
         unsubscribeSimChange?.();

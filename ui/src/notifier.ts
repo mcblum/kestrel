@@ -8,7 +8,7 @@
 import type { SessionView } from '@kestrel/server/model';
 import { platform } from './platform.ts';
 import { useSyncExternalStore } from 'react';
-import { bannerProblem, DEFAULT_NOTIFY, sanitizeNotify, notifies, notifyEvents, parseTarget, reviewNotifyEvents, targetOf, type NotifyEvent, type NotifyPrefs } from '@kestrel/server/notifications';
+import { bannerProblem, DEFAULT_NOTIFY, sanitizeNotify, notifies, notifyEvents, parseTarget, reviewNotifyEvents, targetOf, ticketNotifyEvents, ticketsBefore, type TicketsSeenBefore, type NotifyEvent, type NotifyPrefs } from '@kestrel/server/notifications';
 import { ready, type Sourced } from '@kestrel/server/sourced';
 import { openSession, openView } from './route.ts';
 import { playSound } from './sounds.ts';
@@ -69,6 +69,7 @@ function openTarget(target: string): void {
   const named = parseTarget(target);
   if (!named) return;
   if ('requestKey' in named) openView({ kind: 'review-request', id: named.requestKey });
+  else if ('ticketKey' in named) openView({ kind: 'ticket', id: named.ticketKey });
   else openSession(named.sessionId);
 }
 
@@ -91,6 +92,21 @@ let before: readonly SessionView[] | null = null;
 /** The review requests that were waiting at the last look (their keys), and the list they were read from; null until the server's first answer. */
 let requestsBefore: { list: unknown; keys: readonly string[] } | null = null;
 let asked = false;
+/** The tickets listed at the last look, and the view they were read from; null until the server's first push of them. */
+let ticketsSeen: { view: unknown; before: TicketsSeenBefore } | null = null;
+
+/**
+ * Tickets newly assigned since the last look. The store starts with no tickets before the server has
+ * said anything, so the first list that arrives is "what was already assigned", never news; and a
+ * source being filled for the first time is not news either (shared/notifications.ts).
+ */
+function newTickets(prefs: NotifyPrefs): NotifyEvent[] {
+  const held = appStore.get().tickets;
+  if (ticketsSeen?.view === held) return [];
+  const events = notifies(prefs) ? ticketNotifyEvents(ticketsSeen?.before ?? null, held, prefs) : [];
+  ticketsSeen = { view: held, before: ticketsBefore(held) };
+  return events;
+}
 
 /**
  * New review requests since the last look (0.0.23). The store starts with an empty list before the
@@ -115,7 +131,7 @@ function check(): void {
     void call<NotifyAnswer>(NOTIFICATIONS_PATH).then((answer) => putResource(NOTIFICATIONS_PATH, asNotifyPrefs(answer)), () => void (asked = false));
   }
   const prefs = heldPrefs();
-  const requested = newReviewRequests(prefs);
+  const requested = [...newReviewRequests(prefs), ...newTickets(prefs)];
   const after = ws.sessions;
   if (after === before && requested.length === 0) return;
   const tab = tabsView().loaded ? activeTab(tabsView()) : undefined;

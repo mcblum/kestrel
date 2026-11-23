@@ -11,3 +11,7 @@ allowBuilds:
   electron-winstaller: false
 minimumReleaseAgeExclude:
   - electron@45.3.2
+# One @types/node for the whole workspace: the UI typechecks server files, and a second copy (pulled
+# in by @types/qrcode) made Node's own types disagree with themselves.
+overrides:
+  '@types/node': ^24.0.0

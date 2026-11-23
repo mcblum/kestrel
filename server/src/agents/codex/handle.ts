@@ -17,6 +17,7 @@ import { listSkills, startsWithSlash } from './skills.ts';
 import { CodexMapper, fileChanges, turnEnd, type FileChange } from './map.ts';
 import { codexPolicy, policyParams, sandboxPolicy } from './policy.ts';
 import { listAnswer, withListChoices, writableRoots } from './allow-list.ts';
+import { commandNamesProtected } from '../../shared/protected-files.ts';
 import { CodexUnavailable, type AppServer, type ExitInfo, type Launch } from './process.ts';
 import { RpcClosed, type IncomingRequest, type RpcConnection } from './rpc.ts';
 
@@ -464,7 +465,8 @@ export class CodexHandle implements AgentHandle {
       if (refusal) return this.refuseChange(server, request.id, itemId, refusal);
     }
     // A command or more access the user put on the always-allowed list is accepted without a card (allow-list.ts).
-    const listed = listAnswer(request.method, params, codexPolicy(this.opts.permission), this.opts);
+    // Never for a command that names Kestrel's own credential store: that is refused below (shared/protected-files.ts).
+    const listed = commandNamesProtected(JSON.stringify(params), this.opts.protectedFiles ?? []) ? null : listAnswer(request.method, params, codexPolicy(this.opts.permission), this.opts);
     if (listed) return server.rpc.respond(request.id, listed);
     const cardId = `codex-${++this.cardSeq}`;
     const handling = handleRequest(request.method, params, cardId, {
@@ -479,7 +481,8 @@ export class CodexHandle implements AgentHandle {
     }
     if (handling.kind === 'answer') return server.rpc.respond(request.id, handling.result);
     // Rules (annoyances) see what is about to run and may refuse it with a reason.
-    const verdict = await this.opts.intercept?.({ tool: handling.request.tool, input: { detail: handling.request.detail } }).catch(() => undefined);
+    const command = typeof params.command === 'string' ? params.command : Array.isArray(params.command) ? params.command.join(' ') : undefined;
+    const verdict = await this.opts.intercept?.({ tool: handling.request.tool, input: { detail: handling.request.detail, ...(command ? { command } : {}) } }).catch(() => undefined);
     if (verdict && !verdict.allow) {
       const reply = handling.reply({ optionId: 'deny', text: verdict.message });
       await this.tell(verdict.message);

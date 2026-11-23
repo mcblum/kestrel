@@ -109,3 +109,10 @@ describe('the workstream page', () => {
     expect(selectsRow({ kind: 'workstream', id: 'w' }, { kind: 'workstream', id: 'x' })).toBe(false);
   });
 });
+
+describe('the pairing page', () => {
+  it('sits under Connections and round-trips', () => {
+    expect(parseViewPath('#/settings/connections/pair')).toEqual({ kind: 'settings', section: 'connections/pair' });
+    expect(viewPath({ kind: 'settings', section: 'connections/pair' })).toBe('#/settings/connections/pair');
+  });
+});

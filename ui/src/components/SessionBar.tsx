@@ -4,6 +4,7 @@
 // Beside the pane icons: the branch's pull request chip, and "Create PR" when it has no open one;
 // its menu also removes the worktree ("Worktree" offers that alone otherwise). A session reviewing
 // somebody else's request has "View PR #7" there instead, which opens it on its host (`requestButton`).
+import { SessionTicketChip } from './TicketChip.tsx';
 import { useProjectTint } from '../colours.ts';
 import { WorkstreamChip } from './WorkstreamChip.tsx';
 import { ExternalLink, Folder, TriangleAlert, FolderGit2 } from 'lucide-react';
@@ -124,6 +125,7 @@ export function SessionBar({ session, detail, panes, browserTitle, git, pullRequ
         {session.groupId && <GroupSelect session={session} />}
         <Where session={session} />
         <WorkstreamChip sessionId={session.id} />
+        <SessionTicketChip sessionId={session.id} />
         {session.branch && <GitSummary branch={session.branch} files={files} git={git} onOpen={() => panes.show('context')} />}
       </div>
     </header>

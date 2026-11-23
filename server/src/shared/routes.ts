@@ -28,6 +28,10 @@ export type View =
   | { kind: 'code-reviews'; filter?: 'dismissed' }
   /** A request the user was asked to review, by its key (shared/review-requests.ts). */
   | { kind: 'review-request'; id: string }
+  /** The Tickets page: open tickets assigned to the user; `filter: 'dismissed'` is the ones they dismissed, `'done'` the held ones they marked done here, `'closed'` the held ones that closed some other way. */
+  | { kind: 'tickets'; filter?: 'dismissed' | 'done' | 'closed' }
+  /** One ticket, by its key (shared/tickets.ts). */
+  | { kind: 'ticket'; id: string }
   /** Create project; `from: 'folder'` is its second way in, several projects from one parent folder. */
   | { kind: 'new-project'; from?: 'folder' }
   /** One code block of a conversation, whole: the message it is in and where its fence starts (shared/code-ref.ts). */
@@ -64,7 +68,11 @@ export function parseViewPath(path: string): View {
   if (a === 'tag' && id) return { kind: 'tag', id };
   if (a === 'workstream' && id) return { kind: 'workstream', id };
   if (a === 'review-request' && id) return { kind: 'review-request', id };
+  if (a === 'ticket' && id) return { kind: 'ticket', id };
+  if (a === 'tickets') return b === 'dismissed' || b === 'done' || b === 'closed' ? { kind: 'tickets', filter: b } : { kind: 'tickets' };
   if (a === 'settings' && id.startsWith(OLD_PROJECT_SETTINGS) && id.length > OLD_PROJECT_SETTINGS.length) return projectSettings(id.slice(OLD_PROJECT_SETTINGS.length), 'agent-setup');
+  // One page sits under a section: Pair a phone (`#/settings/connections/pair`).
+  if (a === 'settings' && id === 'connections' && c === 'pair') return { kind: 'settings', section: 'connections/pair' };
   if (a === 'settings') return id ? { kind: 'settings', section: id } : { kind: 'settings' };
   if (a === 'move' && id && c) return { kind: 'move', sessionId: id, projectId: decodeURIComponent(c), ...(d ? { groupId: decodeURIComponent(d) } : {}) };
   if (a === 'code' && id && c && /^\d+$/.test(d ?? '')) return { kind: 'code', sessionId: id, messageId: decodeURIComponent(c), at: Number(d) };
@@ -79,11 +87,11 @@ export function parseViewPath(path: string): View {
 /** The path of a view, the inverse of `parseViewPath`. */
 export function viewPath(view: View): string {
   if (view.kind === 'project' && view.tab === 'settings') return `#/project/${encodeURIComponent(view.id)}/settings${view.section ? `/${view.section}` : ''}`;
-  if (view.kind === 'group' || view.kind === 'project' || view.kind === 'tag' || view.kind === 'workstream' || view.kind === 'review-request') return `#/${view.kind}/${encodeURIComponent(view.id)}`;
-  if (view.kind === 'settings') return view.section ? `#/settings/${encodeURIComponent(view.section)}` : '#/settings';
+  if (view.kind === 'group' || view.kind === 'project' || view.kind === 'tag' || view.kind === 'workstream' || view.kind === 'review-request' || view.kind === 'ticket') return `#/${view.kind}/${encodeURIComponent(view.id)}`;
+  if (view.kind === 'settings') return view.section ? `#/settings/${view.section.split('/').map(encodeURIComponent).join('/')}` : '#/settings';
   if (view.kind === 'move') return `#/move/${encodeURIComponent(view.sessionId)}/${encodeURIComponent(view.projectId)}${view.groupId ? `/${encodeURIComponent(view.groupId)}` : ''}`;
   if (view.kind === 'code') return `#/code/${encodeURIComponent(view.sessionId)}/${encodeURIComponent(view.messageId)}/${view.at}`;
-  if ((view.kind === 'all' || view.kind === 'code-reviews') && view.filter) return `#/${view.kind}/${view.filter}`;
+  if ((view.kind === 'all' || view.kind === 'code-reviews' || view.kind === 'tickets') && view.filter) return `#/${view.kind}/${view.filter}`;
   if (view.kind === 'pull-requests') return view.filter ? `#/pull-requests/${view.filter}` : '#/pull-requests';
   if (view.kind === 'new-project' && view.from) return `#/new-project/${view.from}`;
   return view.kind === 'overview' ? '#/' : `#/${view.kind}`;
@@ -98,6 +106,7 @@ export function containerOf(view: View): View {
   if (view.kind === 'all') return { kind: 'all' };
   if (view.kind === 'pull-requests') return { kind: 'pull-requests' };
   if (view.kind === 'code-reviews') return { kind: 'code-reviews' };
+  if (view.kind === 'tickets') return { kind: 'tickets' };
   if (view.kind === 'new-project') return { kind: 'new-project' };
   return view.kind === 'project' ? { kind: 'project', id: view.id } : view;
 }

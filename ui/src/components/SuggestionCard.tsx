@@ -8,6 +8,7 @@ import { memo, useMemo, useState } from 'react';
 import { Lightbulb, X } from 'lucide-react';
 import type { ChatMessage } from '@kestrel/server/model';
 import { orderedButtons, shownSuggestion, type Suggestion } from '@kestrel/server/suggestions';
+import { openSession } from '../route.ts';
 import { suggestionActions } from '../suggestionsApi.ts';
 
 function Card({ sessionId, suggestion, waiting }: { sessionId: string; suggestion: Suggestion; waiting: number }) {
@@ -63,6 +64,11 @@ export const SuggestionLine = memo(function SuggestionLine({ sessionId, suggesti
     <div className="suggestion-line" role="note">
       <Lightbulb aria-hidden />
       <span>{suggestion.line}</span>
+      {suggestion.opens && (
+        <button type="button" className="suggestion-undo" onClick={(e) => openSession(suggestion.opens!, e.metaKey || e.ctrlKey)}>
+          Open it
+        </button>
+      )}
       {suggestion.undo && (
         <button type="button" className="suggestion-undo" disabled={busy} onClick={() => void undo()}>
           Undo

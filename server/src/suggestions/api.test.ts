@@ -43,4 +43,12 @@ describe('suggestion routes', () => {
     expect(await route(['sessions', id, 'tags'], 'POST')).toBeNull();
     expect(await route(['sessions', id, 'suggestions', 'x', 'explode'], 'POST')).toBeNull();
   });
+
+  it('lists the standing answers to ticket changes and sets one back to Ask', async () => {
+    const { route } = await world();
+    expect(await route(['suggestion-prefs', 'tickets'], 'PATCH', { change: 'done', source: 'jira', answer: 'always' })).toMatchObject({ status: 400 });
+    expect(await route(['suggestion-prefs', 'tickets'], 'PATCH', { change: 'comment', source: 'jira', answer: 'never' })).toEqual({ status: 200, body: { answers: [{ change: 'comment', source: 'jira', answer: 'never' }] } });
+    expect(await route(['suggestion-prefs', 'tickets'], 'PATCH', { change: 'comment', source: 'jira', answer: 'ask' })).toEqual({ status: 200, body: { answers: [] } });
+    expect(await route(['suggestion-prefs', 'tickets'], 'GET')).toEqual({ status: 200, body: { answers: [] } });
+  });
 });

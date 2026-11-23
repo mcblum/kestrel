@@ -3,7 +3,7 @@
 import { guardLeave } from './unsaved.ts';
 import { DEFAULT_CONTROLS, withScope, activate, placement, activateNth, becomeSession, closeTab, isLastOverview, moveTab, openTarget, prune, replaceSession, retargetActive, sanitize, setControls, type Controls, type OpenTarget, type Preselect, type Tab, type TabsState } from '@kestrel/server/tabs';
 import { rememberPick, rememberSent, startControls, startFromOf, storedRemembered, withFixed, withStartFrom, type Remembered, type StartFrom, type StickyPick } from '@kestrel/server/sticky-controls';
-import { clampContextWidth, clampPaneWidth, clampSimWidth, clampWidth, place, placeProject, placeTag, placeWorkstream, sanitizeSidebar, toggleCollapsed, toggleHidden, type SidebarPrefs } from '@kestrel/server/sidebar';
+import { clampContextWidth, clampPaneWidth, clampSimWidth, clampWidth, place, placeMenuItem, placeProject, placeTag, placeWorkstream, sanitizeSidebar, toggleCollapsed, toggleHidden, type SidebarPrefs } from '@kestrel/server/sidebar';
 import { activityAt, parseSessionOrder, type SessionOrder } from '@kestrel/server/session-order';
 import type { StackWeights } from '@kestrel/server/pane-layout';
 import type { ScopeKind } from '@kestrel/server/scope';
@@ -290,6 +290,8 @@ export const tabActions = {
   placeProject: (present: readonly string[], moving: string, target: string | null, after = false) => update({ sidebar: placeProject(tabsView().sidebar, present, moving, target, after) }),
   /** Put a tag beside another (or at the end); `present` is every tag shown, as `tagKey` gives them. */
   placeTag: (present: readonly string[], moving: string, target: string | null, after = false) => update({ sidebar: placeTag(tabsView().sidebar, present, moving, target, after) }),
+  /** Put a row of the sidebar's top menu beside another. */
+  placeMenuItem: (moving: string, target: string, after = false) => update({ sidebar: placeMenuItem(tabsView().sidebar, moving, target, after) }),
   /** Put a workstream beside another (or at the end); `present` is every workstream shown. */
   placeWorkstream: (present: readonly string[], moving: string, target: string | null, after = false) => update({ sidebar: placeWorkstream(tabsView().sidebar, present, moving, target, after) }),
   /** Sort sessions in each sidebar list by most recent, or keep the dragged order (Settings → General). */

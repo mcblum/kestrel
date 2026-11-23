@@ -94,7 +94,7 @@ export function NotificationControls() {
 const HELP = (
   <p className="settings-help">
     Kestrel tells you when a session you started finishes, when one fails, and when one stops to ask you something, so you can leave it in the background. You are not told about the session you are looking at, about a session you stopped yourself, or when a
-    session another one delegated to finishes (that is news for the session that asked). A click on a notification opens the session. On a Mac the system asks once whether Kestrel may show notifications, the first time one is sent; after that it is a switch in System Settings → Notifications → Kestrel. "Send a test notification" shows one now, or says why it could not. The sound plays once per change, with or without the banner.
+    session another one delegated to finishes (that is news for the session that asked). A ticket newly assigned to you is told once, when tickets are on in Settings → Tickets and its source was already being checked; the tickets there when you first turn tickets or a source on are not. A click on a notification opens the session, the review request or the ticket. On a Mac the system asks once whether Kestrel may show notifications, the first time one is sent; after that it is a switch in System Settings → Notifications → Kestrel. "Send a test notification" shows one now, or says why it could not. The sound plays once per change, with or without the banner.
   </p>
 );
 

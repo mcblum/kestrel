@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
-import { ArrowRight, Bird, X } from 'lucide-react';
+import { ArrowRight, X } from 'lucide-react';
 import type { SessionView, WorkspaceState } from '@kestrel/server/model';
 import { activityDayKey, activityGarden } from '@kestrel/server/overview';
 import { opener, openSession } from '../route.ts';
@@ -48,9 +48,9 @@ export function ActivityGarden({ workspace }: { workspace: WorkspaceState }) {
     event.currentTarget.closest('.activity-garden-grid')?.querySelector<HTMLButtonElement>(`[data-day="${target.key}"]`)?.focus();
   };
   return (
-    <section className="activity-garden" aria-labelledby="activity-garden-title">
+    <section className="page-section activity-garden" aria-labelledby="activity-garden-title">
       <div className="activity-garden-summary">
-        <h2 id="activity-garden-title"><Bird aria-hidden /> Last 30 days</h2>
+        <h2 id="activity-garden-title">Last 30 days</h2>
         <p><strong>{total}</strong> session{total === 1 ? '' : 's'} finished</p>
       </div>
       <div className="activity-garden-calendar">

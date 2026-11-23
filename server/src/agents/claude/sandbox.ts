@@ -15,7 +15,7 @@ import type { StartOptions } from '../types.ts';
 
 export const UNSANDBOXED_NOTE = "Runs outside the sandbox: it can change files outside this session's folder";
 
-type Confined = Pick<StartOptions, 'directory' | 'permission' | 'confineShell' | 'sandboxAllow' | 'commitSigning' | 'sandboxSupport'>;
+type Confined = Pick<StartOptions, 'directory' | 'permission' | 'confineShell' | 'sandboxAllow' | 'commitSigning' | 'sandboxSupport' | 'protectedFiles'>;
 
 /** The temporary folders, which the sandbox's own rules let commands write. Windows has no /tmp. */
 const TEMP_FOLDERS = [...new Set([...(process.platform === 'win32' ? [] : ['/tmp', '/private/tmp']), tmpdir(), realpathSync(tmpdir())])];
@@ -43,7 +43,8 @@ function ownFolders(directory: string, repoOf: (worktree: string) => string | nu
  * write, all of them to what they may read. Built each time a run starts, so a change to the list
  * reaches a running session from its next message. When the repository signs its commits, signing
  * gets through (`commitSigning`): GnuPG's home is readable and the signing agent's socket can be
- * reached; nothing more, and nothing of it writable.
+ * reached; nothing more, and nothing of it writable. Kestrel's own credential files (`protectedFiles`)
+ * can be neither read nor written.
  *
  * Nothing, too, on a computer that has no sandbox (`sandboxSupport`): asking the SDK for one there
  * ends the run with an error. Such a session is held by `unconfinedReason` instead.
@@ -57,7 +58,8 @@ export function shellSandbox(opts: Confined, repoOf: (worktree: string) => strin
     enabled: true,
     autoAllowBashIfSandboxed: false,
     allowUnsandboxedCommands: true,
-    filesystem: { allowWrite: [...ownFolders(opts.directory, repoOf), ...listed.write], ...(read.length ? { allowRead: read } : {}) },
+    // Kestrel's own credential files are never readable, whatever the list says (shared/protected-files.ts).
+    filesystem: { allowWrite: [...ownFolders(opts.directory, repoOf), ...listed.write], ...(read.length ? { allowRead: read } : {}), ...(opts.protectedFiles?.length ? { denyRead: opts.protectedFiles, denyWrite: opts.protectedFiles } : {}) },
     network: { allowedDomains: ['*'], ...(sockets.length ? { allowUnixSockets: sockets } : {}) },
   };
 }

@@ -79,6 +79,8 @@ export interface RuntimeHost {
   onEvent(id: string, rec: Live, event: AgentEvent): void;
   /** Send what is queued as the next turn, saying so when it cannot. */
   flushQueue(id: string): Promise<void>;
+  /** A turn ended complete (not stopped): what follows on it that is not the turn's own (a ticket's summary proposal). Not waited for. */
+  turnComplete(id: string): void;
   /** Nothing the agent's process ran is running any more. */
   endRunning(id: string): void;
   /** Resolves when every queued side effect for the session has run. */

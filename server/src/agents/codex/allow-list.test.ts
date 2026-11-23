@@ -13,6 +13,7 @@ import { unwrapShell } from '../../sandbox-allow/command-line.ts';
 import { codexAdapter, nodeLauncher } from './index.ts';
 import { listAnswer } from './allow-list.ts';
 import { codexPolicy } from './policy.ts';
+import { PROTECTED_REFUSAL, protectedRefusal } from '../../shared/protected-files.ts';
 
 const FAKE = join(import.meta.dirname, 'fixtures', 'fake-app-server.mjs');
 
@@ -66,6 +67,22 @@ describe('Codex and the always-allowed list', () => {
     handle.answer(card.request.id, { optionId: 'allow' });
     await t.next('done');
     expect(t.said()).toContain('ran it');
+    await handle.close!();
+  });
+
+  it("never accepts from the list a command that names Kestrel's credential store: it is refused, with the reason", async () => {
+    const t = setup('auto', access([{ kind: 'command', words: ['cat'] }]));
+    const files = [join(t.dir, 'trackers.json')];
+    const options: StartOptions = { ...t.options, confineShell: true, protectedFiles: files, intercept: async (action) => {
+      const refusal = protectedRefusal(action, files, (p) => p);
+      return refusal ? { allow: false, message: refusal } : { allow: true };
+    } };
+    const handle = t.adapter.start(options, `cat ${files[0]}`, t.emit);
+    await t.next('done');
+    expect(t.events.some((e) => e.type === 'needs-input')).toBe(false);
+    expect(t.said()).toContain('skipped it');
+    // The agent is told why, with the turn still going.
+    expect(JSON.stringify(t.received().filter((r) => r.method === 'turn/steer'))).toContain('credential store');
     await handle.close!();
   });
 
