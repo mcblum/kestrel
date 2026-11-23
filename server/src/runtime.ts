@@ -946,7 +946,7 @@ export class SessionRuntime implements McpSessions {
 
   /** Run an action through the transcript and send what changed on the live channel. */
   private apply(id: string, rec: Live, action: TranscriptAction): void {
-    const { messages, changed, removed } = applyToTranscript(rec.messages, action, clock(), this.now());
+    const { messages, changed, removed } = applyToTranscript(rec.messages, action, clock(), this.now(), new Set(rec.kestrelRequests.keys()));
     rec.messages = messages;
     const patch: LivePatch = {};
     if (changed.length) patch.messages = changed;

@@ -244,8 +244,21 @@ export class Delegation {
     this.moveAsked.add(callerId);
     const { title, detail } = moveAsk(where, a.reason ?? '');
     if (!(await this.approve(caller, 'move_to_project', title, [detail], 'Move it', true))) return { text: MOVE_DECLINED };
-    this.afterTurn.set(callerId, { move: { project: target.project, folder } });
+    this.setAfterTurn(callerId, { move: { project: target.project, folder } });
     return { text: moveApproved(where) };
+  }
+
+  /**
+   * Something the user approved is done when the caller's turn ends. When that turn is already over
+   * (the card was answered after it: runtime/turns.ts `answerAfterTurn`), it is done now.
+   */
+  private setAfterTurn(callerId: string, pending: NonNullable<ReturnType<Delegation['afterTurn']['get']>>): void {
+    this.afterTurn.set(callerId, pending);
+    const rec = this.rt.recordOf(callerId);
+    if (rec?.handle?.busy() || rec?.launching) return;
+    void this.session(callerId)
+      .then((session) => this.finishTurn(session))
+      .catch((error: unknown) => this.rt.notice(callerId, `Kestrel could not do what you approved: ${error instanceof Error ? error.message : String(error)}`, 'error'));
   }
 
   /** What the user approved for after this turn (`afterTurn`): done now that it has ended. True when the session's turn end is not news for anyone else. */
@@ -340,7 +353,7 @@ export class Delegation {
     const ask = convertAsk(`${terms.long} ${terms.sigil}${request.number} in ${request.repository} ("${request.title}")`, home.project.name);
     if (!(await this.approve(caller, 'start_review', ask.title, [ask.detail], 'Make it a review', true))) return { text: CONVERT_DECLINED };
     const review = await this.rt.startReview(request);
-    this.afterTurn.set(callerId, { replacedBy: review.id });
+    this.setAfterTurn(callerId, { replacedBy: review.id });
     return { text: converted(review.title, review.id) };
   }
 
@@ -364,7 +377,7 @@ export class Delegation {
     this.noteStarted(callerId, child.id, 'handoff');
     const launched = await this.rt.launchChild(child, project, folder, summary, 'handoff', this.modelFor(callerId, caller, agent), this.modeOf(callerId));
     if (!launched.ok) return { isError: true, text: `The handoff session was created (${child.id}) but could not start: ${launched.reason}` };
-    if (a.archive_self) this.afterTurn.set(callerId, { archive: targetName(target) });
+    if (a.archive_self) this.setAfterTurn(callerId, { archive: targetName(target) });
     return { text: `Handed off to ${targetName(target)}: session "${child.title}" (${child.id}) is now working on it in its own worktree. That session owns this work now. Stop working on it here: make no further changes for it, tell the user in one sentence where it went, and end your turn.` };
   }
 

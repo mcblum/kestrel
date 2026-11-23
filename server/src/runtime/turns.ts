@@ -167,20 +167,37 @@ function rebuild(host: TurnHost, session: Session, rec: Live): void {
   if (ended > 0) host.notice(session.id, `The new settings restarted the agent, which stopped the ${ended === 1 ? 'work' : `${ended} pieces of work`} it had running in the background.`, 'warning');
 }
 
+/**
+ * The answer to one of Kestrel's own cards once its turn is over. The session is put at rest first,
+ * then the waiting tool call gets the choice: what it does next (a move, a review, the sessions it
+ * starts) sets the session's state from there.
+ */
+async function answerAfterTurn(host: TurnHost, sessionId: string, rec: Live, requestId: string, label: string, own: (approved: boolean) => void, approved: boolean): Promise<void> {
+  rec.kestrelRequests.delete(requestId);
+  rec.pendingInput.delete(requestId);
+  host.apply(sessionId, rec, { type: 'resolved', requestId, label });
+  if (rec.pendingInput.size === 0) await host.workspace.setState(sessionId, 'done', await host.delegation.doneNote(sessionId, rec.stopped === true), ACTIVITY);
+  own(approved);
+}
+
 /** The user answered a card: the agent (or Kestrel's own waiting tool call) gets the choice. */
 export async function answerCard(host: TurnHost, sessionId: string, requestId: string, answer: InputAnswer): Promise<void> {
   const rec = host.records.get(sessionId);
-  if (!rec?.handle || !rec.pendingInput.has(requestId)) throw new Refused('Nothing is waiting for an answer there any more.');
+  const waiting = rec?.kestrelRequests.get(requestId);
+  if (!rec || !rec.pendingInput.has(requestId) || (!rec.handle && !waiting)) throw new Refused('Nothing is waiting for an answer there any more.');
   const card = rec.messages.find((m) => m.input?.id === requestId)?.input;
   const label = answer.answers ? answersLabel(answer.answers) : (card?.options.find((o) => o.id === answer.optionId)?.label ?? answer.text ?? 'Answered');
-  const own = rec.kestrelRequests.get(requestId);
+  const own = waiting;
+  // One of Kestrel's own cards, answered after the turn it was raised in ended (events.ts keeps it
+  // open): no turn is running, so the session is at rest until what was approved starts something.
+  if (own && !rec.handle?.busy() && !rec.launching) return answerAfterTurn(host, sessionId, rec, requestId, label, own, answer.optionId === 'allow');
   // An "Always allow" choice on a sandbox card puts the card's own offer on the list first.
   const forwarded = own ? answer : await host.sandboxAllow.answerCard(card, answer);
   if (own) {
     // Kestrel's own card (delegate, spawn): the waiting tool call gets the choice.
     rec.kestrelRequests.delete(requestId);
     own(answer.optionId === 'allow');
-  } else rec.handle.answer(requestId, forwarded);
+  } else rec.handle!.answer(requestId, forwarded); // not one of Kestrel's own, so there is a handle (checked above)
   rec.pendingInput.delete(requestId);
   host.apply(sessionId, rec, { type: 'resolved', requestId, label });
   if (rec.pendingInput.size > 0) return;
@@ -200,6 +217,12 @@ async function settleIdle(host: TurnHost, sessionId: string, rec: Live | undefin
   if (session?.state !== 'running' && session?.state !== 'attention') throw new Refused('This session is not running.');
   if (rec) {
     rec.stopped = true;
+    // Kestrel's own cards left open by the turn that ended: declined, and closed.
+    for (const [requestId, resolve] of rec.kestrelRequests) {
+      rec.kestrelRequests.delete(requestId);
+      resolve(false);
+    }
+    host.apply(sessionId, rec, { type: 'settled' });
     rec.pendingInput.clear();
     host.setQueue(sessionId, rec, afterTurn(rec.queue, 'stopped'));
   }

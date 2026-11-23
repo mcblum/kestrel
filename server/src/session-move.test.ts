@@ -103,6 +103,48 @@ describe('a session with no project', () => {
   });
 });
 
+describe('a card of Kestrel’s own that is still open when its turn ends', () => {
+  /** A session whose agent asks to move and then ends its turn without waiting for the answer. */
+  const endedWithCard = async () => {
+    const w = await world();
+    w.claude.script = (turn) => {
+      if (turn.text === 'go') void turn.options.tools.moveToProject({ project: 'configuration-management', reason: 'The work is there.' });
+    };
+    const session = await w.runtime.start({ agent: 'claude', projectId: null, prompt: 'go' });
+    await until(async () => (await w.row(session.id))!.state === 'attention', 'the session to wait on the card');
+    await w.runtime.idle(session.id);
+    return { ...w, session };
+  };
+
+  it('stays open and still asks, and a yes moves the session and wakes it in the project', async () => {
+    const { claude, runtime, config, card, row, session } = await endedWithCard();
+    expect(card(session.id)).toMatchObject({ title: 'Move this session to configuration-management?' });
+    expect(card(session.id)!.resolved).toBeUndefined();
+    expect((await row(session.id))!.note).toBe('Needs you · Move this session to configuration-management?');
+
+    await runtime.answer(session.id, runtime.overlay(session.id)!.messages.find((m) => m.input)!.input!.id, { optionId: 'allow' });
+    await until(() => claude.turns.some((t) => t.text.includes('You are now in configuration-management')), 'the session woken in the project');
+    expect((await row(session.id))!.startedIn).toBe(config.id);
+  });
+
+  it('is closed by a no, which leaves the session at rest where it was', async () => {
+    const { runtime, row, session } = await endedWithCard();
+    const id = runtime.overlay(session.id)!.messages.find((m) => m.input)!.input!.id;
+    await runtime.answer(session.id, id, { optionId: 'deny' });
+    await runtime.idle(session.id);
+    expect(await row(session.id)).toMatchObject({ state: 'done', startedIn: null });
+    expect(runtime.overlay(session.id)!.messages.find((m) => m.input)!.input!.resolved).toBe('Decline');
+    await expect(runtime.answer(session.id, id, { optionId: 'allow' })).rejects.toThrow('Nothing is waiting for an answer there any more.');
+  });
+
+  it('is declined and closed by Stop', async () => {
+    const { runtime, row, session } = await endedWithCard();
+    await runtime.stop(session.id);
+    expect(await row(session.id)).toMatchObject({ state: 'done', note: 'Stopped', startedIn: null });
+    expect(runtime.overlay(session.id)!.messages.find((m) => m.input)!.input!.resolved).toBe('Not answered (the turn ended)');
+  });
+});
+
 describe('a session in the wrong project', () => {
   it('offers to hand the task off and archive itself, and is archived when its turn ends', async () => {
     const { workspace, claude, runtime, other, config, results, start, card } = await world();

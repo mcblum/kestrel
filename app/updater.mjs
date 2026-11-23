@@ -4,7 +4,7 @@
 // against a local server): `latest-mac.yml`, `latest.yml` for Windows, `latest-linux.yml` for the
 // Linux AppImage. It names the file to download, by an absolute URL wherever that is hosted.
 // update-support.mjs says which copies update at all, and why the others do not.
-// Checks run shortly after launch and every few hours; a found update downloads in the background;
+// Checks run shortly after launch and every half hour; a found update downloads in the background;
 // when it is ready the page shows a quiet notice with a Restart button (ui UpdateNotice). Nothing
 // restarts by itself: the user restarts, or the update is installed the next time Kestrel quits.
 //
@@ -20,7 +20,9 @@ const { autoUpdater } = electronUpdater;
 
 export const FEED_URL = 'https://starfish.nationalmachine.io/kestrel/releases/-/raw/main/';
 const FIRST_CHECK_DELAY_MS = 30_000;
-const CHECK_EVERY_MS = 4 * 60 * 60 * 1000;
+// Half an hour (Matt, 2026-11-23; it was four hours): a release reaches a running copy the same
+// morning. Each check is one small request for the feed file, so the cost is nothing.
+const CHECK_EVERY_MS = 30 * 60 * 1000;
 
 /** @typedef {{ status: 'idle' | 'checking' | 'downloading' | 'ready' | 'error', version?: string, percent?: number }} UpdateState */
 

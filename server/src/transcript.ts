@@ -99,8 +99,15 @@ export function liveStatus(event: AgentEvent): string | undefined {
  * `time` is the clock text shown on a message; `now` (ms since 1970) stamps when a turn starts and
  * ends (shared/turns.ts). Without `now` nothing is stamped.
  */
-export function applyToTranscript(messages: readonly ChatMessage[], action: TranscriptAction, time: string, now?: number): Applied {
-  const applied = applyAction(messages, action, time, now);
+const NONE_KEPT: ReadonlySet<string> = new Set();
+
+/**
+ * `keepOpen`: the ids of cards that stay open when the turn ends, because their answer still does
+ * something: Kestrel's own cards (delegate, move, a review), which a tool call of Kestrel's is
+ * waiting on whatever became of the agent's turn (Matt, 2026-11-23).
+ */
+export function applyToTranscript(messages: readonly ChatMessage[], action: TranscriptAction, time: string, now?: number, keepOpen: ReadonlySet<string> = NONE_KEPT): Applied {
+  const applied = applyAction(messages, action, time, now, keepOpen);
   return (action.type === 'message' || action.type === 'tool') && applied.messages.length > messages.length ? reviewLast(applied) : applied;
 }
 
@@ -118,7 +125,7 @@ function reviewLast(applied: Applied): Applied {
   return { messages: [...messages.slice(0, at), ...messages.slice(at + 1), card], changed: [...applied.changed, card], removed: card.id === undefined ? [] : [card.id] };
 }
 
-function applyAction(messages: readonly ChatMessage[], action: TranscriptAction, time: string, now?: number): Applied {
+function applyAction(messages: readonly ChatMessage[], action: TranscriptAction, time: string, now?: number, keepOpen: ReadonlySet<string> = NONE_KEPT): Applied {
   const sent = now === undefined ? {} : { sentAt: now };
   switch (action.type) {
     case 'user': {
@@ -203,16 +210,16 @@ function applyAction(messages: readonly ChatMessage[], action: TranscriptAction,
       return { messages: [...messages], changed: [] };
     case 'failed': {
       const message: ChatMessage = { id: `failed-${time}-${messages.length}`, author: 'agent', time, text: action.reason, notice: 'error', ...(action.kind === 'auth' ? { signIn: true as const } : {}) };
-      const settled = ended(settle(messages), now);
+      const settled = ended(settle(messages, 'done', keepOpen), now);
       return { messages: [...settled.messages, message], changed: [...settled.changed, message] };
     }
     case 'done':
-      return ended(settle(messages, action.reason === 'stopped' ? 'stopped' : 'done'), now);
+      return ended(settle(messages, action.reason === 'stopped' ? 'stopped' : 'done', keepOpen), now);
     // The agent finished talking and only waits on background work: for the user the turn is over.
     case 'phase':
-      return action.phase === 'background' ? ended(settle(messages), now) : { messages: [...messages], changed: [] };
+      return action.phase === 'background' ? ended(settle(messages, 'done', keepOpen), now) : { messages: [...messages], changed: [] };
     case 'settled':
-      return settle(messages);
+      return settle(messages, 'done', keepOpen);
     // Where the turn ends in the agent's own conversation: kept on the message that started it, for Fork.
     case 'turn-point': {
       const marked = markForkPoint(messages, action.point);
@@ -240,10 +247,10 @@ export const UNANSWERED_LABEL = 'Not answered (the turn ended)';
  * cards nobody answered (a stop, a failure), so they no longer offer buttons that cannot work. A
  * tool line still running when the user stopped the turn ends as stopped, not done: it never finished.
  */
-function settle(messages: readonly ChatMessage[], unfinished: 'done' | 'stopped' = 'done'): Applied {
+function settle(messages: readonly ChatMessage[], unfinished: 'done' | 'stopped' = 'done', keepOpen: ReadonlySet<string> = NONE_KEPT): Applied {
   const changed: ChatMessage[] = [];
   const next = messages.map((m) => {
-    const open = Boolean(m.input && !m.input.resolved);
+    const open = Boolean(m.input && !m.input.resolved && !keepOpen.has(m.input.id));
     const stale = m.streaming || m.activity?.some((a) => a.status === 'running') || open;
     if (!stale) return m;
     const updated: ChatMessage = {

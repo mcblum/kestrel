@@ -117,10 +117,25 @@ async function sideEffects(host: EventHost, id: string, rec: Live, event: AgentE
   }
 }
 
+/**
+ * A turn is over. Cards the agent raised cannot be answered any more; Kestrel's own (delegate, move,
+ * a review) can: the tool call behind each still waits, and its answer still does something. Those
+ * stay pending.
+ */
+function keepOwnCards(rec: Live): void {
+  rec.pendingInput = new Set([...rec.pendingInput].filter((requestId) => rec.kestrelRequests.has(requestId)));
+}
+
+/** With one of Kestrel's own cards still open after its turn, the session still needs the user: said on its row. */
+async function awaitOwnCards(host: EventHost, id: string, rec: Live): Promise<void> {
+  const open = rec.messages.find((m) => m.input && !m.input.resolved && rec.kestrelRequests.has(m.input.id))?.input;
+  if (open) await host.workspace.setState(id, 'attention', `Needs you · ${open.title}`, ACTIVITY);
+}
+
 async function turnFailed(host: EventHost, id: string, rec: Live, event: Extract<AgentEvent, { type: 'failed' }>): Promise<void> {
   host.upkeep.cancelRefresh(rec);
   host.upkeep.cancelNote(rec);
-  rec.pendingInput.clear();
+  keepOwnCards(rec);
   host.setQueue(id, rec, afterTurn(rec.queue, 'failed'));
   await host.upkeep.refreshFiles(id, rec);
   await host.workspace.setState(id, 'attention', event.kind === 'auth' ? `${AGENT_LABEL[(await host.workspace.state()).sessions.find((s) => s.id === id)?.agent ?? 'claude']} is not signed in` : `Failed · ${event.reason.slice(0, 120)}`, ACTIVITY);
@@ -136,7 +151,7 @@ async function turnFailed(host: EventHost, id: string, rec: Live, event: Extract
 async function turnEnded(host: EventHost, id: string, rec: Live, reason: 'complete' | 'stopped'): Promise<void> {
   host.upkeep.cancelRefresh(rec);
   host.upkeep.cancelNote(rec);
-  rec.pendingInput.clear();
+  keepOwnCards(rec);
   const end = reason === 'stopped' || rec.stopped ? 'stopped' : 'complete';
   const flush = shouldFlush(rec.queue, end);
   host.setQueue(id, rec, afterTurn(rec.queue, end));
@@ -146,6 +161,7 @@ async function turnEnded(host: EventHost, id: string, rec: Live, reason: 'comple
   releaseWaiters(rec);
   if (reason !== 'stopped') await host.delegation.onChildState(id, 'done', '');
   if (end === 'complete') host.turnComplete(id);
+  await awaitOwnCards(host, id, rec);
   // The user's queued messages are the next turn; news from other sessions goes along with them.
   if (flush && rec.queue.items.length > 0 && !rec.handle?.busy()) return host.flushQueue(id);
   return host.delegation.drainInbox(id);
