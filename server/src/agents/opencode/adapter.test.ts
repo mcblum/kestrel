@@ -3,7 +3,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { otherProjectHolding, otherProjectRefusal } from '../../shared/project-edits.ts';
 import { PROTECTED_REFUSAL, protectedRefusal } from '../../shared/protected-files.ts';
 import { NO_TOOLS } from '../test-support.ts';
@@ -15,6 +15,19 @@ import { nodeLauncher, opencodeAdapter } from './index.ts';
 import { NOT_INSTALLED, NOT_SIGNED_IN, OpencodeUnavailable, type Launch } from './process.ts';
 
 const FAKE = join(import.meta.dirname, 'fixtures', 'fake-opencode-serve.mjs');
+// Every fake server a test starts is ended when that test is over. The adapter ends its servers when
+// the process exits, but a test worker that is torn down never gets that far, so a server a test left
+// open (a turn that failed, say) ran on after the tests: two per run, for days.
+const servers: Awaited<ReturnType<Launch>>[] = [];
+const fakeLaunch: Launch = async (options) => {
+  const server = await nodeLauncher(FAKE)(options);
+  servers.push(server);
+  return server;
+};
+afterEach(() => {
+  for (const server of servers.splice(0)) server.kill();
+});
+
 const KESTREL_MCP = { url: 'http://127.0.0.1:1/mcp/s-1', token: 'session-token' };
 
 interface Extra {
@@ -28,7 +41,7 @@ function setup(scenario: string, permission: StartOptions['permission'] = 'ask',
   const log = join(dir, 'received.jsonl');
   // HOME points at the scratch folder so the user's own OpenCode files are never read.
   const env = { PATH: process.env.PATH, HOME: dir, FAKE_OPENCODE_SCENARIO: scenario, FAKE_OPENCODE_LOG: log, FAKE_OPENCODE_STATE: join(dir, 'state'), KESTREL_TOKEN: 'launch-token', ...extra.env?.(dir) };
-  const adapter = opencodeAdapter({ launch: nodeLauncher(FAKE), env, probeDirectory: dir, log: () => undefined });
+  const adapter = opencodeAdapter({ launch: fakeLaunch, env, probeDirectory: dir, log: () => undefined });
   const options: StartOptions = { directory: extra.directory?.(dir) ?? dir, instruction: 'Standing instruction: call mcp__kestrel__delegate.', tools: NO_TOOLS, permission, kestrelMcp: KESTREL_MCP, ...extra.options?.(dir) };
   const events: AgentEvent[] = [];
   const watchers: { pred: (e: AgentEvent) => boolean; resolve: (e: AgentEvent) => void }[] = [];
@@ -247,7 +260,7 @@ describe('OpenCode adapter, against a fake opencode serve', () => {
     const first = t.adapter.start(t.options, 'one', t.emit);
     await t.next('done');
     await first.close!();
-    const again = opencodeAdapter({ launch: nodeLauncher(FAKE), env: { PATH: process.env.PATH, HOME: t.dir, FAKE_OPENCODE_SCENARIO: 'reply', FAKE_OPENCODE_LOG: join(t.dir, 'received.jsonl'), FAKE_OPENCODE_STATE: join(t.dir, 'state') }, log: () => undefined });
+    const again = opencodeAdapter({ launch: fakeLaunch, env: { PATH: process.env.PATH, HOME: t.dir, FAKE_OPENCODE_SCENARIO: 'reply', FAKE_OPENCODE_LOG: join(t.dir, 'received.jsonl'), FAKE_OPENCODE_STATE: join(t.dir, 'state') }, log: () => undefined });
     const before = t.events.length;
     const handle = again.resume('ses_fake1', t.options, t.emit);
     expect(handle.agentSessionId()).toBe('ses_fake1');
