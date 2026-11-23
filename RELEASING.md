@@ -44,8 +44,11 @@ So: bump `version` in `app/package.json` in a merge request, merge it, wait for 
 message), follow its "Start the release" link and press play. A Slack outage, or no webhook set,
 never holds a release up: the job says where the button is and passes. One release runs at a time
 (`resource_group: release`) and is never cancelled part-way. Its `dist/release` is kept as an
-artifact even when it fails, so a notarized build that only failed to publish can be published by
-hand with `publish.sh` instead of rebuilt.
+artifact only when it fails, so a notarized build that failed to publish can be published by
+hand with `publish.sh` instead of rebuilt. A published release keeps none: its build is in the
+package registry, and is larger than the server accepts as an artifact (the upload was refused
+with 413 and turned published releases red, 0.0.23 to 0.0.27). The same limit means the upload
+after a failure is refused too until the instance's maximum artifact size is raised.
 
 `package-linux` and `package-windows` are in the pipeline to start by hand, on a merge request or on
 `main`, and nothing waits on them. Once both builds have been made and tried on real computers,
@@ -74,8 +77,8 @@ watchOS, tvOS and visionOS simulator runtimes (which no app's CI uses; `xcodebui
 brings one back), the Sparkle appcast cache and Homebrew's download cache were removed, leaving
 39 GB free. A Kestrel release needs roughly 5 to 6 GB while it runs, and `release` cleans up after
 itself whether it passed or failed (`scripts/release/ci-cleanup.sh`): dependencies, the staged app,
-electron-builder's output and the fetched binaries go; only `dist/release` stays for the artifact
-upload, until the next job's checkout removes it. pnpm's and Electron's download caches are kept,
+electron-builder's output and the fetched binaries go; only `dist/release` stays, for the artifact
+upload after a failure, until the next job's checkout removes it. pnpm's and Electron's download caches are kept,
 since they are what makes the next release quick.
 
 **None of this has run yet** (written 2026-11-21). The first release through it should be watched:
