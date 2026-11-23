@@ -327,6 +327,12 @@ export interface NextStep {
   replies: string[];
   /** The user has replied since; the buttons are spent. */
   done?: boolean;
+  /**
+   * The sessions whose news the turn was given (a session it started reporting back, a review's
+   * findings), by id: the box links to them, so the user can see what the question is about.
+   * Absent when the turn was the user's own, and from older servers.
+   */
+  about?: string[];
 }
 
 /** A session this one started (handoff, delegate or spawn), marked in the conversation where it happened. */

@@ -33,13 +33,12 @@ const BUTTONS = [
   { id: 'never', label: 'Don’t ask again' },
 ];
 
-const MAX_SHOWN = 280;
-const clip = (text: string): string => (text.length > MAX_SHOWN ? `${text.slice(0, MAX_SHOWN - 1)}…` : text);
 const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 
 function draftOf(ticket: Ticket, change: TicketChange, body: string, reason: string, once: string) {
   const payload = { change, key: ticket.key, ref: ticket.ref, source: ticket.source, ...(body ? { body } : {}), ...(once ? { once } : {}) };
-  if (change === 'comment') return { title: `Comment on ${ticket.ref}?`, reason: clip(body), payload, buttons: BUTTONS };
+  // The comment itself, whole: what is allowed is what is read (Matt, 2026-11-23).
+  if (change === 'comment') return { title: `Add this comment to ${ticket.ref}?`, ...(reason ? { reason } : {}), detail: body, payload, buttons: BUTTONS };
   const to = change === 'in-progress' ? 'In progress' : 'In review';
   return { title: `Move ${ticket.ref} to ${to}?`, reason: reason || `It is ${ticket.status.name} now.`, payload, buttons: BUTTONS };
 }

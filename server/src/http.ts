@@ -822,6 +822,12 @@ async function files(req: IncomingMessage, res: ServerResponse, runtime: Session
     const json = JSON.stringify(payload);
     for (const ws of sockets.clients) if (ws.readyState === ws.OPEN) ws.send(json);
   };
+  // A session that gives way to another is deleted next: every window hears which one took its place
+  // at once and before the workspace without it, whether or not it was watching (the live channel
+  // holds a patch for LIVE_FLUSH_MS and sends it to watchers only), so its tab follows instead of closing.
+  const unsubscribeReplaced = runtime?.onLive((sessionId, patch) => {
+    if (patch.replacedBy) everyone({ type: 'live', sessionId, patch: { replacedBy: patch.replacedBy } });
+  });
   const unsubscribeSimShow = runtime?.onSimShow((sessionId, udid) => everyone({ type: 'sim-show', sessionId, udid }));
   const unsubscribeSimChange = runtime?.sim.simulator.onChange((udid) => everyone({ type: 'sim-changed', udid }));
 
@@ -863,6 +869,7 @@ async function files(req: IncomingMessage, res: ServerResponse, runtime: Session
         unsubscribeConnect?.();
         unsubscribeLive?.();
         unsubscribeSimShow?.();
+        unsubscribeReplaced?.();
         unsubscribeSimChange?.();
         runtime?.sim.simulator.close();
         live.close();

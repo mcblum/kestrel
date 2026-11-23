@@ -26,6 +26,11 @@ export interface Suggestion {
   title: string;
   /** One line under the title, in quiet text. */
   reason?: string;
+  /**
+   * The text the action would send somewhere, whole (a ticket comment), as Markdown: drawn under the
+   * title so the user reads what they are allowing before they allow it. Absent from older servers.
+   */
+  detail?: string;
   /** What the model proposed, as the kind validated it. */
   payload: Record<string, unknown>;
   buttons: SuggestionButton[];

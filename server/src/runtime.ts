@@ -29,8 +29,8 @@ import { githubCommands } from './pull-requests/github.ts';
 import { gitlabCommands } from './pull-requests/gitlab.ts';
 import { REVIEW_KIND, reviewKind } from './suggestions/review-kind.ts';
 import type { RequestLink } from './model.ts';
-import type { Guest } from './shared/worktree-guests.ts';
-import type { RoleRun } from './shared/who-does-what.ts';
+import { REVIEW_ASKED, REVIEW_STARTS, type Guest } from './shared/worktree-guests.ts';
+import { presetSummary, type RoleRun } from './shared/who-does-what.ts';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -110,6 +110,7 @@ import type { BulkRemoval } from './shared/stale-worktrees.ts';
 import { SimTools } from './sim-tools.ts';
 import { Simulator } from './simulator.ts';
 import { createSuggestions, type Suggestions } from './suggestions/index.ts';
+import { SHOWN_TEXT } from './suggestions/service.ts';
 import { titleFrom } from './title.ts';
 import { appendOutput, applyToTranscript, outputLine, type TranscriptAction } from './transcript.ts';
 import type { WorktreeList } from './worktree-cleanup.ts';
@@ -243,6 +244,7 @@ export class SessionRuntime implements McpSessions {
         projectPaths: async () => (await workspace.state()).projects.flatMap((p) => p.folders.map((f) => f.path)),
         showCard: (id, card) => this.showCard(id, card),
         notice: (id, text, level) => this.notice(id, text, level),
+        newsFrom: (id) => this.records.get(id)?.turnNewsFrom ?? [],
       },
       dataDir,
     );
@@ -259,9 +261,10 @@ export class SessionRuntime implements McpSessions {
         reviewKind({
           who: () => this.whoDoesWhat.current(),
           reviewerFor: async (id) => (await this.delegation.reviewerFor(id)).reviewer,
-          reviewOf: (id) => this.delegation.reviewOf(id),
-          start: (id) => this.delegation.startReview(id, { comment: true }),
+          reviewed: (id, ever) => this.reviewsWaiting.has(id) || (ever ? this.delegation.reviewOf(id) !== null : (this.delegation.reviewOf(id)?.status ?? 'done') !== 'done'),
+          start: (id) => this.startReviewWhenIdle(id),
           stopOffering: async () => void (await this.whoDoesWhat.set({ ...(await this.whoDoesWhat.current()), reviewOffer: false })),
+          startAlone: async () => void (await this.whoDoesWhat.set({ ...(await this.whoDoesWhat.current()), reviewAuto: true })),
         }),
         moveKind({
           where: (projectId, folderId) => this.delegation.whereIs(projectId, folderId),
@@ -315,7 +318,7 @@ export class SessionRuntime implements McpSessions {
     this.openIn = new OpenIn(opts.openIn);
     this.sandboxAllow = new SandboxAllowList({ settings: opts.sandboxAllow?.settings, context: () => folderContext(workspace, dataDir) });
     this.titler = new Titler(workspace, opts.titleProviders, opts.titleWait, undefined, (id, tags) => this.suggestions.fromTitle(id, tags));
-    this.upkeep = new Upkeep(workspace, (id, patch) => this.emitLive(id, patch), (rec, work) => this.queue(rec, work), (id) => this.commands.stored(id));
+    this.upkeep = new Upkeep(workspace, (id, patch) => this.emitLive(id, patch), (rec, work) => this.queue(rec, work), (id) => this.commands.stored(id), (id) => this.worktreeMates(id));
     this.forks = this.makeForks();
     this.host = this.makeHost();
     this.checkouts = new SessionWorktrees(this.host);
@@ -358,7 +361,10 @@ export class SessionRuntime implements McpSessions {
       notice: (id, text, level) => this.notice(id, text, level),
       onEvent: (id, rec, event) => onAgentEvent(this.host, id, rec, event),
       flushQueue: (id) => flushQueue(this.host, id),
-      turnComplete: (id) => void this.proposeTicketFinished(id).catch((error: unknown) => console.error('[kestrel] could not propose the ticket’s summary', error)),
+      turnComplete: (id) => {
+        void this.proposeTicketFinished(id).catch((error: unknown) => console.error('[kestrel] could not propose the ticket’s summary', error));
+        void this.startWaitingReview(id);
+      },
       endRunning: (id) => this.endRunning(id),
       idle: (id) => this.idle(id),
       scratch: () => this.scratch(),
@@ -667,10 +673,11 @@ export class SessionRuntime implements McpSessions {
    * with the conversation, so a restart does not lose it; a session not opened in this server
    * run is loaded for it. Null when the session never got an agent, so there is no one to tell.
    */
-  async queueNews(session: Session, text: string): Promise<Live | null> {
+  async queueNews(session: Session, text: string, fromId?: string): Promise<Live | null> {
     const rec = await this.recordFor(session);
     if (!rec) return null;
     rec.inbox = [...rec.inbox, text];
+    if (fromId) rec.newsFrom.push(fromId);
     this.upkeep.schedulePersist(session.id, rec);
     return rec;
   }
@@ -998,10 +1005,66 @@ export class SessionRuntime implements McpSessions {
     void this.suggestions.suggest(sessionId, { kind: REVIEW_KIND });
   }
 
+  /** Sessions whose review was agreed while they were still on a turn: it starts when that turn ends. */
+  private readonly reviewsWaiting = new Set<string>();
+
+  /**
+   * Start the review of a session's work now, or, while it is still on a turn (a review reads
+   * finished work), when that turn ends. Throws the reason when nobody can review it.
+   */
+  private async startReviewWhenIdle(sessionId: string): Promise<{ reviewer: string; waiting: boolean }> {
+    const session = (await this.workspace.state()).sessions.find((s) => s.id === sessionId);
+    if (session?.state !== 'running' && session?.state !== 'attention') return { reviewer: (await this.delegation.startReview(sessionId, { comment: true })).reviewer, waiting: false };
+    const { reviewer, reason } = await this.delegation.reviewerFor(sessionId);
+    if (!reviewer) throw new Refused(reason);
+    this.reviewsWaiting.add(sessionId);
+    return { reviewer: `${reviewer.name} (${presetSummary(reviewer)})`, waiting: true };
+  }
+
+  /** A turn ended: the review that waited for it starts, or the user is told why it could not. */
+  private async startWaitingReview(sessionId: string): Promise<void> {
+    if (!this.reviewsWaiting.delete(sessionId)) return;
+    try {
+      await this.delegation.startReview(sessionId, { comment: true });
+    } catch (error) {
+      this.notice(sessionId, `The review did not start: ${error instanceof Error ? error.message : String(error)}`, 'warning');
+    }
+  }
+
+  /**
+   * A session's agent asked for a review of its own work (`delegate` with the Review role, in its
+   * own worktree). It is the same question as the offer when a pull request is opened, so it is
+   * asked once, on that card, and nothing starts before the answer, unless the user chose "Always
+   * start reviews". What the agent is told.
+   */
+  async reviewAsked(sessionId: string): Promise<ToolResult> {
+    const result = await this.suggestions.suggest(sessionId, { kind: REVIEW_KIND, asked: true });
+    if (result.isError) return result;
+    if (this.reviewsWaiting.has(sessionId)) return { text: REVIEW_STARTS };
+    return { text: result.text === SHOWN_TEXT ? REVIEW_ASKED : `No review was started. ${result.text}` };
+  }
+
   /** Store a session's record soon: something kept with it changed (its review, say). */
   saveRecord(sessionId: string): void {
     const rec = this.records.get(sessionId);
     if (rec) this.upkeep.schedulePersist(sessionId, rec);
+  }
+
+  /** The other live sessions in the same worktree as `id`: its host when it is a guest, and that host's other guests. */
+  private worktreeMates(id: string): Array<readonly [string, Live]> {
+    const hostId = this.records.get(id)?.guest?.hostId ?? id;
+    return [...this.records].filter(([other, rec]) => other !== id && (other === hostId || rec.guest?.hostId === hostId));
+  }
+
+  /**
+   * The worktree was just counted (a sidebar row, the hover card) and has `changed` files. When the
+   * list held for the session has another number, it is read again, so the count and the Changes
+   * pane never disagree for longer than one look: files changed in the terminal, or by anything
+   * that did not report an edit.
+   */
+  changesCounted(sessionId: string, changed: number): void {
+    const rec = this.records.get(sessionId);
+    if (rec && rec.files.length !== changed) this.upkeep.scheduleRefresh(sessionId, rec);
   }
 
   recordOf(sessionId: string): Live | undefined {

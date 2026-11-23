@@ -103,6 +103,12 @@ export function WhoDoesWhatSetting({ value: stored, onChange, onCreate, canCreat
             Offer a review when I create a pull request
           </label>
         </div>
+        <div className="roles-wide">
+          <label className="tag-rule-switch">
+            <input type="checkbox" checked={stored.reviewAuto === true} disabled={rowList(stored, 'review').length === 0} onChange={(e) => onChange({ ...stored, reviewAuto: e.target.checked })} />
+            Start a review on its own when a session opens a pull request or asks for one
+          </label>
+        </div>
         <div className="roles-label plain"><label htmlFor="who-instruction">In your own words</label></div>
         <div className="roles-wide">
           <textarea id="who-instruction" className="form-control project-script" rows={3} maxLength={MAX_ROLE_INSTRUCTION} placeholder="Anything visual goes to Design first. Build never restyles what Design made." value={stored.instruction} onChange={(e) => onChange({ ...stored, instruction: e.target.value })} />
@@ -114,7 +120,7 @@ export function WhoDoesWhatSetting({ value: stored, onChange, onCreate, canCreat
 
 const HELP = (
   <p className="settings-help">
-    Different agents are better at different work. Point a role at a model preset and work of that kind goes to it, whichever agent the session was started with; a role left on "Use the session’s current model" stays with the session. In the session's own project the part is done in that session's worktree, one session writing at a time, and handed back; in another project it gets a worktree of its own. "Ask me first" always shows you the card first, even from a session in Auto; "Route automatically" asks only when the session's own mode would; "Off" keeps the preset but sends nothing. Orchestrate is above Design and Build: the session you asked leads, hands those parts out and puts them together, and Review stands apart. A role can list who is next when its first choice cannot run (not connected, not signed in, or out of usage): you are asked before the work moves, unless you choose to have the next one used and be told. Review is started by you, from the Create pull request form. Whoever wrote the code does not review it: list more than one reviewer, on different agents or models, and the first that did not write the work is used; if every one of them wrote some of it, no review is offered and the form says why. What you write under "In your own
+    Different agents are better at different work. Point a role at a model preset and work of that kind goes to it, whichever agent the session was started with; a role left on "Use the session’s current model" stays with the session. In the session's own project the part is done in that session's worktree, one session writing at a time, and handed back; in another project it gets a worktree of its own. "Ask me first" always shows you the card first, even from a session in Auto; "Route automatically" asks only when the session's own mode would; "Off" keeps the preset but sends nothing. Orchestrate is above Design and Build: the session you asked leads, hands those parts out and puts them together, and Review stands apart. A role can list who is next when its first choice cannot run (not connected, not signed in, or out of usage): you are asked before the work moves, unless you choose to have the next one used and be told. Review is started by you: from the Create pull request form, or from the card shown when a session opens a pull request or asks for a review of its work. Nothing starts before you answer, unless you choose to have reviews start on their own. Whoever wrote the code does not review it: list more than one reviewer, on different agents or models, and the first that did not write the work is used; if every one of them wrote some of it, no review is offered and the form says why. What you write under "In your own
     words" is given to every agent with its other standing instructions.
   </p>
 );

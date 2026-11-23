@@ -12,6 +12,10 @@
 .kestrel .suggestion-x:hover { background: var(--s-soft); color: var(--s-ink); }
 .kestrel .suggestion-x svg { width: 13px; height: 13px; }
 .kestrel .suggestion-reason { margin: 0 0 0 21px; font-size: 11px; line-height: 1.5; color: var(--s-muted); }
+/* The text an action would send (a ticket comment), whole: a quoted block that scrolls when long. */
+.kestrel .suggestion-detail { margin: 4px 0 2px 21px; padding: 6px 10px; max-height: 220px; overflow-y: auto; border: 1px solid var(--s-line); border-left: 2px solid var(--s-muted); border-radius: 6px; background: var(--s-bg); color: var(--s-ink); font-size: 12px; line-height: 1.5; }
+.kestrel .suggestion-detail > :first-child { margin-top: 0; }
+.kestrel .suggestion-detail > :last-child { margin-bottom: 0; }
 .kestrel .suggestion-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 0 21px; }
 .kestrel .suggestion-buttons button { padding: 4px 10px; border-radius: 6px; font: inherit; font-size: 11px; line-height: 1.4; cursor: pointer; }
 .kestrel .suggestion-primary { background: var(--s-ink); color: var(--s-bg); border: 1px solid var(--s-ink); }

@@ -26,6 +26,8 @@ export interface KindContext {
 export interface Draft {
   title: string;
   reason?: string;
+  /** The text the action would send, whole (`Suggestion.detail`). */
+  detail?: string;
   payload: Record<string, unknown>;
   buttons: SuggestionButton[];
 }

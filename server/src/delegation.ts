@@ -365,6 +365,11 @@ export class Delegation {
     const limits = await this.ws.limits.current();
     if (tasks.length > limits.maxChildrenPerDelegate) throw new Refused(limitMessage.tooManyTasks(limits, tasks.length));
     const resolved = await this.resolveTasks(caller, tasks);
+    // A review of the work in this worktree is the user's to start: it goes to the one question
+    // (suggestions/review-kind.ts), and never starts beside it.
+    const ownReview = resolved.find((t) => t.hosted?.guest.role === 'review');
+    if (ownReview && resolved.length > 1) throw new Refused('A review of this session\'s work is asked for on its own: call delegate again with only that task, after the others.');
+    if (ownReview) return this.rt.reviewAsked(ownReview.hosted!.host.id);
     await this.ws.checkLimits(callerId, tasks.length, { depth: true });
     const lines = resolved.map((t) => `• ${targetName(t)} · ${runnerText(t)}${t.hosted ? ' · in this session\'s worktree' : ''}\n  ${t.brief}`);
     if (!(await this.approve(caller, 'delegate', `Start ${resolved.length} session${resolved.length === 1 ? '' : 's'}`, lines, 'Start', resolved.some((t) => t.ask)))) {
@@ -593,7 +598,7 @@ export class Delegation {
       const guest = this.rt.recordOf(childId)?.guest;
       // A writing guest hands back to its host: Kestrel says what was made and where what is left goes.
       const handBack = r.as === 'parent' && state === 'done' && guest?.writes ? handBackText({ title: child.title, id: child.id, role: guest.role, runner: await this.runnerName(child, guest.role) }, said, guest.role === 'design' ? await this.buildRunner() : null, 'your delegate tool') : null;
-      await this.deliver(r.to, handBack ?? reportText(r.as, child, { state, detail, said, where, waitReason: reasons.get(r.to) ?? '' }));
+      await this.deliver(r.to, handBack ?? reportText(r.as, child, { state, detail, said, where, waitReason: reasons.get(r.to) ?? '' }), child.id);
     }
   }
 
@@ -790,6 +795,8 @@ export class Delegation {
     author.review = { ...author.review, status: 'answering' };
     this.rt.saveRecord(guest.hostId);
     if (author.handle?.busy()) this.answerQueued.add(guest.hostId);
+    // The turn that answers the findings is about this review: what it asks the user links here.
+    author.newsFrom.push(session.id);
     // Sent as a turn of its own, not as news for its next turn: the author is woken even when this
     // Kestrel has no agent process for it yet (after a restart), and a busy author gets it next.
     await this.rt.reply(guest.hostId, findingsText(author.review, said), {}, { fromAgent: true }).catch((error: unknown) => this.endReview(guest.hostId, 'findings', `The session could not be given the findings: ${error instanceof Error ? error.message : String(error)}`));
@@ -872,10 +879,10 @@ export class Delegation {
     this.rt.showCard(callerId, { type: 'card', id: `started-${childId}`, started: { sessionId: childId, kind } });
   }
 
-  private async deliver(parentId: string, text: string): Promise<void> {
+  private async deliver(parentId: string, text: string, fromId?: string): Promise<void> {
     const parent = (await this.ws.state()).sessions.find((s) => s.id === parentId);
     if (!parent) return;
-    const rec = await this.rt.queueNews(parent, text);
+    const rec = await this.rt.queueNews(parent, text, fromId);
     if (!rec) return;
     // No agent process this server run (interrupted, or never opened), or busy: it hears on its next turn.
     const idle = rec.handle !== null && !rec.handle.busy() && rec.pendingInput.size === 0 && parent.state === 'done' && !rec.stopped;

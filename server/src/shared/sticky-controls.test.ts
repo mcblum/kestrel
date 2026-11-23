@@ -101,13 +101,13 @@ describe('a fixed start for new sessions', () => {
     expect(startFromOf(last)).toBe('last');
     const fixed = withStartFrom(last, 'fixed');
     expect(startFromOf(fixed)).toBe('fixed');
-    expect(fixed.fixed).toEqual({ agent: 'claude', model: 'opus', effort: 'high', fast: false });
+    expect(fixed.fixed).toEqual({ agent: 'claude', model: 'opus', effort: 'high', fast: false, projectId: 'p1' });
     expect(startControls(fixed)).toMatchObject({ agent: 'claude', model: 'opus', effort: 'high', permission: 'auto', projectId: 'p1' });
     expect(withStartFrom(fixed, 'fixed')).toBe(fixed);
   });
 
   it('starts every new session on the fixed agent and model whatever was picked last, with that agent’s last mode', () => {
-    const fixed = withFixed(withStartFrom(last, 'fixed'), { agent: 'codex', model: 'gpt-6.2-sol', effort: 'medium' });
+    const fixed = withFixed(withStartFrom(last, 'fixed'), { agent: 'codex', model: 'gpt-6.2-sol', effort: 'medium', projectId: null });
     expect(startControls(fixed)).toMatchObject({ agent: 'codex', model: 'gpt-6.2-sol', effort: 'medium', fast: false, permission: 'ask' });
     // A later pick in a session is remembered, and does not move the fixed start.
     const picked = rememberPick(fixed, { agent: 'claude', model: 'haiku' });
@@ -118,8 +118,20 @@ describe('a fixed start for new sessions', () => {
     expect(startControls(withStartFrom(back, 'fixed'))).toMatchObject({ agent: 'codex', model: 'gpt-6.2-sol' });
   });
 
+  it('keeps the fixed project, no project included, when a session is started somewhere else', () => {
+    const fixed = withFixed(withStartFrom(last, 'fixed'), { agent: 'claude', model: 'opus', effort: 'high', projectId: null });
+    expect(startControls(fixed).projectId).toBeNull();
+    // A session started from a project's own page: remembered as last used, and the fixed start stays.
+    const sent = rememberSent({ agent: 'claude', projectId: 'p2' }, fixed);
+    expect(startControls(sent).projectId).toBeNull();
+    expect(startControls(withStartFrom(sent, 'last')).projectId).toBe('p2');
+    // A fixed start stored before it held a project keeps the project remembered then.
+    const older = { ...last, startFrom: 'fixed', fixed: { agent: 'claude', model: 'opus', effort: 'high', fast: false } };
+    expect(storedRemembered({ remembered: older }).fixed?.projectId).toBe('p1');
+  });
+
   it('is read back from stored state, and an unreadable one is the last used', () => {
-    const fixed = withFixed(withStartFrom(last, 'fixed'), { agent: 'codex', model: 'gpt-6.2-sol', effort: 'medium' });
+    const fixed = withFixed(withStartFrom(last, 'fixed'), { agent: 'codex', model: 'gpt-6.2-sol', effort: 'medium', projectId: null });
     expect(storedRemembered({ remembered: JSON.parse(JSON.stringify(fixed)) })).toEqual(fixed);
     expect(startFromOf(storedRemembered({ remembered: { ...last, startFrom: 'fixed' } }))).toBe('last');
     expect(startFromOf(storedRemembered({ remembered: { ...last, startFrom: 'fixed', fixed: { agent: 'nobody' } } }))).toBe('last');

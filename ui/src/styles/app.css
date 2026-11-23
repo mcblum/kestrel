@@ -928,6 +928,11 @@ body { background: light-dark(#fafbf9, #171a19); }
 .kestrel .next-step-prompt .next-recap.prose { color: var(--s-label); line-height: 1.6; }
 .kestrel .next-step-prompt .next-ask { margin-top: 14px; font-size: 13px; font-weight: 600; }
 .kestrel .next-step-prompt .decision-options { margin-top: 14px; gap: 8px; }
+/* The sessions whose report or review the question follows from: links, so what it means can be read. */
+.kestrel .next-about { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 12px; font-size: 12px; color: var(--s-muted); }
+.kestrel .next-about-link { display: inline-flex; align-items: center; gap: 3px; max-width: 100%; padding: 0; background: none; border: 0; color: var(--s-ink); font: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: .2em; cursor: pointer; }
+.kestrel .next-about-link > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .next-about-link:hover { text-decoration-color: currentColor; }
 .kestrel .next-step-prompt .decision-options button { padding: 8px 12px; font-size: 12px; line-height: 1.4; border-radius: 6px; max-width: 100%; overflow-wrap: anywhere; text-align: left; }
 @media (max-width: 560px) { .kestrel .next-step.next-step-prompt { padding: 14px; } }
 

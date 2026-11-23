@@ -79,20 +79,26 @@ describe('the git source', () => {
     expect((await get(session.id, 'change-counts')).body).toEqual(ready({ changed: 0, uncommitted: 0, added: 0, removed: 0 }));
 
     const wt = (await runtime.directoryOf(session.id))!;
+    const listed = () => runtime.overlay(session.id)?.files.map((f) => f.path);
     writeFileSync(join(wt, 'b.txt'), 'b\n');
-    expect((await get(session.id, 'change-counts')).body).toEqual(ready({ changed: 1, uncommitted: 1, added: 0, removed: 0 }));
+    expect((await get(session.id, 'change-counts')).body).toMatchObject({ state: 'ready', value: { changed: 1, uncommitted: 1 } });
+    // A file made outside a turn: the count found it, so the session's own list is read again and says the same.
+    await vi.waitFor(() => expect(listed()).toEqual(['b.txt']), { timeout: 15_000 });
+    await runtime.idle(session.id);
+    // The lines added and removed are those of the session's changed files: what its top bar shows.
+    expect((await get(session.id, 'change-counts')).body).toEqual(ready({ changed: 1, uncommitted: 1, added: 1, removed: 0 }));
     execFileSync('git', ['add', '.'], { cwd: wt });
     execFileSync('git', ['commit', '-q', '-m', 'b'], { cwd: wt });
     // Committed work still differs from the base; nothing is uncommitted.
-    expect((await get(session.id, 'change-counts')).body).toEqual(ready({ changed: 1, uncommitted: 0, added: 0, removed: 0 }));
+    expect((await get(session.id, 'change-counts')).body).toEqual(ready({ changed: 1, uncommitted: 0, added: 1, removed: 0 }));
     writeFileSync(join(wt, 'b.txt'), 'b2\n');
     writeFileSync(join(wt, 'c.txt'), 'c\n');
-    expect((await get(session.id, 'change-counts')).body).toEqual(ready({ changed: 2, uncommitted: 2, added: 0, removed: 0 }));
+    expect((await get(session.id, 'change-counts')).body).toMatchObject({ state: 'ready', value: { changed: 2, uncommitted: 2 } });
     const branch = (await workspace.state()).sessions.find((s) => s.id === session.id)!.branch!;
     expect(await changedFiles(wt, (await baseOf(wt, branch))!)).toHaveLength(2);
-    // The lines added and removed are those of the session's changed files as last stored: what its top bar shows.
-    await workspace.setDetail(session.id, { files: [{ path: 'b.txt', status: 'M', diff: '--- a/b.txt\n+++ b/b.txt\n@@ -1 +1,2 @@\n-b\n+b2\n+more' }] });
-    expect((await get(session.id, 'change-counts')).body).toEqual(ready({ changed: 2, uncommitted: 2, added: 2, removed: 1 }));
+    await vi.waitFor(() => expect(listed()).toEqual(['b.txt', 'c.txt']), { timeout: 15_000 });
+    await runtime.idle(session.id);
+    expect((await get(session.id, 'change-counts')).body).toEqual(ready({ changed: 2, uncommitted: 2, added: 2, removed: 0 }));
 
     rmSync(wt, { recursive: true, force: true });
     expect((await get(session.id, 'change-counts')).body).toEqual(unavailable('The worktree folder is gone'));

@@ -112,12 +112,13 @@ async function sampleCountsOf(session: Session, workspace: Workspace): Promise<S
 }
 
 /**
- * The counts with the lines added and removed, from the session's changed files as last stored:
+ * The counts with the lines added and removed, from the session's changed files as it holds them:
  * the same files, counted the same way, as the session bar shows (shared/diff-counts.ts).
  */
-async function withLineCounts(counts: Sourced<ChangeCounts>, sessionId: string, workspace: Workspace): Promise<Sourced<ChangeCounts>> {
+async function withLineCounts(counts: Sourced<ChangeCounts>, sessionId: string, workspace: Workspace, runtime: SessionRuntime | undefined): Promise<Sourced<ChangeCounts>> {
   if (counts.state !== 'ready') return counts;
-  const files = (await workspace.storedDetail(sessionId))?.files ?? [];
+  // The live list when the session has one: it is what the bar shows, and newer than what is stored.
+  const files = runtime?.overlay(sessionId)?.files ?? (await workspace.storedDetail(sessionId))?.files ?? [];
   return { ...counts, value: { ...counts.value, ...diffCounts(files.map((f) => f.diff)) } };
 }
 
@@ -142,7 +143,13 @@ export async function detailsRoute(parts: readonly string[], method: string, url
     return { status: 200, body: link ? ready(link) : unavailable('No web remote configured') };
   }
   if (parts[3] === 'git') return { status: 200, body: (sample && sampleGitStatus(session.branch)) || (await gitStatusOf(session, project)) };
-  if (parts[3] === 'change-counts') return { status: 200, body: await withLineCounts((sample && (await sampleCountsOf(session, workspace))) || (await changeCountsOf(session, project)), id, workspace) };
+  if (parts[3] === 'change-counts') {
+    const sampled = sample ? await sampleCountsOf(session, workspace) : null;
+    const counts = sampled ?? (await changeCountsOf(session, project));
+    // A count taken from the worktree that the session's list does not match: the list is read again.
+    if (!sampled && counts.state === 'ready') runtime?.changesCounted(id, counts.value.changed);
+    return { status: 200, body: await withLineCounts(counts, id, workspace, runtime) };
+  }
   if (parts[3] === 'usage') return { status: 200, body: await usageOf(id, workspace, runtime) };
   return { status: 200, body: await pullRequestsOf(session, project, workspace, sources, refresh === '1', sample) };
 }

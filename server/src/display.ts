@@ -32,6 +32,8 @@ export interface DisplayHost {
   projectPaths(): Promise<string[]>;
   showCard(sessionId: string, card: Card): void;
   notice(sessionId: string, text: string, level: 'error'): void;
+  /** The sessions whose news the session's turn was given (a child's report, a review's findings). */
+  newsFrom(sessionId: string): readonly string[];
 }
 
 /** A stored file or session id: no path separators, and no leading dot (so never `..`). */
@@ -136,7 +138,7 @@ export class Display {
     const long = replies.find((r) => r.length > REPLY_MAX);
     if (long) throw new Refused(`"${long}" is longer than ${REPLY_MAX} characters. Each reply is a button label: a few words.`);
     const ask = typeof args.ask === 'string' && args.ask.trim() ? args.ask.trim().slice(0, ASK_MAX) : undefined;
-    this.host.showCard(sessionId, { type: 'card', id: `next-${randomUUID()}`, next: { recap, ...(ask ? { ask } : {}), replies } });
+    this.host.showCard(sessionId, { type: 'card', id: `next-${randomUUID()}`, next: { recap, ...(ask ? { ask } : {}), replies, ...(this.host.newsFrom(sessionId).length ? { about: [...this.host.newsFrom(sessionId)] } : {}) } });
     return { text: 'Shown to the user.' };
   }
 

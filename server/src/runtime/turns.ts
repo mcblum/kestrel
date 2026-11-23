@@ -112,6 +112,8 @@ async function sendTurn(host: TurnHost, session: Session, rec: Live, parts: Outg
   const news = notice ? '' : rec.inbox.splice(0).join('\n');
   if (notice) rec.inbox.splice(0);
   else rec.stopped = false;
+  // Whose news this turn carries: a decision it leaves the user links back to them (display.ts `nextStep`).
+  rec.turnNewsFrom = [...new Set(rec.newsFrom.splice(0))];
   rec.endedForUser = false;
   host.delegation.onSessionRunning(sessionId);
   if (notice) host.apply(sessionId, rec, { type: 'notice', id: `notice-${randomUUID()}`, text, level: 'info', startsTurn: true });

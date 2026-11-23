@@ -45,7 +45,7 @@ function General() {
   return (
     <>
       <h1>General</h1>
-      <SettingSection title="New sessions start with" help={<p className="settings-help">"{START_FROM_LABEL.last}" follows your choices: the agent, model and effort you last picked, here or in any session. "{START_FROM_LABEL.fixed}" starts every new session on the agent, model and effort set here, whatever you picked last; pick one of your presets from Preset, or set them one by one. Either way the mode and project follow the last used, a new session opened from a project or group uses that project or group, and you can still change any of it before you send.</p>}>
+      <SettingSection title="New sessions start with" help={<p className="settings-help">"{START_FROM_LABEL.last}" follows your choices: the agent, model and effort you last picked, here or in any session. "{START_FROM_LABEL.fixed}" starts every new session on the agent, model, effort and project set here (or with no project), whatever you used last; pick one of your presets from Preset, or set them one by one. With "{START_FROM_LABEL.last}" the project follows the last used too. Either way the mode follows the last used, a new session opened from a project or group uses that project or group, and you can still change any of it before you send.</p>}>
         <div className="settings-choices" role="radiogroup" aria-label="New sessions start with">
           {START_FROM.map((choice) => (
             <label key={choice} className="settings-choice">

@@ -113,7 +113,8 @@ describe('the ticket suggestion', () => {
     const w = await world();
     await w.turn([{ change: 'comment', body: 'Opened a pull request for this.' }]);
     const card = w.suggestions()[0]!;
-    expect(card).toMatchObject({ title: 'Comment on BELL-139?', reason: 'Opened a pull request for this.' });
+    expect(card).toMatchObject({ title: 'Add this comment to BELL-139?', detail: 'Opened a pull request for this.' });
+    expect(card.reason).toBeUndefined();
     const answered = await w.runtime.suggestions.answer(w.id, card.id, 'allow');
     expect(answered).toMatchObject({ line: 'Commented on BELL-139' });
     expect(answered.undo).toBeUndefined();

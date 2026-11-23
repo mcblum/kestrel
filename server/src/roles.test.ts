@@ -84,8 +84,12 @@ describe('a delegate with a role', () => {
   });
 
   it('uses the role’s preset over a named agent, and passes fast mode', async () => {
-    const { claude, results, delegate } = await world();
-    await delegate({ brief: 'Review the diff', role: 'review', agent: 'codex' });
+    const { claude, runtime, results, delegate } = await world();
+    const session = await delegate({ brief: 'Review the diff', role: 'review', agent: 'codex' });
+    // A review of the caller's own work is the user's to start: the agent's call asks, and starts nothing.
+    expect(results[0]!.text).toMatch(/^The user is being asked whether to have this work reviewed/);
+    const card = runtime.overlay(session.id)!.messages.flatMap((m) => (m.suggestion ? [m.suggestion] : []))[0]!;
+    await runtime.suggestions.answer(session.id, card.id, 'start');
     await until(() => claude.starts.length === 2, 'the review session');
     expect(results[0]!.isError).toBeFalsy();
     expect(claude.starts[1]!.options).toMatchObject({ model: 'haiku', fast: true });

@@ -2,12 +2,13 @@
 // you, and the next-step box at the end of a turn.
 import { memo } from 'react';
 import { showInManager } from '../platform.ts';
-import { Check, FileText, FolderOpen, MessageCircle } from 'lucide-react';
+import { ArrowUpRight, Check, FileText, FolderOpen, MessageCircle } from 'lucide-react';
 import type { FileCard, NextStep, TodoItem } from '@kestrel/server/model';
 import { Markdown } from './Markdown.tsx';
 import { Thumb } from './Pictures.tsx';
 import { CopyButton } from './CopyButton.tsx';
-import { actions } from '../store.ts';
+import { actions, useApp } from '../store.ts';
+import { opener, openSession } from '../route.ts';
 import { viewableKind } from '@kestrel/server/viewable-files';
 import { openSessionFile } from '../sessionView.ts';
 
@@ -114,6 +115,18 @@ export const FileCardView = memo(function FileCardView({ file, sessionId }: { fi
 
 // ---- next step --------------------------------------------------------------------------
 
+/** A session the question is about (its report or review started the turn): opens it. Nothing when it is gone. */
+function AboutLink({ id }: { id: string }) {
+  const title = useApp((s) => s.sessionsById.get(id)?.title);
+  if (!title) return null;
+  return (
+    <button type="button" className="next-about-link" title="Open that session to see what this is about" {...opener((newTab) => openSession(id, newTab))}>
+      <span>{title}</span>
+      <ArrowUpRight size={12} aria-hidden />
+    </button>
+  );
+}
+
 /** Where the turn left things, and the replies the agent suggests. Spent once you have replied. */
 export function NextStepBox({ next, sessionId, onReply }: { next: NextStep; sessionId: string; onReply: (text: string) => void }) {
   const live = !next.done && next.replies.length > 0;
@@ -123,6 +136,12 @@ export function NextStepBox({ next, sessionId, onReply }: { next: NextStep; sess
       <div className="next-recap prose">
         <Markdown text={next.recap} sessionId={sessionId} />
       </div>
+      {live && next.about && next.about.length > 0 && (
+        <div className="next-about">
+          <span>This follows from</span>
+          {next.about.map((id) => <AboutLink key={id} id={id} />)}
+        </div>
+      )}
       {!next.done && next.ask && <p className="next-ask">{next.ask}</p>}
       {live && (
         <div className="decision-options explicit">

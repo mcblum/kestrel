@@ -20,14 +20,18 @@ export interface Remembered {
   byAgent: Partial<Record<Agent, AgentChoices>>;
   /** Whether a new session starts with what was used last, or always with `fixed` (Matt, 2026-11-20). Absent on older stores (read as `last`). */
   startFrom?: StartFrom;
-  /** The agent, model, effort and fast mode every new session starts with when `startFrom` is `fixed`. The mode and project still follow the last used. */
+  /**
+   * The agent, model, effort, fast mode and project every new session starts with when `startFrom`
+   * is `fixed`. The project is part of it (Matt, 2026-11-23: set to no project, it was changed to the
+   * project last used by the next session started in one). Only the mode still follows the last used.
+   */
   fixed?: FixedStart;
 }
 
 export const START_FROM = ['last', 'fixed'] as const;
 export type StartFrom = (typeof START_FROM)[number];
 export const START_FROM_LABEL: Record<StartFrom, string> = { last: 'What I used last', fixed: 'Always this' };
-export type FixedStart = Required<Pick<Controls, 'agent' | 'model' | 'effort' | 'fast'>>;
+export type FixedStart = Required<Pick<Controls, 'agent' | 'model' | 'effort' | 'fast' | 'projectId'>>;
 export const startFromOf = (r: Remembered): StartFrom => (r.startFrom === 'fixed' && r.fixed ? 'fixed' : 'last');
 
 /** The controls that follow the user's last explicit choice; `agent`: the one they were picked on. */
@@ -55,8 +59,8 @@ export function startControls(r: Remembered): Controls {
   if (held) return held;
   const fixed = startFromOf(r) === 'fixed' ? r.fixed! : null;
   const agent = fixed?.agent ?? r.agent;
-  // A fixed start names the model; the mode is still the one last picked on that agent.
-  const controls: Controls = { ...DEFAULT_CONTROLS, agent, projectId: r.projectId, groupId: null, ...choicesFor(r, agent), ...(fixed ? { model: fixed.model, effort: fixed.effort, fast: fixed.fast } : {}) };
+  // A fixed start names the model and the project; the mode is still the one last picked on that agent.
+  const controls: Controls = { ...DEFAULT_CONTROLS, agent, projectId: fixed ? fixed.projectId : r.projectId, groupId: null, ...choicesFor(r, agent), ...(fixed ? { model: fixed.model, effort: fixed.effort, fast: fixed.fast } : {}) };
   derived.set(r, controls);
   return controls;
 }
@@ -87,11 +91,11 @@ export function rememberSent(sent: Pick<Controls, 'agent' | 'projectId'>, r: Rem
 export function withStartFrom(r: Remembered, startFrom: StartFrom): Remembered {
   if (startFrom === startFromOf(r)) return r;
   const now = startControls(r);
-  return { ...r, startFrom, ...(startFrom === 'fixed' ? { fixed: r.fixed ?? { agent: now.agent, model: now.model, effort: now.effort ?? '', fast: now.fast ?? false } } : {}) };
+  return { ...r, startFrom, ...(startFrom === 'fixed' ? { fixed: r.fixed ?? { agent: now.agent, model: now.model, effort: now.effort ?? '', fast: now.fast ?? false, projectId: now.projectId } } : {}) };
 }
 
-/** The fixed start replaced with these controls' agent, model, effort and fast mode. */
-export const withFixed = (r: Remembered, controls: Pick<Controls, 'agent' | 'model' | 'effort' | 'fast'>): Remembered => ({ ...r, fixed: { agent: controls.agent, model: controls.model, effort: controls.effort ?? '', fast: controls.fast ?? false } });
+/** The fixed start replaced with these controls' agent, model, effort, fast mode and project. */
+export const withFixed = (r: Remembered, controls: Pick<Controls, 'agent' | 'model' | 'effort' | 'fast' | 'projectId'>): Remembered => ({ ...r, fixed: { agent: controls.agent, model: controls.model, effort: controls.effort ?? '', fast: controls.fast ?? false, projectId: controls.projectId } });
 
 /** Whether a pick is the user choosing this session's model, effort or fast mode themselves (so Kestrel does not move it, shared/who-does-what.ts). */
 export const picksModel = (pick: StickyPick): boolean => pick.model !== undefined || pick.effort !== undefined || pick.fast !== undefined;
@@ -129,7 +133,10 @@ export function storedRemembered(stored: { remembered?: unknown; lastControls?: 
       const choices = isSelectableAgent(agent) ? choicesOf(raw) : null;
       if (choices) byAgent[agent as Agent] = choices;
     }
-    const fixed = isObj(r.fixed) && isSelectableAgent(r.fixed.agent) ? { agent: r.fixed.agent, model: str(r.fixed.model), effort: str(r.fixed.effort), fast: r.fixed.fast === true } : null;
+    const fixed = isObj(r.fixed) && isSelectableAgent(r.fixed.agent) 
+      ? // A fixed start stored before it held a project keeps the project remembered then, from now on.
+        { agent: r.fixed.agent, model: str(r.fixed.model), effort: str(r.fixed.effort), fast: r.fixed.fast === true, projectId: ('projectId' in r.fixed ? str(r.fixed.projectId) : str(r.projectId)) || null }
+      : null;
     return { agent: r.agent, projectId: str(r.projectId) || null, byAgent, ...(fixed ? { fixed, startFrom: r.startFrom === 'fixed' ? ('fixed' as const) : ('last' as const) } : {}) };
   }
   const old = stored.lastControls;

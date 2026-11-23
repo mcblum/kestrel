@@ -30,6 +30,10 @@ export interface Live {
   kestrelRequests: Map<string, (approved: boolean) => void>;
   /** Messages for this session from other sessions, delivered with its next turn. */
   inbox: string[];
+  /** The sessions whose news waits in the inbox, or was sent as a turn of its own (a review's findings). Not stored. */
+  newsFrom: string[];
+  /** The sessions whose news the turn now running (or last run) was given: what a next step it leaves is about. Not stored. */
+  turnNewsFrom: string[];
   /** Messages held for the next turn (shared/queue.ts): another session's, and the few of the user's the agent could not take mid-turn. */
   queue: SessionQueue;
   /**
@@ -116,6 +120,8 @@ export function newRecord(stored: Partial<Live> | null, base: string | null): Li
     pendingInput: new Set(),
     kestrelRequests: new Map(),
     inbox: [],
+    newsFrom: [],
+    turnNewsFrom: [],
     queue: EMPTY_QUEUE,
     midTurn: [],
     stopped: false,

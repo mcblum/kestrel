@@ -155,4 +155,8 @@ export function reviewComment(review: Review): string {
 export const sameAgentNote = (reviewer: string, agentLabel: string): string => `${reviewer} runs on ${agentLabel}, the same agent as this session. For a second opinion from another provider, point Review at another preset in Settings → Models & roles → Who does what.`;
 
 /** The card offered when an agent opened a pull request itself: the form's choices, less the one that is too late. */
-export const REVIEW_CARD = { start: 'Start review', skip: 'Not now', never: "Don't ask again" } as const;
+export const REVIEW_CARD = { start: 'Start review', always: 'Always start reviews', skip: 'Not now', never: "Don't ask again" } as const;
+
+/** What an agent is told when it asks for a review of its own session's work: the question is the user's, and it is never asked twice. */
+export const REVIEW_ASKED = 'The user is being asked whether to have this work reviewed. If they say yes the review starts when your turn ends, in this worktree, and you are given its findings. Do not start a review another way, do not review it yourself, and do not wait for the answer: finish what is left and end your turn.';
+export const REVIEW_STARTS = 'A review of this work starts when your turn ends, in this worktree, by the reviewer the user chose; you are given its findings. Do not start another or review it yourself: finish what is left and end your turn.';

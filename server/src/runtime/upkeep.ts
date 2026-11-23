@@ -24,6 +24,8 @@ export class Upkeep {
     private readonly queue: (rec: Live, work: () => Promise<unknown>) => void,
     /** What else is stored with a session's conversation: its commands (runtime/commands.ts). */
     private readonly commandsOf: (id: string) => StoredCommands | undefined = () => undefined,
+    /** The other live sessions working in the same worktree: a guest's host, a host's guests (shared/worktree-guests.ts). */
+    private readonly matesOf: (id: string) => ReadonlyArray<readonly [string, Live]> = () => [],
   ) {}
 
   // ---- the row's status line -------------------------------------------------------------
@@ -95,6 +97,9 @@ export class Upkeep {
           rec.files = files;
           this.emitLive(id, { files });
           this.schedulePersist(id, rec);
+          // The worktree changed under everyone in it: a guest's edit is its host's change too, and
+          // nothing else tells the host. Ends by itself: a mate whose list is already this one changes nothing.
+          for (const [mateId, mate] of this.matesOf(id)) this.scheduleRefresh(mateId, mate);
         }
         const landed = nextLandedIn(session.landedIn, session.startedIn ? { projectId: session.startedIn, differsFromBase: files.length > 0 } : null);
         if (landed !== session.landedIn) await this.workspace.setLandedIn(id, landed);

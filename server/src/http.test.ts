@@ -427,6 +427,34 @@ describe('terminals over the socket', () => {
   }
   const listOf = (n: number) => (m: any) => m.type === 'term-list' && m.terminals.length === n;
 
+  test('a session that gives way to another is named to every window before the workspace without it', async () => {
+    const data = realpathSync(mkdtempSync(join(tmpdir(), 'kestrel-replace-data-')));
+    const w = new Workspace(memoryPersistence());
+    await w.addSession({ id: 'old', title: 'Review this PR', agent: 'claude', startedIn: null, state: 'done' });
+    await w.addSession({ id: 'new', title: 'Review: the PR', agent: 'claude', startedIn: null, state: 'running' });
+    const policy = { token: TOKEN, allowedOrigins: [ORIGIN], port: 0 };
+    const runtime = new SessionRuntime(w, {}, data);
+    const app = createKestrelServer(w, policy, runtime);
+    await app.listen();
+    policy.port = (app.server.address() as AddressInfo).port;
+    // A window that is not watching the session (its tab is not the one in front).
+    const socket = new WebSocket(`ws://127.0.0.1:${policy.port}/ws?token=${TOKEN}`, { origin: ORIGIN });
+    sockets.push(socket);
+    const got: any[] = [];
+    socket.on('message', (raw) => got.push(JSON.parse(String(raw))));
+    await new Promise((resolve) => socket.once('open', resolve));
+    const gone = (m: any) => m.type === 'state' && !m.state.sessions.some((s: any) => s.id === 'old');
+    try {
+      await runtime.replaceWith('old', 'new');
+      await vi.waitFor(() => expect(got.some(gone)).toBe(true), { timeout: 5000 });
+      const told = got.findIndex((m) => m.type === 'live' && m.sessionId === 'old' && m.patch.replacedBy === 'new');
+      expect(told).toBeGreaterThanOrEqual(0);
+      expect(told).toBeLessThan(got.findIndex(gone));
+    } finally {
+      await app.close();
+    }
+  });
+
   test('several terminals per session, listed again after reconnecting, with their output replayed', async () => {
     const a = await connect();
     a.send({ type: 'term-new', cols: 80, rows: 24 });

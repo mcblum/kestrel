@@ -9,6 +9,7 @@ import { Lightbulb, X } from 'lucide-react';
 import type { ChatMessage } from '@kestrel/server/model';
 import { orderedButtons, shownSuggestion, type Suggestion } from '@kestrel/server/suggestions';
 import { openSession } from '../route.ts';
+import { Markdown } from './Markdown.tsx';
 import { suggestionActions } from '../suggestionsApi.ts';
 
 function Card({ sessionId, suggestion, waiting }: { sessionId: string; suggestion: Suggestion; waiting: number }) {
@@ -33,6 +34,12 @@ function Card({ sessionId, suggestion, waiting }: { sessionId: string; suggestio
         </button>
       </div>
       {suggestion.reason && <p className="suggestion-reason">{suggestion.reason}</p>}
+      {/* What would be sent, whole (a ticket comment): read before it is allowed. */}
+      {suggestion.detail && (
+        <div className="suggestion-detail prose" role="group" aria-label="What would be sent" tabIndex={0}>
+          <Markdown text={suggestion.detail} sessionId={sessionId} />
+        </div>
+      )}
       <div className="suggestion-buttons">
         {orderedButtons(suggestion.buttons).map((b) => (
           <button key={b.id} type="button" className={b.primary ? 'suggestion-primary' : 'suggestion-quiet'} disabled={busy} onClick={() => void run(() => suggestionActions.answer(sessionId, suggestion.id, b.id))}>

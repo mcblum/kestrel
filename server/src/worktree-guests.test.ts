@@ -221,6 +221,27 @@ describe('a role started by hand', () => {
   });
 });
 
+describe('a decision left after another session reported', () => {
+  it('links the next step to the session whose report the turn was given, and a turn of the user’s own to none', async () => {
+    const { claude, codex, runtime, project, sessions } = await world();
+    codex.script = (turn) => turn.emit({ type: 'message', id: 'm1', text: 'Two ways to do it: tokens or plain CSS.', delta: '', done: true });
+    claude.script = async (turn) => {
+      if (turn.text === 'Fix the inputs') await turn.options.tools.delegate({ tasks: [{ project: 'app', brief: 'Restyle the text inputs', role: 'design' }] });
+      else await turn.options.tools.nextStep({ recap: 'Design is back.', ask: 'Tokens or plain CSS?', replies: ['Tokens', 'Plain CSS'] });
+    };
+    const session = await runtime.start({ agent: 'claude', projectId: project.id, prompt: 'Fix the inputs', permission: 'auto' });
+    const steps = () => runtime.overlay(session.id)?.messages.flatMap((m) => (m.next ? [m.next] : [])) ?? [];
+    await until(() => steps().length === 1, 'the next step');
+    const guest = (await sessions()).find((s) => s.id !== session.id)!;
+    expect(steps()[0]!.about).toEqual([guest.id]);
+
+    await runtime.idle(session.id);
+    await runtime.reply(session.id, 'Tokens');
+    await until(() => steps().length === 2, 'the second next step');
+    expect(steps()[1]!.about).toBeUndefined();
+  });
+});
+
 describe('a pull request the agent opened itself', () => {
   const link = { host: 'github' as const, number: 12, url: 'https://example.test/pr/12', branch: 'b', state: 'open' as const };
 
@@ -233,7 +254,7 @@ describe('a pull request the agent opened itself', () => {
     await until(() => cards(session.id).length === 1, 'the offer');
     const card = cards(session.id)[0]!;
     expect(card).toMatchObject({ kind: 'review', title: 'Have Critic (Codex · gpt-6.2) review this pull request?', state: 'open' });
-    expect(card.buttons.map((b) => b.label)).toEqual(['Start review', 'Not now', "Don't ask again"]);
+    expect(card.buttons.map((b) => b.label)).toEqual(['Start review', 'Always start reviews', 'Not now', "Don't ask again"]);
     // Seen again by a later lookup: not offered twice.
     await workspace.recordRequests(session.id, [link]);
     expect(cards(session.id)).toHaveLength(1);
@@ -260,6 +281,48 @@ describe('a pull request the agent opened itself', () => {
     await workspace.recordRequests(session.id, [{ ...link, number: 14 }]);
     await runtime.idle(session.id);
     expect(cards(session.id).filter((c) => c.state === 'open')).toEqual([]);
+  });
+
+  it('asks before a review the agent asked for itself, starts nothing meanwhile, and starts it when the turn ends', async () => {
+    const { claude, codex, runtime, project, sessions, cards } = await world();
+    codex.script = (turn) => turn.emit({ type: 'message', id: 'r1', text: 'VERDICT: NOTHING TO FIX', delta: '', done: true });
+    const seen: { told?: string; duringTurn?: number } = {};
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    claude.script = async (turn) => {
+      if (turn.text !== 'Add the average') return;
+      seen.told = (await turn.options.tools.delegate({ tasks: [{ project: 'app', brief: 'Review my work', role: 'review' }] })).text;
+      await held;
+      seen.duringTurn = (await sessions()).length;
+    };
+    const session = await runtime.start({ agent: 'claude', projectId: project.id, prompt: 'Add the average', permission: 'auto' });
+    await until(() => cards(session.id).length === 1, 'the question');
+    expect(seen.told).toMatch(/^The user is being asked whether to have this work reviewed/);
+    // The user says yes while the agent is still on its turn: nothing starts under it.
+    await runtime.suggestions.answer(session.id, cards(session.id)[0]!.id, 'start');
+    expect(cards(session.id)[0]!.line).toBe('Review by Critic (Codex · gpt-6.2) starts when this turn ends');
+    release();
+    await until(() => runtime.delegation.reviewOf(session.id) !== null, 'the review to start');
+    expect(seen.duringTurn).toBe(1);
+    expect(codex.turns).toHaveLength(1);
+  });
+
+  it('starts reviews on their own after "Always start reviews", with no question', async () => {
+    const { workspace, codex, runtime, project, cards } = await world();
+    codex.script = (turn) => turn.emit({ type: 'message', id: 'r1', text: 'VERDICT: NOTHING TO FIX', delta: '', done: true });
+    const first = await runtime.start({ agent: 'claude', projectId: project.id, prompt: 'Add the average', permission: 'auto' });
+    await runtime.idle(first.id);
+    await workspace.recordRequests(first.id, [link]);
+    await until(() => cards(first.id).length === 1, 'the offer');
+    await runtime.suggestions.answer(first.id, cards(first.id)[0]!.id, 'always');
+    expect((await runtime.whoDoesWhat.current()).reviewAuto).toBe(true);
+    expect(cards(first.id)[0]!.line).toMatch(/^Review started: Critic \(Codex · gpt-6\.2\)\. Reviews now start on their own/);
+
+    const second = await runtime.start({ agent: 'claude', projectId: project.id, prompt: 'Add the median', permission: 'auto' });
+    await runtime.idle(second.id);
+    await workspace.recordRequests(second.id, [{ ...link, number: 13 }]);
+    await until(() => runtime.delegation.reviewOf(second.id) !== null, 'the second review to start');
+    expect(cards(second.id).filter((c) => c.state === 'open')).toEqual([]);
   });
 
   it('says so when the reviewer runs on the author’s own agent, and still reviews', async () => {

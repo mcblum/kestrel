@@ -41,6 +41,12 @@ export interface WhoDoesWhat {
   reviewers?: string[];
   /** Offer a review when a pull request is created (Matt, 2026-11-20); "Don't ask again" turns it off. Absent on older records (read as on). */
   reviewOffer?: boolean;
+  /**
+   * Reviews start on their own (Matt, 2026-11-23): when a session's agent opens a pull request or asks
+   * for a review of its work, the review starts without the question. Off unless the user chose it,
+   * from the offer's "Always start reviews" or in Settings. Absent on older records (read as off).
+   */
+  reviewAuto?: boolean;
   /** How each role's work is sent: by itself, only after the user approves, or not at all. Absent on records stored before it existed (read as `auto`). */
   modes?: Record<Role, RoleMode>;
   /**
@@ -140,7 +146,7 @@ export function cleanWhoDoesWhat(value: unknown, newId: () => string): WhoDoesWh
   const leads = Array.isArray(v.orchestrators) ? v.orchestrators : [v.orchestrate];
   const orchestrators = [...new Set(leads.filter((id): id is string => typeof id === 'string' && ids.has(id)))].slice(0, MAX_REVIEWERS);
   const orchestrate = orchestrators[0] ?? null;
-  return { presets, roles: { design: role('design'), build: role('build'), review: reviewers[0] ?? null }, reviewers, modes: { design: mode('design'), build: mode('build'), review: mode('review') }, fallbacks: { design: after('design'), build: after('build') }, whenUnavailable: v.whenUnavailable === 'auto' ? 'auto' : 'ask', orchestrate, orchestrators, reviewOffer: v.reviewOffer !== false, instruction: typeof v.instruction === 'string' ? v.instruction.trim().slice(0, MAX_ROLE_INSTRUCTION) : '' };
+  return { presets, roles: { design: role('design'), build: role('build'), review: reviewers[0] ?? null }, reviewers, modes: { design: mode('design'), build: mode('build'), review: mode('review') }, fallbacks: { design: after('design'), build: after('build') }, whenUnavailable: v.whenUnavailable === 'auto' ? 'auto' : 'ask', orchestrate, orchestrators, reviewOffer: v.reviewOffer !== false, ...(v.reviewAuto === true ? { reviewAuto: true } : {}), instruction: typeof v.instruction === 'string' ? v.instruction.trim().slice(0, MAX_ROLE_INSTRUCTION) : '' };
 }
 
 /** The stored record as read back: presets that cannot be read are dropped. */
@@ -171,6 +177,9 @@ export const presetFrom = (name: string, controls: Pick<Controls, 'agent' | 'mod
 
 /** Whether the Create pull request form offers a review: someone is set to review, and the user has not said "Don't ask again". */
 export const offersReview = (who: WhoDoesWhat): boolean => who.reviewOffer !== false && presetForRole(who, 'review') !== null;
+
+/** Whether a review starts without the question: the user chose it, and someone is set to review. */
+export const startsReviewAlone = (who: WhoDoesWhat): boolean => who.reviewAuto === true && presetForRole(who, 'review') !== null;
 
 /** Who wrote some of the work under review: an agent and the model it ran on ('' for its default). */
 export interface Author {

@@ -46,6 +46,21 @@ function harness(path: string) {
 }
 
 describe('Upkeep.refreshFiles', () => {
+  test('a change found in the worktree is looked for by the other sessions working in it', async () => {
+    const { path, head } = repoWithEdit();
+    const session = { id: 'guest', worktreePath: path, branch: 'main', landedIn: null, startedIn: null } as unknown as Session;
+    const host = { ...session, id: 'host' } as Session;
+    const workspace = { state: async () => ({ sessions: [session, host] }), setLandedIn: async () => undefined, setBranch: async () => undefined, setDetail: async () => undefined } as unknown as Workspace;
+    const hostRec = newRecord(null, head);
+    const upkeep = new Upkeep(workspace, () => undefined, (_rec, work) => void work(), () => undefined, (id) => (id === 'guest' ? [['host', hostRec]] : []));
+    const rec = newRecord(null, head);
+
+    await upkeep.refreshFiles('guest', rec);
+    await vi.waitFor(() => expect(hostRec.files.map((f) => f.path)).toEqual(['a.txt']), { timeout: 15_000 });
+    upkeep.cancelTimers(rec);
+    upkeep.cancelTimers(hostRec);
+  });
+
   test('lists the edited file and reports no problem when git can read the worktree', async () => {
     const { path, head } = repoWithEdit();
     const { upkeep, patches } = harness(path);
