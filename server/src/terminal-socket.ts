@@ -62,7 +62,7 @@ export interface ActionRunner {
   preview?: PreviewWait;
 }
 
-export function terminalSocket(ws: WebSocket, terminals: Terminals, folderOf: (key: string) => Promise<string | null | undefined>, actions?: ActionRunner) {
+export function terminalSocket(ws: WebSocket, terminals: Terminals, folderOf: (key: string) => Promise<string | null | undefined>, actions?: ActionRunner, noteOf: (key: string) => Promise<string | null | undefined> = async () => null) {
   // This socket's attachments: terminal id -> the session it belongs to and where its output goes.
   const attached = new Map<string, { sessionId: string; client: TerminalClient }>();
   // Sessions whose terminal list this socket wants pushed when it changes.
@@ -77,7 +77,7 @@ export function terminalSocket(ws: WebSocket, terminals: Terminals, folderOf: (k
     const directory = await terminalFolder(sessionId, folderOf);
     if (!directory || !existsSync(directory)) return say({ type: 'term-error', sessionId, message: `${noFolderReason(sessionId)} There is nowhere to open a terminal.` });
     try {
-      const info = terminals.open(sessionId, directory, m);
+      const info = terminals.open(sessionId, directory, m, await noteOf(sessionId).catch(() => null));
       say({ type: 'term-created', sessionId, terminalId: info.id });
     } catch (error) {
       say({ type: 'term-error', sessionId, message: error instanceof Refused ? error.message : `The terminal could not start: ${errorText(error)}` });

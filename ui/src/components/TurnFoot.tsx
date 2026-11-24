@@ -5,6 +5,7 @@ import { ThinkingMark } from './ThinkingMark.tsx';
 // comes from @kestrel/server/turns; the menu items from @kestrel/server/menu. Every finished turn
 // also has Fork: the session menu's own item (`forkItem`) for that turn, so the two are enabled alike
 // and the reason a turn cannot be forked from is the server's own (shared/fork.ts `forkRefusal`).
+// Beside it, a sidebar from this point (AsideStart), on the session page.
 import { memo, useMemo } from 'react';
 import { Check, Copy, GitFork } from 'lucide-react';
 import { durationText } from '@kestrel/server/turns';
@@ -16,6 +17,7 @@ import type { TurnFork } from '@kestrel/server/turns';
 import { runMenuAction } from '../commands.ts';
 import { contextMenu } from '../menuState.ts';
 import { useCopied } from '../copied.ts';
+import { AsideStart } from './AsideStart.tsx';
 
 const MENU_GAP = 4;
 
@@ -37,9 +39,11 @@ interface Props {
   fork?: ForkContext;
   /** This turn as Fork sees it (the footer's own, kept while it says the same). */
   turn: TurnFork;
+  /** The message the turn ends at, for a sidebar started from here; absent: none. */
+  pointId?: string;
 }
 
-export const TurnFoot = memo(function TurnFoot({ copyKey, markdown, startedAt, endedAt, fork, turn }: Props) {
+export const TurnFoot = memo(function TurnFoot({ copyKey, markdown, startedAt, endedAt, fork, turn, pointId }: Props) {
   const copied = useCopied(copyKey);
   const item = useMemo(() => (fork ? forkItem(fork.sessionId, fork.agent, fork.busy, turn) : undefined), [fork, turn]);
   const timed = startedAt !== undefined && endedAt !== undefined;
@@ -65,6 +69,7 @@ export const TurnFoot = memo(function TurnFoot({ copyKey, markdown, startedAt, e
         </button>
       )}
       {item && <ForkButton item={item} latest={turn.latest} />}
+      {fork && pointId && <AsideStart sessionId={fork.sessionId} at={pointId} />}
     </div>
   );
 });

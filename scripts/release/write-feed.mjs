@@ -1,8 +1,13 @@
-// Writes the feed electron-updater reads, for one platform's artifacts in a release folder:
+// Writes the feeds electron-updater reads, for one platform's artifacts in a release folder:
 //
 //   mac      latest-mac.yml           the update zip, then the DMG
 //   win      latest.yml               the NSIS installer
 //   linux    latest-linux.yml         the AppImage (latest-linux-arm64.yml for --arch arm64)
+//
+// Which feeds is the channel rule's (app/release-channel.mjs): a stable version is written to the
+// `latest` feed and the same text to the `beta` one (beta-mac.yml, beta.yml, beta-linux.yml), so a
+// copy on the beta channel moves to it; a beta version (1.2.3-beta.4) is written to the beta feed
+// only. With --out only the one file is written (publish.sh writes each feed it commits).
 //
 //   node scripts/release/write-feed.mjs --dir dist/release --version 0.0.1 [--platform mac|win|linux]
 //                                       [--arch x64|arm64] [--base <url>] [--out <file>]
@@ -34,7 +39,13 @@ if (base && !/^https:\/\/.+\/$/.test(base)) {
   process.exit(2);
 }
 
-const names = feedFiles(platform, arch, version);
+let names;
+try {
+  names = feedFiles(platform, arch, version);
+} catch (error) {
+  console.error(`!! ${error.message}`);
+  process.exit(2);
+}
 
 function sha512(path) {
   return new Promise((resolve, reject) => {
@@ -59,6 +70,7 @@ const yml = [
   `releaseDate: '${new Date().toISOString()}'`,
   '',
 ].join('\n');
-const out = values.out ?? join(dir, names.feed);
-writeFileSync(out, yml);
-console.log(`==> ${out}`);
+for (const out of values.out ? [values.out] : names.feeds.map((feed) => join(dir, feed))) {
+  writeFileSync(out, yml);
+  console.log(`==> ${out}`);
+}

@@ -19,6 +19,8 @@ import { sampleChangeCounts, sampleGitStatus } from './git-status-sample.ts';
 import type { ProjectFolder, Session, SessionView, WorkspaceState } from './model.ts';
 import { folderOf } from './shared/project-folders.ts';
 import { syncBranch } from './branch-sync.ts';
+import { currentWorkingTree } from './working-tree.ts';
+import { sessionFinder, workingTreeOf, worktreeOwnerId, type WorkingTreeAnswer } from './shared/working-tree.ts';
 import { PullRequestStore } from './pull-requests/store.ts';
 import { githubByNumber, gitlabByNumber } from './pull-requests/by-number.ts';
 import { lookupFrom, pullRequestsFor } from './pull-requests/choose.ts';
@@ -93,7 +95,9 @@ async function pullRequestsOf(session: Session, project: ProjectFolder | null, w
  * now, through the PR store. The workspace's Pull requests page asks this too (pull-request-list-api.ts),
  * so a session one place already looked up costs the other nothing.
  */
-export async function sessionLookup(state: WorkspaceState, stored: SessionView, workspace: Workspace, sources: DetailsSources, refresh: boolean, sample: boolean): Promise<Sourced<PullRequestLookup>> {
+export async function sessionLookup(state: WorkspaceState, asked: SessionView, workspace: Workspace, sources: DetailsSources, refresh: boolean, sample: boolean): Promise<Sourced<PullRequestLookup>> {
+  // A guest shows its host's requests, looked up and held under the host (shared/working-tree.ts).
+  const stored = ownerOf(state, asked);
   const session = sample ? stored : { ...stored, branch: await syncBranch(workspace, stored) };
   const started = state.projects.find((p) => p.id === session.startedIn);
   const project = started ? folderOf(started, session.folderId) : null;
@@ -106,9 +110,9 @@ async function usageOf(id: string, workspace: Workspace, runtime: SessionRuntime
 }
 
 /** The fake store's counts: its seeded Changes (stored with the session), not a worktree. */
-async function sampleCountsOf(session: Session, workspace: Workspace): Promise<Sourced<ChangeCounts> | null> {
-  if (!session.worktreePath) return null;
-  return sampleChangeCounts(session.branch, (await workspace.storedDetail(session.id))?.files?.length ?? 0);
+async function sampleCountsOf(session: Session, tree: WorkingTreeAnswer, workspace: Workspace): Promise<Sourced<ChangeCounts> | null> {
+  if (!tree.tree) return null;
+  return sampleChangeCounts(tree.tree.branch, (await workspace.storedDetail(session.id))?.files?.length ?? 0);
 }
 
 /**
@@ -122,6 +126,13 @@ async function withLineCounts(counts: Sourced<ChangeCounts>, sessionId: string, 
   return { ...counts, value: { ...counts.value, ...diffCounts(files.map((f) => f.diff)) } };
 }
 
+/** The session whose worktree `session` works in and whose pull requests it shows: its host for a guest, else itself. */
+function ownerOf(state: WorkspaceState, session: SessionView): SessionView {
+  const ownerId = worktreeOwnerId(session);
+  if (ownerId === session.id) return session;
+  return state.sessions.find((s) => s.id === ownerId) ?? state.archived.sessions.find((s) => s.id === ownerId) ?? session;
+}
+
 /** Answers a Details route, or null when the path is not one. */
 export async function detailsRoute(parts: readonly string[], method: string, url: URL, workspace: Workspace, runtime: SessionRuntime | undefined, sources: DetailsSources, sample: boolean): Promise<DetailsAnswer | null> {
   if (method !== 'GET' || parts[1] !== 'sessions' || parts.length !== 4 || !SECTIONS.has(parts[3]!)) return null;
@@ -132,24 +143,26 @@ export async function detailsRoute(parts: readonly string[], method: string, url
   const state = await workspace.state();
   const stored = state.sessions.find((s) => s.id === id);
   if (!stored) return { status: 404, body: { error: 'No such session' } };
-  // Details are about the branch the worktree is on now, not the one it was made with (branch-sync.ts).
-  const session = sample ? stored : { ...stored, branch: await syncBranch(workspace, stored) };
   // The directory the session works in: a project with several has one per session.
-  const started = state.projects.find((p) => p.id === session.startedIn);
-  const project = started ? folderOf(started, session.folderId) : null;
+  const started = state.projects.find((p) => p.id === stored.startedIn);
+  const project = started ? folderOf(started, stored.folderId) : null;
   if (parts[3] === 'repository') {
     if (!project?.isGit) return { status: 200, body: unavailable('No Git repository') };
     const link = repositoryWebUrl(await originUrl(project.path));
     return { status: 200, body: link ? ready(link) : unavailable('No web remote configured') };
   }
-  if (parts[3] === 'git') return { status: 200, body: (sample && sampleGitStatus(session.branch)) || (await gitStatusOf(session, project)) };
+  if (parts[3] === 'usage') return { status: 200, body: await usageOf(id, workspace, runtime) };
+  if (parts[3] === 'pull-requests') return { status: 200, body: await sessionLookup(state, stored, workspace, sources, refresh === '1', sample) };
+  // Details are about the worktree the session works in (its own, or its host's for a guest), on the
+  // branch it is on now, not the one it was made with (working-tree.ts, branch-sync.ts).
+  const tree = sample ? workingTreeOf(stored, sessionFinder(state)) : await currentWorkingTree(workspace, state, stored);
+  if (parts[3] === 'git') return { status: 200, body: (sample && tree.tree && sampleGitStatus(tree.tree.branch)) || (await gitStatusOf(tree, project)) };
   if (parts[3] === 'change-counts') {
-    const sampled = sample ? await sampleCountsOf(session, workspace) : null;
-    const counts = sampled ?? (await changeCountsOf(session, project));
+    const sampled = sample ? await sampleCountsOf(stored, tree, workspace) : null;
+    const counts = sampled ?? (await changeCountsOf(tree, project));
     // A count taken from the worktree that the session's list does not match: the list is read again.
     if (!sampled && counts.state === 'ready') runtime?.changesCounted(id, counts.value.changed);
     return { status: 200, body: await withLineCounts(counts, id, workspace, runtime) };
   }
-  if (parts[3] === 'usage') return { status: 200, body: await usageOf(id, workspace, runtime) };
-  return { status: 200, body: await pullRequestsOf(session, project, workspace, sources, refresh === '1', sample) };
+  return null;
 }

@@ -1,13 +1,16 @@
 // The phone's end of Kestrel Connect, as a stand-in: what the iPhone app does, written from the same
 // protocol, for the command-line phone (server/scripts/connect-phone.ts) and the end-to-end tests.
 // Not used by the desktop. The iPhone app has its own Swift implementation (design doc, section 2).
+// A phone always calls (role `caller`); the computer answers (`callee`). It learns a computer's keys from
+// the account's keyring, never from a pairing (kestrel-connect.md, "Account stage 1 as built").
 import { CONNECT_PROTOCOL_VERSION, checkEnvelope, type ConnectResponse, type Envelope } from '../../shared/connect-ops.ts';
-import { FrameCipher, helloSigned, newEphemeral, pairingProof, parsePairingCode, proofMatches, publicIdentity, sessionKeys, signHello, type Identity, type PublicIdentity } from '../keys.ts';
+import { FrameCipher, helloSigned, newEphemeral, sessionKeys, signHello, type Identity } from '../keys.ts';
 
-/** A desk this phone has paired with. */
-export interface PairedDesk {
+/** A computer of the account, with the keys its keyring entry gives. */
+export interface KnownDesk {
   id: string;
-  keys: PublicIdentity;
+  /** Its signing key, as the account's keyring lists it. */
+  signing: string;
 }
 
 export interface PhoneDeps {
@@ -27,17 +30,33 @@ export class PhoneChannel {
   private hello: Waiter | null = null;
   private readonly answers = new Map<string, (response: ConnectResponse) => void>();
   private channel: { desk: string; toDesk: FrameCipher; fromDesk: FrameCipher } | null = null;
-  /** The desk a pairing or hello is under way with: only its frames are listened to then. */
+  /** The desk a hello is under way with: only its frames are listened to then. */
   private talkingTo: string | null = null;
   private readonly pushes = new Set<(body: unknown) => void>();
   private lastAt = 0;
   /** Why the desk ended the channel, the last time it did. */
   lastBye: string | null = null;
+  /** The desk last opened, so a `bye` that asks for it (`again`) opens a new channel at once. */
+  private lastDesk: KnownDesk | null = null;
+  private readonly joins = new Set<(from: string, body: unknown) => void>();
+  /** The new channel a `bye` with `again` started opening, until it is open. */
+  reopening: Promise<void> | null = null;
 
   constructor(private readonly deps: PhoneDeps) {}
 
   private newId(): string {
     return `p${++this.counter}`;
+  }
+
+  /** Sends a `hello` in the clear (a join step). */
+  sendHello(to: string, body: unknown): void {
+    this.sendPlain(to, 'hello', body);
+  }
+
+  /** Join steps (`hello` with `join`) from any device: the join flow decides whom to believe. */
+  onJoin(listener: (from: string, body: unknown) => void): () => void {
+    this.joins.add(listener);
+    return () => this.joins.delete(listener);
   }
 
   private sendPlain(to: string, kind: 'hello' | 'bye', body: unknown): void {
@@ -54,36 +73,22 @@ export class PhoneChannel {
     });
   }
 
-  /** Pairs with the desk whose code was scanned or typed. */
-  async pair(code: string): Promise<PairedDesk> {
-    const parsed = parsePairingCode(code);
-    if (!parsed) throw new Error('That is not a Kestrel pairing code.');
-    const keys = publicIdentity(this.deps.identity);
-    this.talkingTo = parsed.deskId;
-    const answer = this.waitHello();
-    this.sendPlain(parsed.deskId, 'hello', { pair: { name: this.deps.name, keys, proof: pairingProof(parsed.secret, 'phone', parsed.deskId, this.deps.id, keys, this.deps.name) } });
-    const body = await answer;
-    if (typeof body.refused === 'string') throw new Error(body.refused);
-    const paired = body.paired as { keys?: PublicIdentity; proof?: unknown } | undefined;
-    if (!paired?.keys || !proofMatches(pairingProof(parsed.secret, 'desk', parsed.deskId, this.deps.id, paired.keys), paired.proof)) throw new Error('The computer could not prove it showed that code. Do not pair with it.');
-    return { id: parsed.deskId, keys: paired.keys };
-  }
-
-  /** Opens the encrypted channel to a paired desk, fresh keys for this connection. */
-  async open(desk: PairedDesk): Promise<void> {
+  /** Opens the encrypted channel to a computer of the account, fresh keys for this connection. */
+  async open(desk: KnownDesk): Promise<void> {
     const ephemeral = newEphemeral();
     this.talkingTo = desk.id;
     // Strictly later than any hello before it, even within one millisecond.
     const at = Math.max(Date.now(), this.lastAt + 1);
     this.lastAt = at;
     const answer = this.waitHello();
-    this.sendPlain(desk.id, 'hello', { session: { ephemeral: ephemeral.publicKey, at, signature: signHello(this.deps.identity, 'phone', this.deps.id, desk.id, ephemeral.publicKey, '', at) } });
+    this.sendPlain(desk.id, 'hello', { session: { ephemeral: ephemeral.publicKey, at, signature: signHello(this.deps.identity, 'caller', this.deps.id, desk.id, ephemeral.publicKey, '', at) } });
     const body = await answer;
     const session = body.session as { ephemeral?: unknown; signature?: unknown } | undefined;
     if (typeof body.refused === 'string') throw new Error(body.refused);
-    if (typeof session?.ephemeral !== 'string' || !helloSigned(desk.keys.signing, session.signature, 'desk', this.deps.id, desk.id, ephemeral.publicKey, session.ephemeral, at)) throw new Error('The computer could not prove it is the one this phone paired with.');
+    if (typeof session?.ephemeral !== 'string' || !helloSigned(desk.signing, session.signature, 'callee', this.deps.id, desk.id, ephemeral.publicKey, session.ephemeral, at)) throw new Error('The computer could not prove it is the one your account lists.');
     const keys = sessionKeys(ephemeral, session.ephemeral, ephemeral.publicKey, session.ephemeral);
-    this.channel = { desk: desk.id, toDesk: new FrameCipher(keys.phoneToDesk), fromDesk: new FrameCipher(keys.deskToPhone) };
+    this.channel = { desk: desk.id, toDesk: new FrameCipher(keys.callerToCallee), fromDesk: new FrameCipher(keys.calleeToCaller) };
+    this.lastDesk = desk;
   }
 
   /** One operation (a name from CONNECT_OPS, and its arguments as sent), sealed; the desk's answer. */
@@ -133,6 +138,11 @@ export class PhoneChannel {
     const checked = checkEnvelope(raw);
     if (!checked.ok || checked.value.to !== this.deps.id) return;
     const frame = checked.value;
+    const join = frame.kind === 'hello' && typeof frame.body === 'object' && frame.body !== null ? (frame.body as { join?: unknown }).join : undefined;
+    if (join !== undefined) {
+      for (const listener of this.joins) listener(frame.from, join);
+      return;
+    }
     // Only the desk this phone is talking to is listened to.
     if (frame.from !== (this.channel?.desk ?? this.talkingTo)) return;
     if (frame.kind === 'hello') {
@@ -148,6 +158,8 @@ export class PhoneChannel {
       this.hello = null;
       for (const answer of this.answers.values()) answer({ ok: false, reason: this.lastBye });
       this.answers.clear();
+      // The desk's link was renewed under this phone: say hello again now, as the app does.
+      if ((frame.body as { again?: unknown })?.again === true && this.lastDesk) this.reopening = this.open(this.lastDesk);
       return;
     }
     // A refusal in the clear (no channel): only ever `{ ok: false }`, never a result.

@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useWorkingTree } from '../workingTree.ts';
 import { FileCode } from 'lucide-react';
 import { Diff, getChangeKey, Hunk, parseDiff, type FileData } from 'react-diff-view';
 import 'react-diff-view/style/index.css';
@@ -129,6 +130,8 @@ export function ChangesView({ files, resetKey, empty, against, menu, focusFor }:
 
 /** A session's changes: everything its worktree has that its base does not. */
 export function Changes({ detail, files, problem, plainFolder, git }: { detail: SessionDetail; files: readonly ChangedFile[]; /** Why the list could not be read from the worktree; null when it was. */ problem: string | null; plainFolder: boolean; /** The session's git status, for the uncommitted line. */ git: Sourced<GitStatus> }) {
+  // The folder its files are in: the worktree it works in, its host's for a guest.
+  const folder = useWorkingTree(detail.session).tree?.path ?? null;
   if (plainFolder)
     return (
       <div className="context-content">
@@ -136,10 +139,23 @@ export function Changes({ detail, files, problem, plainFolder, git }: { detail: 
         <p>This project is a plain folder, so the session edits it in place. Kestrel does not record its changes yet, so there is no diff to show here. Register the folder as a git repository to get worktrees and diffs.</p>
       </div>
     );
+  const uncommitted = uncommittedCount(git);
   const empty = problem ? (
     <>
       <h3>Kestrel could not read this session’s changes</h3>
       <p className="changes-problem">{problem}</p>
+    </>
+  ) : uncommitted > 0 ? (
+    // Never "nothing differs" beside a count of uncommitted files: say what is known instead.
+    <>
+      <h3>Nothing listed against the base</h3>
+      <p>Git reports {uncommittedFilesText(uncommitted)} here, and Kestrel found no file that differs from this session’s base. Either those changes bring the worktree back to its base, or the list has not been read again yet.</p>
+    </>
+  ) : git.state === 'unavailable' && detail.session.filing.status !== 'unscoped' ? (
+    // Unavailable is not clean: say why git could not be asked instead of "no changes".
+    <>
+      <h3>Git status unavailable</h3>
+      <p className="changes-problem">{git.reason}</p>
     </>
   ) : (
     <>
@@ -147,8 +163,7 @@ export function Changes({ detail, files, problem, plainFolder, git }: { detail: 
       <p>{detail.session.filing.status === 'unscoped' ? 'This session has no project. It reads the registered projects and hands off or delegates anything that needs an edit there.' : 'Nothing in this session’s worktree differs from its base.'}</p>
     </>
   );
-  const menu = useMemo(() => ({ sessionId: detail.session.id, folder: detail.session.worktreePath }), [detail.session.id, detail.session.worktreePath]);
-  const uncommitted = uncommittedCount(git);
+  const menu = useMemo(() => ({ sessionId: detail.session.id, folder }), [detail.session.id, folder]);
   return (
     <>
       {uncommitted > 0 && (
@@ -159,7 +174,7 @@ export function Changes({ detail, files, problem, plainFolder, git }: { detail: 
       )}
       {problem && files.length > 0 && (
         <p className="changes-stale" role="status">
-          This list may be out of date. Kestrel could not read the worktree again: {problem}
+          This list may be incomplete or out of date. Kestrel could not read all of the worktree: {problem}
         </p>
       )}
       <ChangesView files={files} resetKey={detail.session.id} empty={empty} against="base" menu={menu} focusFor={detail.session.id} />

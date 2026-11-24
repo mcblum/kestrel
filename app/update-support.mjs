@@ -17,8 +17,12 @@ export function updateSupport({ platform, packaged, env }) {
   return { enabled: true };
 }
 
-/** Whether this error means "there is no feed (yet)", rather than a real failure. The feed is latest-mac.yml, latest.yml or latest-linux.yml. */
+/**
+ * Whether this error means "there is no feed (yet)", rather than a real failure. The feed is
+ * latest-mac.yml, latest.yml or latest-linux.yml, or its beta twin (beta-mac.yml, …) on the beta
+ * channel; the generic provider says `Cannot find channel "beta-mac.yml" update info` for a 404.
+ */
 export function isMissingFeed(error) {
   const text = String(error?.message ?? error);
-  return /\b404\b/.test(text) || /Cannot find latest(-[a-z0-9-]+)?\.yml/i.test(text) || /ERR_FILE_NOT_FOUND/.test(text);
+  return /\b404\b/.test(text) || /Cannot find (channel ")?(latest|beta)(-[a-z0-9-]+)?\.yml/i.test(text) || /ERR_UPDATER_CHANNEL_FILE_NOT_FOUND|ERR_FILE_NOT_FOUND/.test(text);
 }

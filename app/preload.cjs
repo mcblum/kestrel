@@ -6,8 +6,10 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('kestrelShell', {
   launch: ipcRenderer.sendSync('kestrel:launch'),
-  /** {name, version, packaged}: the version is shown in Settings. */
+  /** {name, version, packaged, updateChannel: {beta, build}}: the version and channel are shown in Settings. */
   app: ipcRenderer.sendSync('kestrel:app-info'),
+  /** Settings → General → Get beta versions: resolves the channel now, or {error} with the reason. */
+  setBetaUpdates: (beta) => ipcRenderer.invoke('kestrel:set-beta-updates', beta === true),
   /** The updater's state now: {status: 'idle'|'checking'|'downloading'|'ready'|'error', version?, percent?}. */
   updateState: () => ipcRenderer.invoke('kestrel:update-state'),
   /** Every change of that state. */

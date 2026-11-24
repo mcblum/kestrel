@@ -235,6 +235,8 @@ export class Workspace {
   /** Removes the session's record, its conversation and its links. The caller has already stopped it and dealt with its worktree. */
   async deleteSession(id: string): Promise<void> {
     await this.db.transaction(async (tx) => {
+      // Its sidebars go with it: they are about its conversation and drawn only beside it (shared/asides.ts).
+      for (const aside of (await tx.listSessions()).filter((s) => s.aside?.sessionId === id)) await tx.deleteSession(aside.id);
       if (!(await tx.deleteSession(id))) throw new Refused('No such session.');
       await tx.deletePin('session', id);
       await settings.unarchive(tx, 'session', id);
@@ -561,6 +563,21 @@ export class Workspace {
    * Store a fork (fork.ts) in one write: its row, its copy of the conversation, the `fork` link to
    * the session it came from (lineage only) and that session's tags. The old session is only read.
    */
+  /**
+   * A sidebar about a finding (asides.ts): a session with its conversation, marked as one and linked
+   * to nothing (the mark names where it comes from), so it is in no list and moves with nothing.
+   */
+  async addAside(fromId: string, aside: NewSession & { aside: NonNullable<NewSession['aside']> }, detail: StoredDetail): Promise<Session> {
+    const created = await this.db.transaction(async (tx) => {
+      if (!(await tx.getSession(fromId))) throw new Refused(`No such session: ${fromId}`);
+      const session = await this.insertSession(tx, aside);
+      await tx.putDetail(session.id, detail);
+      return session;
+    });
+    this.changed();
+    return created;
+  }
+
   async addFork(fromId: string, fork: NewSession, detail: StoredDetail): Promise<Session> {
     const created = await this.db.transaction(async (tx) => {
       if (!(await tx.getSession(fromId))) throw new Refused(`No such session: ${fromId}`);
@@ -624,7 +641,7 @@ export class Workspace {
       const group = groups.find((g) => g.id === orchestrator.groupId) ?? null;
       const children: Session[] = [];
       for (const t of tasks) {
-        const child = await this.insertSession(tx, { title: t.title ?? t.brief, agent: t.agent ?? orchestrator.agent, startedIn: t.projectId, startedFolderId: t.folderId ?? null, groupId: childGroupId(group, t.projectId), state: 'running', note: 'Started by delegate' });
+        const child = await this.insertSession(tx, { title: t.title ?? t.brief, agent: t.agent ?? orchestrator.agent, startedIn: t.projectId, startedFolderId: t.folderId ?? null, groupId: childGroupId(group, t.projectId), state: 'running', note: 'Started by delegate', ...(t.hostId ? { hostId: t.hostId } : {}) });
         await tx.insertLink({ id: randomUUID(), parentId: orchestratorId, childId: child.id, kind: 'delegate' });
         children.push(child);
       }

@@ -1,6 +1,7 @@
 // SQLite provider, on Node's built-in driver (no native module to build).
 // Statements are prepared once and reused; WAL keeps readers from blocking the writer.
 import { asReviewMark, type ReviewMark } from '../shared/review-requests.ts';
+import { sanitizeAside, type AsideOf } from '../shared/asides.ts';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import type { Group, Link, LinkKind, Pin, PinKind, Project, ProjectFolder, RequestLink, Session, SessionRequestLink, SessionWait, TagRow, Workstream } from '../model.ts';
 import type { PullRequestState } from '../shared/details.ts';
@@ -123,6 +124,33 @@ function addReviewColumn(db: DatabaseSync): void {
   if (!columns.some((c) => c.name === 'review')) db.exec('ALTER TABLE sessions ADD COLUMN review TEXT');
 }
 
+/** Stores written before sidebars (Session.aside): add the column, empty (no session is one). */
+function addAsideColumn(db: DatabaseSync): void {
+  const columns = db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[];
+  if (!columns.some((c) => c.name === 'aside')) db.exec('ALTER TABLE sessions ADD COLUMN aside TEXT');
+}
+
+/**
+ * Stores written before guests were marked on their row (Session.hostId): add the column, and fill it
+ * from each guest's stored detail, where the host was kept until then.
+ */
+function addHostColumn(db: DatabaseSync): void {
+  const columns = db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[];
+  if (columns.some((c) => c.name === 'host_id')) return;
+  db.exec('ALTER TABLE sessions ADD COLUMN host_id TEXT');
+  db.exec("UPDATE sessions SET host_id = (SELECT json_extract(d.json, '$.guest.hostId') FROM session_detail d WHERE d.session_id = sessions.id) WHERE EXISTS (SELECT 1 FROM session_detail d WHERE d.session_id = sessions.id AND json_type(d.json, '$.guest.hostId') = 'text')");
+}
+
+/** A stored sidebar mark (JSON), or null when there is none or it is not one. */
+function asideOf(raw: unknown): AsideOf | null {
+  if (typeof raw !== 'string' || !raw) return null;
+  try {
+    return sanitizeAside(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
 /** A stored review mark (JSON), or null when there is none or it is not one. */
 function reviewOf(raw: unknown): ReviewMark | null {
   if (typeof raw !== 'string' || !raw) return null;
@@ -178,6 +206,8 @@ class SqliteDriver implements LocalDriver {
     addStoppedColumn(this.db);
     addTurnByUserColumn(this.db);
     addReviewColumn(this.db);
+    addAsideColumn(this.db);
+    addHostColumn(this.db);
     addGroupProjectColumn(this.db);
     addWorkstreamStateColumns(this.db);
     addRequestStateColumn(this.db);
@@ -275,8 +305,8 @@ class SqliteDriver implements LocalDriver {
   }
   insertSession(s: Session) {
     this.sql(
-      'INSERT INTO sessions (id, title, agent, state, note, started_in, started_folder_id, landed_in, worktree_path, branch, worktree_discarded, group_id, created_at, updated_at, last_activity_at, completed_at, stopped, turn_by_user, review) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    ).run(s.id, s.title, s.agent, s.state, s.note, s.startedIn, s.startedFolderId ?? null, s.landedIn, s.worktreePath, s.branch, s.worktreeDiscarded ? 1 : 0, s.groupId, s.createdAt, s.updatedAt, s.lastActivityAt ?? null, s.completedAt ?? null, s.stopped ? 1 : 0, s.turnByUser ? 1 : 0, s.review ? JSON.stringify(s.review) : null);
+      'INSERT INTO sessions (id, title, agent, state, note, started_in, started_folder_id, landed_in, worktree_path, branch, worktree_discarded, group_id, created_at, updated_at, last_activity_at, completed_at, stopped, turn_by_user, review, aside, host_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    ).run(s.id, s.title, s.agent, s.state, s.note, s.startedIn, s.startedFolderId ?? null, s.landedIn, s.worktreePath, s.branch, s.worktreeDiscarded ? 1 : 0, s.groupId, s.createdAt, s.updatedAt, s.lastActivityAt ?? null, s.completedAt ?? null, s.stopped ? 1 : 0, s.turnByUser ? 1 : 0, s.review ? JSON.stringify(s.review) : null, s.aside ? JSON.stringify(s.aside) : null, s.hostId ?? null);
   }
   updateSession(id: string, patch: SessionPatch) {
     const keys = (Object.keys(patch) as (keyof SessionPatch)[]).filter((k) => patch[k] !== undefined);
@@ -405,6 +435,7 @@ class SqliteDriver implements LocalDriver {
 
 function rowToSession(r: any): Session {
   const review = reviewOf(r.review);
+  const aside = asideOf(r.aside);
   return {
     id: r.id,
     title: r.title,
@@ -425,6 +456,8 @@ function rowToSession(r: any): Session {
     ...(r.stopped ? { stopped: true } : {}),
     ...(r.turn_by_user ? { turnByUser: true } : {}),
     ...(review ? { review } : {}),
+    ...(aside ? { aside } : {}),
+    ...(typeof r.host_id === 'string' && r.host_id ? { hostId: r.host_id } : {}),
   };
 }
 

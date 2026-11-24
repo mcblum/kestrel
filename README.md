@@ -7,7 +7,7 @@
 <p align="center"><strong>One workspace for your coding agents.</strong></p>
 
 <p align="center">
-  Claude Code, Codex, and OpenCode. Your tasks, projects, and code reviews. One place to follow the work.
+  Claude Code, Codex, and OpenCode. Your tasks, projects, tickets, and code reviews. One place to follow the work.
 </p>
 
 <p align="center">
@@ -37,18 +37,20 @@ A **workstream** keeps those conversations connected. Follow the whole task, see
 - **Your agents, together.** Run Claude Code, Codex, and OpenCode using the sign-ins already on your Mac. Kestrel never asks for an API key.
 - **Room to work in parallel.** Each session in a Git project gets its own worktree and branch, so several tasks can move forward in the same repository.
 - **The next decision, in view.** See which sessions are working and which need you. Answer a question or give direction without losing the bigger picture.
-- **Review where you work.** Inspect diffs, open a terminal or browser beside the conversation, and manage GitHub and GitLab pull requests—including reviews requested by other people.
-- **A local workspace.** Kestrel runs on your Mac. Your chosen agents connect to their providers using their own accounts, and permission controls let you decide how much they can do without asking.
+- **Review where you work.** Inspect diffs, open a terminal or browser beside the conversation, and manage GitHub and GitLab pull requests.
+- **Reviews you were asked for.** Pull requests where you were asked to review by name are listed for you. An agent reads the change and hands you its findings as cards to edit, dismiss, and post. Nothing is posted until you say so.
+- **From ticket to pull request.** Turn on Tickets to see what is assigned to you in GitHub, GitLab, Jira Cloud, or Linear. One click starts the work across the projects a ticket touches, and Kestrel asks before it changes a ticket.
+- **A local workspace.** Kestrel runs on your Mac. Your chosen agents connect to their providers using their own accounts, and permission controls let you decide how much they can do without asking. The only thing Kestrel sends us is a crash report when the app itself fails, with none of your code or conversations in it, and a switch in Settings turns that off.
 
 ## Get started
 
 1. **[Download Kestrel for Mac](https://starfish.nationalmachine.io/kestrel/releases/-/releases/permalink/latest/downloads/Kestrel.dmg)** and move it to Applications.
-2. **Have an agent ready.** Claude needs no install: Kestrel includes Claude Code, and first-launch setup can sign you in (signing in to the Claude desktop app alone is not enough). Codex CLI and OpenCode are installed separately. First-launch setup checks what is available.
+2. **Have an agent ready.** Claude needs no install: Kestrel includes Claude Code, and first-launch setup can sign you in (signing in to the Claude desktop app alone is not enough). Codex CLI and OpenCode are installed separately; Kestrel can sign Codex in too. First-launch setup checks what is available.
 3. **Add a project and start a session.** Describe what you want to accomplish. Kestrel keeps the conversation and its working copy together.
 
 For GitHub or GitLab pull requests, also sign in with `gh` or `glab`. Kestrel requires a Mac with Apple Silicon and checks for app updates automatically.
 
-The **[Kestrel docs](https://kestrelapp.ai/docs/)** cover installing, projects, sessions, workstreams, permissions, and pull requests. There is more about the app at **[kestrelapp.ai](https://kestrelapp.ai)**.
+The **[Kestrel docs](https://kestrelapp.ai/docs/)** cover installing, projects, sessions, workstreams, permissions, pull requests and reviews, and tickets. There is more about the app at **[kestrelapp.ai](https://kestrelapp.ai)**.
 
 ## Build, contribute, or get help
 

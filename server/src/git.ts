@@ -215,12 +215,36 @@ export function splitDiff(text: string): ChangedFile[] {
   return files;
 }
 
+/** What a worktree has that its base does not, and what of it could not be listed. */
+export interface ChangesRead {
+  files: ChangedFile[];
+  /** Why some new files are missing from `files`, in git's words; null when every one is there. */
+  unlisted: string | null;
+}
+
 /**
- * Everything that differs from the base: committed, uncommitted and new files. The worktree's
- * own index is never touched (the agent's git commands use it): new files are marked
- * intent-to-add in a private copy of the index, selected with GIT_INDEX_FILE.
+ * Marks every new file intent-to-add in the scratch index `env` selects. A path git cannot take (a
+ * folder that is a repository of its own with no commit yet, say) is skipped, never allowed to stop
+ * the rest: without `--ignore-errors` one such path left every new file out, and a session whose
+ * changes were all new files showed none. Returns what was skipped, in git's words, or null.
  */
-export async function changedFiles(worktreePath: string, base: string): Promise<ChangedFile[]> {
+async function markNewFiles(worktreePath: string, env: Record<string, string>): Promise<string | null> {
+  try {
+    await run('git', ['add', '-A', '-N', '--ignore-errors', '.'], { cwd: worktreePath, env: { ...GIT_ENV, ...env }, maxBuffer: 64 * 1024 * 1024 });
+    return null;
+  } catch (error) {
+    const stderr = (error as { stderr?: string }).stderr ?? '';
+    const said = stderr.split('\n').filter((line) => /^(error|fatal): /.test(line)).map((line) => line.replace(/^(error|fatal): /, '').trim());
+    return `Not every new file could be listed: ${said.join('; ') || (error as Error).message}`;
+  }
+}
+
+/**
+ * Everything that differs from the base: committed, uncommitted and new files, with what could not
+ * be listed. The worktree's own index is never touched (the agent's git commands use it): new files
+ * are marked intent-to-add in a private copy of the index, selected with GIT_INDEX_FILE.
+ */
+export async function readChanges(worktreePath: string, base: string): Promise<ChangesRead> {
   const realIndex = (await git(worktreePath, ['rev-parse', '--git-path', 'index'])).trim();
   const scratch = mkdtempSync(join(tmpdir(), 'kestrel-index-'));
   const copy = join(scratch, 'index');
@@ -235,11 +259,16 @@ export async function changedFiles(worktreePath: string, base: string): Promise<
       utimesSync(copy, atime, mtime);
     }
     const env = { GIT_INDEX_FILE: copy };
-    await git(worktreePath, ['add', '-A', '-N', '.'], { env, allowFail: true });
-    return splitDiff(await git(worktreePath, ['diff', '--no-color', '--no-ext-diff', '--no-renames', base], { env }));
+    const unlisted = await markNewFiles(worktreePath, env);
+    return { files: splitDiff(await git(worktreePath, ['diff', '--no-color', '--no-ext-diff', '--no-renames', base], { env })), unlisted };
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
+}
+
+/** The files `readChanges` lists, for a caller with nowhere to say what could not be listed. */
+export async function changedFiles(worktreePath: string, base: string): Promise<ChangedFile[]> {
+  return (await readChanges(worktreePath, base)).files;
 }
 
 export async function removeWorktree(repoPath: string, worktreePath: string): Promise<void> {

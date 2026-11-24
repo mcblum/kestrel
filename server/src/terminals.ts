@@ -69,6 +69,9 @@ export function nodePtySpawn(): SpawnPty {
   return (shell, args, options) => pty.spawn(shell, args, { name: 'xterm-256color', ...options });
 }
 
+/** A line Kestrel writes at the top of a terminal, dimmed so it reads as Kestrel's and not the shell's. */
+export const noticeLine = (text: string): string => `\x1b[2m[Kestrel] ${text.replace(/[\r\n\x1b]+/g, ' ')}\x1b[0m\r\n`;
+
 /** Recent output, kept as chunks so a busy shell does not copy the whole buffer on every write. */
 export class Scrollback {
   private chunks: string[] = [];
@@ -159,9 +162,13 @@ export class Terminals {
     }));
   }
 
-  /** Start a new login shell for the session in `cwd`. Refused past the per-session cap. */
-  open(sessionId: string, cwd: string, size: { cols?: unknown; rows?: unknown }): TerminalInfo {
+  /**
+   * Start a new login shell for the session in `cwd`. Refused past the per-session cap. `notice`, when
+   * given, is the terminal's first line, dimmed: why it opened somewhere other than the session's worktree.
+   */
+  open(sessionId: string, cwd: string, size: { cols?: unknown; rows?: unknown }, notice?: string | null): TerminalInfo {
     const term = this.start(sessionId, cwd, size, false);
+    if (notice) term.scrollback.add(noticeLine(notice));
     return this.list(sessionId).find((t) => t.id === term.id)!;
   }
 

@@ -5,10 +5,9 @@
 // page's own Notification fails there without a word. In a browser it is the browser's own.
 // It watches the one copy of the workspace in the app store and holds nothing of its own but the
 // previous list to compare with. A click on a banner brings the window forward and opens the session.
-import type { SessionView } from '@kestrel/server/model';
 import { platform } from './platform.ts';
 import { useSyncExternalStore } from 'react';
-import { bannerProblem, DEFAULT_NOTIFY, sanitizeNotify, notifies, notifyEvents, parseTarget, reviewNotifyEvents, targetOf, ticketNotifyEvents, ticketsBefore, type TicketsSeenBefore, type NotifyEvent, type NotifyPrefs } from '@kestrel/server/notifications';
+import { bannerProblem, DEFAULT_NOTIFY, NOTHING_SEEN, sanitizeNotify, notifies, notificationsOf, parseTarget, targetOf, type NotifyEvent, type NotifyPrefs, type NotifySeen } from '@kestrel/server/notifications';
 import { ready, type Sourced } from '@kestrel/server/sourced';
 import { openSession, openView } from './route.ts';
 import { playSound } from './sounds.ts';
@@ -88,38 +87,9 @@ function show(event: NotifyEvent, prefs: NotifyPrefs): void {
   }
 }
 
-let before: readonly SessionView[] | null = null;
-/** The review requests that were waiting at the last look (their keys), and the list they were read from; null until the server's first answer. */
-let requestsBefore: { list: unknown; keys: readonly string[] } | null = null;
+/** What the last look saw (shared/notifications.ts); nothing until the server's first push, so what was already there is never news. */
+let seen: { rule: NotifySeen; sessions: unknown; reviewRequests: unknown; tickets: unknown } = { rule: NOTHING_SEEN, sessions: null, reviewRequests: null, tickets: null };
 let asked = false;
-/** The tickets listed at the last look, and the view they were read from; null until the server's first push of them. */
-let ticketsSeen: { view: unknown; before: TicketsSeenBefore } | null = null;
-
-/**
- * Tickets newly assigned since the last look. The store starts with no tickets before the server has
- * said anything, so the first list that arrives is "what was already assigned", never news; and a
- * source being filled for the first time is not news either (shared/notifications.ts).
- */
-function newTickets(prefs: NotifyPrefs): NotifyEvent[] {
-  const held = appStore.get().tickets;
-  if (ticketsSeen?.view === held) return [];
-  const events = notifies(prefs) ? ticketNotifyEvents(ticketsSeen?.before ?? null, held, prefs) : [];
-  ticketsSeen = { view: held, before: ticketsBefore(held) };
-  return events;
-}
-
-/**
- * New review requests since the last look (0.0.23). The store starts with an empty list before the
- * server has said anything, so the first list that arrives with the workspace is "what was already
- * waiting", never news.
- */
-function newReviewRequests(prefs: NotifyPrefs): NotifyEvent[] {
-  const held = appStore.get().reviewRequests;
-  if (requestsBefore?.list === held.requests) return [];
-  const events = notifies(prefs) ? reviewNotifyEvents(requestsBefore?.keys ?? null, held, prefs) : [];
-  requestsBefore = { list: held.requests, keys: held.requests.map((r) => r.key) };
-  return events;
-}
 
 function check(): void {
   const state = appStore.get();
@@ -130,16 +100,15 @@ function check(): void {
     asked = true;
     void call<NotifyAnswer>(NOTIFICATIONS_PATH).then((answer) => putResource(NOTIFICATIONS_PATH, asNotifyPrefs(answer)), () => void (asked = false));
   }
+  if (seen.sessions === ws.sessions && seen.reviewRequests === state.reviewRequests && seen.tickets === state.tickets) return;
   const prefs = heldPrefs();
-  const requested = [...newReviewRequests(prefs), ...newTickets(prefs)];
-  const after = ws.sessions;
-  if (after === before && requested.length === 0) return;
   const tab = tabsView().loaded ? activeTab(tabsView()) : undefined;
-  const events = [...(notifies(prefs) && after !== before ? notifyEvents(before, after, ws.links, prefs, { focused: document.hasFocus(), openSessionId: tab?.kind === 'session' ? tab.sessionId : null }) : []), ...requested];
-  before = after;
-  if (events.length === 0) return;
-  events.forEach((event) => show(event, prefs));
-  playSound(prefs.sound); // once, however many sessions changed in this push
+  // The one rule, which the desk's push sender also runs (server/src/connect/link/push.ts).
+  const next = notificationsOf(seen.rule, { sessions: ws.sessions, links: ws.links, reviewRequests: state.reviewRequests, tickets: state.tickets }, prefs, { focused: document.hasFocus(), openSessionId: tab?.kind === 'session' ? tab.sessionId : null });
+  seen = { rule: next.seen, sessions: ws.sessions, reviewRequests: state.reviewRequests, tickets: state.tickets };
+  if (!notifies(prefs) || next.events.length === 0) return;
+  next.events.forEach((event) => show(event, prefs));
+  playSound(prefs.sound); // once, however many things changed in this push
 }
 
 /** Start watching. Called once, as the app starts. */

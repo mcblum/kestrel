@@ -282,6 +282,11 @@ async function capture(path) {
   app.quit();
 }
 
+/** The About panel says which channel this copy is on: "Version 0.0.32-beta.1 (beta channel)". */
+function showChannelInAbout(channel) {
+  app.setAboutPanelOptions({ applicationVersion: app.getVersion(), version: channel.beta ? 'beta channel' : 'stable channel' });
+}
+
 /** Stops the server (and the agents it runs) before quitting; the updater's restart uses it too. */
 async function stopServer() {
   quitting = true;
@@ -319,9 +324,22 @@ async function boot() {
     event.returnValue = win && event.sender === win.webContents ? launch : null;
   });
   ipcMain.on('kestrel:app-info', (event) => {
-    event.returnValue = { name: app.getName(), version: app.getVersion(), packaged: isPackaged };
+    event.returnValue = { name: app.getName(), version: app.getVersion(), packaged: isPackaged, updateChannel: updater?.channel() ?? null };
   });
   updater = startUpdater({ send: (state) => win?.webContents.send('kestrel:update', state), beforeRestart: stopServer, getWindow: () => win });
+  showChannelInAbout(updater.channel());
+  // Settings → General → Get beta versions (app/update-channel.mjs keeps it). Answers the channel
+  // now, or { error } with the reason it could not be saved.
+  ipcMain.handle('kestrel:set-beta-updates', (event, beta) => {
+    if (!win || event.sender !== win.webContents) return { error: 'Only Kestrel’s own window can change this.' };
+    try {
+      const channel = updater.setBeta(beta === true);
+      showChannelInAbout(channel);
+      return channel;
+    } catch (error) {
+      return { error: `Could not save the choice: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  });
   ipcMain.handle('kestrel:update-state', (event) => (win && event.sender === win.webContents ? updater.state() : null));
   ipcMain.handle('kestrel:update-restart', (event) => (win && event.sender === win.webContents ? updater.restart() : false));
   // Every folder chooser in the app comes through here; it reopens where the last pick was made.

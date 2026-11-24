@@ -6,6 +6,8 @@ import { homedir } from 'node:os';
 import type { Project, WorkspaceState } from './model.ts';
 import { defaultFolder, folderOf, hasFolders } from './shared/project-folders.ts';
 import { parseScope } from './shared/scope.ts';
+import { MAIN_CHECKOUT } from './shared/working-tree.ts';
+import { workingTreeIn } from './working-tree.ts';
 
 export interface ScopeFolderSource {
   /** The folder a session works in, or null when there is no such session. */
@@ -41,12 +43,33 @@ export async function terminalFolder(projects: readonly Project[], key: string, 
   return projectWithoutFolder(projects, key) ? homedir() : folderOf(key);
 }
 
-/** Where a session works: its worktree, its plain directory, else `scratch`. Null for no such session. */
-export function sessionDirectory(state: Pick<WorkspaceState, 'sessions' | 'projects'>, sessionId: string, scratch: string): string | null {
-  const session = state.sessions.find((s) => s.id === sessionId);
+/** The folder a session's panes open in, and why when it is not where its work is. */
+export interface SessionFolder {
+  path: string;
+  /** Set when the session's worktree (or its host's, for a guest) is not there to open: why, and where this is instead. */
+  note: string | null;
+}
+
+/**
+ * Where a session works: the worktree it works in (its own, or its host's for a guest; see
+ * shared/working-tree.ts), its plain directory, else `scratch`. When it has or had a worktree that
+ * cannot be opened (discarded, gone from disk, a guest's host gone), the folder it falls back to
+ * comes with a note that says so. Null for no such session.
+ */
+export function sessionFolderOf(state: Pick<WorkspaceState, 'sessions' | 'projects' | 'archived'>, sessionId: string, scratch: string, exists?: (path: string) => boolean): SessionFolder | null {
+  const session = state.sessions.find((s) => s.id === sessionId) ?? state.archived.sessions.find((s) => s.id === sessionId);
   if (!session) return null;
+  const answer = workingTreeIn(state, session, exists);
+  if (answer.tree) return { path: answer.tree.path, note: null };
   const project = state.projects.find((p) => p.id === session.startedIn);
-  return session.worktreePath ?? (project ? folderOf(project, session.folderId)?.path : undefined) ?? scratch;
+  const main = project ? folderOf(project, session.folderId)?.path : undefined;
+  const note = answer.reason === MAIN_CHECKOUT ? null : `${answer.reason}, so this is ${main ? `the project's main checkout, ${main}` : 'the scratch folder'}.`;
+  return { path: main ?? scratch, note };
+}
+
+/** Where a session works (`sessionFolderOf`), the folder alone. Null for no such session. */
+export function sessionDirectory(state: Pick<WorkspaceState, 'sessions' | 'projects' | 'archived'>, sessionId: string, scratch: string): string | null {
+  return sessionFolderOf(state, sessionId, scratch)?.path ?? null;
 }
 
 /** Why a scope has no folder, said to the user. */

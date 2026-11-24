@@ -16,6 +16,16 @@
 #              (last, so the feed never names a file that is not there yet)
 #   6. verify  fetch the public feed and HEAD every URL in it, the blockmap and the permalink
 #
+# The version's channel (app/release-channel.mjs, through version.mjs) decides what is published:
+#
+#   1.2.3          a release, as above. Its feed is also committed as beta-mac.yml, so copies on the
+#                  beta channel move to it, unless the beta feed already serves a newer beta.
+#   1.2.3-beta.4   a beta: steps 1, 2, 3 and 6 as above, then only beta-mac.yml is committed. No
+#                  Release is made (it would move the permanent download link to the beta), so
+#                  latest-mac.yml, Kestrel.dmg's link and the release notes stay exactly as they
+#                  were. The beta DMG's own address in the package registry is printed at the end:
+#                  that is how the first beta is installed on a copy that has no beta switch.
+#
 # Windows and Linux ride along through the same steps: their files are uploaded in 3, linked from
 # the Release in 4 (/Kestrel-Setup.exe and /Kestrel.AppImage are their permanent downloads), and
 # their feeds (latest.yml, latest-linux.yml) are committed in 5. They are not code-signed, so step 1
@@ -55,12 +65,20 @@ done
 fail() { echo "!! publish: $*" >&2; exit 1; }
 step() { echo; echo "==> $*"; }
 
-VERSION="$(sed -n 's/^version: *//p' "$DIR/latest-mac.yml" 2>/dev/null | head -1)"
+# Every Mac build writes beta-mac.yml (a release writes latest-mac.yml beside it); a folder made
+# before there was a beta channel has latest-mac.yml alone.
+MAC_FEED="$DIR/beta-mac.yml"; [ -f "$MAC_FEED" ] || MAC_FEED="$DIR/latest-mac.yml"
+VERSION="$(sed -n 's/^version: *//p' "$MAC_FEED" 2>/dev/null | head -1)"
 [ -n "$VERSION" ] || fail "no release in $DIR (run scripts/release/make-release.sh)"
+CHANNEL="$(node "$ROOT/scripts/release/version.mjs" channel "$VERSION")" || fail "$MAC_FEED says $VERSION, which cannot be published"
 ZIP="Kestrel-$VERSION-arm64-mac.zip"
 DMG="Kestrel-$VERSION-arm64.dmg"
-for f in "$ZIP" "$ZIP.blockmap" "$DMG" Kestrel.dmg; do [ -f "$DIR/$f" ] || fail "missing $DIR/$f"; done
-cmp -s "$DIR/$DMG" "$DIR/Kestrel.dmg" || fail "Kestrel.dmg is not the same file as $DMG"
+for f in "$ZIP" "$ZIP.blockmap" "$DMG"; do [ -f "$DIR/$f" ] || fail "missing $DIR/$f"; done
+if [ "$CHANNEL" = stable ]; then
+  [ "$(sed -n 's/^version: *//p' "$DIR/latest-mac.yml" 2>/dev/null | head -1)" = "$VERSION" ] || fail "latest-mac.yml in $DIR does not say $VERSION"
+  [ -f "$DIR/Kestrel.dmg" ] || fail "missing $DIR/Kestrel.dmg"
+  cmp -s "$DIR/$DMG" "$DIR/Kestrel.dmg" || fail "Kestrel.dmg is not the same file as $DMG"
+fi
 
 # The other platforms' builds of this version, when they are here. Each line of OTHERS is
 # "<platform> <arch> <feed file> <artifact> <permanent download name>".
@@ -73,9 +91,10 @@ other() { # platform arch feed artifact permalink
   grep -q "url: $4$" "$DIR/$3" || fail "$3 does not name $4"
   OTHERS="$OTHERS$1 $2 $3 $4 $5"$'\n'
 }
-other win x64 latest.yml "Kestrel-Setup-$VERSION-x64.exe" Kestrel-Setup.exe
-other linux x64 latest-linux.yml "Kestrel-$VERSION-x86_64.AppImage" Kestrel.AppImage
-other linux arm64 latest-linux-arm64.yml "Kestrel-$VERSION-arm64.AppImage" Kestrel-arm64.AppImage
+feed_of() { node "$ROOT/scripts/release/version.mjs" feed "$VERSION" "$1" "$2"; }
+other win x64 "$(feed_of win x64)" "Kestrel-Setup-$VERSION-x64.exe" Kestrel-Setup.exe
+other linux x64 "$(feed_of linux x64)" "Kestrel-$VERSION-x86_64.AppImage" Kestrel.AppImage
+other linux arm64 "$(feed_of linux arm64)" "Kestrel-$VERSION-arm64.AppImage" Kestrel-arm64.AppImage
 OTHER_FILES=""
 while read -r _ _ feed artifact _; do
   [ -n "${artifact:-}" ] || continue
@@ -87,9 +106,9 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 # ---- 1. checks ------------------------------------------------------------------------------
-step "Check Kestrel $VERSION: notarized, stapled, nothing private inside"
-xcrun stapler validate "$DIR/Kestrel.dmg" >/dev/null || fail "the DMG has no stapled notarization ticket"
-spctl -a -t open --context context:primary-signature "$DIR/Kestrel.dmg" 2>/dev/null || fail "Gatekeeper rejects the DMG"
+step "Check Kestrel $VERSION ($CHANNEL): notarized, stapled, nothing private inside"
+xcrun stapler validate "$DIR/$DMG" >/dev/null || fail "the DMG has no stapled notarization ticket"
+spctl -a -t open --context context:primary-signature "$DIR/$DMG" 2>/dev/null || fail "Gatekeeper rejects the DMG"
 ditto -x -k "$DIR/$ZIP" "$WORK/zip"
 APP="$WORK/zip/Kestrel.app"
 [ -d "$APP" ] || fail "the zip does not hold Kestrel.app at its top"
@@ -119,7 +138,7 @@ private_in() { grep -qaF -f "$PRIVATE" "$@" 2>/dev/null || grep -qaE "$TOKEN_SHA
 # The release is public: no local home path, the owner's email or a token in anything that ships.
 unzip -Z1 "$DIR/$ZIP" > "$WORK/zip-list"
 ! private_in "$WORK/zip-list" || fail "a file name in the zip contains a private string"
-! private_in "$DIR/latest-mac.yml" || fail "latest-mac.yml contains a private string"
+for f in "$DIR/latest-mac.yml" "$DIR/beta-mac.yml"; do [ ! -f "$f" ] || ! private_in "$f" || fail "${f##*/} contains a private string"; done
 hits="$( { grep -rlaF -f "$PRIVATE" "$APP"; grep -rlaE "$TOKEN_SHAPE" "$APP"; } 2>/dev/null | sed "s|$WORK/zip/||" | sort -u | head -5 || true)"
 [ -z "$hits" ] || { echo "$hits" >&2; fail "files in the app contain a private string (listed above)"; }
 echo "    no home path, email or token in the zip's names, the app's files or the feed"
@@ -154,23 +173,23 @@ DEFAULT_BRANCH="$(echo "$PROJ_JSON" | json 'd.get("default_branch") or ""')"
 echo "    id $PROJECT_ID, public, default branch ${DEFAULT_BRANCH:-none yet}"
 [ -z "$DEFAULT_BRANCH" ] || [ "$DEFAULT_BRANCH" = "main" ] || fail "$PROJECT's default branch is $DEFAULT_BRANCH; the feed URL reads main"
 REGISTRY="$PUBLIC/api/v4/projects/$PROJECT_ID/packages/generic/$PACKAGE/$VERSION/"
-FEED_URL="$PUBLIC/$PROJECT/-/raw/main/latest-mac.yml"
+RAW="$PUBLIC/$PROJECT/-/raw/main/"
+MAC_FEED_NAME="$(feed_of mac arm64)"
+FEED_URL="$RAW$MAC_FEED_NAME"
 
-# ---- 2. the live feed ------------------------------------------------------------------------
-step "Live feed"
-echo "    GET  $FEED_URL (public, no token)"
-live="$(curl -fsSL "$FEED_URL?nocache=$(date +%s)" 2>/dev/null | sed -n 's/^version: *//p' | head -1 || true)"
-if [ -n "$live" ]; then
-  newest="$(printf '%s\n%s\n' "$live" "$VERSION" | sort -V | tail -1)"
-  if [ "$live" = "$VERSION" ] || [ "$newest" != "$VERSION" ]; then
-    [ "$FORCE" = 1 ] || fail "the live feed has $live; $VERSION is not newer (--force replaces it)"
-    echo "    live feed has $live; replacing with $VERSION (--force)"
-  else
-    echo "    live feed has $live; publishing $VERSION"
-  fi
-else
-  echo "    no live feed yet; publishing $VERSION"
-fi
+# ---- 2. the live feeds -----------------------------------------------------------------------
+# The same question CI asks (release-needed.sh): a release against latest-mac.yml, a beta against
+# latest-mac.yml and beta-mac.yml both.
+step "Live feeds"
+echo "    GET  ${RAW}latest-mac.yml, ${RAW}beta-mac.yml (public, no token)"
+due=0; said="$("$ROOT/scripts/release/release-needed.sh" --feeds "$RAW" --version "$VERSION" 2>&1)" || due=$?
+case "$due" in
+  0) echo "    $said" ;;
+  1) [ "$FORCE" = 1 ] || fail "$said (--force replaces it)"; echo "    $said; publishing $VERSION anyway (--force)" ;;
+  *) fail "$said" ;;
+esac
+# What the beta feed serves now: a release is written there too unless a newer beta is already there.
+LIVE_BETA="$(curl -fsSL "${RAW}beta-mac.yml?nocache=$(date +%s)" 2>/dev/null | sed -n 's/^version: *//p' | head -1 | tr -d "'\"\r " || true)"
 
 # ---- 3. upload -------------------------------------------------------------------------------
 step "Upload to the package registry ($PACKAGE $VERSION)"
@@ -189,12 +208,16 @@ done
 
 # A Release hangs its tag on a ref: an empty project gets a first commit on main.
 if [ -z "$DEFAULT_BRANCH" ]; then
-  readme="$(printf '# Kestrel releases\n\nDownloads and the update feeds for Kestrel.\n\n- Download: %s/%s/-/releases/permalink/latest/downloads/Kestrel.dmg\n- Update feed: %s\n' "$PUBLIC" "$PROJECT" "$FEED_URL")"
+  readme="$(printf '# Kestrel releases\n\nDownloads and the update feeds for Kestrel.\n\n- Download: %s/%s/-/releases/permalink/latest/downloads/Kestrel.dmg\n- Update feed: %s\n' "$PUBLIC" "$PROJECT" "${RAW}latest-mac.yml")"
   python3 -c 'import json,sys; print(json.dumps({"branch":"main","content":sys.argv[1],"commit_message":"Kestrel releases"}))' "$readme" > "$WORK/readme.json"
   api_send POST "/projects/$PROJECT_ID/repository/files/README.md" -H "Content-Type: application/json" --data @"$WORK/readme.json" >/dev/null
 fi
 
 # ---- 4. the release --------------------------------------------------------------------------
+if [ "$CHANNEL" = beta ]; then
+  step "No Release for a beta"
+  echo "    a GitLab Release would move the permanent download link; ${MAC_FEED_NAME} is the only thing that changes"
+else
 step "Release v$VERSION"
 echo "    GET  $PUBLIC/api/v4/projects/$PROJECT_ID/releases/v$VERSION"
 if curl -fsS -o /dev/null -H @"$HEADER" "$PUBLIC/api/v4/projects/$PROJECT_ID/releases/v$VERSION" 2>/dev/null; then
@@ -221,9 +244,11 @@ text.append("Installed copies update themselves.")
 print(json.dumps({"tag_name": f"v{v}", "ref": "main", "name": f"Kestrel {v}", "description": "\n\n".join(text), "assets": {"links": links}}))
 PY
 api_send POST "/projects/$PROJECT_ID/releases" -H "Content-Type: application/json" --data @"$WORK/release.json" >/dev/null
+fi
 
-# ---- 5. the feed -----------------------------------------------------------------------------
+# ---- 5. the feeds ----------------------------------------------------------------------------
 step "Feeds on main"
+COMMITTED=""
 commit_feed() { # platform arch feed-file-name
   local platform="$1" arch="$2" name="$3"
   node "$ROOT/scripts/release/write-feed.mjs" --dir "$DIR" --version "$VERSION" --platform "$platform" --arch "$arch" --base "$REGISTRY" --out "$WORK/$name" >/dev/null
@@ -236,11 +261,21 @@ commit_feed() { # platform arch feed-file-name
   else
     api_send POST "/projects/$PROJECT_ID/repository/files/$name" -H "Content-Type: application/json" --data @"$WORK/feed.json" >/dev/null
   fi
+  COMMITTED="$COMMITTED $name"
 }
-commit_feed mac arm64 latest-mac.yml
+# Each platform's feeds, from the channel rule: a beta's beta feed; a release's own feed, then its
+# beta twin unless the beta feed serves a newer beta (version.mjs feeds).
+commit_feeds() { # platform arch
+  local name
+  for name in $(node "$ROOT/scripts/release/version.mjs" feeds "$VERSION" "$LIVE_BETA" "$1" "$2"); do commit_feed "$1" "$2" "$name"; done
+}
+if [ "$CHANNEL" = stable ] && ! node "$ROOT/scripts/release/version.mjs" feeds "$VERSION" "$LIVE_BETA" | grep -qx beta-mac.yml; then
+  echo "    the beta feed serves $LIVE_BETA, newer than $VERSION: beta copies keep it, and its feed is left alone"
+fi
+commit_feeds mac arm64
 while read -r platform arch feed _ _; do
   [ -n "${feed:-}" ] || continue
-  commit_feed "$platform" "$arch" "$feed"
+  commit_feeds "$platform" "$arch"
 done <<< "$OTHERS"
 
 if [ "$DRY" = 1 ]; then
@@ -250,23 +285,34 @@ fi
 
 # ---- 6. verify, as an installed copy and a browser would (no token) -------------------------
 step "Verify"
-served="$(curl -fsSL "$FEED_URL?nocache=$(date +%s)")" || fail "the public feed does not load: $FEED_URL"
-echo "$served" | grep -q "^version: $VERSION$" || fail "the public feed does not say $VERSION yet"
-urls="$(echo "$served" | sed -n 's/^ *- url: //p; s/^path: //p' | sort -u)"
-permalinks="$PUBLIC/$PROJECT/-/releases/permalink/latest/downloads/Kestrel.dmg"
-while read -r _ _ feed _ permalink; do
-  [ -n "${feed:-}" ] || continue
-  other_feed="$(curl -fsSL "$PUBLIC/$PROJECT/-/raw/main/$feed?nocache=$(date +%s)")" || fail "the public feed does not load: $feed"
-  echo "$other_feed" | grep -q "^version: $VERSION$" || fail "the public $feed does not say $VERSION yet"
-  urls="$urls $(echo "$other_feed" | sed -n 's/^ *- url: //p; s/^path: //p' | sort -u)"
-  permalinks="$permalinks $PUBLIC/$PROJECT/-/releases/permalink/latest/downloads/$permalink"
-done <<< "$OTHERS"
-for u in $urls "$REGISTRY$ZIP.blockmap" $permalinks; do
+urls=""
+for name in $COMMITTED; do
+  served="$(curl -fsSL "$RAW$name?nocache=$(date +%s)")" || fail "the public feed does not load: $RAW$name"
+  echo "$served" | grep -q "^version: $VERSION$" || fail "the public $name does not say $VERSION yet"
+  urls="$urls $(echo "$served" | sed -n 's/^ *- url: //p; s/^path: //p' | sort -u)"
+done
+permalinks=""
+if [ "$CHANNEL" = stable ]; then
+  permalinks="$PUBLIC/$PROJECT/-/releases/permalink/latest/downloads/Kestrel.dmg"
+  while read -r _ _ feed _ permalink; do
+    [ -n "${feed:-}" ] || continue
+    permalinks="$permalinks $PUBLIC/$PROJECT/-/releases/permalink/latest/downloads/$permalink"
+  done <<< "$OTHERS"
+fi
+for u in $(printf '%s\n' $urls | sort -u) "$REGISTRY$ZIP.blockmap" $permalinks; do
   code="$(curl -sS -o /dev/null -I -L -w '%{http_code}' "$u")"
   [ "$code" = 200 ] || fail "$u answers $code"
   echo "    200  $u"
 done
 echo
-echo "Published Kestrel $VERSION"
-echo "    feed:     $FEED_URL"
-for u in $permalinks; do echo "    download: $u"; done
+if [ "$CHANNEL" = beta ]; then
+  echo "Published Kestrel $VERSION to the beta channel only"
+  echo "    feed:     $RAW$MAC_FEED_NAME"
+  echo "    download: $REGISTRY$DMG"
+  echo "    (install it by hand once on a copy without the beta switch; it comes up on the beta channel)"
+  echo "    latest-mac.yml, the permanent download link and the release notes are unchanged."
+else
+  echo "Published Kestrel $VERSION"
+  for name in $COMMITTED; do echo "    feed:     $RAW$name"; done
+  for u in $permalinks; do echo "    download: $u"; done
+fi

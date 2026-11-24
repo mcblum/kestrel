@@ -5,7 +5,7 @@
 import type { AgentSignIn } from '../agents/sign-in.ts';
 import type { AgentCapabilities, ModelOption } from '../agents/types.ts';
 import { AGENT_LABEL, type Agent, type Session } from '../model.ts';
-import type { ContextUsage } from '../shared/context-usage.ts';
+import { contextNote, type ContextUsage } from '../shared/context-usage.ts';
 import { DEFAULT_PERMISSION, PERMISSION_LEVELS } from '../shared/permissions.ts';
 import { defaultFolder, folderOf } from '../shared/project-folders.ts';
 import type { SlashCommand } from '../shared/slash-commands.ts';
@@ -17,6 +17,9 @@ import { agentStartOptions } from './start-options.ts';
 
 /** Stands in for a session id where one is asked for before the session exists (the new-session box's slash commands). */
 const DRAFT_SESSION = 'draft';
+
+/** A session's context window as a device shows it: the measurement, or the words in its place. */
+export type ContextShown = { context: ContextUsage; contextNote?: undefined } | { context: null; contextNote: string };
 
 export interface ModelList {
   models: ModelOption[];
@@ -162,6 +165,27 @@ export class AgentInfo {
     // A turn that ended meanwhile measured it more recently.
     if (usage && !rec.context) noteContext(this.host, session.id, rec, usage);
     return rec.context;
+  }
+
+  /**
+   * How full the window is, as every device shows it (kestrel-connect.md, "The context window, and
+   * Compact"): the measurement `contextUsage` gives, or, when there is none, the words shown in its place.
+   */
+  async contextShown(sessionId: string): Promise<ContextShown> {
+    const context = await this.contextUsage(sessionId);
+    if (context) return { context };
+    const session = await this.host.sessionOrThrow(sessionId);
+    return this.noteFor(session, (await this.host.recordFor(session)) ?? null);
+  }
+
+  /** The same, from what is known now, asking no agent (the held index, which must not start one). */
+  contextKnown(session: Session, rec: Live | null): ContextShown {
+    return rec?.context ? { context: rec.context } : this.noteFor(session, rec);
+  }
+
+  private noteFor(session: Session, rec: Live | null): ContextShown {
+    const reports = typeof this.host.adapters[session.agent]?.contextUsage === 'function';
+    return { context: null, contextNote: contextNote({ reports, agentLabel: AGENT_LABEL[session.agent], started: !!rec?.agentSessionId, working: isWorking(rec) }) };
   }
 
   /** Ask the session's agent what "/" offers, once per server run, in the background; the answer arrives like any other list. */

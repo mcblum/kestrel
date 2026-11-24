@@ -6,10 +6,24 @@ import { useEffect, useRef, useState } from 'react';
 import { percentLabel, shownRows, tokenCount, usedFraction, type ContextUsage } from '@kestrel/server/context-usage';
 import { ready, type Sourced } from '@kestrel/server/sourced';
 import { useResource } from '../../data/resources.ts';
-import { useApp } from '../../store.ts';
+import { actions, useApp } from '../../store.ts';
 
-/** GET /api/sessions/:id/context: how full the window is, null when it cannot be known now. */
-const asContextUsage = (raw: unknown): Sourced<ContextUsage | null> => ready((raw as { usage?: ContextUsage | null })?.usage ?? null);
+/** GET /api/sessions/:id/context: how full the window is, or, when it cannot be known now, the words shown in its place. */
+interface Asked {
+  usage: ContextUsage | null;
+  note: string | null;
+}
+const asContextUsage = (raw: unknown): Sourced<Asked> => {
+  const answer = (raw ?? {}) as { usage?: ContextUsage | null; note?: string };
+  return ready({ usage: answer.usage ?? null, note: typeof answer.note === 'string' ? answer.note : null });
+};
+
+/** Why Compact cannot be pressed now, or null: the server refuses the same, whatever this shows. */
+function compactBlocked(state: string | undefined): string | null {
+  if (state === 'running') return 'The agent is working. Compact once this turn ends.';
+  if (state === 'attention') return 'Answer the card first, then compact.';
+  return null;
+}
 import { Popup } from '../Popup.tsx';
 
 const R = 5.5;
@@ -66,12 +80,15 @@ function Breakdown({ usage }: { usage: ContextUsage }) {
 /** The ring for a running session. `sessionId` decides which measurement it shows. */
 export function ContextRing({ sessionId }: { sessionId: string }) {
   const live = useApp((s) => s.live.get(sessionId)?.context ?? null);
+  const state = useApp((s) => s.workspace?.sessions.find((x) => x.id === sessionId)?.state);
   const asked = useResource(`/api/sessions/${encodeURIComponent(sessionId)}/context`, asContextUsage).value;
   const [open, setOpen] = useState(false);
   const host = useRef<HTMLSpanElement>(null);
   const button = useRef<HTMLButtonElement>(null);
-  const usage = live ?? (asked.state === 'ready' ? asked.value : null);
+  const usage = live ?? (asked.state === 'ready' ? asked.value.usage : null);
   const pending = !live && asked.state === 'loading';
+  const note = asked.state === 'ready' ? asked.value.note : null;
+  const blocked = compactBlocked(state);
 
   useEffect(() => {
     if (!open) return;
@@ -95,7 +112,21 @@ export function ContextRing({ sessionId }: { sessionId: string }) {
       {open && (
         <Popup anchor={button} side="above" gap={6} className="ctx-pop" role="dialog" aria-label="Context window">
           <div className="ctx-title">Context window</div>
-          {usage ? <Breakdown usage={usage} /> : <p className="ctx-none">{pending ? 'Asking the agent…' : 'Not measured yet. It is measured each time a turn ends.'}</p>}
+          {usage ? <Breakdown usage={usage} /> : (pending || note) && <p className="ctx-none">{pending ? 'Asking the agent…' : note}</p>}
+          <div className="ctx-actions">
+            <button
+              type="button"
+              className="secondary-button small"
+              disabled={blocked !== null}
+              onClick={() => {
+                setOpen(false);
+                void actions.compact(sessionId);
+              }}
+            >
+              Compact conversation
+            </button>
+            {blocked && <span className="ctx-why">{blocked}</span>}
+          </div>
         </Popup>
       )}
     </span>

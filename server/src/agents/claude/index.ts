@@ -139,6 +139,12 @@ class ClaudeHandle implements AgentHandle {
     });
   }
 
+  /** Claude Code's own `/compact`, run by the SDK as a turn (checked live, design doc "Slash commands"). */
+  compact(): void {
+    if (this.run) throw new Error('The agent is still working on the previous message.');
+    this.send('/compact');
+  }
+
   /**
    * A message while the agent works: into the run's open input, which the CLI reads at once and folds
    * into the running turn at its next step (or runs as the next turn of this run). Not once the run is

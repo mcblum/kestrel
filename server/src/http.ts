@@ -22,6 +22,8 @@ import { organizeRoute } from './organize-api.ts';
 import { suggestionRoute } from './suggestions/api.ts';
 import { gitSettingsRoute } from './git-settings/api.ts';
 import { projectEditsRoute } from './project-edits/api.ts';
+import { remoteStartsRoute } from './remote-starts/api.ts';
+import { startRequestedReview } from './review-requests/start-requested.ts';
 import { isBaseChoice, type BaseChoice } from './shared/start-base.ts';
 import { startBaseRoute } from './start-base/api.ts';
 import { keepAwakeRoute } from './keep-awake/api.ts';
@@ -72,6 +74,9 @@ import { pageRefusal, transcriptPage } from './shared/transcript-page.ts';
 import { checkAccess, LOOPBACK_HOST, type AccessPolicy } from './security.ts';
 import { mcpSessionOf, serveSessionMcp } from './kestrel-mcp.ts';
 import { LiveChannel } from './live-channel.ts';
+import { ASIDE_KEY_MAX, checkSubject } from './shared/asides.ts';
+import { FINDING_ACTIONS, isFindingAction } from './finding-actions.ts';
+import { isReviewEndAction, REVIEW_END_ACTIONS } from './review-end.ts';
 import type { SessionRuntime } from './runtime.ts';
 import { Refused, type Workspace } from './workspace.ts';
 
@@ -287,6 +292,9 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
     // Settings → Workflow: keeping each project's edits in its own session (project-edits/api.ts).
     const projectEdits = runtime ? await projectEditsRoute(parts, method, () => readJson(req), runtime.projectEdits) : null;
     if (projectEdits) return send(req, res, projectEdits.status, projectEdits.body);
+    // Settings → Workflow: whether other devices of the account may start sessions here (remote-starts/api.ts).
+    const remoteStarts = runtime ? await remoteStartsRoute(parts, method, () => readJson(req), runtime.remoteStarts) : null;
+    if (remoteStarts) return send(req, res, remoteStarts.status, remoteStarts.body);
     // Settings → Workflow: letting a confined session's signed commits through its sandbox (commit-signing/api.ts).
     const signing = runtime ? await commitSigningRoute(parts, method, () => readJson(req), runtime.commitSigning) : null;
     if (signing) return send(req, res, signing.status, signing.body);
@@ -345,13 +353,7 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
     if (parts[1] === 'review-requests' && parts[2] === 'start' && parts.length === 3 && method === 'POST') {
       if (!runtime || !options.reviewRequests) return send(req, res, 409, { error: 'Reviews need a running agent runtime.' });
       const key = str((await readJson(req)).key, 'key', 400);
-      const held = options.reviewRequests.view();
-      // Starting a review of a dismissed request restores it: it waits on the user again.
-      const request = held.requests.find((r) => r.key === key) ?? held.dismissed.find((r) => r.key === key);
-      if (request) options.reviewRequests.dismiss([key], false);
-      if (request) options.reviewRequests.markSeen([key], true);
-      if (!request) throw new Refused('This review is no longer waiting on you: it was reviewed, merged, closed, or the request was taken back.');
-      return send(req, res, 201, await runtime.startReview(request));
+      return send(req, res, 201, await startRequestedReview(options.reviewRequests, (request, opts) => runtime.startReview(request, opts), key));
     }
     // The workspace's Pull requests page: every linked request, de-duplicated (pull-request-list-api.ts).
     const requestList = await pullRequestListRoute(parts, method, url, workspace, detailsConfig.sources, detailsConfig.sample);
@@ -460,6 +462,26 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
         const body = await readJson(req);
         return send(req, res, 200, await runtime.reviewReplies.post(parts[2]!, String(body.cardId ?? ''), { ...(body.verdict !== undefined ? { verdict: body.verdict } : {}), ...(body.summary !== undefined ? { summary: body.summary } : {}), ...(body.findings !== undefined ? { findings: body.findings } : {}), ...(body.withoutComment !== undefined ? { withoutComment: body.withoutComment } : {}) }));
       }
+      // One finding of a review card: answer its question, ask for it to be fixed, dismiss it or take it back (finding-actions.ts).
+      if (runtime && parts[3] === 'findings' && parts.length === 4 && method === 'POST') {
+        const body = await readJson(req);
+        if (!isFindingAction(body.action)) throw new BadRequest(`action must be one of: ${FINDING_ACTIONS.join(', ')}`);
+        return send(req, res, 200, { finding: await runtime.findingActions.act(parts[2]!, String(body.cardId ?? ''), String(body.findingId ?? ''), body.action, typeof body.text === 'string' ? body.text : '') });
+      }
+      // The card that stays when a review of this session's work ended with findings open: ask for fixes, carry on, or undo that (review-end.ts).
+      if (runtime && parts[3] === 'review-end' && parts.length === 4 && method === 'POST') {
+        const body = await readJson(req);
+        if (!isReviewEndAction(body.action)) throw new BadRequest(`action must be one of: ${REVIEW_END_ACTIONS.join(', ')}`);
+        const ids = Array.isArray(body.findingIds) ? body.findingIds.filter((x): x is string => typeof x === 'string').slice(0, 50) : [];
+        return send(req, res, 200, { reviewEnd: await runtime.reviewEnds.act(parts[2]!, String(body.cardId ?? ''), body.action, ids) });
+      }
+      // A sidebar from one point of the conversation: the one there is with that key, or a new one (asides.ts).
+      if (runtime && parts[3] === 'asides' && parts.length === 4 && method === 'POST') {
+        const body = await readJson(req);
+        const subject = checkSubject(body.subject);
+        if ('problem' in subject) throw new BadRequest(subject.problem);
+        return send(req, res, 200, { session: await runtime.asides.open(parts[2]!, { at: str(body.at, 'at', 200), ...(body.key !== undefined ? { key: str(body.key, 'key', ASIDE_KEY_MAX) } : {}), subject: subject.subject }) });
+      }
       if (runtime && parts[3] === 'review' && parts.length === 4 && (method === 'GET' || method === 'POST')) {
         // With who would review it, or why nobody can: whoever wrote the code does not review it.
         if (method === 'GET') return send(req, res, 200, { review: runtime.delegation.reviewOf(parts[2]!), ...(await runtime.delegation.reviewerFor(parts[2]!)) });
@@ -470,6 +492,11 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
         const body = await readJson(req);
         if (body.role !== 'design' && body.role !== 'build') throw new BadRequest('role must be design or build');
         return send(req, res, 200, { session: await runtime.delegation.startRole(parts[2]!, body.role, typeof body.brief === 'string' ? body.brief : '') });
+      }
+      // Compact the conversation (the context popup's button; a phone's `session.compact` calls the same).
+      if (runtime && method === 'POST' && parts.length === 4 && parts[3] === 'compact') {
+        await runtime.compact(parts[2]!);
+        return send(req, res, 200, { compacting: true });
       }
       if (runtime && method === 'POST' && parts.length === 4 && ['reply', 'answer', 'stop'].includes(parts[3]!)) {
         const body = await readJson(req);
@@ -714,7 +741,7 @@ async function files(req: IncomingMessage, res: ServerResponse, runtime: Session
     if (!directory || !existsSync(directory)) return send(req, res, 404, { error: noFolderReason(key) });
     const path = url.searchParams.get('path') ?? '';
     try {
-      return send(req, res, 200, what === 'files' ? { root: directory, entries: listDirectory(directory, path) } : readFileContent(directory, path));
+      return send(req, res, 200, what === 'files' ? { root: directory, entries: listDirectory(directory, path), note: await runtime.folderNote(key) } : readFileContent(directory, path));
     } catch (error) {
       if (error instanceof OutsideFolder) return send(req, res, 400, { error: error.message });
       throw error;
@@ -738,7 +765,7 @@ async function files(req: IncomingMessage, res: ServerResponse, runtime: Session
   };
   sockets.on('connection', (ws: WebSocket) => {
     ws.on('error', (error) => console.error('[kestrel] socket error', error));
-    const terminal = terminalSocket(ws, terminals, folderOf, runtime && { resolve: (key, actionId) => resolveAction({ state: () => workspace.state(), actions: () => runtime.savedActions.all(), env: () => runtime.projectEnv.all(), folderOf: async (k) => (await folderOf(k)) || null }, key, actionId), preview: options.actionPreview });
+    const terminal = terminalSocket(ws, terminals, folderOf, runtime && { resolve: (key, actionId) => resolveAction({ state: () => workspace.state(), actions: () => runtime.savedActions.all(), env: () => runtime.projectEnv.all(), folderOf: async (k) => (await folderOf(k)) || null }, key, actionId), preview: options.actionPreview }, async (key) => (runtime ? runtime.folderNote(key) : null));
     // The agent's browser calls, performed by the window that shows the session (browser-bridge.ts).
     const browser = runtime?.browser.bridge.connect((payload) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(payload)));
     // The simulator's live picture and the user's touches (sim-socket.ts).

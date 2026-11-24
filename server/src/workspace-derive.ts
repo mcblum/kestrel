@@ -50,6 +50,8 @@ export function deriveState(
   });
   const idsByGroup = new Map<string, string[]>();
   for (const s of views) {
+    // A sidebar is no row of any list (shared/asides.ts).
+    if (s.aside) continue;
     const key = s.groupId ?? 'ungrouped';
     const list = idsByGroup.get(key);
     if (list) list.push(s.id);
@@ -74,7 +76,7 @@ export function withoutArchived(state: Omit<WorkspaceState, 'archived' | 'pins' 
   const projects = state.projects.filter((p) => !archived.projects.includes(p.id));
   const shown = new Set(sessions.map((s) => s.id));
   const links = state.links.filter((l) => shown.has(l.parentId) && shown.has(l.childId));
-  const ids = (groupId: string | null) => sessions.filter((s) => s.groupId === groupId).map((s) => s.id);
+  const ids = (groupId: string | null) => sessions.filter((s) => s.groupId === groupId && !s.aside).map((s) => s.id);
   const trees: Record<string, TreeNode[]> = { ungrouped: buildTree(ids(null), links) };
   for (const g of groups) trees[g.id] = buildTree(ids(g.id), links);
   return {

@@ -3,11 +3,12 @@
 import { describe, expect, it } from 'vitest';
 import type { ChatMessage, Session } from '../model.ts';
 import type { PullRequest } from '../shared/details.ts';
-import { BRIEF_MAX, draftReview, editedFindings, findingMark, foldComments, keptFindings, orderFindings, postable, verdictFor, type OutgoingReview, type ReviewFinding, type ReviewReply } from '../shared/review-reply.ts';
+import { BRIEF_MAX, draftReview, postedSummary, editedFindings, findingMark, foldComments, keptFindings, orderFindings, postable, verdictFor, type OutgoingReview, type ReviewFinding, type ReviewReply } from '../shared/review-reply.ts';
 import type { ReviewAutomation as ReviewSettings } from '../shared/review-settings.ts';
 import { ready, unavailable, type Sourced } from '../shared/sourced.ts';
 import { ghReviewArgs, gitlabNote, glabApproveArgs, postReview } from './post.ts';
 import { ReviewReplies } from './reply.ts';
+import { anchorsFromDiff, type DiffAnchors } from '../shared/diff-anchors.ts';
 
 const SHA = 'a'.repeat(40);
 const OTHER = 'b'.repeat(40);
@@ -81,9 +82,9 @@ describe('findings, as the user leaves them and as they are posted', () => {
     expect(editedFindings(own, [{ ...own[0], brief: '' }])).toMatchObject({ problem: expect.stringContaining('Finding 1: brief is empty') });
   });
 
-  it('are ordered blocking first, then by priority, keeping the agent’s order among equals', () => {
+  it('are ordered highest priority first, then the ones that block, keeping the agent’s order among equals', () => {
     const order = orderFindings([f('a', { priority: 'low' }), f('b', { priority: 'high' }), f('c', { blocking: true, priority: 'low' }), f('d', { priority: 'high' })]).map((x) => x.id);
-    expect(order).toEqual(['c', 'b', 'd', 'a']);
+    expect(order).toEqual(['b', 'd', 'c', 'a']);
   });
 
   it('a kept finding goes up as one comment on its first line; one with no line goes under the summary; a dismissed one goes nowhere', () => {
@@ -95,8 +96,8 @@ describe('findings, as the user leaves them and as they are posted', () => {
         f('f3', { brief: 'Dismissed.', dismissed: true, refs: [{ path: 'c.ts', line: 1 }] }),
       ],
     });
-    expect(out.comments).toEqual([{ path: 'a.ts', line: 4, body: '**Blocking · High priority.** Covers the first row.\n\nBecause `top` assumes the page scrolls.\n\n**Suggested fix:** Read it from the scroll parent.\n\nAlso: `b.ts:9`' }]);
-    expect(out.summary).toBe('Sum.\n\n**Low priority.** No changelog entry.');
+    expect(out.comments).toEqual([{ findingId: 'f1', path: 'a.ts', line: 4, body: '**High priority · Blocks.** Covers the first row.\n\nBecause `top` assumes the page scrolls.\n\n**Suggested fix:** Read it from the scroll parent.\n\nAlso: `b.ts:9`' }]);
+    expect(postedSummary(out)).toBe('Sum.\n\n1 finding is a comment on the code.\n\n**Low priority.** No changelog entry.');
     expect(findingMark({ blocking: false, priority: 'medium' })).toBe('Medium priority');
     expect(keptFindings([f('f1'), f('f2', { dismissed: true })]).map((x) => x.id)).toEqual(['f1']);
   });
@@ -124,11 +125,13 @@ describe('the commands that post a review', () => {
       if (calls.length === 1) throw Object.assign(new Error('gh failed'), { stderr: 'HTTP 422: Unprocessable Entity' });
       return { stdout: '' };
     };
-    const note = await postReview(run, { host: 'github', number: 12, cwd: '/w' }, out({ comments: [{ path: 'a.ts', line: 4, body: 'Off by one.' }] }));
+    const how = await postReview(run, { host: 'github', number: 12, cwd: '/w' }, out({ comments: [{ findingId: 'f1', path: 'a.ts', line: 4, body: 'Off by one.' }] }));
     expect(calls).toHaveLength(2);
+    expect(calls[0]).toContain('body=Looks right.\n\n1 finding is a comment on the code.');
     expect(calls[1]).toContain('body=Looks right.\n\n**a.ts:4**\nOff by one.');
     expect(calls[1]!.some((a) => a.startsWith('comments[]'))).toBe(false);
-    expect(note).toContain('under the summary');
+    expect(how.note).toContain('under the summary');
+    expect(how.moved).toEqual({ f1: 'GitHub would not take a comment on its line' });
   });
 
   it('says why when the host does not take it', async () => {
@@ -160,7 +163,7 @@ describe('the commands that post a review', () => {
 
 describe('posting a review card', () => {
   const session = (over: Partial<Session> = {}): Session => ({ id: 's1', startedIn: 'p1', worktreePath: '/w', worktreeDiscarded: false, review: { key: 'k', host: 'github', number: 12, sha: SHA, url: 'u' }, ...over }) as Session;
-  const setUp = (opts: { session?: Session; request?: Sourced<PullRequest | null>; settings?: ReviewSettings } = {}) => {
+  const setUp = (opts: { session?: Session; request?: Sourced<PullRequest | null>; settings?: ReviewSettings; anchors?: DiffAnchors; answer?: (args: readonly string[]) => string } = {}) => {
     let messages: ChatMessage[] = [];
     const calls: string[][] = [];
     const notices: string[] = [];
@@ -174,8 +177,9 @@ describe('posting a review card', () => {
       notice: (_id, text) => void notices.push(text),
       settings: async () => opts.settings ?? { mode: 'list', projects: 'all' },
       byNumber: () => ({ pullRequestByNumber: async () => opts.request ?? ready({ number: 12, state: 'open', headSha: SHA } as PullRequest) }),
-      run: async (_bin, args) => (calls.push([...args]), { stdout: '' }),
+      run: async (_bin, args) => (calls.push([...args]), { stdout: opts.answer?.(args) ?? '' }),
       now: () => 1000,
+      diffAnchors: async () => opts.anchors,
     });
     const tool = (args: Record<string, unknown>) => replies.hostFor('s1').postReview(args);
     return { replies, tool, calls, notices, card: () => messages[0] };
@@ -245,7 +249,7 @@ describe('posting a review card', () => {
     await tool({ verdict: 'approve', summary: 'Fine.', findings: [{ brief: 'Off by one.', priority: 'high', blocking: true, refs: [{ path: 'a.ts', line: 3 }] }] });
     await replies.post('s1', card()!.id!, { verdict: 'approve' });
     expect(calls[0]).toContain('event=APPROVE');
-    expect(calls[0]).toContain('body=Fine.');
+    expect(calls[0]).toContain('body=Fine.\n\n1 finding is a comment on the code.');
     expect(calls[0]).toContain('comments[][path]=a.ts');
   });
 
@@ -323,5 +327,108 @@ describe('posting a review card', () => {
     expect(result.text).toContain('not posted');
     expect(card()?.review?.posted).toBeUndefined();
     expect(notices[0]).toContain('not posted on its own');
+  });
+});
+
+describe('findings on the lines of the code', () => {
+  // A request that adds lines 3 to 5 of a.ts, with a line of context either side.
+  const anchors = anchorsFromDiff(['diff --git a/a.ts b/a.ts', '--- a/a.ts', '+++ b/a.ts', '@@ -2,2 +2,5 @@', ' keep();', '+one();', '+two();', '+three();', ' end();'].join('\n'));
+  const session = (host: 'github' | 'gitlab'): Session => ({ id: 's1', title: 'Review', agent: 'claude', startedIn: 'p', worktreePath: '/w', review: { key: 'k', host, number: 12, sha: SHA, url: 'u' } }) as unknown as Session;
+  const FINDINGS = [
+    { brief: 'On a changed line.', priority: 'medium', blocking: false, refs: [{ path: 'a.ts', line: 4 }] },
+    { brief: 'On a range.', priority: 'high', blocking: true, refs: [{ path: 'a.ts', line: 3, end: 5 }] },
+    { brief: 'Outside the change.', priority: 'low', blocking: false, refs: [{ path: 'a.ts', line: 40 }] },
+    { brief: 'Not in the request.', priority: 'low', blocking: false, refs: [{ path: 'README.md', line: 1 }] },
+    { brief: 'No line at all.', priority: 'low', blocking: false },
+  ];
+  const setUp = (host: 'github' | 'gitlab', answer?: (args: readonly string[]) => string, refuse?: (args: readonly string[]) => boolean) => {
+    let messages: ChatMessage[] = [];
+    const calls: string[][] = [];
+    const replies = new ReviewReplies({
+      session: async () => session(host),
+      messages: () => messages,
+      showCard: (_id, card) => void (messages = [...messages.filter((m) => m.id !== card.id), { id: card.id, author: 'agent', time: '', text: '', review: card.review } as ChatMessage]),
+      notice: () => undefined,
+      settings: async () => ({ mode: 'list', projects: 'all' }),
+      byNumber: () => ({ pullRequestByNumber: async () => ready({ number: 12, state: 'open', headSha: SHA } as PullRequest) }),
+      run: async (_bin, args) => {
+        calls.push([...args]);
+        if (refuse?.(args)) throw Object.assign(new Error('failed'), { stderr: 'HTTP 400' });
+        return { stdout: answer?.(args) ?? '' };
+      },
+      now: () => 1000,
+      diffAnchors: async (_path, sha) => (sha === SHA ? anchors : undefined),
+    });
+    const post = async () => {
+      await replies.hostFor('s1').postReview({ verdict: 'request_changes', summary: 'Two problems.', findings: FINDINGS });
+      const id = messages[0]!.id!;
+      return { card: messages[0]!.review!, posted: await replies.post('s1', id), calls };
+    };
+    return { post, calls };
+  };
+
+  it('keeps the diff it read from the reviewed commit on the card, so the card can say where each finding goes', async () => {
+    const { card } = await setUp('github').post();
+    expect(card.anchors).toEqual(anchors);
+  });
+
+  it('GitHub: one review with each finding that has a line in the diff on it, a range as a range, and the rest under the summary', async () => {
+    const { calls } = await setUp('github').post();
+    expect(calls).toHaveLength(1);
+    const args = calls[0]!;
+    expect(args).toContain(`commit_id=${SHA}`);
+    expect(args.filter((a) => a === 'comments[][path]=a.ts')).toHaveLength(2);
+    expect(args).toContain('comments[][start_line]=3');
+    expect(args).toContain('comments[][line]=5');
+    expect(args).toContain('comments[][line]=4');
+    const body = args.find((a) => a.startsWith('body='))!;
+    expect(body).toContain('Two problems.\n\n2 findings are comments on the code.');
+    expect(body).toContain('**Low priority.** Outside the change.\n\nAt: `a.ts:40`');
+    expect(body).toContain('**Low priority.** Not in the request.\n\nAt: `README.md:1`');
+    expect(body).toContain('**Low priority.** No line at all.');
+    expect(body).not.toContain('On a changed line.');
+    expect(args.find((a) => a.startsWith('comments[][body]=') && a.includes('On a range.'))).toContain('**High priority · Blocks.**');
+  });
+
+  it('GitLab: a draft on each line, anchored to the reviewed commit, then the summary, published together', async () => {
+    const refs = JSON.stringify({ diff_refs: { base_sha: 'base', start_sha: 'start', head_sha: SHA } });
+    let n = 0;
+    const { calls, posted } = await setUp('gitlab', (args) => (args[1] === 'projects/:id/merge_requests/12' ? refs : JSON.stringify({ id: ++n }))).post();
+    const drafts = calls.filter((c) => c.includes('position[position_type]=text'));
+    expect(drafts).toHaveLength(2);
+    expect(drafts[0]).toContain(`position[head_sha]=${SHA}`);
+    expect(drafts[0]).toContain('position[base_sha]=base');
+    expect(drafts.find((c) => c.some((a) => a.includes('On a changed line.')))).toContain('position[new_line]=4');
+    const summary = calls.find((c) => c.some((a) => a.startsWith('note=**Changes requested.**')))!;
+    expect(summary.find((a) => a.startsWith('note='))).toContain('2 findings are comments on the code.');
+    expect(calls.at(-1)).toEqual(['api', '-X', 'POST', 'projects/:id/merge_requests/12/draft_notes/bulk_publish']);
+    expect(calls.some((c) => c[0] === 'mr' && c[1] === 'note')).toBe(false);
+    expect(posted.posted?.moved).toBeUndefined();
+  });
+
+  it('GitLab: a line it refuses goes under the summary and the card says so; the rest still go on the code', async () => {
+    const refs = JSON.stringify({ diff_refs: { base_sha: 'base', start_sha: 'start', head_sha: SHA } });
+    const { calls, posted } = await setUp('gitlab', (args) => (args[1] === 'projects/:id/merge_requests/12' ? refs : '{"id":1}'), (args) => args.some((a) => a.includes('On a range.')) && args.includes('position[position_type]=text')).post();
+    const summary = calls.find((c) => c.some((a) => a.startsWith('note=**Changes requested.**')))!.find((a) => a.startsWith('note='))!;
+    expect(summary).toContain('1 finding is a comment on the code.');
+    expect(summary).toContain('**a.ts:3–5**');
+    expect(Object.values(posted.posted?.moved ?? {})).toEqual(['GitLab would not take a comment on its line']);
+    expect(posted.posted?.note).toContain('written under the summary');
+  });
+
+  it('GitLab: when the merge request has moved on, every finding goes under the summary as one note', async () => {
+    const refs = JSON.stringify({ diff_refs: { base_sha: 'base', start_sha: 'start', head_sha: OTHER } });
+    const { calls, posted } = await setUp('gitlab', (args) => (args[1] === 'projects/:id/merge_requests/12' ? refs : '')).post();
+    expect(calls.some((c) => c.includes('position[position_type]=text'))).toBe(false);
+    expect(calls.at(-1)!.slice(0, 2)).toEqual(['mr', 'note']);
+    expect(Object.keys(posted.posted?.moved ?? {})).toHaveLength(2);
+  });
+
+  it('GitLab: takes its drafts back and posts nothing when the publish fails', async () => {
+    const refs = JSON.stringify({ diff_refs: { base_sha: 'base', start_sha: 'start', head_sha: SHA } });
+    let n = 0;
+    const { post, calls } = setUp('gitlab', (args) => (args[1] === 'projects/:id/merge_requests/12' ? refs : JSON.stringify({ id: ++n })), (args) => args.at(-1)!.endsWith('bulk_publish'));
+    await expect(post()).rejects.toThrow('GitLab did not take the review');
+    expect(calls.filter((c) => c[2] === 'DELETE').map((c) => c.at(-1))).toEqual(['projects/:id/merge_requests/12/draft_notes/1', 'projects/:id/merge_requests/12/draft_notes/2']);
   });
 });

@@ -1,10 +1,17 @@
 // A review of somebody else's pull request, as the agent hands it over with `post_review` and as
 // it is posted: a verdict, a short summary, and findings (0.0.23; Matt, 2026-11-21). A finding is
-// one problem, said once: a brief anyone can read, a technical explanation that starts folded, a
-// suggested fix, a priority, whether the agent thinks it blocks the merge, and the lines of code it
-// is about. The user may change any of it and dismiss any finding before posting; what is kept goes
+// one problem, said once, in the one shape both reviews use (shared/findings.ts). The user may change any of it and dismiss any finding before posting; what is kept goes
 // to the host as comments on lines. It is a card in the conversation; nothing reaches the host
 // until the user posts it (or chose "Review and reply on their own"). Pure and browser-safe.
+
+import { blockingFindings, checkFindings, findingMark, freshFindings, keptFindings, orderFindings, type Finding, type FindingRef } from './findings.ts';
+import { placeFinding, refText, type DiffAnchors } from './diff-anchors.ts';
+
+// The finding's shape is one, in shared/findings.ts (2026-11-24); these names stay for the callers that had them.
+export { BRIEF_MAX, DETAIL_MAX, FIX_MAX, FINDINGS_MAX, REFS_MAX, FINDING_PRIORITIES, PRIORITY_LABEL, checkFindings, keptFindings, blockingFindings, orderFindings, findingMark } from './findings.ts';
+export type { FindingPriority, FindingRef } from './findings.ts';
+/** A finding of a pull-request review: the one finding shape (shared/findings.ts). */
+export type ReviewFinding = Finding;
 
 export type ReviewVerdict = 'comment' | 'approve' | 'request_changes';
 
@@ -24,40 +31,19 @@ export const VERDICT_POSTED: Record<ReviewVerdict, string> = {
 };
 
 export interface ReviewLineComment {
+  /** The finding it carries. */
+  findingId?: string;
   /** The file, relative to the repository. */
   path: string;
-  /** The line in the file as the request leaves it. */
+  /** The line in the file as the request leaves it (the last line, for a range). */
   line: number;
+  /** The first line of a range; absent for one line. */
+  start?: number;
+  /** The line in the old file, for a line that was there before the change. */
+  oldLine?: number;
+  /** The file's path before the change, when it was renamed. */
+  oldPath?: string;
   body: string;
-}
-
-export type FindingPriority = 'high' | 'medium' | 'low';
-export const FINDING_PRIORITIES: readonly FindingPriority[] = ['high', 'medium', 'low'];
-export const PRIORITY_LABEL: Record<FindingPriority, string> = { high: 'High', medium: 'Medium', low: 'Low' };
-
-/** A line of code a finding is about. */
-export interface FindingRef {
-  path: string;
-  line: number;
-}
-
-/** One problem the review found. */
-export interface ReviewFinding {
-  /** Its name within the review: f1, f2, … Never changes, so an edit says which one it is of. */
-  id: string;
-  /** One or two plain sentences: what is wrong. Always shown. */
-  brief: string;
-  /** The technical explanation: why, precisely enough for an engineer (or a model) to act on. Folded until asked for. */
-  detail?: string;
-  /** What to do instead. */
-  fix?: string;
-  priority: FindingPriority;
-  /** The agent's opinion (or the user's, once they change it) that this must be fixed before the change merges. */
-  blocking: boolean;
-  /** The lines it is about; the first is where its comment is posted. None: it is written under the summary. */
-  refs: FindingRef[];
-  /** The user took it out of the review: kept on the card, not posted. */
-  dismissed?: boolean;
 }
 
 export interface ReviewReply {
@@ -66,6 +52,8 @@ export interface ReviewReply {
   findings: ReviewFinding[];
   /** The commit the review is of: the session's review mark when the agent handed it over. */
   sha: string;
+  /** Which lines of the request's diff can take a comment, read from the reviewed commit when the review was handed over (shared/diff-anchors.ts). Absent: it could not be read. */
+  anchors?: DiffAnchors;
   /** Set once it reached the host. */
   posted?: ReviewPosted;
 }
@@ -79,17 +67,13 @@ export interface ReviewPosted {
   onItsOwn?: boolean;
   /** Something the user should know about how it went up: comments folded into the summary, say. */
   note?: string;
+  /** Where each kept finding went, by id, when that differs from where the card said it would go: the host refused its line. */
+  moved?: Record<string, string>;
 }
 
 export const SUMMARY_MAX = 20_000;
-export const BRIEF_MAX = 600;
-export const DETAIL_MAX = 5_000;
-export const FIX_MAX = 2_000;
-export const FINDINGS_MAX = 50;
-export const REFS_MAX = 5;
 
 const isVerdict = (v: unknown): v is ReviewVerdict => REVIEW_VERDICTS.includes(v as ReviewVerdict);
-const isPriority = (v: unknown): v is FindingPriority => FINDING_PRIORITIES.includes(v as FindingPriority);
 
 /** A summary as given, or why it will not do. */
 export function summaryProblem(summary: unknown, allowEmpty = false): string | null {
@@ -100,58 +84,16 @@ export function summaryProblem(summary: unknown, allowEmpty = false): string | n
 
 export const verdictProblem = (verdict: unknown): string | null => (isVerdict(verdict) ? null : `verdict must be one of: ${REVIEW_VERDICTS.join(', ')}.`);
 
-const optionalText = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
-
-/**
- * Findings as given (by the agent, or by the user's edits), checked: the list, or the reason it is
- * not one. `ids` names each finding when the caller already has names for them (an edit keeps the
- * card's own); otherwise they are numbered.
- */
-export function checkFindings(given: unknown, ids?: readonly string[]): { findings: ReviewFinding[] } | { problem: string } {
-  if (given === undefined || given === null) return { findings: [] };
-  if (!Array.isArray(given)) return { problem: 'findings must be a list.' };
-  if (given.length > FINDINGS_MAX) return { problem: `At most ${FINDINGS_MAX} findings. Keep the ones that matter most.` };
-  const findings: ReviewFinding[] = [];
-  for (const [i, raw] of given.entries()) {
-    const f = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
-    const at = `Finding ${i + 1}`;
-    const brief = optionalText(f.brief);
-    const detail = optionalText(f.detail);
-    const fix = optionalText(f.fix);
-    if (!brief) return { problem: `${at}: brief is empty. Say in a sentence or two what is wrong.` };
-    if (brief.length > BRIEF_MAX) return { problem: `${at}: brief is longer than ${BRIEF_MAX} characters. Keep it to a sentence or two; the rest goes in detail.` };
-    if (detail.length > DETAIL_MAX) return { problem: `${at}: detail is longer than ${DETAIL_MAX} characters.` };
-    if (fix.length > FIX_MAX) return { problem: `${at}: fix is longer than ${FIX_MAX} characters.` };
-    if (!isPriority(f.priority)) return { problem: `${at}: priority must be one of: ${FINDING_PRIORITIES.join(', ')}.` };
-    if (typeof f.blocking !== 'boolean') return { problem: `${at}: blocking must be true or false.` };
-    const givenRefs = f.refs === undefined || f.refs === null ? [] : f.refs;
-    if (!Array.isArray(givenRefs)) return { problem: `${at}: refs must be a list of { path, line }.` };
-    if (givenRefs.length > REFS_MAX) return { problem: `${at}: at most ${REFS_MAX} code references.` };
-    const refs: FindingRef[] = [];
-    for (const rawRef of givenRefs) {
-      const r = (typeof rawRef === 'object' && rawRef !== null ? rawRef : {}) as Record<string, unknown>;
-      const path = typeof r.path === 'string' ? r.path.trim().replace(/^\.\//, '') : '';
-      if (!path || path.startsWith('/') || path.split('/').includes('..')) return { problem: `${at}: a reference's path must be a file relative to the repository.` };
-      if (typeof r.line !== 'number' || !Number.isInteger(r.line) || r.line < 1) return { problem: `${at}: a reference's line must be a line number, 1 or more.` };
-      refs.push({ path, line: r.line });
-    }
-    const id = ids?.[i] ?? (typeof f.id === 'string' && /^f\d+$/.test(f.id) ? f.id : `f${i + 1}`);
-    findings.push({ id, brief, ...(detail ? { detail } : {}), ...(fix ? { fix } : {}), priority: f.priority, blocking: f.blocking, refs, ...(f.dismissed === true ? { dismissed: true } : {}) });
-  }
-  return { findings };
-}
-
 /** What `post_review` was given, checked: the review, or the reason it is not one. */
 export function draftReview(args: { verdict?: unknown; summary?: unknown; findings?: unknown }, sha: string): { reply: ReviewReply } | { problem: string } {
   const problem = verdictProblem(args.verdict);
   if (problem) return { problem };
-  const checked = checkFindings(args.findings);
+  const checked = freshFindings(args.findings);
   if ('problem' in checked) return checked;
   const summaryError = summaryProblem(args.summary);
   if (summaryError) return { problem: summaryError };
-  // As the agent hands it over nothing is dismissed, and each is named by its place.
-  const findings = checked.findings.map(({ dismissed: _dropped, ...f }, i) => ({ ...f, id: `f${i + 1}` }));
-  return { reply: { verdict: args.verdict as ReviewVerdict, summary: (args.summary as string).trim(), findings, sha } };
+  // As the agent hands it over nothing is dismissed or answered, and each is named by its place.
+  return { reply: { verdict: args.verdict as ReviewVerdict, summary: (args.summary as string).trim(), findings: checked.findings, sha } };
 }
 
 /**
@@ -163,20 +105,37 @@ export function editedFindings(own: readonly ReviewFinding[], edit: unknown): { 
   if (edit === undefined) return { findings: [...own] };
   if (!Array.isArray(edit)) return { problem: 'findings must be a list.' };
   const byId = new Map<string, unknown>(edit.flatMap((raw) => (typeof raw === 'object' && raw !== null && typeof (raw as { id?: unknown }).id === 'string' ? [[(raw as { id: string }).id, raw] as const] : [])));
-  const merged = own.map((f) => byId.get(f.id) ?? f);
+  // The question is the agent's, and the answer is Kestrel's record of what the user sent: an edit changes neither.
+  const merged = own.map((f) => {
+    const edited = byId.get(f.id);
+    if (typeof edited !== 'object' || edited === null) return f;
+    const { question: _q, answer: _a, fixAsked: _x, ...rest } = edited as Record<string, unknown>;
+    return { ...rest, ...(f.question ? { question: f.question } : {}), ...(f.answer ? { answer: f.answer } : {}), ...(f.fixAsked ? { fixAsked: true } : {}) };
+  });
   return checkFindings(merged, own.map((f) => f.id));
 }
 
 /** A review as it goes to a host: findings already turned into comments on lines (`postable`). */
 export interface OutgoingReview {
   verdict: ReviewVerdict;
+  /** The reviewer's own words. */
   summary: string;
+  /** The findings that go on the code. */
   comments: ReviewLineComment[];
+  /** The findings written under the summary, each as posted. */
+  loose?: string[];
   sha: string;
 }
 
-/** The findings that will be posted: the ones not dismissed. */
-export const keptFindings = (findings: readonly ReviewFinding[]): ReviewFinding[] => findings.filter((f) => !f.dismissed);
+/** The summary as it reaches the host: the reviewer's words, how many findings are on the code, then the ones that are not. */
+export const postedSummary = (out: Pick<OutgoingReview, 'summary' | 'comments' | 'loose'>): string => summaryWith(out.summary, out.comments.length, out.loose ?? []);
+
+/** The review with these comments written under the summary instead: what goes up when the host refuses their lines. */
+export function withFolded(out: OutgoingReview, refused: readonly ReviewLineComment[]): OutgoingReview {
+  const kept = out.comments.filter((c) => !refused.includes(c));
+  return { ...out, comments: kept, loose: [...(out.loose ?? []), ...refused.map((c) => `**${c.path}:${c.start !== undefined ? `${c.start}–` : ''}${c.line}**\n${c.body}`)] };
+}
+
 
 /**
  * An approval with nothing to say to the author: no finding is kept. It goes to the host as the
@@ -193,55 +152,58 @@ export const isCleanApproval = (verdict: ReviewVerdict, findings: readonly Revie
  * dismissed, or unmarked, what it was for), so a comment. An approval or a comment the agent chose
  * stands when nothing blocks.
  */
-/** The kept findings marked blocking: approving over any of them is confirmed first (the card's dialog). */
-export const blockingFindings = (findings: readonly ReviewFinding[]): ReviewFinding[] => keptFindings(findings).filter((f) => f.blocking);
-
 export function verdictFor(agentVerdict: ReviewVerdict, findings: readonly ReviewFinding[]): ReviewVerdict {
   if (blockingFindings(findings).length > 0) return 'request_changes';
   return agentVerdict === 'request_changes' ? 'comment' : agentVerdict;
 }
 
-const PRIORITY_ORDER: Record<FindingPriority, number> = { high: 0, medium: 1, low: 2 };
-
-/** Blocking first, then by priority; findings that tie keep the agent's order. */
-export function orderFindings<T extends Pick<ReviewFinding, 'blocking' | 'priority'>>(findings: readonly T[]): T[] {
-  return findings.map((f, i) => ({ f, i })).sort((a, b) => Number(b.f.blocking) - Number(a.f.blocking) || PRIORITY_ORDER[a.f.priority] - PRIORITY_ORDER[b.f.priority] || a.i - b.i).map(({ f }) => f);
-}
-
-/** "Blocking · High priority" / "Medium priority": how a finding is marked where it is posted and on its card. */
-export const findingMark = (f: Pick<ReviewFinding, 'blocking' | 'priority'>): string => `${f.blocking ? 'Blocking · ' : ''}${PRIORITY_LABEL[f.priority]} priority`;
-
-/** A finding as one comment: its mark, the brief, then the explanation, the fix and any further lines it names. */
-export function findingBody(f: ReviewFinding): string {
-  const also = f.refs.slice(1);
+/**
+ * A finding as it is posted: its priority and whether it blocks, the brief, then the explanation and
+ * the fix. On the code (`on` is the line it is on) it names its other lines; in the summary it names
+ * all of them.
+ */
+export function findingBody(f: ReviewFinding, on?: FindingRef): string {
+  const others = on ? f.refs.filter((r) => r !== on) : f.refs;
   return [
     `**${findingMark(f)}.** ${f.brief}`,
     f.detail,
     f.fix ? `**Suggested fix:** ${f.fix}` : undefined,
-    also.length > 0 ? `Also: ${also.map((r) => `\`${r.path}:${r.line}\``).join(', ')}` : undefined,
+    others.length > 0 ? `${on ? 'Also' : 'At'}: ${others.map((r) => `\`${refText(r)}\``).join(', ')}` : undefined,
   ]
     .filter(Boolean)
     .join('\n\n');
 }
 
+/** The line the summary carries when some findings are on the code. */
+export const onTheCodeLine = (n: number): string => `${n} finding${n === 1 ? ' is a comment' : 's are comments'} on the code.`;
+
 /**
- * What goes to the host for a review's kept findings: a comment on the first line each names, and
- * the ones that name no line written under the summary. Blocking and high priority first. Nothing
- * at all when the approval goes up without comment.
+ * What goes to the host for a review's kept findings, highest priority first: each one whose line is
+ * part of the request's diff as a comment on that line (`placeFinding`), and the rest written under
+ * the summary with their references, after a line saying how many are on the code. Dismissed ones go
+ * nowhere. Nothing at all when the approval goes up without comment.
  */
-export function postable(reply: Pick<ReviewReply, 'summary' | 'findings'>, withoutComment = false): { summary: string; comments: ReviewLineComment[] } {
+export function postable(reply: Pick<ReviewReply, 'summary' | 'findings' | 'anchors'>, withoutComment = false): { summary: string; comments: ReviewLineComment[]; loose: string[] } {
   // "Approve without comment": the approval alone. The summary and the findings stay on the card.
-  if (withoutComment) return { summary: '', comments: [] };
+  if (withoutComment) return { summary: '', comments: [], loose: [] };
   const kept = orderFindings(keptFindings(reply.findings));
-  const comments = kept.flatMap((f) => (f.refs[0] ? [{ path: f.refs[0].path, line: f.refs[0].line, body: findingBody(f) }] : []));
-  const loose = kept.filter((f) => f.refs.length === 0).map(findingBody);
-  return { summary: [reply.summary, ...loose].join('\n\n'), comments };
+  const comments: ReviewLineComment[] = [];
+  const loose: string[] = [];
+  for (const f of kept) {
+    const placed = placeFinding(f, reply.anchors);
+    if (placed.where === 'summary') loose.push(findingBody(f));
+    else comments.push({ findingId: f.id, path: placed.ref.path, line: placed.line, ...(placed.start !== undefined ? { start: placed.start } : {}), ...(placed.oldLine ? { oldLine: placed.oldLine } : {}), ...(placed.oldPath ? { oldPath: placed.oldPath } : {}), body: findingBody(f, placed.ref) });
+  }
+  return { summary: reply.summary, comments, loose };
 }
+
+/** The summary as posted: the reviewer's words, how many findings are on the code, then the ones that are not. */
+export const summaryWith = (summary: string, onCode: number, loose: readonly string[]): string => [summary, onCode > 0 && (summary || loose.length > 0) ? onTheCodeLine(onCode) : null, ...loose].filter(Boolean).join('\n\n');
 
 /** The summary with every comment on a line written under it, for a host or a case that cannot take them on lines. */
 export function foldComments(summary: string, comments: readonly ReviewLineComment[]): string {
   if (comments.length === 0) return summary;
-  return [summary, ...comments.map((c) => `**${c.path}:${c.line}**\n${c.body}`)].join('\n\n');
+  return [summary, ...comments.map((c) => `**${c.path}:${c.start !== undefined ? `${c.start}–` : ''}${c.line}**\n${c.body}`)].join('\n\n');
 }
 
 /**

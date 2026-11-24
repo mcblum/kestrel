@@ -11,14 +11,20 @@ import { Refused } from '../refused.ts';
 import type { SessionRuntime } from '../runtime.ts';
 import { checkEnvelope, checkRequest, CONNECT_PROTOCOL_VERSION, isConnectId, versionRefusal, type ConnectOpArgs, type ConnectRequest, type ConnectResponse, type Envelope } from '../shared/connect-ops.ts';
 import { pageRefusal, transcriptPage } from '../shared/transcript-page.ts';
+import type { ReviewsAnswer, TicketsAnswer } from '../shared/connect-lists.ts';
 import type { Workspace } from '../workspace.ts';
+import { connectLists, type ConnectLists, type ListKind } from './lists.ts';
+import { deskLeadChoices } from '../remote-starts/choices.ts';
+import { remoteStartsOff } from '../remote-starts/prefs.ts';
+import { startRequestedReview } from '../review-requests/start-requested.ts';
+import type { ReviewRequestStore } from '../review-requests/store.ts';
+import { ticketsRoute, type TicketsApi } from '../tickets/api.ts';
 
-/** A frame pushed to a phone: live output of a session it watches. */
-export interface ConnectPush {
-  type: 'live';
-  sessionId: string;
-  patch: LivePatch;
-}
+/**
+ * A frame pushed to a phone: live output of a session it watches, or the Code reviews or Tickets list
+ * again when it changed, to a device that read it since its channel opened.
+ */
+export type ConnectPush = { type: 'live'; sessionId: string; patch: LivePatch } | { type: 'reviews'; reviews: ReviewsAnswer } | { type: 'tickets'; tickets: TicketsAnswer };
 
 export interface ConnectDeps {
   workspace: Workspace;
@@ -31,6 +37,12 @@ export interface ConnectDeps {
   send: (frame: Envelope<ConnectPush | ConnectResponse>) => void;
   /** Makes frame ids. Default: a counter. */
   newId?: () => string;
+  /** The Code reviews and Tickets lists. Default: the runtime's review setting and no stores (empty lists). */
+  lists?: ConnectLists;
+  /** The review requests the pages' buttons act on; absent where Kestrel asks no host. */
+  reviewRequests?: ReviewRequestStore | null;
+  /** The Tickets routes the pages' buttons call (`tickets/api.ts`); absent where there are none. */
+  tickets?: TicketsApi | null;
 }
 
 /** What of a live patch a phone is sent: the conversation as the window shows it, cards and all, and where it stands; never the terminal-side panes. */
@@ -42,6 +54,8 @@ function remotePatch(patch: LivePatch): LivePatch | null {
     ...(patch.queue ? { queue: patch.queue } : {}),
     ...(patch.settings ? { settings: patch.settings } : {}),
     ...(patch.replacedBy ? { replacedBy: patch.replacedBy } : {}),
+    // How full the context window is, as the window's ring shows it; counts and category names only.
+    ...(patch.context ? { context: patch.context } : {}),
   };
   return Object.keys(out).length > 0 ? out : null;
 }
@@ -52,12 +66,22 @@ export class ConnectDispatcher {
   /** Device id -> the sessions it watches. */
   private readonly watching = new Map<string, Set<string>>();
   private readonly pending = new Map<string, LivePatch>();
+  /** Device id -> the lists it has read since its channel opened, and so is sent again when they change. */
+  private readonly reading = new Map<string, Set<ListKind>>();
+  private readonly changedLists = new Set<ListKind>();
   private timer: NodeJS.Timeout | null = null;
   private counter = 0;
+  private readonly lists: ConnectLists;
   private readonly unsubscribe: () => void;
 
   constructor(private readonly deps: ConnectDeps) {
-    this.unsubscribe = deps.runtime.onLive((sessionId, patch) => this.publish(sessionId, patch));
+    this.lists = deps.lists ?? connectLists(deps.runtime.reviewPrefs, null, null);
+    const offLive = deps.runtime.onLive((sessionId, patch) => this.publish(sessionId, patch));
+    const offLists = this.lists.onChange((kind) => this.listChanged(kind));
+    this.unsubscribe = () => {
+      offLive();
+      offLists();
+    };
   }
 
   /**
@@ -98,6 +122,7 @@ export class ConnectDispatcher {
   /** A device went away: it watches nothing any more. */
   forget(device: string): void {
     this.watching.delete(device);
+    this.reading.delete(device);
   }
 
   close(): void {
@@ -106,6 +131,8 @@ export class ConnectDispatcher {
     this.timer = null;
     this.pending.clear();
     this.watching.clear();
+    this.changedLists.clear();
+    this.reading.clear();
   }
 
   private reply(to: string, replyTo: string, body: ConnectResponse): Envelope<ConnectResponse> {
@@ -137,6 +164,8 @@ export class ConnectDispatcher {
         return this.answerCard(request.args);
       case 'session.stop':
         return this.stop(request.args.sessionId);
+      case 'session.compact':
+        return this.compact(request.args.sessionId);
       case 'session.seen':
         return this.seen(request.args.sessionId);
       case 'media.read':
@@ -151,6 +180,32 @@ export class ConnectDispatcher {
         return this.suggestion(request.args.sessionId, (s) => s.dismiss(request.args.sessionId, request.args.suggestionId));
       case 'suggestion.undo':
         return this.suggestion(request.args.sessionId, (s) => s.undo(request.args.sessionId, request.args.suggestionId));
+      case 'reviews.read':
+        return this.readList(device, 'reviews');
+      case 'tickets.read':
+        return this.readList(device, 'tickets');
+      case 'reviews.seen':
+        this.reviewStore().markSeen(request.args.keys, request.args.seen);
+        return Promise.resolve({ ok: true });
+      case 'reviews.dismiss':
+        this.reviewStore().dismiss(request.args.keys, request.args.dismissed);
+        return Promise.resolve({ ok: true });
+      case 'reviews.start':
+        return this.startReview(request.args.key);
+      case 'tickets.seen':
+        return this.ticket('seen', 'PUT', { keys: request.args.keys, seen: request.args.seen });
+      case 'tickets.dismiss':
+        return this.ticket('dismissed', 'PUT', { keys: request.args.keys, dismissed: request.args.dismissed });
+      case 'tickets.statuses':
+        return this.ticket('statuses', 'GET', {}, request.args.key);
+      case 'tickets.move':
+        return this.ticket('move', 'POST', { key: request.args.key, to: request.args.to });
+      case 'tickets.comment':
+        return this.ticket('comment', 'POST', { key: request.args.key, body: request.args.body });
+      case 'tickets.detail':
+        return this.ticket('read', 'POST', { key: request.args.key });
+      case 'tickets.work':
+        return this.workTicket(request.args.key);
     }
   }
 
@@ -175,7 +230,9 @@ export class ConnectDispatcher {
     const refusal = pageRefusal(messages, page);
     if (refusal) throw new Refused(refusal);
     const found = transcriptPage(messages, page);
-    return { sessionId, ...found, messages: found.messages, ...(queue ? { queue } : {}) };
+    // The page at the end carries how full the window is, by the call the window's ring makes.
+    const context = 'before' in page ? {} : await this.deps.runtime.contextShown(sessionId);
+    return { sessionId, ...found, messages: found.messages, ...(queue ? { queue } : {}), ...context };
   }
 
   private async watch(device: string, sessionId: string) {
@@ -213,6 +270,13 @@ export class ConnectDispatcher {
     return { stopped: true };
   }
 
+  /** As the context popup's Compact button: the agent compacts the conversation as a turn, or the reason it cannot now. */
+  private async compact(sessionId: string) {
+    await this.session(sessionId);
+    await this.deps.runtime.compact(sessionId);
+    return { compacting: true };
+  }
+
   /** As the window does when a session is opened: its activity counts as looked at (shared/unread.ts). */
   private async seen(sessionId: string) {
     await this.session(sessionId);
@@ -244,7 +308,58 @@ export class ConnectDispatcher {
     return { type: servedType(stored.attachment), name: stored.attachment.name, data: (await readFile(stored.path)).toString('base64') };
   }
 
+  /** The list as the window's page has it, or off in the desk's words; and the device is sent it again when it changes. */
+  private readList(device: string, kind: ListKind): Promise<ReviewsAnswer | TicketsAnswer> {
+    const set = this.reading.get(device) ?? new Set<ListKind>();
+    this.reading.set(device, set.add(kind));
+    return kind === 'reviews' ? this.lists.reviews() : Promise.resolve(this.lists.tickets());
+  }
+
+  // ---- the pages' buttons (Matt, 2026-11-24; kestrel-connect.md, "Actions") ---------------------
+
+  private reviewStore(): ReviewRequestStore {
+    if (!this.deps.reviewRequests) throw new Refused(`Review requests are not available on ${this.deps.here}.`);
+    return this.deps.reviewRequests;
+  }
+
+  /** A Tickets route, called as the window calls it: its refusals (tickets off, a source off, a ticket not held) are the phone's. */
+  private async ticket(what: string, method: string, body: Record<string, unknown>, key?: string): Promise<unknown> {
+    const url = new URL(`http://kestrel/api/tickets/${what}`);
+    if (key !== undefined) url.searchParams.set('key', key);
+    const answer = await ticketsRoute(['api', 'tickets', what], method, url, async () => body, this.deps.tickets ?? undefined);
+    if (!answer) throw new Refused(`${this.deps.here} cannot do that with tickets.`);
+    if (answer.status >= 400) throw new Refused((answer.body as { error?: string }).error ?? `${this.deps.here} could not do that with the ticket.`);
+    return answer.body;
+  }
+
+  /** A8: another device starts a session here only while this computer's switch allows it. */
+  private async mayStart(): Promise<Set<string>> {
+    if (!(await this.deps.runtime.remoteStarts.prefs()).allowed) throw new Refused(remoteStartsOff(this.deps.here));
+    return new Set((await this.deps.workspace.state()).sessions.map((s) => s.id));
+  }
+
+  /** The request's Start review button: restored, read, and its review started (or given back), never in Bypass. */
+  private async startReview(key: string) {
+    const before = await this.mayStart();
+    const session = await startRequestedReview(this.reviewStore(), (request, opts) => this.deps.runtime.startReview(request, opts), key, { remote: true });
+    return { sessionId: session.id, started: !before.has(session.id) };
+  }
+
+  /** The ticket's Start work button, with the choices the window's button sends, never in Bypass. */
+  private async workTicket(key: string) {
+    const before = await this.mayStart();
+    const choices = deskLeadChoices(await this.deps.workspace.getUiState());
+    const session = (await this.ticket('work', 'POST', { key, ...choices })) as Session;
+    return { sessionId: session.id, started: !before.has(session.id) };
+  }
+
   // ---- live output ------------------------------------------------------------------------
+
+  private listChanged(kind: ListKind): void {
+    if (![...this.reading.values()].some((kinds) => kinds.has(kind))) return;
+    this.changedLists.add(kind);
+    this.timer ??= setTimeout(() => this.flush(), LIVE_FLUSH_MS);
+  }
 
   private watched(sessionId: string): boolean {
     for (const set of this.watching.values()) if (set.has(sessionId)) return true;
@@ -264,11 +379,27 @@ export class ConnectDispatcher {
   flush(): void {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    this.flushLists();
     for (const [sessionId, patch] of this.pending) {
       for (const [device, ids] of this.watching) {
         if (ids.has(sessionId)) this.deps.send({ v: CONNECT_PROTOCOL_VERSION, from: this.deps.deviceId, to: device, kind: 'push', id: this.newId(), body: { type: 'live', sessionId, patch } });
       }
     }
     this.pending.clear();
+  }
+
+  /** Each changed list once, from the view the store already built, to every device that read it. */
+  private flushLists(): void {
+    const kinds = [...this.changedLists];
+    this.changedLists.clear();
+    for (const kind of kinds) {
+      const devices = [...this.reading].filter(([, read]) => read.has(kind)).map(([device]) => device);
+      if (devices.length === 0) continue;
+      const send = (body: ConnectPush) => {
+        for (const device of devices) if (this.reading.get(device)?.has(kind)) this.deps.send({ v: CONNECT_PROTOCOL_VERSION, from: this.deps.deviceId, to: device, kind: 'push', id: this.newId(), body });
+      };
+      if (kind === 'tickets') send({ type: 'tickets', tickets: this.lists.tickets() });
+      else void this.lists.reviews().then((reviews) => send({ type: 'reviews', reviews }), (error) => console.error('[kestrel] connect reviews push failed', error));
+    }
   }
 }

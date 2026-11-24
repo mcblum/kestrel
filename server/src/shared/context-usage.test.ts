@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { percentLabel, shownRows, tokenCount, usedFraction, type ContextUsage } from './context-usage.ts';
+import { contextNote, percentLabel, shownRows, tokenCount, usedFraction, type ContextUsage } from './context-usage.ts';
 
 const usage = (used: number, window: number, rows: ContextUsage['rows'] = []): ContextUsage => ({ model: 'm', usedTokens: used, windowTokens: window, rows, at: 0 });
 
@@ -29,5 +29,13 @@ describe('context usage', () => {
     ]));
     expect(shown.inWindow.map((r) => r.name)).toEqual(['Messages', 'Free space']);
     expect(shown.deferred.map((r) => r.name)).toEqual(['Deferred tools']);
+  });
+
+  it('says why there is no measurement, the same words on every device', () => {
+    const at = { reports: true, agentLabel: 'Codex', started: true, working: false };
+    expect(contextNote({ ...at, reports: false })).toBe('Codex does not say how full its context window is.');
+    expect(contextNote({ ...at, started: false })).toBe('Measured once the conversation has started.');
+    expect(contextNote({ ...at, working: true })).toBe('Measured when this turn ends.');
+    expect(contextNote(at)).toBe('Not measured yet. It is measured each time a turn ends.');
   });
 });

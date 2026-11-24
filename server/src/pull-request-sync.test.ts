@@ -1,5 +1,6 @@
 // The sync fills the PR store for every session in sight, asks the host again only for sessions that
 // changed (or whose time has come), and forgets sessions that left. Sample data: never gh or glab.
+import { worktreeOwnerId } from './shared/working-tree.ts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { detailsSources } from './details-api.ts';
 import { memoryPersistence } from './persistence/memory.ts';
@@ -24,9 +25,9 @@ async function world() {
 }
 
 describe('syncPullRequests', () => {
-  it('holds every session in sight before any window asks', async () => {
+  it('holds every session in sight before any window asks, a guest’s under its host', async () => {
     const { workspace, sources } = await world();
-    const ids = (await workspace.state()).sessions.map((s) => s.id).sort();
+    const ids = [...new Set((await workspace.state()).sessions.map(worktreeOwnerId))].sort();
     expect(Object.keys(sources.store.all()).sort()).toEqual(ids);
   });
 

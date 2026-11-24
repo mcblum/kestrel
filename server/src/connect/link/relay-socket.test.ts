@@ -11,7 +11,7 @@ import { memorySettings } from '../../suggestions/prefs.ts';
 import { FakeAgents, until } from '../../test-agent.ts';
 import { Workspace } from '../../workspace.ts';
 import { ConnectDispatcher } from '../dispatcher.ts';
-import { newIdentity } from '../keys.ts';
+import { newIdentity, publicIdentity } from '../keys.ts';
 import { FakeIdentity, fakeListener, tokensFor } from './connect-fakes.ts';
 import { CONNECT_PREFS_KEY, KestrelConnect } from './connect.ts';
 import { PhoneChannel } from './phone.ts';
@@ -81,7 +81,7 @@ afterEach(async () => {
 });
 
 describe('over real sockets', () => {
-  it('the desk links, a phone pairs and answers a card, and the relay carries only ciphertext', async () => {
+  it('the desk links, a phone’s hello crosses the relay and a computer outside the account says so', async () => {
     const relay = await standInRelay();
     cleanup.push(() => relay.close());
     const workspace = new Workspace(memoryPersistence());
@@ -117,18 +117,11 @@ describe('over real sockets', () => {
     });
     const p = phone as unknown as PhoneChannel;
 
-    const deskKeys = await p.pair(desk.startPairing().code);
-    await p.open(deskKeys);
-    fake.script = (turn) => {
-      fake.hold = true;
-      turn.emit({ type: 'needs-input', request: { id: 'ask-1', kind: 'approval', title: 'Push the confidential branch', detail: 'git push', tool: 'Bash', options: [{ id: 'allow', label: 'Allow', role: 'allow' }, { id: 'deny', label: 'Deny', role: 'deny' }] } });
-    };
-    const session = await runtime.start({ agent: 'claude', projectId: null, prompt: 'ship the confidential thing' });
-    await until(() => runtime.overlay(session.id)?.messages.some((m) => m.input && !m.input.resolved) ?? false, 'a card');
-    const state = await p.request('state.read');
-    expect(state).toMatchObject({ ok: true, result: { sessions: [expect.objectContaining({ id: session.id })] } });
-    expect(await p.request('session.answer', { sessionId: session.id, requestId: 'ask-1', optionId: 'deny' })).toEqual({ ok: true, result: { answered: true } });
-    expect(relay.carried.join('\n')).not.toContain('confidential');
+    // Letting a device in and the channel that follows are tested end to end in join.test.ts, over the fake
+    // service that has the key routes; here the socket path carries a hello and the desk's refusal of a device
+    // it does not know, in the clear and in plain words.
+    await expect(p.open({ id: desk.device()!.id, signing: publicIdentity(newIdentity()).signing })).rejects.toThrow('cannot take connections until it is let into your account');
+    expect(relay.carried.some((t) => t.includes('"session"'))).toBe(true);
   });
 
   it('a bad token is refused at the upgrade with the service’s words', async () => {

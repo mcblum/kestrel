@@ -39,6 +39,20 @@ describe.each([
     expect((await db.getSession('garden'))!.completedAt).toBe(completedAt);
   });
 
+  test('a sidebar keeps what it is about, is filed hidden outside every tree, and goes with its session', async () => {
+    await add('main', 'bellbird');
+    const of = { sessionId: 'main', at: 'card', key: 'finding:card:f1', name: 'Finding #1', summary: 'It drops the draft.' };
+    const detail = { messages: [], files: [], agentOutput: '', kestrelTools: 'unknown' as const };
+    const aside = await ws.addAside('main', { title: 'Sidebar: Finding #1', agent: 'claude', startedIn: 'bellbird', aside: of }, detail);
+    expect((await db.getSession(aside.id))!.aside).toEqual(of);
+    expect((await db.getSession('main'))!.aside).toBeUndefined();
+    const state = await ws.state();
+    expect(state.sessions.find((s) => s.id === aside.id)!.filing.status).toBe('hidden');
+    expect(state.links).toEqual([]);
+    await ws.deleteSession('main');
+    expect(await db.getSession(aside.id)).toBeNull();
+  });
+
   test('a review session keeps its mark, and it reaches the state the UI is sent', async () => {
     const review = { key: 'github.com/acme/app/7', host: 'github' as const, number: 7, sha: 'a'.repeat(40), url: 'https://github.com/acme/app/pull/7' };
     await add('reviewing', 'bellbird', { review });

@@ -36,8 +36,12 @@ export interface StoredDevice {
 export interface VaultData {
   tokens: StoredTokens | null;
   device: StoredDevice | null;
-  /** Part B: the phones paired with this computer. Kept as written; see pairing.ts. */
+  /** Part B's phones paired with this computer: read only to be deleted (protocol 3 has no pairing). */
   paired?: unknown;
+  /** The device id whose public keys the service was given (`PUT /devices/keys`), so they are put once. */
+  keysPut?: string;
+  /** What this computer trusts about the account data key (account-keys.ts). Public keys only, never a key. */
+  keys?: unknown;
 }
 
 export const EMPTY_VAULT: VaultData = { tokens: null, device: null };
@@ -55,7 +59,7 @@ const FORMAT = 1;
 function asVaultData(raw: unknown): VaultData {
   if (typeof raw !== 'object' || raw === null) return EMPTY_VAULT;
   const data = raw as Partial<VaultData>;
-  return { tokens: data.tokens ?? null, device: data.device ?? null, ...(data.paired !== undefined ? { paired: data.paired } : {}) };
+  return { tokens: data.tokens ?? null, device: data.device ?? null, ...(data.paired !== undefined ? { paired: data.paired } : {}), ...(data.keys !== undefined ? { keys: data.keys } : {}), ...(typeof data.keysPut === 'string' ? { keysPut: data.keysPut } : {}) };
 }
 
 export function writeAtomically(path: string, bytes: Buffer): void {

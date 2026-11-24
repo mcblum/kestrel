@@ -31,6 +31,8 @@ interface Props {
   context?: ReactNode;
   /** A sub-agent's output, when the session shows one. */
   agent?: ReactNode;
+  /** A sidebar about a finding, when the session shows one (shared/asides.ts). */
+  aside?: ReactNode;
   /** The session's commands (sessions only), told whether the pane is on screen. */
   commands?: (visible: boolean) => ReactNode;
   /** Where this scope's terminals open, when that needs saying. */
@@ -70,7 +72,7 @@ function useDismiss(card: HTMLElement | null, onClose: () => void) {
 
 const widthOf = (columns: readonly LayoutColumn[], id: LayoutColumn['id']) => columns.find((c) => c.id === id)?.width;
 
-export function PaneArea({ scopeKey, state, main, mainLabel, changes, context, agent, commands, terminalNote, contextLabel = 'Context', onClosePane }: Props) {
+export function PaneArea({ scopeKey, state, main, mainLabel, changes, context, agent, aside, commands, terminalNote, contextLabel = 'Context', onClosePane }: Props) {
   const scope = parseScope(scopeKey) as Scope;
   const [root, setRoot] = useState<HTMLDivElement | null>(null);
   const [available, setAvailable] = useState(() => window.innerWidth);
@@ -108,6 +110,7 @@ export function PaneArea({ scopeKey, state, main, mainLabel, changes, context, a
     if (pane === 'terminal') return <TerminalPane scopeKey={scopeKey} note={terminalNote} visible={visible} />;
     if (pane === 'browser') return <BrowserView scopeKey={scopeKey} visible={visible} />;
     if (pane === 'commands') return commands?.(visible) ?? null;
+    if (pane === 'aside') return aside ?? null;
     return agent ?? null;
   };
 

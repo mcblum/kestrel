@@ -71,8 +71,8 @@ export function parseViewPath(path: string): View {
   if (a === 'ticket' && id) return { kind: 'ticket', id };
   if (a === 'tickets') return b === 'dismissed' || b === 'done' || b === 'closed' ? { kind: 'tickets', filter: b } : { kind: 'tickets' };
   if (a === 'settings' && id.startsWith(OLD_PROJECT_SETTINGS) && id.length > OLD_PROJECT_SETTINGS.length) return projectSettings(id.slice(OLD_PROJECT_SETTINGS.length), 'agent-setup');
-  // One page sits under a section: Pair a phone (`#/settings/connections/pair`).
-  if (a === 'settings' && id === 'connections' && c === 'pair') return { kind: 'settings', section: 'connections/pair' };
+  // A page under a section: the recovery key (`#/settings/connections/recovery`).
+  if (a === 'settings' && id === 'connections' && c === 'recovery') return { kind: 'settings', section: `connections/${c}` };
   if (a === 'settings') return id ? { kind: 'settings', section: id } : { kind: 'settings' };
   if (a === 'move' && id && c) return { kind: 'move', sessionId: id, projectId: decodeURIComponent(c), ...(d ? { groupId: decodeURIComponent(d) } : {}) };
   if (a === 'code' && id && c && /^\d+$/.test(d ?? '')) return { kind: 'code', sessionId: id, messageId: decodeURIComponent(c), at: Number(d) };

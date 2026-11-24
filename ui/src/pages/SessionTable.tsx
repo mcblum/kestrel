@@ -84,7 +84,7 @@ const Row = memo(function Row({ session, projects, origin, showProject, showStat
         </span>
       )}
       {group !== undefined && <span className="tcell tcell-group">{group}</span>}
-      <span className="tcell tcell-pr">{session.branch && <SessionPullRequest session={session} />}</span>
+      <span className="tcell tcell-pr"><SessionPullRequest session={session} /></span>
       <span className="tcell tcell-age">{age(session.updatedAt)}</span>
     </div>
   );

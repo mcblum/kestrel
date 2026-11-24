@@ -255,6 +255,13 @@ describe('starting a review', () => {
     const manual = harness({ permission: async () => 'ask' });
     await startReview(manual.deps, request());
     expect(manual.started[0]!.permission).toBe('ask');
+    // Another device of the account (A8): this computer's mode, but never Bypass.
+    const bypass = harness({ permission: async () => 'bypass' });
+    await startReview(bypass.deps, request(), { remote: true });
+    expect(bypass.started[0]!.permission).toBe('auto');
+    const deskBypass = harness({ permission: async () => 'bypass' });
+    await startReview(deskBypass.deps, request());
+    expect(deskBypass.started[0]!.permission).toBe('bypass');
   });
 
   describe('with "Reviewing" comments', () => {

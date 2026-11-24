@@ -9,6 +9,7 @@ import type { PullRequestLookup } from '@kestrel/server/details';
 import { applyPullRequests, call, useApp } from '../../store.ts';
 import { SIDEBAR_CHANGES_POLL_MS } from '@kestrel/server/row-slot';
 import { useSourced } from './useSourced.ts';
+import { useRequestOwner } from '../../workingTree.ts';
 
 const sessionPath = (id: string, section: string) => `/api/sessions/${encodeURIComponent(id)}/${section}`;
 
@@ -24,17 +25,19 @@ export function useAskAgain(pollMs: number | null, setTick: Dispatch<SetStateAct
 }
 
 /**
- * A session's pull requests, from the store (pushed by the server). Refresh asks the server to ask
+ * A session's pull requests, from the store (pushed by the server): a guest's are its host's. Refresh asks the server to ask
  * the host now; its answer comes back on the same push, and also straight from this call.
  */
 export function usePullRequests(sessionId: string): { value: Sourced<PullRequestLookup>; refresh: () => void } {
-  const value = useApp((s) => s.pullRequests.get(sessionId)) ?? LOADING;
+  // A guest shows its host's requests, held once under the host (@kestrel/server/working-tree).
+  const ownerId = useRequestOwner(sessionId);
+  const value = useApp((s) => s.pullRequests.get(ownerId)) ?? LOADING;
   const refresh = useCallback(() => {
-    call<unknown>(`${sessionPath(sessionId, 'pull-requests')}?refresh=1`).then(
-      (raw) => applyPullRequests({ changes: { [sessionId]: raw } }),
+    call<unknown>(`${sessionPath(ownerId, 'pull-requests')}?refresh=1`).then(
+      (raw) => applyPullRequests({ changes: { [ownerId]: raw } }),
       () => undefined,
     );
-  }, [sessionId]);
+  }, [ownerId]);
   return { value, refresh };
 }
 

@@ -6,21 +6,26 @@
 #   -> notarize + staple the app (afterSign) -> DMG + update zip from the stapled app
 #   -> sign, notarize + staple the DMG -> update feed -> dist/release
 #
-#   scripts/release/make-release.sh [--skip-notarize] [--allow-dirty] [--feed <latest-mac.yml path or URL>]
-#                                   [--version x.y.z]
+#   scripts/release/make-release.sh [--skip-notarize] [--allow-dirty] [--feeds <base URL or folder>]
+#                                   [--version x.y.z | x.y.z-beta.n]
 #
 #   --skip-notarize  sign only, for quick local iterations (the result will not open on another Mac)
 #   --allow-dirty    build with uncommitted changes (test builds only)
-#   --feed           refuse to build a version that is not newer than the one this feed already has
+#   --feeds          refuse to build a version that is not due against the live feeds there
+#                    (release-needed.sh: a release against latest-mac.yml, a beta against both)
 #   --version        put this version in the bundle instead of app/package.json's (updater tests only)
+#
+# The version's channel (app/release-channel.mjs) decides the feeds: 1.2.3 writes latest-mac.yml
+# and the same text to beta-mac.yml; 1.2.3-beta.4 writes beta-mac.yml only, and no Kestrel.dmg
+# (a beta has no permanent download link).
 #
 # Environment (names only; nothing secret is in the repo):
 #   KESTREL_SIGN_ID         default "Developer ID Application: Matthew Blum (NLJAPE8842)"
 #   KESTREL_NOTARY_PROFILE  default "Vireo" (a notarytool keychain profile on this Mac)
 #
-# Output, in dist/release: Kestrel.dmg (the download), Kestrel-<v>-arm64.dmg, Kestrel-<v>-arm64-mac.zip
-# (what the updater downloads), its .blockmap, and latest-mac.yml (the feed, with relative URLs;
-# publish.sh rewrites it with absolute ones). Nothing is uploaded.
+# Output, in dist/release: Kestrel.dmg (the download; a release only), Kestrel-<v>-arm64.dmg,
+# Kestrel-<v>-arm64-mac.zip (what the updater downloads), its .blockmap, and the feeds (relative
+# URLs; publish.sh rewrites them with absolute ones). Nothing is uploaded.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
@@ -34,14 +39,15 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --skip-notarize) SKIP_NOTARIZE=1; PREFLIGHT_ARGS+=("$1") ;;
     --allow-dirty) PREFLIGHT_ARGS+=("$1") ;;
-    --feed) PREFLIGHT_ARGS+=("$1" "${2:?--feed needs a path or URL}"); shift ;;
+    --feeds) PREFLIGHT_ARGS+=("$1" "${2:?--feeds needs a base URL or a folder}"); shift ;;
     --version) VERSION_OVERRIDE="${2:?--version needs x.y.z}"; PREFLIGHT_ARGS+=("$1" "$2"); shift ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,29p' "$0"; exit 0 ;;
     *) echo "!! unknown option $1" >&2; exit 2 ;;
   esac
   shift
 done
 VERSION="${VERSION_OVERRIDE:-$(node -p "require('./app/package.json').version")}"
+CHANNEL="$(node scripts/release/version.mjs channel "$VERSION")"
 step() { echo; echo "==> $*"; }
 
 scripts/release/preflight.sh "${PREFLIGHT_ARGS[@]+"${PREFLIGHT_ARGS[@]}"}"
@@ -76,19 +82,20 @@ codesign --force --timestamp --sign "$KESTREL_SIGN_ID" "$BUILDER_OUT/$DMG"
 step "Collect into dist/release"
 # Only the Mac's own files are replaced: a Windows or Linux build of this version already collected
 # here (make-release-desktop.sh, or a CI job's artifacts) stays for publish.sh.
-mkdir -p "$OUT"; rm -f "$OUT"/Kestrel*.dmg "$OUT"/Kestrel-*-mac.zip "$OUT"/Kestrel-*-mac.zip.blockmap "$OUT/latest-mac.yml"
+mkdir -p "$OUT"; rm -f "$OUT"/Kestrel*.dmg "$OUT"/Kestrel-*-mac.zip "$OUT"/Kestrel-*-mac.zip.blockmap "$OUT/latest-mac.yml" "$OUT/beta-mac.yml"
 cp "$BUILDER_OUT/$ZIP" "$BUILDER_OUT/$ZIP.blockmap" "$BUILDER_OUT/$DMG" "$OUT/"
-cp "$OUT/$DMG" "$OUT/Kestrel.dmg"
+# Kestrel.dmg is the permanent download link's file: a beta never has one.
+[ "$CHANNEL" = beta ] || cp "$OUT/$DMG" "$OUT/Kestrel.dmg"
 # electron-builder's DMG blockmap is stale once the DMG is stapled, and the Mac updater only uses the zip's.
 node scripts/release/write-feed.mjs --dir "$OUT" --version "$VERSION"
 
 if [ "$SKIP_NOTARIZE" != 1 ]; then
   step "Gatekeeper"
   spctl -a -vv -t exec "$APP"
-  spctl -a -vv -t open --context context:primary-signature "$OUT/Kestrel.dmg"
+  spctl -a -vv -t open --context context:primary-signature "$OUT/$DMG"
 fi
 
-step "Kestrel $VERSION"
+step "Kestrel $VERSION ($CHANNEL)"
 ( cd "$OUT" && ls -lh | sed 1d | awk '{print "    " $5 "\t" $9}' )
 echo "    app: $APP"
 echo "    Publishing is a separate, approved step: scripts/release/publish.sh (see RELEASING.md)."

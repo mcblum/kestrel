@@ -1,6 +1,7 @@
 // Builds the conversation shown in the UI from adapter events. Pure and immutable: each call
 // returns a new message list plus the messages that changed, which is all the live channel sends.
 import type { ReviewReply } from './shared/review-reply.ts';
+import type { ReviewEnd, RoundFindings } from './shared/round-findings.ts';
 import type { AgentEvent, InputRequest } from './agents/types.ts';
 import type { Attachment, ChatActivity, ChatMessage, FileCard, NextStep, StartedSession, TodoItem, WidgetCard } from './model.ts';
 import type { Suggestion } from './shared/suggestions.ts';
@@ -17,7 +18,7 @@ export type TranscriptAction =
   /** A restart or stop ended the turn: nothing is streaming any more. */
   | { type: 'settled' }
   /** Something to show as its own card: a widget, a file, a next step, pictures, an optional action. */
-  | { type: 'card'; id: string; widget?: WidgetCard; file?: FileCard; next?: NextStep; review?: ReviewReply; started?: StartedSession; images?: string[]; suggestion?: Suggestion; at?: number }
+  | { type: 'card'; id: string; widget?: WidgetCard; file?: FileCard; next?: NextStep; review?: ReviewReply; roundFindings?: RoundFindings; reviewEnd?: ReviewEnd; started?: StartedSession; images?: string[]; suggestion?: Suggestion; at?: number }
   /** A line from Kestrel itself (a refusal, a message from another session). `startsTurn`: the agent was woken with it. */
   | { type: 'notice'; id: string; text: string; level: 'info' | 'warning' | 'error'; startsTurn?: boolean };
 
@@ -67,7 +68,7 @@ function upsertTask(items: TodoItem[], task: Extract<AgentEvent, { type: 'task' 
 }
 
 /** A message that is a card of its own (task list, widget, file, next step, pictures, suggestion): tool lines do not join it. */
-const isCard = (m: ChatMessage) => Boolean(m.input || m.notice || m.todos || m.widget || m.file || m.next || m.review || m.started || m.images || m.suggestion);
+const isCard = (m: ChatMessage) => Boolean(m.input || m.notice || m.todos || m.widget || m.file || m.next || m.review || m.roundFindings || m.reviewEnd || m.started || m.images || m.suggestion);
 
 const replaceAt = <T>(list: readonly T[], index: number, item: T): T[] => list.map((x, i) => (i === index ? item : x));
 
@@ -176,7 +177,7 @@ function applyAction(messages: readonly ChatMessage[], action: TranscriptAction,
       const before = index >= 0 ? messages[index]! : null;
       // A card sent again keeps when it first appeared (pictures are grouped by it).
       const at = before?.at ?? action.at;
-      const message: ChatMessage = { id: action.id, author: 'agent', time: before ? before.time : time, text: '', ...(at !== undefined ? { at } : {}), ...(action.widget ? { widget: action.widget } : {}), ...(action.file ? { file: action.file } : {}), ...(action.next ? { next: action.next } : {}), ...(action.review ? { review: action.review } : {}), ...(action.started ? { started: action.started } : {}), ...(action.images ? { images: action.images } : {}), ...(action.suggestion ? { suggestion: action.suggestion } : {}) };
+      const message: ChatMessage = { id: action.id, author: 'agent', time: before ? before.time : time, text: '', ...(at !== undefined ? { at } : {}), ...(action.widget ? { widget: action.widget } : {}), ...(action.file ? { file: action.file } : {}), ...(action.next ? { next: action.next } : {}), ...(action.review ? { review: action.review } : {}), ...(action.roundFindings ? { roundFindings: action.roundFindings } : {}), ...(action.reviewEnd ? { reviewEnd: action.reviewEnd } : {}), ...(action.started ? { started: action.started } : {}), ...(action.images ? { images: action.images } : {}), ...(action.suggestion ? { suggestion: action.suggestion } : {}) };
       return { messages: index >= 0 ? replaceAt(messages, index, message) : [...messages, message], changed: [message] };
     }
     case 'notice': {

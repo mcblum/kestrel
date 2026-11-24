@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { notificationsRoute } from './notifications/api.ts';
 import { NotifyPrefsStore } from './notifications/prefs.ts';
-import { silentReason, tellsSomehow, bannerProblem, DEFAULT_NOTIFY, NOTIFY_KIND_LABEL, notifies, notifyEvents, notifyProblem, parseTarget, reviewNotifyEvents, sanitizeNotify, targetOf, ticketNotifyEvents, ticketsBefore, type Looking } from './shared/notifications.ts';
+import { NOTHING_SEEN, notificationsOf, silentReason, tellsSomehow, bannerProblem, DEFAULT_NOTIFY, NOTIFY_KIND_LABEL, notifies, notifyEvents, notifyProblem, parseTarget, reviewNotifyEvents, sanitizeNotify, targetOf, ticketNotifyEvents, ticketsBefore, type Looking } from './shared/notifications.ts';
 
 type S = Parameters<typeof notifyEvents>[1][number];
 const session = (id: string, state: S['state'], note = '', extra: Partial<S> = {}): S => ({ id, title: `Session ${id}`, state, note, ...extra });
@@ -211,5 +211,36 @@ describe('a ticket newly assigned', () => {
     const older = { banner: true, sound: 'none', events: { 'needs-you': true, failed: true, done: false, 'review-request': true } };
     expect(notifyProblem(older)).toBeNull();
     expect(sanitizeNotify(older).events.ticket).toBe(true);
+  });
+});
+
+describe('one rule for the window and for push (Kestrel Connect phase 6)', () => {
+  const request = (key: string) => ({ key, host: 'github' as const, hostName: 'github.com', repository: 'acme/shop', number: 12, title: 'Faster checkout', author: 'sam', url: '', updatedAt: 0, projectId: null });
+  const ticket = (ref: string) => ({ key: `fake:${ref}`, source: 'fake', tracker: 'Sample tracker', ref, title: `Do ${ref}`, status: { name: 'To Do', category: 'todo' as const }, project: 'Shop', url: '', openedAt: 0, updatedAt: 0 });
+  const now = (sessions: S[], requests: string[], tickets: string[]) => ({
+    sessions,
+    links: [],
+    reviewRequests: { requests: requests.map(request), unread: requests },
+    tickets: { tickets: tickets.map(ticket), unread: tickets.map((t) => `fake:${t}`), sources: ['fake'], settings: { on: true, off: [], show: 'page' as const } },
+  });
+
+  it('says nothing on the first look, then tells of each change once, sessions, requests and tickets alike', () => {
+    const first = notificationsOf(NOTHING_SEEN, now([session('a', 'running')], ['r1'], ['T-1']), DEFAULT_NOTIFY, AWAY);
+    expect(first.events).toEqual([]);
+    const second = notificationsOf(first.seen, now([session('a', 'done')], ['r1', 'r2'], ['T-1', 'T-2']), DEFAULT_NOTIFY, AWAY);
+    expect(second.events.map((e) => [e.kind, e.sessionId || e.requestKey || e.ticketKey])).toEqual([
+      ['done', 'a'],
+      ['review-request', 'r2'],
+      ['ticket', 'fake:T-2'],
+    ]);
+    expect(notificationsOf(second.seen, now([session('a', 'done')], ['r1', 'r2'], ['T-1', 'T-2']), DEFAULT_NOTIFY, AWAY).events).toEqual([]);
+  });
+
+  it('keeps what is seen while everything is off, so turning it on brings no backlog', () => {
+    const off = { ...DEFAULT_NOTIFY, enabled: false };
+    const first = notificationsOf(NOTHING_SEEN, now([session('a', 'running')], [], []), off, AWAY);
+    const second = notificationsOf(first.seen, now([session('a', 'done')], ['r1'], []), off, AWAY);
+    expect(second.events).toEqual([]);
+    expect(notificationsOf(second.seen, now([session('a', 'done')], ['r1'], []), DEFAULT_NOTIFY, AWAY).events).toEqual([]);
   });
 });

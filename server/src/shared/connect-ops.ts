@@ -6,7 +6,8 @@
 import type { PageAsk } from './transcript-page.ts';
 
 /** The protocol version this copy of Kestrel speaks. A frame of any other version is refused. */
-export const CONNECT_PROTOCOL_VERSION = 1;
+/** 2: frames sealed with AES-256-GCM (1 was ChaCha20-Poly1305, which the app's Electron cannot do). */
+export const CONNECT_PROTOCOL_VERSION = 3;
 
 export const ENVELOPE_KINDS = ['request', 'response', 'push', 'hello', 'bye'] as const;
 export type EnvelopeKind = (typeof ENVELOPE_KINDS)[number];
@@ -80,6 +81,8 @@ export interface ConnectOpArgs {
   'session.reply': { sessionId: string; text: string; draftId?: string; attachments?: string[] };
   'session.answer': { sessionId: string; requestId: string; optionId?: string; text?: string; answers?: Record<string, string> };
   'session.stop': { sessionId: string };
+  /** Compact the conversation (Matt, 2026-11-24): what the window's Compact button does. */
+  'session.compact': { sessionId: string };
   'session.seen': { sessionId: string };
   'media.read': { sessionId: string; name: string };
   'attachment.read': { sessionId: string; attachmentId: string };
@@ -89,6 +92,21 @@ export interface ConnectOpArgs {
   'suggestion.answer': { sessionId: string; suggestionId: string; button: string };
   'suggestion.dismiss': { sessionId: string; suggestionId: string };
   'suggestion.undo': { sessionId: string; suggestionId: string };
+  /** The Code reviews page's list, as the window has it, or off in the desk's words (Matt, 2026-11-24). */
+  'reviews.read': Record<string, never>;
+  /** The Tickets page's list, as the window has it, or off in the desk's words (Matt, 2026-11-24). */
+  'tickets.read': Record<string, never>;
+  // The pages' buttons (Matt, 2026-11-24; kestrel-connect.md, "Actions"): each calls what the desk's does.
+  'reviews.seen': { keys: string[]; seen: boolean };
+  'reviews.dismiss': { keys: string[]; dismissed: boolean };
+  'reviews.start': { key: string };
+  'tickets.seen': { keys: string[]; seen: boolean };
+  'tickets.dismiss': { keys: string[]; dismissed: boolean };
+  'tickets.statuses': { key: string };
+  'tickets.move': { key: string; to: string };
+  'tickets.comment': { key: string; body: string };
+  'tickets.detail': { key: string };
+  'tickets.work': { key: string };
 }
 export type ConnectOp = keyof ConnectOpArgs;
 
@@ -105,6 +123,17 @@ const text = (max: number, allowEmpty = false) => (a: Args, field: string): Chec
   typeof a[field] === 'string' && (a[field] as string).length <= max && (allowEmpty || (a[field] as string).trim() !== '') ? { ok: true, value: a[field] as string } : fail(`${field} must be ${allowEmpty ? '' : 'non-empty '}text of at most ${max} characters.`);
 const count = (a: Args, field: string): Checked<number> =>
   Number.isInteger(a[field]) && (a[field] as number) >= 1 && (a[field] as number) <= PAGE_MAX ? { ok: true, value: a[field] as number } : fail(`${field} must be a whole number from 1 to ${PAGE_MAX}.`);
+
+/** A review request's or a ticket's key (`github.com/acme/shop#12`, `jira:site/PLAT-1`), as the stores take them. */
+const RECORD_KEY_MAX = 300;
+/** As many keys as one Dismiss all or Mark read sends. */
+export const KEYS_MAX = 200;
+const recordKey = (a: Args, field: string): Checked<string> => (typeof a[field] === 'string' && (a[field] as string).length > 0 && (a[field] as string).length <= RECORD_KEY_MAX ? { ok: true, value: a[field] as string } : fail(`${field} must be a key of at most ${RECORD_KEY_MAX} characters.`));
+const recordKeys = (a: Args, field: string): Checked<string[]> => {
+  const v = a[field];
+  return Array.isArray(v) && v.length >= 1 && v.length <= KEYS_MAX && v.every((k) => typeof k === 'string' && k.length > 0 && k.length <= RECORD_KEY_MAX) ? { ok: true, value: v as string[] } : fail(`${field} must be a list of 1 to ${KEYS_MAX} keys.`);
+};
+const flag = (a: Args, field: string): Checked<boolean> => (typeof a[field] === 'boolean' ? { ok: true, value: a[field] as boolean } : fail(`${field} must be true or false.`));
 
 /** The files a message names: `draftId` and the ids uploaded to it with `session.attach`. Checked again by the runtime. */
 function files(a: Args): Checked<{ draftId?: string; attachments?: string[] }> {
@@ -191,6 +220,9 @@ export const CONNECT_OPS: { readonly [K in ConnectOp]: OpSpec } = {
     check: (a) => all({ sessionId: id(a, 'sessionId'), requestId: id(a, 'requestId'), optionId: optional(a, 'optionId', id), text: optional(a, 'text', text(2000, true)), answers: answers(a) }),
   },
   'session.stop': { mapsTo: 'POST /api/sessions/:id/stop', fields: ['sessionId'], check: (a) => all({ sessionId: id(a, 'sessionId') }) },
+  // Matt, 2026-11-24: "Within the context stuff, there should be a button to trigger compacting the convo"
+  // (kestrel-connect.md, "The context window, and Compact"). The same call the window's button makes.
+  'session.compact': { mapsTo: 'POST /api/sessions/:id/compact', fields: ['sessionId'], check: (a) => all({ sessionId: id(a, 'sessionId') }) },
   'session.seen': { mapsTo: 'POST /api/seen (the one seen map, pushed to every window)', fields: ['sessionId'], check: (a) => all({ sessionId: id(a, 'sessionId') }) },
   'media.read': { mapsTo: 'GET /api/sessions/:id/media/:name', fields: ['sessionId', 'name'], check: (a) => all({ sessionId: id(a, 'sessionId'), name: id(a, 'name') }) },
   'attachment.read': { mapsTo: 'GET /api/sessions/:id/attachments/:id', fields: ['sessionId', 'attachmentId'], check: (a) => all({ sessionId: id(a, 'sessionId'), attachmentId: id(a, 'attachmentId') }) },
@@ -210,6 +242,23 @@ export const CONNECT_OPS: { readonly [K in ConnectOp]: OpSpec } = {
   },
   'suggestion.dismiss': { mapsTo: 'POST /api/sessions/:id/suggestions/:sid/dismiss', fields: ['sessionId', 'suggestionId'], check: (a) => all({ sessionId: id(a, 'sessionId'), suggestionId: id(a, 'suggestionId') }) },
   'suggestion.undo': { mapsTo: 'POST /api/sessions/:id/suggestions/:sid/undo', fields: ['sessionId', 'suggestionId'], check: (a) => all({ sessionId: id(a, 'sessionId'), suggestionId: id(a, 'suggestionId') }) },
+  // Matt, 2026-11-24: "please add the code review and tickets pages" (kestrel-connect.md, "The Code reviews and
+  // Tickets pages on a phone"). Reads only: no action on a request or a ticket is on the list yet.
+  'reviews.read': { mapsTo: 'the review-requests push (ReviewRequestStore.view)', fields: [], check: () => ({ ok: true, value: {} }) },
+  'tickets.read': { mapsTo: 'the tickets push (TicketStore.view)', fields: [], check: () => ({ ok: true, value: {} }) },
+  // Matt, 2026-11-24, on the pages' actions: "1. Yep, it's the same seen 2. Yes, agree 3. Yes, agree 4. Also agree
+  // 5. Let's allow it to start a review / work a ticket." Each is the desk's button: the same call, the same refusals.
+  // The two starts are A8's first use: this computer's switch, and never Bypass (kestrel-connect.md, "Actions").
+  'reviews.seen': { mapsTo: 'PUT /api/review-requests/seen', fields: ['keys', 'seen'], check: (a) => all({ keys: recordKeys(a, 'keys'), seen: flag(a, 'seen') }) },
+  'reviews.dismiss': { mapsTo: 'PUT /api/review-requests/dismissed', fields: ['keys', 'dismissed'], check: (a) => all({ keys: recordKeys(a, 'keys'), dismissed: flag(a, 'dismissed') }) },
+  'reviews.start': { mapsTo: 'POST /api/review-requests/start (A8)', fields: ['key'], check: (a) => all({ key: recordKey(a, 'key') }) },
+  'tickets.seen': { mapsTo: 'PUT /api/tickets/seen', fields: ['keys', 'seen'], check: (a) => all({ keys: recordKeys(a, 'keys'), seen: flag(a, 'seen') }) },
+  'tickets.dismiss': { mapsTo: 'PUT /api/tickets/dismissed', fields: ['keys', 'dismissed'], check: (a) => all({ keys: recordKeys(a, 'keys'), dismissed: flag(a, 'dismissed') }) },
+  'tickets.statuses': { mapsTo: 'GET /api/tickets/statuses', fields: ['key'], check: (a) => all({ key: recordKey(a, 'key') }) },
+  'tickets.move': { mapsTo: 'POST /api/tickets/move (moveTicket)', fields: ['key', 'to'], check: (a) => all({ key: recordKey(a, 'key'), to: text(200)(a, 'to') }) },
+  'tickets.comment': { mapsTo: 'POST /api/tickets/comment (commentOnTicket)', fields: ['key', 'body'], check: (a) => all({ key: recordKey(a, 'key'), body: text(MESSAGE_MAX)(a, 'body') }) },
+  'tickets.detail': { mapsTo: 'POST /api/tickets/read', fields: ['key'], check: (a) => all({ key: recordKey(a, 'key') }) },
+  'tickets.work': { mapsTo: 'POST /api/tickets/work (A8)', fields: ['key'], check: (a) => all({ key: recordKey(a, 'key') }) },
 };
 
 export const CONNECT_OP_NAMES = Object.keys(CONNECT_OPS) as ConnectOp[];
@@ -228,7 +277,7 @@ export const NEVER_REMOTE: Readonly<Record<string, string>> = {
   'sandbox-allow': 'The always-allowed list is edited in Settings at the desk. From a phone, a sandbox card\'s own choices add to it.',
   'project-edits': '"Keep each project\'s edits in its own session" is changed at the desk.',
   'review-mode': 'How reviews start is changed at the desk.',
-  'session.start': 'Sessions are started at the desk. From a phone you can answer one an agent asks to start.',
+  'session.start': 'Sessions are started at the desk. From a phone you can start a review of a request or work a ticket, or answer a session an agent asks to start.',
   'session.rename': 'A session is renamed at the desk.',
   'session.move': 'A session is moved at the desk.',
   'session.archive': 'A session is archived at the desk.',

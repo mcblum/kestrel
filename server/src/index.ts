@@ -92,7 +92,7 @@ const titles = titleProviders(scripted ? 'scripted' : fake ? 'none' : 'real');
 // Tag rules and Settings → Git live in the store's settings; with fake data a sample GitHub login stands in for gh. The test-only `note` suggestion kind is offered to the scripted stand-in alone.
 // Codex is the user's own `codex app-server` (agents/codex/), OpenCode the user's own `opencode serve`
 // (agents/opencode/); the scripted stand-in replaces Claude only.
-const runtime = new SessionRuntime(workspace, scripted ? { claude: scriptedAdapter() } : { claude: claudeAdapter(), codex: codexAdapter(), opencode: opencodeAdapter() }, dataDir, { titleProviders: titles, suggestions: { settings: db, testKinds: scripted }, git: { settings: db, username: fake ? sampleUsername : undefined }, projectEdits: { settings: db }, startBase: { settings: db }, projectScripts: { settings: db }, projectEnv: { settings: db }, savedActions: { settings: db }, gitDefaults: { settings: db }, notifications: { settings: db }, cleanup: { settings: db }, whoDoesWhat: { settings: db }, keepAwake: { settings: db }, commandsKept: { settings: db }, openIn: { settings: db }, sandboxAllow: { settings: db }, commitSigning: { settings: db }, crashReports: { settings: db }, reviewPrefs: { settings: db }, colours: { settings: db }, reviewing: fake ? null : reviewingComments(), ...(fake ? { reviewRunner: async () => ({ stdout: '' }) } : {}) });
+const runtime = new SessionRuntime(workspace, scripted ? { claude: scriptedAdapter() } : { claude: claudeAdapter(), codex: codexAdapter(), opencode: opencodeAdapter() }, dataDir, { titleProviders: titles, suggestions: { settings: db, testKinds: scripted }, git: { settings: db, username: fake ? sampleUsername : undefined }, projectEdits: { settings: db }, remoteStarts: { settings: db }, startBase: { settings: db }, projectScripts: { settings: db }, projectEnv: { settings: db }, savedActions: { settings: db }, gitDefaults: { settings: db }, notifications: { settings: db }, cleanup: { settings: db }, whoDoesWhat: { settings: db }, keepAwake: { settings: db }, commandsKept: { settings: db }, openIn: { settings: db }, sandboxAllow: { settings: db }, commitSigning: { settings: db }, crashReports: { settings: db }, reviewPrefs: { settings: db }, colours: { settings: db }, reviewing: fake ? null : reviewingComments(), ...(fake ? { reviewRunner: async () => ({ stdout: '' }) } : {}) });
 if (demo && seeded && !story && !sidebarDemo) await seedDemoExtras(workspace, runtime.savedActions);
 // SAMPLE: with fake data, one running session shows background work left running (seed.ts).
 if (fake && !story && !sidebarDemo) {
@@ -182,8 +182,6 @@ const jira = new JiraConnection(credentials, { unavailable: fake ? SAMPLE_TRACKE
 const linear = new LinearConnection(credentials, { unavailable: fake ? SAMPLE_TRACKERS_REASON : null, changed: () => checkTickets() });
 const sourcesOfTickets = ticketSources({ fake, workspace, originOf: originUrl, glabSignIn: sharedGlabSignIn, githubLogin: githubLoginLookup(), jira: () => jira.ticketSource(), linear: () => linear.ticketSource() });
 const noTicketSources = story || sidebarDemo;
-// Kestrel Connect (connect/link/): signed in and switched on in Settings, it links to the relay.
-const connect = await startConnect({ dataDir, settings: db, fake, workspace, runtime, vaultKey });
 // The sync is made before the server, which hands its routes to it, and asks only while a window is connected.
 let watchedNow: () => boolean = () => false;
 const ticketSync = syncTickets(async () => (noTicketSources ? [] : sourcesOfTickets.list()), tickets, () => watchedNow());
@@ -207,7 +205,11 @@ runtime.useTickets(
     untag: (id, tag) => workspace.untagSession(id, tag),
   }),
 );
-const app = createKestrelServer(workspace, { token, allowedOrigins: uiOrigins, port }, runtime, { details: { sources: details, sample: fake }, writers: titles, reviewRequests, tickets: { store: tickets, sync: ticketSync, work: ticketWork, jira, linear, sources: () => sourcesOfTickets.status() }, crashReporting, connect });
+// The Tickets routes, for the window and a phone of the account alike (tickets/api.ts).
+const ticketsApi = { store: tickets, sync: ticketSync, work: ticketWork, jira, linear, sources: () => sourcesOfTickets.status() };
+// Kestrel Connect (connect/link/): signed in and switched on in Settings, it links to the relay.
+const connect = await startConnect({ dataDir, settings: db, fake, workspace, runtime, reviewRequests, tickets, ticketsApi, vaultKey });
+const app = createKestrelServer(workspace, { token, allowedOrigins: uiOrigins, port }, runtime, { details: { sources: details, sample: fake }, writers: titles, reviewRequests, tickets: ticketsApi, crashReporting, connect });
 watchedNow = () => app.watched();
 checkTickets = () => void ticketSync.check();
 await app.listen();

@@ -81,6 +81,14 @@ export const AFTER_SKIP_PROMPTS: PermissionLevel = 'auto';
 export const stickyPermission = (chosen: PermissionLevel): PermissionLevel => (chosen === SKIP_PROMPTS ? AFTER_SKIP_PROMPTS : chosen);
 
 /**
+ * The mode a session starts in when another device of the account starts it on this computer (A8 in
+ * account-sessions.md; first used 2026-11-24 for a phone's Start review and Work this ticket): the mode
+ * this computer's own button would use, never Bypass. Bypass is chosen only on the computer the session
+ * runs on, so it becomes Auto, as a remembered Bypass does.
+ */
+export const remoteStartPermission = (deskChoice: PermissionLevel): PermissionLevel => stickyPermission(deskChoice);
+
+/**
  * The mode a session starts in when another session started it (handoff, delegate, spawn): its
  * parent's, so work the user set going in Auto does not stop at every child's first command
  * (Matt, 2026-11-18). Never Bypass, which the user confirms for one session only: a Bypass

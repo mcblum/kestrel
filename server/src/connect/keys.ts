@@ -2,77 +2,28 @@
 // kestrel-connect.md, section 5; "Phase 3 as built" says exactly what is on the wire). No primitive
 // is written here: every one is Node's crypto (OpenSSL), the platform's own, and each has a direct
 // equivalent in CryptoKit for the phone: Ed25519 (Curve25519.Signing), X25519
-// (Curve25519.KeyAgreement), HKDF-SHA256, HMAC-SHA256 and ChaCha20-Poly1305 (ChaChaPoly).
+// (Curve25519.KeyAgreement), HKDF-SHA256, HMAC-SHA256 and AES-256-GCM (AES.GCM). Not ChaCha20-Poly1305: Electron's Node, which the app's
+// server runs on, is built on BoringSSL and has no such cipher ("Unknown cipher"; 2026-11-23).
 //
-// - Pairing: the desk shows a code holding a 128-bit secret. The phone proves it has the code with an
-//   HMAC over both devices' ids and its public keys; the desk answers with the same over its own. The
-//   relay sees both messages but cannot forge either without the secret, and 128 bits cannot be
-//   guessed offline. A short code would need a PAKE, which Node does not have; hence the long one.
+// - Joining (account-sessions.md, section 4.4): a new device commits to a nonce and its keys, a device
+//   already in the account answers with a nonce of its own, the new device reveals, and both make a
+//   six-digit code from the two nonces and all four keys. The new device shows it; the person types it
+//   on the other. Neither side can choose its input after seeing the other's, so a relay that swaps a
+//   key has one chance in a million per attempt. Built from SHA-256 and HMAC-SHA256; nothing new.
 // - The live channel: per connection, each side makes an ephemeral X25519 key and signs it with its
 //   identity key (Ed25519) over a transcript naming both devices. The shared secret goes through HKDF
 //   into one key per direction. A stolen identity key does not open a recorded session.
-// - Frames: the body is ChaCha20-Poly1305 under the direction's key, the nonce a counter that only
+// - Frames: the body is AES-256-GCM under the direction's key, the nonce a counter that only
 //   rises (a replayed or reordered frame is refused), and the envelope's header bound as associated
 //   data, so a changed `from`, `to`, `kind`, `id` or `replyTo` is refused like a changed byte.
-import { createCipheriv, createDecipheriv, createHmac, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, sign, timingSafeEqual, verify, type KeyObject } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, createHmac, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, sign, timingSafeEqual, verify, type KeyObject } from 'node:crypto';
 import type { Envelope } from '../shared/connect-ops.ts';
 
-const PAIR_INFO = 'kestrel-connect pairing v1';
 const SESSION_INFO = 'kestrel-connect session v1';
-const SECRET_BYTES = 16;
 const NONCE_BYTES = 12;
+/** The one AEAD of Kestrel Connect, for frames and for everything held (account-key.ts). */
+export const AEAD = 'aes-256-gcm';
 const TAG_BYTES = 16;
-const BASE32 = 'ABCDEFGHJKMNPQRSTVWXYZ0123456789'.toLowerCase(); // Crockford-like: no i, l, o, u
-
-/** Base32 of the secret, grouped in fours for reading aloud. */
-export function encodeSecret(secret: Buffer): string {
-  let bits = 0;
-  let value = 0;
-  let out = '';
-  for (const byte of secret) {
-    value = (value << 8) | byte;
-    bits += 8;
-    while (bits >= 5) {
-      out += BASE32[(value >>> (bits - 5)) & 31];
-      bits -= 5;
-    }
-  }
-  if (bits > 0) out += BASE32[(value << (5 - bits)) & 31];
-  return out.match(/.{1,4}/g)?.join('-') ?? out;
-}
-
-/** The secret from what was typed or scanned; forgiving of case, spaces, dashes and look-alikes. */
-export function decodeSecret(text: string): Buffer | null {
-  const clean = text.toLowerCase().replace(/[\s-]/g, '').replace(/[il]/g, '1').replace(/o/g, '0').replace(/u/g, 'v');
-  let bits = 0;
-  let value = 0;
-  const bytes: number[] = [];
-  for (const char of clean) {
-    const index = BASE32.indexOf(char);
-    if (index < 0) return null;
-    value = ((value << 5) | index) & 0xffff;
-    bits += 5;
-    if (bits >= 8) {
-      bytes.push((value >>> (bits - 8)) & 0xff);
-      bits -= 8;
-    }
-  }
-  // Only the canonical spelling: the bits past the last byte are zero.
-  return bytes.length === SECRET_BYTES && (value & ((1 << bits) - 1)) === 0 ? Buffer.from(bytes) : null;
-}
-
-export const newPairingSecret = (): Buffer => randomBytes(SECRET_BYTES);
-
-/** What the pairing page shows and a phone scans: `kestrel-pair:<desk device id>:<secret>`. */
-export function pairingCode(deskId: string, secret: Buffer): string {
-  return `kestrel-pair:${deskId}:${encodeSecret(secret)}`;
-}
-
-export function parsePairingCode(code: string): { deskId: string; secret: Buffer } | null {
-  const match = /^kestrel-pair:([A-Za-z0-9_-]{1,128}):([A-Za-z0-9\s-]+)$/.exec(code.trim());
-  const secret = match ? decodeSecret(match[2] ?? '') : null;
-  return match && secret ? { deskId: match[1] as string, secret } : null;
-}
 
 /** The public half of a device's identity, as it travels: raw keys, base64url. */
 export interface PublicIdentity {
@@ -110,19 +61,6 @@ export function newIdentity(): Identity {
 
 const transcript = (...parts: string[]): Buffer => Buffer.from(parts.map((p) => `${p.length}:${p}`).join('|'), 'utf8');
 
-/** The proof that whoever made it holds the pairing secret, bound to who is pairing with whom. */
-export function pairingProof(secret: Buffer, role: 'phone' | 'desk', deskId: string, phoneId: string, keys: PublicIdentity, name = ''): string {
-  const key = Buffer.from(hkdfSync('sha256', secret, Buffer.alloc(0), PAIR_INFO, 32));
-  return createHmac('sha256', key).update(transcript(PAIR_INFO, role, deskId, phoneId, keys.signing, keys.agreement, name)).digest('base64url');
-}
-
-export function proofMatches(expected: string, given: unknown): boolean {
-  if (typeof given !== 'string') return false;
-  const a = Buffer.from(expected);
-  const b = Buffer.from(given);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
 /** One side of the live channel's handshake: an ephemeral key, signed by the identity key. */
 export interface Ephemeral {
   publicKey: string;
@@ -134,30 +72,171 @@ export function newEphemeral(): Ephemeral {
   return { publicKey: publicKey.export({ type: 'spki', format: 'der' }).subarray(-32).toString('base64url'), privateKey };
 }
 
-/** `at`: when the phone made its hello (ms), signed, so a recorded hello cannot be replayed later. */
-const helloTranscript = (role: 'phone' | 'desk', phoneId: string, deskId: string, phoneEphemeral: string, deskEphemeral: string, at: number) => transcript(SESSION_INFO, role, phoneId, deskId, phoneEphemeral, deskEphemeral, String(at));
+/** Which end of a channel signed: the device that said hello first, or the one that answered. */
+export type HelloRole = 'caller' | 'callee';
 
-/** Signs this side's hello. The phone signs before it has the desk's ephemeral key ('' there). */
-export function signHello(identity: Identity, role: 'phone' | 'desk', phoneId: string, deskId: string, phoneEphemeral: string, deskEphemeral: string, at: number): string {
-  return sign(null, helloTranscript(role, phoneId, deskId, phoneEphemeral, deskEphemeral, at), createPrivateKey(identity.signing.privateKey)).toString('base64url');
+/** `at`: when the caller made its hello (ms), signed, so a recorded hello cannot be replayed later. */
+const helloTranscript = (role: HelloRole, callerId: string, calleeId: string, callerEphemeral: string, calleeEphemeral: string, at: number) => transcript(SESSION_INFO, role, callerId, calleeId, callerEphemeral, calleeEphemeral, String(at));
+
+/** Signs this side's hello. The caller signs before it has the callee's ephemeral key ('' there). */
+export function signHello(identity: Identity, role: HelloRole, callerId: string, calleeId: string, callerEphemeral: string, calleeEphemeral: string, at: number): string {
+  return sign(null, helloTranscript(role, callerId, calleeId, callerEphemeral, calleeEphemeral, at), createPrivateKey(identity.signing.privateKey)).toString('base64url');
 }
 
-export function helloSigned(signingKey: string, signature: unknown, role: 'phone' | 'desk', phoneId: string, deskId: string, phoneEphemeral: string, deskEphemeral: string, at: number): boolean {
+export function helloSigned(signingKey: string, signature: unknown, role: HelloRole, callerId: string, calleeId: string, callerEphemeral: string, calleeEphemeral: string, at: number): boolean {
   if (typeof signature !== 'string') return false;
   try {
-    return verify(null, helloTranscript(role, phoneId, deskId, phoneEphemeral, deskEphemeral, at), publicFromRaw(signingKey, 'ed25519'), Buffer.from(signature, 'base64url'));
+    return verify(null, helloTranscript(role, callerId, calleeId, callerEphemeral, calleeEphemeral, at), publicFromRaw(signingKey, 'ed25519'), Buffer.from(signature, 'base64url'));
   } catch {
     return false;
   }
 }
 
 /** The two directions' keys from both ephemeral keys. */
-export function sessionKeys(mine: Ephemeral, theirs: string, phoneEphemeral: string, deskEphemeral: string): { phoneToDesk: Buffer; deskToPhone: Buffer } {
+export function sessionKeys(mine: Ephemeral, theirs: string, callerEphemeral: string, calleeEphemeral: string): { callerToCallee: Buffer; calleeToCaller: Buffer } {
   const shared = diffieHellman({ privateKey: mine.privateKey, publicKey: publicFromRaw(theirs, 'x25519') });
   if (shared.every((b) => b === 0)) throw new Error('That key cannot be used.');
-  const salt = Buffer.concat([Buffer.from(phoneEphemeral, 'base64url'), Buffer.from(deskEphemeral, 'base64url')]);
+  const salt = Buffer.concat([Buffer.from(callerEphemeral, 'base64url'), Buffer.from(calleeEphemeral, 'base64url')]);
   const keys = Buffer.from(hkdfSync('sha256', shared, salt, SESSION_INFO, 64));
-  return { phoneToDesk: keys.subarray(0, 32), deskToPhone: keys.subarray(32) };
+  return { callerToCallee: keys.subarray(0, 32), calleeToCaller: keys.subarray(32) };
+}
+
+// Joining (account-sessions.md, section 4.4; kestrel-connect.md, "Account stage 1 as built").
+const JOIN_COMMIT = 'kestrel join v1';
+const JOIN_CODE = 'kestrel join code v1';
+const JOIN_WELCOME = 'kestrel join welcome v1';
+const JOIN_CONFIRM = 'kestrel join confirm v1';
+const JOIN_JOINED = 'kestrel join joined v1';
+const JOIN_DECLINED = 'kestrel join declined v1';
+
+/** Why a joining device did not keep the key it was offered (step 8a). */
+export type JoinDeclined = 'wrong-code' | 'cancelled' | 'expired';
+export const JOIN_DECLINED_REASONS: readonly JoinDeclined[] = ['wrong-code', 'cancelled', 'expired'];
+export const JOIN_NONCE_BYTES = 32;
+
+const raw32 = (key: string): Buffer => {
+  const bytes = Buffer.from(key, 'base64url');
+  if (bytes.length !== 32) throw new Error('A public key must be 32 bytes.');
+  return bytes;
+};
+
+export const newJoinNonce = (): Buffer => randomBytes(JOIN_NONCE_BYTES);
+
+/** What the new device posts before anyone answers it: SHA-256 over its nonce and both its public keys. */
+export function joinCommitment(nonce: Buffer, keys: PublicIdentity): string {
+  return createHash('sha256').update(Buffer.from(JOIN_COMMIT, 'utf8')).update(nonce).update(raw32(keys.signing)).update(raw32(keys.agreement)).digest('base64url');
+}
+
+/** Whether a revealed nonce and keys are the ones committed to. */
+export function joinCommitted(commitment: string, nonce: Buffer, keys: PublicIdentity): boolean {
+  try {
+    return nonce.length === JOIN_NONCE_BYTES && sameText(joinCommitment(nonce, keys), commitment);
+  } catch {
+    return false;
+  }
+}
+
+/** The six digits both devices make: HMAC-SHA256 keyed by both nonces over all four keys, the first four bytes mod 1,000,000. */
+export function joinCode(newNonce: Buffer, approverNonce: Buffer, newKeys: PublicIdentity, approverKeys: PublicIdentity): string {
+  const mac = createHmac('sha256', Buffer.concat([newNonce, approverNonce]))
+    .update(Buffer.from(JOIN_CODE, 'utf8'))
+    .update(raw32(newKeys.signing))
+    .update(raw32(newKeys.agreement))
+    .update(raw32(approverKeys.signing))
+    .update(raw32(approverKeys.agreement))
+    .digest();
+  return String(mac.readUInt32BE(0) % 1_000_000).padStart(6, '0');
+}
+
+/** What was typed, as six digits, or null: spaces, dashes and the like are forgiven. */
+export function typedCode(text: string): string | null {
+  const digits = text.replace(/[\s\-.·]/g, '');
+  return /^[0-9]{6}$/.test(digits) ? digits : null;
+}
+
+/** The code as the new device shows it: two groups of three. */
+export const shownCode = (code: string): string => `${code.slice(0, 3)} ${code.slice(3)}`;
+
+function sameText(a: string, b: unknown): boolean {
+  if (typeof b !== 'string') return false;
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+}
+
+export const codesMatch = (expected: string, typed: string): boolean => sameText(expected, typed);
+
+const welcomeTranscript = (joinId: string, newId: string, approverId: string, newKeys: PublicIdentity, generation: number, keyringVersion: number) =>
+  transcript(JOIN_WELCOME, joinId, newId, approverId, newKeys.signing, newKeys.agreement, String(generation), String(keyringVersion));
+
+/** The approver's word that it gave the new device the key, under this keyring version. */
+export function signJoinWelcome(identity: Identity, joinId: string, newId: string, approverId: string, newKeys: PublicIdentity, generation: number, keyringVersion: number): string {
+  return sign(null, welcomeTranscript(joinId, newId, approverId, newKeys, generation, keyringVersion), createPrivateKey(identity.signing.privateKey)).toString('base64url');
+}
+
+export function joinWelcomeSigned(approverSigning: string, signature: unknown, joinId: string, newId: string, approverId: string, newKeys: PublicIdentity, generation: number, keyringVersion: number): boolean {
+  if (typeof signature !== 'string') return false;
+  try {
+    return verify(null, welcomeTranscript(joinId, newId, approverId, newKeys, generation, keyringVersion), publicFromRaw(approverSigning, 'ed25519'), Buffer.from(signature, 'base64url'));
+  } catch {
+    return false;
+  }
+}
+
+/** What both sides know of one welcome: the request, both devices with their keys, the key's generation and keyring version, and the signature. */
+export interface WelcomeFacts {
+  joinId: string;
+  newId: string;
+  approverId: string;
+  newKeys: PublicIdentity;
+  approverKeys: PublicIdentity;
+  generation: number;
+  keyringVersion: number;
+  signature: string;
+}
+
+/**
+ * The second code (step 8a): shown on the approving device once the first code was right, typed on the new
+ * device, which keeps the key only when it matches. HMAC-SHA256 keyed by both nonces over the welcome as the
+ * new device believes it (the approver's keys among it), under its own label and length-prefixed, so it is
+ * never the first code and a welcome from anyone else gives another code. First four bytes mod 1,000,000.
+ */
+export function joinConfirmCode(newNonce: Buffer, approverNonce: Buffer, w: WelcomeFacts): string {
+  raw32(w.newKeys.signing), raw32(w.newKeys.agreement), raw32(w.approverKeys.signing), raw32(w.approverKeys.agreement);
+  const mac = createHmac('sha256', Buffer.concat([newNonce, approverNonce]))
+    .update(transcript(JOIN_CONFIRM, w.joinId, w.newId, w.approverId, w.newKeys.signing, w.newKeys.agreement, w.approverKeys.signing, w.approverKeys.agreement, String(w.generation), String(w.keyringVersion), w.signature))
+    .digest();
+  return String(mac.readUInt32BE(0) % 1_000_000).padStart(6, '0');
+}
+
+const joinedTranscript = (joinId: string, newId: string, approverId: string, generation: number, keyringVersion: number) => transcript(JOIN_JOINED, joinId, newId, approverId, String(generation), String(keyringVersion));
+const declinedTranscript = (joinId: string, newId: string, approverId: string, reason: JoinDeclined) => transcript(JOIN_DECLINED, joinId, newId, approverId, reason);
+
+/** The new device's word that the second code matched and it kept the key (step 8a). */
+export function signJoinJoined(identity: Identity, joinId: string, newId: string, approverId: string, generation: number, keyringVersion: number): string {
+  return sign(null, joinedTranscript(joinId, newId, approverId, generation, keyringVersion), createPrivateKey(identity.signing.privateKey)).toString('base64url');
+}
+
+export function joinJoinedSigned(newSigning: string, signature: unknown, joinId: string, newId: string, approverId: string, generation: number, keyringVersion: number): boolean {
+  return verified(newSigning, signature, joinedTranscript(joinId, newId, approverId, generation, keyringVersion));
+}
+
+/** The new device's word that it discarded the key it was offered, and why (step 8a). */
+export function signJoinDeclined(identity: Identity, joinId: string, newId: string, approverId: string, reason: JoinDeclined): string {
+  return sign(null, declinedTranscript(joinId, newId, approverId, reason), createPrivateKey(identity.signing.privateKey)).toString('base64url');
+}
+
+export function joinDeclinedSigned(newSigning: string, signature: unknown, joinId: string, newId: string, approverId: string, reason: JoinDeclined): boolean {
+  return verified(newSigning, signature, declinedTranscript(joinId, newId, approverId, reason));
+}
+
+function verified(signing: string, signature: unknown, data: Buffer): boolean {
+  if (typeof signature !== 'string') return false;
+  try {
+    return verify(null, data, publicFromRaw(signing, 'ed25519'), Buffer.from(signature, 'base64url'));
+  } catch {
+    return false;
+  }
 }
 
 /** The envelope without its body: what a frame's ciphertext is bound to. */
@@ -178,7 +257,7 @@ export class FrameCipher {
   seal(frame: Omit<Envelope, 'body'>, body: unknown): string {
     this.counter += 1n;
     const nonce = this.nonce(this.counter);
-    const cipher = createCipheriv('chacha20-poly1305', this.key, nonce, { authTagLength: TAG_BYTES });
+    const cipher = createCipheriv(AEAD, this.key, nonce, { authTagLength: TAG_BYTES });
     const plain = Buffer.from(JSON.stringify(body), 'utf8');
     cipher.setAAD(header(frame), { plaintextLength: plain.length });
     const text = Buffer.concat([cipher.update(plain), cipher.final()]);
@@ -193,7 +272,7 @@ export class FrameCipher {
     const nonce = sealed.subarray(0, NONCE_BYTES);
     const count = nonce.readBigUInt64BE(4);
     if (nonce.readUInt32BE(0) !== 0 || count <= this.counter) throw new Error('The frame was sent before, or out of order.');
-    const decipher = createDecipheriv('chacha20-poly1305', this.key, nonce, { authTagLength: TAG_BYTES });
+    const decipher = createDecipheriv(AEAD, this.key, nonce, { authTagLength: TAG_BYTES });
     decipher.setAAD(header(frame), { plaintextLength: sealed.length - NONCE_BYTES - TAG_BYTES });
     decipher.setAuthTag(sealed.subarray(sealed.length - TAG_BYTES));
     const text = Buffer.concat([decipher.update(sealed.subarray(NONCE_BYTES, sealed.length - TAG_BYTES)), decipher.final()]).toString('utf8');

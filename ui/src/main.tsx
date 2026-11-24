@@ -29,6 +29,7 @@ import './styles/row-request.css';
 import './styles/pull-request-group.css';
 import './styles/pull-requests-page.css';
 import './styles/review-requests.css';
+import './styles/asides.css';
 import './styles/inbox-list.css';
 import './styles/tickets.css';
 import './styles/scrollbars.css';

@@ -1,5 +1,7 @@
 // The data model from docs/designs/kestrel.md ("Data model"). Types only; shared with the UI.
 import type { ReviewReply } from './shared/review-reply.ts';
+import type { ReviewEnd, RoundFindings } from './shared/round-findings.ts';
+import type { AsideOf } from './shared/asides.ts';
 import type { ReviewMark } from './shared/review-requests.ts';
 import type { SlashCommand } from './shared/slash-commands.ts';
 import type { PermissionLevel } from './shared/permissions.ts';
@@ -138,6 +140,18 @@ export interface Session {
   turnByUser?: boolean;
   /** Set on a session that reviews somebody else's pull request (shared/review-requests.ts); absent on every other. */
   review?: ReviewMark;
+  /**
+   * Set on a sidebar: a read-only fork of another session, kept to talk over one finding of a card in
+   * that session (shared/asides.ts). It is listed nowhere and drawn only in its pane. Added
+   * 2026-11-24; absent on every other session.
+   */
+  aside?: AsideOf;
+  /**
+   * Set on a guest (shared/worktree-guests.ts): the session whose worktree it works in, its host. A
+   * guest has no worktree or branch of its own; where it works is read with `workingTreeOf`
+   * (shared/working-tree.ts), never from `worktreePath`. Added 2026-11-24; absent on every other session.
+   */
+  hostId?: string;
 }
 
 /**
@@ -362,6 +376,10 @@ export interface ChatMessage {
   next?: NextStep;
   /** A finished review of somebody else's pull request, to be posted (shared/review-reply.ts). */
   review?: ReviewReply;
+  /** One round's findings from the review of this session's own work (shared/round-findings.ts). Added 2026-11-24; absent from older servers. */
+  roundFindings?: RoundFindings;
+  /** How the review of this session's own work ended with findings still open: a card that stays above the message box until the user carries on (shared/round-findings.ts). Added 2026-11-24; absent from older servers. */
+  reviewEnd?: ReviewEnd;
   /** A session this one started, at the point it started it; the row shows that session's state as it is now. */
   started?: StartedSession;
   /** Pictures a tool returned (a screenshot, an image it read), by file name under the session's media folder. */

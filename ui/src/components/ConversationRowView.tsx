@@ -49,7 +49,7 @@ export const RowView = memo(function RowView({ row, sessionId, onChoice, onReply
     <>
       {row.kind === 'fold' && <FoldAt row={row} sessionId={sessionId} />}
       {row.kind === 'message' && <Message message={row.message} sessionId={sessionId} onChoice={onChoice} onReply={onReply} onReuse={onReuse} withoutSteps={row.textOnly} />}
-      {footer && <TurnFoot copyKey={`turn:${sessionId}:${row.key}`} markdown={footer.markdown} startedAt={footer.timing?.startedAt} endedAt={footer.timing?.endedAt} fork={fork} turn={footer.fork} />}
+      {footer && <TurnFoot copyKey={`turn:${sessionId}:${row.key}`} markdown={footer.markdown} startedAt={footer.timing?.startedAt} endedAt={footer.timing?.endedAt} fork={fork} turn={footer.fork} {...(row.key.startsWith('at-') ? {} : { pointId: row.key })} />}
       {row.anchored && anchored}
     </>
   );

@@ -41,6 +41,8 @@ export interface RuntimeOptions {
   git?: GitSettingsOptions;
   /** Where "Keep each project's edits in its own session" is kept (project-edits/prefs.ts). */
   projectEdits?: { settings?: SettingStore };
+  /** Where "Other devices may start sessions on this computer" is kept (remote-starts/prefs.ts). */
+  remoteStarts?: { settings?: SettingStore };
   /** Where each project's remembered answer to where a new session starts is kept (start-base/prefs.ts). */
   startBase?: { settings?: SettingStore };
   /** Where "Commands kept per session" is kept (commands-kept/prefs.ts). */

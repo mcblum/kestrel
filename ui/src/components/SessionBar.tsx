@@ -24,6 +24,7 @@ import { PullRequestSummary, type PullRequestSource } from './PullRequestView.ts
 import { CreatePullRequestButton } from './CreatePullRequestButton.tsx';
 import { useWorktreeMenu } from './WorktreeConfirmations.tsx';
 import { PaneToolbar } from './PaneToolbar.tsx';
+import { useRequestSide, useWorkingTree } from '../workingTree.ts';
 
 function GroupSelect({ session }: { session: SessionView }) {
   const all = useApp((s) => s.workspace?.groups) ?? [];
@@ -87,7 +88,11 @@ export function SessionBar({ session, detail, panes, browserTitle, git, pullRequ
   const files = detail?.files ?? [];
   const runningCommands = useApp((s) => s.live.get(session.id)?.commands.filter((c) => c.status === 'running').length ?? 0);
   const worktree = useWorktreeMenu(session);
-  const button = requestButton(session, pullRequests.value, git);
+  // A guest works on its host's branch, in its host's worktree (@kestrel/server/working-tree).
+  const tree = useWorkingTree(session);
+  const side = useRequestSide(session);
+  const branch = tree.tree?.branch ?? null;
+  const button = requestButton({ ...(session.review ? { review: session.review } : {}), branch, worktreeDiscarded: !tree.tree }, pullRequests.value, git);
   return (
     <header className="session-bar session-head">
       {/* Line one: the title, and the pane icons. */}
@@ -96,9 +101,9 @@ export function SessionBar({ session, detail, panes, browserTitle, git, pullRequ
           {session.title}
         </span>
         <ToolsMissing detail={detail} />
-        {(session.branch || button) && (
+        {(side.branch || button) && (
           <span className="bar-pr">
-            {session.branch && <PullRequestSummary sessionId={session.id} onRefresh={pullRequests.refresh} value={pullRequests.value} onOpen={onOpenPullRequest} />}
+            {side.branch && <PullRequestSummary sessionId={session.id} onRefresh={pullRequests.refresh} value={pullRequests.value} onOpen={onOpenPullRequest} />}
             {button?.kind === 'create' && <CreatePullRequestButton sessionId={session.id} terms={hostTerms(lookupHost(pullRequests.value))} git={git} worktree={worktree} />}
             {button?.kind === 'view' && (
               <button type="button" className="pr-create-button" title={button.title} onClick={() => window.open(button.url, '_blank', 'noreferrer')}>
@@ -126,7 +131,7 @@ export function SessionBar({ session, detail, panes, browserTitle, git, pullRequ
         <Where session={session} />
         <WorkstreamChip sessionId={session.id} />
         <SessionTicketChip sessionId={session.id} />
-        {session.branch && <GitSummary branch={session.branch} files={files} git={git} onOpen={() => panes.show('context')} />}
+        {branch && <GitSummary branch={branch} files={files} git={git} host={tree.tree?.host ?? null} onOpen={() => panes.show('context')} />}
       </div>
     </header>
   );

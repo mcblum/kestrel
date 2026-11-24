@@ -24,7 +24,8 @@ export async function controlsRoute(parts: readonly string[], method: string, ru
   if (parts[1] === 'sessions' && parts[3] === 'context') {
     const id = decodeURIComponent(parts[2]!);
     if (id.length > MAX_ID) return { status: 400, body: { error: 'id is too long' } };
-    return { status: 200, body: { usage: await runtime.contextUsage(id) } };
+    const shown = await runtime.contextShown(id);
+    return { status: 200, body: { usage: shown.context, ...(shown.contextNote ? { note: shown.contextNote } : {}) } };
   }
   return null;
 }

@@ -21,6 +21,9 @@ print=0
 
 version="$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' "$ROOT/app/package.json" | head -1)"
 [ -n "$version" ] || { echo "!! notify-slack: app/package.json has no version" >&2; exit 1; }
+# A beta (1.2.3-beta.4) says so: it goes to the beta channel only (app/release-channel.mjs).
+what="Kestrel $version"
+[ "$(node "$ROOT/scripts/release/version.mjs" channel "$version" 2>/dev/null)" != beta ] || what="Kestrel $version (beta channel only)"
 mention="${KESTREL_SLACK_MENTION:-}"
 commit_url="${CI_PROJECT_URL:-}/-/commit/${CI_COMMIT_SHA:-}"
 
@@ -32,14 +35,14 @@ fi
 release_url="$(printf '%s' "$jobs" | jq -r --arg name "$RELEASE_JOB" --arg fallback "${CI_PIPELINE_URL:-}" '(if type == "array" then map(select(.name == $name)) else [] end) | first.web_url // $fallback')"
 
 payload="$(jq -n \
-  --arg version "$version" --arg mention "$mention" --arg title "${CI_COMMIT_TITLE:-}" --arg short "${CI_COMMIT_SHORT_SHA:-}" \
+  --arg version "$version" --arg what "$what" --arg mention "$mention" --arg title "${CI_COMMIT_TITLE:-}" --arg short "${CI_COMMIT_SHORT_SHA:-}" \
   --arg commit_url "$commit_url" --arg release_url "$release_url" --arg pipeline_url "${CI_PIPELINE_URL:-}" '
   def esc: gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;");
   ($mention | if . == "" then "" else . + " " end) as $who
   | {
-      text: "\($who)Kestrel \($version) is ready to release",
+      text: "\($who)\($what) is ready to release",
       blocks: [
-        {type: "header", text: {type: "plain_text", text: "Kestrel \($version) is ready to release"}},
+        {type: "header", text: {type: "plain_text", text: "\($what) is ready to release"}},
         {type: "section", text: {type: "mrkdwn",
           text: "\($who)<\($commit_url)|\($short)> \($title | esc)\nThe Windows installer and the Linux AppImage are built. Starting the release builds and notarizes the Mac app and publishes all three."}},
         {type: "section", text: {type: "mrkdwn",
@@ -56,4 +59,4 @@ if [ -z "${KESTREL_SLACK_WEBHOOK_URL:-}" ]; then
   exit 0
 fi
 printf '%s' "$payload" | curl -sSf -X POST -H 'Content-Type: application/json' --data-binary @- "$KESTREL_SLACK_WEBHOOK_URL" >/dev/null
-echo "Posted to Slack: Kestrel $version is ready to release ($release_url)"
+echo "Posted to Slack: $what is ready to release ($release_url)"

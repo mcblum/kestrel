@@ -54,3 +54,15 @@ export function shownRows(usage: ContextUsage): { inWindow: ContextRow[]; deferr
   const rows = usage.rows.filter((r) => r.tokens > 0);
   return { inWindow: rows.filter((r) => r.kind !== 'deferred'), deferred: rows.filter((r) => r.kind === 'deferred') };
 }
+
+/**
+ * What a device shows in the measurement's place when there is none (kestrel-connect.md, "The context
+ * window, and Compact"): the window's ring, a phone's popup and the held index all take it from here.
+ * `reports`: the agent can say at all; `agentLabel` names it then. `started`: the conversation exists.
+ */
+export function contextNote(at: { reports: boolean; agentLabel: string; started: boolean; working: boolean }): string {
+  if (!at.reports) return `${at.agentLabel} does not say how full its context window is.`;
+  if (!at.started) return 'Measured once the conversation has started.';
+  if (at.working) return 'Measured when this turn ends.';
+  return 'Not measured yet. It is measured each time a turn ends.';
+}

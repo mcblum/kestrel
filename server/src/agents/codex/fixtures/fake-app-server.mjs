@@ -208,6 +208,21 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       notify('turn/started', { threadId: THREAD, turn: { id: turnId, items: [], status: 'inProgress' } });
       return void runTurn(turnId, msg.params);
     }
+    case 'thread/compact/start': {
+      // As codex-cli 0.167.2: an empty answer, then a turn of its own with a contextCompaction item.
+      if (msg.params?.threadId !== THREAD) return send({ id: msg.id, error: { code: -32600, message: `thread not found: ${msg.params?.threadId}` } });
+      const turnId = `turn-${++turnSeq}`;
+      currentTurn = turnId;
+      reply({});
+      notify('turn/started', { threadId: THREAD, turn: { id: turnId, items: [], status: 'inProgress' } });
+      if (scenario === 'stop') return; // ends on turn/interrupt
+      const item = { type: 'contextCompaction', id: `compact-${turnId}` };
+      notify('item/started', { threadId: THREAD, turnId, item });
+      notify('item/completed', { threadId: THREAD, turnId, item });
+      const usage = { totalTokens: 200, inputTokens: 200, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 };
+      notify('thread/tokenUsage/updated', { threadId: THREAD, turnId, tokenUsage: { total: usage, last: usage, modelContextWindow: 10000 } });
+      return complete(turnId, 'completed');
+    }
     case 'turn/steer':
       if (process.env.FAKE_CODEX_STEER === 'refuse' || currentTurn !== msg.params.expectedTurnId) return send({ id: msg.id, error: { code: -32600, message: 'no active turn to steer' } });
       reply({ turnId: msg.params.expectedTurnId });

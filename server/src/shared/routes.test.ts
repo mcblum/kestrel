@@ -110,9 +110,10 @@ describe('the workstream page', () => {
   });
 });
 
-describe('the pairing page', () => {
-  it('sits under Connections and round-trips', () => {
-    expect(parseViewPath('#/settings/connections/pair')).toEqual({ kind: 'settings', section: 'connections/pair' });
-    expect(viewPath({ kind: 'settings', section: 'connections/pair' })).toBe('#/settings/connections/pair');
+describe('the recovery page', () => {
+  it('sits under Connections and round-trips; the old pairing page is gone', () => {
+    expect(parseViewPath('#/settings/connections/pair')).not.toEqual({ kind: 'settings', section: 'connections/pair' });
+    expect(parseViewPath('#/settings/connections/recovery')).toEqual({ kind: 'settings', section: 'connections/recovery' });
+    expect(viewPath({ kind: 'settings', section: 'connections/recovery' })).toBe('#/settings/connections/recovery');
   });
 });

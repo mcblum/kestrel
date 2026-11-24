@@ -214,6 +214,34 @@ export async function seedFakeWorkspace(ws: Workspace, paths: Readonly<Record<st
     },
   );
 
+  // ---- a guest in its host's worktree (shared/working-tree.ts) ----------------------
+  // "Polish the sign-in form" sent its Design part to Codex, which works in the same worktree and
+  // branch, has none of its own, and opened the pull request there. Both show the worktree's changes
+  // and that request; the guest's Details say whose worktree it is.
+  const signInFiles = [
+    diff('src/auth/SignIn.tsx', [[' ', '<form className="sign-in">'], ['-', '  <input name="email" />'], ['+', '  <TextInput name="email" label="Email" autoComplete="email" />'], [' ', '</form>']], 18),
+    diff('src/ui/TextInput.css', [['+', '.text-input {'], ['+', '  border: 1px solid var(--border);'], ['+', '  border-radius: 6px;'], ['+', '}']]),
+  ];
+  await add(
+    { id: 'sign-in', title: 'Polish the sign-in form', agent: 'claude', project: 'bellbird', state: 'done', note: 'Finished', branch: 'feat/sign-in-polish' },
+    { messages: talk('Polish the sign-in form: consistent inputs, clear errors.', 'Astra did the Design part in this worktree and opened the pull request. I checked the form and nothing is left.', { repo: true, files: 2, extra: [{ icon: 'split', text: 'Delegated the Design part to Astra, in this worktree' }] }), files: signInFiles },
+  );
+  const { children: [signInGuest] } = await ws.delegate('sign-in', [{ projectId: 'bellbird', brief: 'Restyle the text inputs of the sign-in form', agent: 'codex', title: 'Restyle the sign-in inputs', hostId: 'sign-in' }]);
+  await ws.setState(signInGuest!.id, 'done', 'Finished');
+  await ws.setDetail(signInGuest!.id, {
+    messages: talk('Restyle the text inputs of the sign-in form.', 'Made a TextInput component and its styles, used it in the sign-in form, and opened the pull request.', { repo: true, files: 2 }),
+    files: signInFiles,
+    agentOutput: '',
+    guest: { hostId: 'sign-in', role: 'design', writes: true },
+  });
+
+  // ---- a worktree that was discarded: its panes open in the main checkout, and say so --------
+  await add(
+    { id: 'offline-drafts', title: 'Spike: offline drafts', agent: 'claude', project: 'bellbird', group: explorations.id, state: 'done', note: 'Finished', branch: 'spike/offline-drafts' },
+    { messages: talk('Try keeping drafts offline in IndexedDB.', 'It works for text, not for attachments. Nothing here is worth keeping.', { repo: true, files: 0 }) },
+  );
+  await ws.discardWorktree('offline-drafts');
+
   // ---- a delegate split: one task, three repos --------------------------------------
   await add(
     { id: 'checkout', title: 'Checkout is slow in production', agent: 'claude', project: null, state: 'running', note: 'Coordinating 3 sessions' },

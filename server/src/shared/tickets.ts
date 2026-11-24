@@ -257,6 +257,9 @@ export interface TicketSourceStatus {
 /** What a refused tickets action says while tickets are off. */
 export const TICKETS_OFF_REASON = 'Tickets are off. Turn them on in Settings → Tickets.';
 
+/** One line per tracker the user switched off while tickets are on, for a list that would otherwise just lack its tickets. Pure. */
+export const ticketSourcesOff = (settings: TicketSettings): string[] => (settings.on ? settings.off.map((id) => `${TICKET_SOURCE_LABEL[id]} ${id === 'jira' || id === 'linear' ? 'is' : 'are'} switched off in Settings → Tickets.`) : []);
+
 export const NO_TICKETS: TicketsView = { tickets: [], unread: [], dismissed: [], closed: [], attached: [], links: [], details: {}, problems: [], sources: [], settings: NO_TICKET_SETTINGS };
 
 /** A group of the list: the current sprint (by name) first, then the rest (`sprint: null`). */

@@ -21,6 +21,8 @@
 //   and the highlighting can be tried; "/streamcode" streams a reply with a long code block in it;
 // - one containing "/review" hands over a sample review with `post_review`, so its card can be seen
 //   (in a review session; any other refuses it);
+// - the brief of a review of a session's own work hands over three findings with `post_review`, one
+//   with a question, so the rounds review's card can be seen; a sidebar's first turn gets a short answer;
 // - one containing "/edit notes.md" writes (appends a line to) that file in the session's folder,
 //   with a Write tool line that names it, so opening a file's diff from the conversation can be tried;
 // - one containing "/file plan.md" hands over that file from the session's folder with `send_file`,
@@ -186,6 +188,40 @@ function handle(emit: (e: AgentEvent) => void, id: string, tools: KestrelToolHos
         void tools.postReview({ verdict: 'approve', summary: 'Makes the table header sticky and reads its offset from the scroll parent, so it holds inside a panel as well as on the page. The new test scrolls the container and checks where the header ends up. I found nothing to change.' });
         return void timers.push(setTimeout(() => finish({ type: 'done', reason: 'complete' }), 400));
       }
+      // SCRIPTED: a later round of the review of a session's own work says what became of the round
+      // before's findings (one still open though the author says it fixed it, one fixed) and adds one.
+      if (text.includes('Look again (round')) {
+        void tools.postReview({
+          verdict: 'request_changes',
+          summary: 'Better: the test is there now. The offline save still loses the draft.',
+          earlier: [
+            { id: 'f1', status: 'open', author_says_fixed: true, commit: 'a1b2c3d', note: 'The draft is kept now, but only until the tab reloads.' },
+            { id: 'f2', status: 'open' },
+            { id: 'f3', status: 'fixed', author_says_fixed: true, commit: 'a1b2c3d' },
+          ],
+          findings: [{ brief: 'The waiting draft is never retried after the network comes back.', fix: 'Retry the save on the online event.', priority: 'medium', blocking: false, refs: [{ path: 'README.md', line: 1 }] }],
+        });
+        return void timers.push(setTimeout(() => finish({ type: 'done', reason: 'complete' }), 600));
+      }
+      // SCRIPTED: the reviewer of a session's own work (its brief asks for a sceptical second engineer)
+      // hands over findings with post_review, one with a question.
+      if (text.includes('sceptical second engineer')) {
+        void tools.postReview({
+          verdict: 'request_changes',
+          summary: 'The change does what it says, but one path loses data and one behaviour needs your call.',
+          findings: [
+            { brief: 'Saving a draft while offline drops it without telling anyone.', detail: 'The catch in `saveDraft` swallows the network error and returns, so the draft is gone once the tab closes.', fix: 'Keep the draft in local storage until the save goes through, and say it is waiting.', priority: 'high', blocking: true, refs: [{ path: 'README.md', line: 1 }] },
+            { brief: 'Old drafts are deleted after seven days.', detail: 'A new cleanup job removes drafts older than a week. Nothing in the change says whether that is wanted.', priority: 'medium', blocking: false, question: 'Should drafts older than seven days really be deleted, or only archived?' },
+            { brief: 'The new setting has no test.', priority: 'low', blocking: false },
+          ],
+        });
+        return void timers.push(setTimeout(() => finish({ type: 'done', reason: 'complete' }), 600));
+      }
+      // SCRIPTED: a sidebar about a finding (its first turn carries Kestrel's brief) answers in a few sentences.
+      if (text.includes('This is a sidebar')) {
+        say('The finding is right as far as I can tell from the code: the error is caught and nothing is kept. Fixing it means keeping the draft locally until the save goes through. In short: worth fixing before merging, and the fix is small.');
+        return void timers.push(setTimeout(() => finish({ type: 'done', reason: 'complete' }), 500));
+      }
       if (text.includes('/review')) {
         // SAMPLE: the files the comments point at, so their code can be opened from the card.
         mkdirSync(join(cwd, 'ui/src'), { recursive: true });
@@ -212,6 +248,7 @@ function handle(emit: (e: AgentEvent) => void, id: string, tools: KestrelToolHos
               fix: 'Scroll the container and assert the header’s position.',
               priority: 'medium',
               blocking: false,
+              question: 'Is the header meant to stay put inside panels too, or only on the page?',
               refs: [{ path: 'ui/src/Table.test.tsx', line: 18 }],
             },
             { brief: 'The changelog has no entry for this.', priority: 'low', blocking: false },

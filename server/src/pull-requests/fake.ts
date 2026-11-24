@@ -29,6 +29,9 @@ const SAMPLE: Readonly<Record<string, readonly PullRequest[]>> = {
   // "Fix partial writes in the search index" (done, so no dot once looked at): open and ready to
   // merge, so the sidebar's request icon can be seen, in green.
   'kestrel/index-atomic-writes': [{ number: 419, title: 'Fix partial writes in the search index', state: 'open', checks: 'passing', review: 'approved', readiness: 'ready', url: 'https://github.com/example/platform/pull/419' }],
+  // "Polish the sign-in form": opened by its Design guest, which works in its worktree, so the host
+  // and the guest show this one request (shared/working-tree.ts).
+  'feat/sign-in-polish': [{ number: 431, title: 'Polish the sign-in form', state: 'open', checks: 'running', review: 'review-required', url: 'https://github.com/example/bellbird/pull/431' }],
   // "Billing migration": open and ready on its current branch; the two below came from earlier branches.
   'feat/billing-v2': [{ number: 421, title: 'Billing v2: switch reads behind the flag', state: 'open', checks: 'passing', review: 'approved', readiness: 'ready', url: 'https://github.com/example/platform/pull/421' }],
   'feat/billing-backfill': [{ number: 406, title: 'Billing v2: backfill existing accounts', state: 'open', checks: 'failing', review: 'review-required', readiness: 'blocked', url: 'https://github.com/example/platform/pull/406' }],

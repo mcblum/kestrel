@@ -19,10 +19,40 @@ import { CONNECT_PROTOCOL_VERSION, NEVER_REMOTE, type ConnectResponse, type Enve
 import type { PullRequest } from '../shared/details.ts';
 import { ready } from '../shared/sourced.ts';
 import { openSuggestions } from '../shared/suggestions.ts';
-import { FakeAgents, until } from '../test-agent.ts';
+import { COMPACTION, FakeAgents, until } from '../test-agent.ts';
+import type { ContextUsage } from '../shared/context-usage.ts';
 import { makeRepo } from '../test-repo.ts';
 import { Workspace } from '../workspace.ts';
-import { ConnectDispatcher, type ConnectPush } from './dispatcher.ts';
+import { ConnectDispatcher, type ConnectDeps, type ConnectPush } from './dispatcher.ts';
+import { ReviewRequestStore } from '../review-requests/store.ts';
+import type { StartReviewOptions } from '../review-requests/start.ts';
+import { TicketStore } from '../tickets/store.ts';
+import { syncTickets } from '../tickets/sync.ts';
+import type { TicketSource } from '../tickets/source.ts';
+import { remoteStartsOff } from '../remote-starts/prefs.ts';
+import { connectLists } from './lists.ts';
+import { NO_REVIEW_REQUESTS, type ReviewRequest, type ReviewRequestsView } from '../shared/review-requests.ts';
+import { REVIEWS_OFF_REASON } from '../shared/review-settings.ts';
+import { NO_TICKETS, TICKETS_OFF_REASON, type Ticket, type TicketsView } from '../shared/tickets.ts';
+
+type LivePush = Extract<ConnectPush, { type: 'live' }>;
+
+/** A store as the dispatcher sees one: its view, and a change heard by whoever listens. */
+class FakeStore<T> {
+  private readonly listeners = new Set<(view: T) => void>();
+  constructor(private current: T) {}
+  view(): T {
+    return this.current;
+  }
+  set(view: T): void {
+    this.current = view;
+    for (const l of this.listeners) l(view);
+  }
+  onChange(listener: (view: T) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+}
 
 const MAC = 'mac-1';
 const PHONE = 'phone-1';
@@ -36,7 +66,7 @@ afterEach(() => {
 });
 
 /** A desktop with one fake agent per provider, one registered project, and a phone talking to it. */
-async function desk() {
+async function desk(extra: (workspace: Workspace, runtime: SessionRuntime) => Partial<ConnectDeps> = () => ({})) {
   const workspace = new Workspace(memoryPersistence());
   const data = realpathSync(mkdtempSync(join(tmpdir(), 'kestrel-connect-')));
   const fakes = Object.fromEntries(SELECTABLE_AGENTS.map((a) => [a, new FakeAgents()])) as Record<Agent, FakeAgents>;
@@ -51,7 +81,10 @@ async function desk() {
   const runtime = new SessionRuntime(workspace, adapters, data);
   const project: Project = await createProject(workspace, { name: 'Shop' });
   const sent: Envelope<ConnectPush | ConnectResponse>[] = [];
-  const dispatcher = new ConnectDispatcher({ workspace, runtime, deviceId: MAC, here: 'your Mac', send: (f) => sent.push(f) });
+  const reviewStore = new FakeStore<ReviewRequestsView>(NO_REVIEW_REQUESTS);
+  const ticketStore = new FakeStore<TicketsView>(NO_TICKETS);
+  const lists = connectLists(runtime.reviewPrefs, reviewStore, ticketStore);
+  const dispatcher = new ConnectDispatcher({ workspace, runtime, deviceId: MAC, here: 'your Mac', send: (f) => sent.push(f), lists, ...extra(workspace, runtime) });
   open.push(dispatcher);
   let n = 0;
   /** The phone asks; the answer's body comes back. */
@@ -71,7 +104,10 @@ async function desk() {
       for (const s of (await workspace.state()).sessions) await runtime.idle(s.id);
     }
   };
-  const pushes = () => sent.filter((f): f is Envelope<ConnectPush> => f.kind === 'push');
+  /** Live output pushed to a phone. */
+  const pushes = () => sent.filter((f): f is Envelope<LivePush> => f.kind === 'push' && (f.body as ConnectPush).type === 'live');
+  /** The Code reviews and Tickets lists pushed to a device. */
+  const listPushes = () => sent.filter((f): f is Envelope<ConnectPush> => f.kind === 'push' && (f.body as ConnectPush).type !== 'live');
   /** A session started at the desk: a phone does not start one. */
   const start = (agent: Agent, prompt = 'go', projectId: string | null = project.id) => runtime.start({ agent, projectId, prompt });
   /** The card waiting in a session, once it is there. */
@@ -79,7 +115,7 @@ async function desk() {
     await until(() => runtime.overlay(sessionId)?.messages.some((m) => m.input && !m.input.resolved) ?? false, 'a card');
     return runtime.overlay(sessionId)!.messages.find((m) => m.input && !m.input.resolved)!.input!;
   };
-  return { workspace, runtime, fakes, answered, project, dispatcher, sent, ask, ok, settle, pushes, start, waiting };
+  return { workspace, runtime, fakes, answered, project, dispatcher, sent, ask, ok, settle, pushes, listPushes, start, waiting, reviewStore, ticketStore };
 }
 type Desk = Awaited<ReturnType<typeof desk>>;
 
@@ -387,6 +423,76 @@ describe('frames', () => {
   });
 });
 
+describe.each(SELECTABLE_AGENTS)('the context window and Compact, for a %s session (Matt, 2026-11-24)', (agent) => {
+  const usage = (used: number): ContextUsage => ({ model: 'fake', usedTokens: used, windowTokens: 100_000, rows: [{ name: 'Conversation', tokens: used, kind: 'used' }, { name: 'Free space', tokens: 100_000 - used, kind: 'free' }], at: 7 });
+
+  it('reads how full the window is with the conversation, and gets each new measurement live', async () => {
+    const d = await desk();
+    const fake = d.fakes[agent];
+    fake.script = (turn) => {
+      if (turn.n > 1) turn.emit({ type: 'context', usage: usage(30_000 + turn.n) });
+    };
+    const session = await d.start(agent, 'look around');
+    await d.settle();
+    // Nothing measured yet: the words the window's ring shows in its place.
+    expect(await d.ok('session.read', { sessionId: session.id })).toMatchObject({ context: null, contextNote: 'Not measured yet. It is measured each time a turn ends.' });
+    await d.ok('session.watch', { sessionId: session.id });
+    await d.ok('session.reply', { sessionId: session.id, text: 'more' });
+    await d.settle();
+    d.dispatcher.flush();
+    expect(d.pushes().map((p) => p.body.patch.context).filter(Boolean)).toEqual([usage(30_002)]);
+    const read = await d.ok('session.read', { sessionId: session.id });
+    expect(read.context).toEqual(usage(30_002));
+    expect(read.contextNote).toBeUndefined();
+    // The same measurement the window's ring is given, through the same call.
+    expect(read.context).toEqual(await d.runtime.contextUsage(session.id));
+    // An earlier page is the conversation only.
+    const first = await d.ok('session.read', { sessionId: session.id, last: 1 });
+    expect((await d.ok('session.read', { sessionId: session.id, before: first.before, limit: 1 })).context).toBeUndefined();
+  });
+
+  it('compacts by the agent\'s own means as a turn, measured again at its end', async () => {
+    const d = await desk();
+    const fake = d.fakes[agent];
+    fake.script = (turn) => {
+      if (turn.text === COMPACTION) turn.emit({ type: 'context', usage: usage(1_000) });
+    };
+    const session = await d.start(agent, 'a long conversation');
+    await d.settle();
+    expect(await d.ok('session.compact', { sessionId: session.id })).toEqual({ compacting: true });
+    await d.settle();
+    expect(fake.compactions).toEqual([fake.starts[0]!.handle.agentSessionId()]);
+    const read = await d.ok('session.read', { sessionId: session.id });
+    expect(read.messages.map((m: ChatMessage) => m.text)).toContain('Compacting the conversation');
+    expect(read.context).toEqual(usage(1_000));
+    expect((await d.workspace.state()).sessions.find((s) => s.id === session.id)?.state).toBe('done');
+  });
+
+  it('is refused while the agent works, while a card waits, and for an agent that cannot', async () => {
+    const d = await desk();
+    const fake = d.fakes[agent];
+    fake.hold = true;
+    const session = await d.start(agent, 'busy');
+    await d.settle();
+    expect(await d.ask('session.compact', { sessionId: session.id })).toEqual({ ok: false, reason: 'The agent is working. Compact once this turn ends, or stop it first.' });
+    fake.turns.at(-1)!.emit({ type: 'needs-input', request: { id: 'ask-1', kind: 'approval', title: 'Run a command', detail: 'make', tool: 'Bash', options: [{ id: 'allow', label: 'Allow', role: 'allow' }] } });
+    await d.waiting(session.id);
+    expect(await d.ask('session.compact', { sessionId: session.id })).toEqual({ ok: false, reason: 'This session is waiting on your answer to a card. Answer it first, then compact.' });
+    await d.ok('session.answer', { sessionId: session.id, requestId: 'ask-1', optionId: 'allow' });
+    fake.turns.at(-1)!.done();
+    await d.settle();
+    expect(fake.compactions).toEqual([]);
+
+    // An agent with no way to compact from Kestrel says so (none of the three today).
+    fake.hold = false;
+    fake.canCompact = false;
+    const other = await d.start(agent, 'another');
+    await d.settle();
+    expect(await d.ask('session.compact', { sessionId: other.id })).toEqual({ ok: false, reason: expect.stringMatching(/cannot compact a conversation from Kestrel\.$/) });
+    expect(await d.ask('session.compact', { sessionId: 'no-such-session' })).toEqual({ ok: false, reason: 'That session is no longer in Kestrel.' });
+  });
+});
+
 describe('the dispatcher stays in process', () => {
   it('imports no listener, socket or HTTP route, and nothing from security.ts', () => {
     const here = dirname(fileURLToPath(import.meta.url));
@@ -396,3 +502,196 @@ describe('the dispatcher stays in process', () => {
     }
   });
 });
+
+// Matt, 2026-11-24: "please add the code review and tickets pages" (kestrel-connect.md, "The Code reviews and
+// Tickets pages on a phone"). Reads only, the window's views, kept current by push.
+describe('the Code reviews and Tickets lists on a phone', () => {
+  const request = (n: number, projectId: string | null = null): ReviewRequest => ({ host: 'github', hostName: 'github.com', repository: 'acme/shop', number: n, title: `Change ${n}`, author: 'sam', url: `https://github.com/acme/shop/pull/${n}`, updatedAt: n, key: `github.com/acme/shop#${n}`, projectId });
+  const ticket = (n: number, source = 'github'): Ticket => ({ key: `${source}:acme/shop#${n}`, source, tracker: 'GitHub', ref: `shop#${n}`, title: `Bug ${n}`, status: { name: 'Open', category: 'todo' }, project: 'acme/shop', url: `https://github.com/acme/shop/issues/${n}`, openedAt: n, updatedAt: n });
+  const reviews = (...rs: ReviewRequest[]): ReviewRequestsView => ({ ...NO_REVIEW_REQUESTS, requests: rs, unread: rs.map((r) => r.key) });
+  const tickets = (ts: Ticket[], off: TicketsView['settings']['off'] = []): TicketsView => ({ ...NO_TICKETS, tickets: ts, unread: [ts[0]!.key], settings: { on: true, off, show: 'page' } });
+
+  it('reads the review requests as the window has them, and Off in the desk words', async () => {
+    const d = await desk();
+    const view = reviews(request(1), request(2));
+    d.reviewStore.set(view);
+    expect(await d.ok('reviews.read')).toEqual({ on: true, view });
+    await d.runtime.reviewPrefs.set({ mode: 'off' });
+    expect(await d.ok('reviews.read')).toEqual({ on: false, reason: REVIEWS_OFF_REASON });
+  });
+
+  it('reads the tickets as the window has them, off in the desk words, and says which source is off', async () => {
+    const d = await desk();
+    expect(await d.ok('tickets.read')).toEqual({ on: false, reason: TICKETS_OFF_REASON });
+    const view = tickets([ticket(1)], ['jira', 'github']);
+    d.ticketStore.set(view);
+    expect(await d.ok('tickets.read')).toEqual({ on: true, view, sourcesOff: ['Jira Cloud is switched off in Settings → Tickets.', 'GitHub issues are switched off in Settings → Tickets.'] });
+  });
+
+  it('pushes a changed list, once per burst, only to a device that read it, until it says bye', async () => {
+    const d = await desk();
+    await d.ok('reviews.read');
+    d.reviewStore.set(reviews(request(1)));
+    d.reviewStore.set(reviews(request(1), request(2)));
+    d.ticketStore.set(tickets([ticket(1)]));
+    d.dispatcher.flush();
+    await until(() => d.listPushes().length > 0, 'a push');
+    expect(d.listPushes().map((p) => [p.to, p.body])).toEqual([[PHONE, { type: 'reviews', reviews: { on: true, view: reviews(request(1), request(2)) } }]]);
+
+    await d.dispatcher.receive({ v: CONNECT_PROTOCOL_VERSION, from: PHONE, to: MAC, kind: 'bye', id: 'b1', body: null });
+    d.reviewStore.set(reviews(request(3)));
+    d.dispatcher.flush();
+    await Promise.resolve();
+    expect(d.listPushes()).toHaveLength(1);
+  });
+});
+
+// Matt, 2026-11-24: "1. Yep, it's the same seen 2. Yes, agree 3. Yes, agree 4. Also agree 5. Let's allow it to
+// start a review / work a ticket." Each is the desk's button; the two starts follow A8 (kestrel-connect.md, "Actions").
+const GH_TICKET = (n: number): Ticket => ({ key: `github:acme/shop#${n}`, source: 'github', tracker: 'GitHub', ref: `shop#${n}`, title: `Bug ${n}`, status: { name: 'Open', category: 'todo' }, project: 'acme/shop', url: `https://github.com/acme/shop/issues/${n}`, openedAt: n, updatedAt: n, sprint: null });
+
+/** A desk with real review and ticket stores, a scripted GitHub tracker, and the Tickets routes the window uses. */
+async function pagesDesk() {
+  const tracker = { moved: [] as string[], comments: [] as string[], reads: 0 };
+  const source: TicketSource = {
+    kind: 'github',
+    name: 'GitHub',
+    assignedToMe: async () => ready([GH_TICKET(1), GH_TICKET(2)]),
+    status: async (t) => ready(t.status),
+    read: async () => {
+      tracker.reads++;
+      return ready({ description: 'Steps to reproduce', criteria: [], comments: [] });
+    },
+    statuses: async () => ready([{ name: 'In review', category: 'in-review' as const }]),
+    move: async (t, to) => {
+      tracker.moved.push(`${t.ref}→${to}`);
+      return { name: to, category: 'in-review' as const };
+    },
+    comment: async (_t, body) => void tracker.comments.push(body),
+  };
+  const reviewRequests = new ReviewRequestStore();
+  const ticketStore = new TicketStore({ settings: { on: true, off: [], show: 'page' } });
+  const sync = syncTickets(async () => [source], ticketStore, () => true, Date.now, false);
+  await sync.check();
+  const d = await desk((workspace, runtime) => ({
+    reviewRequests,
+    tickets: {
+      store: ticketStore,
+      sync,
+      work: {
+        projects: async () => (await workspace.state()).projects,
+        sessions: async () => (await workspace.state()).sessions,
+        originOf: async () => null,
+        start: (req) => runtime.start(req),
+        tag: (id, tag) => workspace.tagSession(id, tag),
+      },
+    },
+  }));
+  const request = (n: number, projectId: string | null = d.project.id): ReviewRequest => ({ host: 'github', hostName: 'github.com', repository: 'acme/shop', number: n, title: `Change ${n}`, author: 'sam', url: `https://github.com/acme/shop/pull/${n}`, updatedAt: n, key: `github.com/acme/shop#${n}`, projectId });
+  return { ...d, tracker, reviewRequests, ticketStore, request };
+}
+
+describe('the Code reviews and Tickets buttons on a phone', () => {
+  it('marks read and unread, and dismisses and restores, in the one record every device shows', async () => {
+    const d = await pagesDesk();
+    const r = d.request(1);
+    d.reviewRequests.set('github.com', ready([r]));
+    expect(d.reviewRequests.view().unread).toEqual([r.key]);
+    expect(await d.ok('reviews.seen', { keys: [r.key], seen: true })).toEqual({ ok: true });
+    expect(d.reviewRequests.view().unread).toEqual([]);
+    expect(await d.ok('reviews.dismiss', { keys: [r.key], dismissed: true })).toEqual({ ok: true });
+    expect(d.reviewRequests.view().dismissed.map((x) => x.key)).toEqual([r.key]);
+    // Undo is the same call the other way.
+    await d.ok('reviews.dismiss', { keys: [r.key], dismissed: false });
+    await d.ok('reviews.seen', { keys: [r.key], seen: false });
+    expect(d.reviewRequests.view()).toMatchObject({ requests: [r], unread: [r.key], dismissed: [] });
+
+    const key = GH_TICKET(1).key;
+    await d.ok('tickets.seen', { keys: [key], seen: true });
+    expect(d.ticketStore.view().unread).not.toContain(key);
+    await d.ok('tickets.dismiss', { keys: [key], dismissed: true });
+    expect(d.ticketStore.view().dismissed.map((t) => t.key)).toEqual([key]);
+  });
+
+  it('moves a ticket by hand, comments on it and asks for its page, through the desk\'s own functions', async () => {
+    const d = await pagesDesk();
+    const key = GH_TICKET(1).key;
+    expect(await d.ok('tickets.statuses', { key })).toEqual(ready([{ name: 'In review', category: 'in-review' }]));
+    await d.ok('tickets.move', { key, to: 'In review' });
+    expect(d.tracker.moved).toEqual(['shop#1→In review']);
+    await d.ok('tickets.comment', { key, body: '  Seen from my phone.  ' });
+    expect(d.tracker.comments).toEqual(['Seen from my phone.']);
+    expect(await d.ok('tickets.detail', { key })).toEqual({ ok: true });
+    await until(() => d.tracker.reads > 0, 'the tracker is asked');
+  });
+
+  it('refuses each in the desk\'s words: tickets off, a source off, a ticket not held, a request no longer waiting', async () => {
+    const d = await pagesDesk();
+    expect(await d.ask('tickets.comment', { key: 'github:acme/shop#99', body: 'hi' })).toEqual({ ok: false, reason: 'Kestrel does not hold that ticket.' });
+    expect(await d.ask('reviews.start', { key: 'github.com/acme/shop#404' })).toEqual({ ok: false, reason: 'This review is no longer waiting on you: it was reviewed, merged, closed, or the request was taken back.' });
+    d.ticketStore.setSettings({ on: true, off: ['github'], show: 'page' });
+    expect(await d.ask('tickets.move', { key: GH_TICKET(1).key, to: 'In review' })).toMatchObject({ ok: false, reason: expect.stringMatching(/not connected or is switched off/) });
+    d.ticketStore.setSettings({ on: false, off: [], show: 'page' });
+    for (const [op, args] of [['tickets.seen', { keys: ['k'], seen: true }], ['tickets.work', { key: GH_TICKET(1).key }], ['tickets.comment', { key: GH_TICKET(1).key, body: 'hi' }]] as const) {
+      expect(await d.ask(op, args)).toEqual({ ok: false, reason: TICKETS_OFF_REASON });
+    }
+  });
+
+  it('refuses a review of a repository that is no project, in the desk\'s words', async () => {
+    const d = await pagesDesk();
+    d.reviewRequests.set('github.com', ready([d.request(5, null)]));
+    expect(await d.ask('reviews.start', { key: d.request(5).key })).toEqual({ ok: false, reason: 'acme/shop is not a project in Kestrel. Add it as a project, then start the review.' });
+  });
+
+  it('refuses both starts while this computer\'s switch is off (A8)', async () => {
+    const d = await pagesDesk();
+    d.reviewRequests.set('github.com', ready([d.request(1)]));
+    await d.runtime.remoteStarts.setAllowed(false);
+    for (const [op, args] of [['reviews.start', { key: d.request(1).key }], ['tickets.work', { key: GH_TICKET(1).key }]] as const) {
+      expect(await d.ask(op, args)).toEqual({ ok: false, reason: remoteStartsOff('your Mac') });
+    }
+    expect((await d.workspace.state()).sessions).toEqual([]);
+  });
+
+  it('a phone can never ask for a mode: Bypass is chosen at the desk', async () => {
+    const d = await pagesDesk();
+    expect(await d.ask('tickets.work', { key: GH_TICKET(1).key, permission: 'bypass' })).toEqual({ ok: false, reason: 'tickets.work takes no permission.' });
+  });
+});
+
+describe.each(SELECTABLE_AGENTS)('starting from a phone, for a %s lead (A8)', (agent) => {
+  it('works a ticket with the choices the desk\'s button sends, and gives the lead back the second time', async () => {
+    const d = await pagesDesk();
+    await d.workspace.setUiState(JSON.stringify({ remembered: { agent, projectId: null, byAgent: { [agent]: { model: '', effort: '', fast: false, permission: 'ask' } } } }));
+    const first = await d.ok('tickets.work', { key: GH_TICKET(2).key });
+    expect(first.started).toBe(true);
+    const session = (await d.workspace.state()).sessions.find((s) => s.id === first.sessionId)!;
+    expect(session.agent).toBe(agent);
+    await until(() => d.fakes[agent].starts.length > 0, 'the lead starts');
+    expect(d.fakes[agent].starts[0]!.options.permission).toBe('ask');
+    expect(await d.ok('tickets.work', { key: GH_TICKET(2).key })).toEqual({ sessionId: first.sessionId, started: false });
+    await d.settle();
+  });
+
+  it('starts a review as the desk\'s button does, marked as from another device, and gives it back the second time', async () => {
+    const d = await pagesDesk();
+    const r = d.request(3);
+    d.reviewRequests.set('github.com', ready([r]));
+    d.reviewRequests.dismiss([r.key], true);
+    // Fetching the request's head needs its host, so the runtime's start is stood in for; start.test.ts covers it.
+    const asked: StartReviewOptions[] = [];
+    d.runtime.startReview = async (request, opts = {}) => {
+      asked.push(opts);
+      const existing = (await d.workspace.state()).sessions.find((s) => s.title === request.title);
+      return existing ?? d.runtime.start({ agent, projectId: request.projectId, prompt: `review ${request.key}`, title: request.title } as never);
+    };
+    const first = await d.ok('reviews.start', { key: r.key });
+    expect(first.started).toBe(true);
+    expect(asked).toEqual([{ remote: true }]);
+    // As the desk's button: the request is restored and read.
+    expect(d.reviewRequests.view()).toMatchObject({ requests: [r], dismissed: [], unread: [] });
+    expect(await d.ok('reviews.start', { key: r.key })).toEqual({ sessionId: first.sessionId, started: false });
+    await d.settle();
+  });
+});
+

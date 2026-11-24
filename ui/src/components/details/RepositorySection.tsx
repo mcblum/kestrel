@@ -13,11 +13,25 @@ import { ExternalLink } from 'lucide-react';
 import { diffCounts } from '@kestrel/server/diff-counts';
 import { BRANCH_TAIL, MiddleText } from './MiddleText.tsx';
 import { Line, notReadyText, Section } from './Rows.tsx';
+import { guestWhere, MAIN_CHECKOUT, type WorkingTreeAnswer } from '@kestrel/server/working-tree';
+import { useRequestSide, useWorkingTree } from '../../workingTree.ts';
 
 const filesText = (n: number) => `${n} ${n === 1 ? 'file' : 'files'} changed`;
 
-/** The session's changes: a link to the Changes pane when there are some, plain words when there are none. */
-function ChangesLine({ files, clean, onOpen }: { files: readonly ChangedFile[]; clean: string; onOpen: () => void }) {
+/**
+ * The session's changes: a link to the Changes pane when there are some, plain words when there are
+ * none. With `git`, "clean" is said only when git answered: unavailable is shown with its reason,
+ * never as a clean tree.
+ */
+function ChangesLine({ files, clean, git, onOpen }: { files: readonly ChangedFile[]; clean: string; git?: Sourced<GitStatus>; onOpen: () => void }) {
+  if (files.length === 0 && git && git.state !== 'ready') {
+    const text = notReadyText(git, GIT_STATUS_SAYS);
+    return (
+      <Line group quiet tip={text}>
+        {text}
+      </Line>
+    );
+  }
   if (files.length === 0) return <Line group>{clean}</Line>;
   const { added, removed } = diffCounts(files.map((f) => f.diff));
   return (
@@ -47,6 +61,7 @@ function BaseLine({ label }: { label: string }) {
 }
 
 const SYNC_SAYS = { loading: 'Comparing with its base…', unavailable: 'Ahead/behind unavailable' };
+const GIT_STATUS_SAYS = { loading: 'Reading git status…', unavailable: 'Git status unavailable' };
 
 function SyncLines({ git }: { git: Sourced<GitStatus> }) {
   if (git.state !== 'ready') {
@@ -67,12 +82,23 @@ function SyncLines({ git }: { git: Sourced<GitStatus> }) {
   );
 }
 
-function BranchLine({ branch }: { branch: string | null }) {
-  if (!branch) return <Line quiet>No branch of its own</Line>;
+/** The branch it works on; for a guest, whose worktree that is; with none, why (a discarded worktree, say). */
+function BranchLines({ where, recorded }: { where: WorkingTreeAnswer; /** The branch recorded for it (`requestSideOf`), kept after its worktree is discarded. */ recorded: string | null }) {
+  const branch = where.tree ? where.tree.branch : recorded;
+  const host = where.tree ? where.tree.host : where.host;
+  if (!branch && !where.tree && where.reason === MAIN_CHECKOUT) return <Line quiet>No branch of its own</Line>;
   return (
-    <Line quiet actions={<CopyButton value={branch} label="branch name" />}>
-      <MiddleText text={branch} maxTail={BRANCH_TAIL} mono />
-    </Line>
+    <>
+      {branch ? (
+        <Line quiet actions={<CopyButton value={branch} label="branch name" />}>
+          <MiddleText text={branch} maxTail={BRANCH_TAIL} mono />
+        </Line>
+      ) : (
+        where.tree && <Line quiet>No branch recorded for this worktree</Line>
+      )}
+      {host && <Line quiet tip={guestWhere(host)}>{guestWhere(host)}</Line>}
+      {!where.tree && where.reason !== MAIN_CHECKOUT && <Line quiet tip={where.reason}>{where.reason}</Line>}
+    </>
   );
 }
 
@@ -88,6 +114,8 @@ interface Props {
 
 export function RepositorySection({ session, project, folder, files, git, onOpenChanges }: Props) {
   const { value: repository } = useRepository(session.id, project?.id ?? session.id);
+  const where = useWorkingTree(session);
+  const recorded = useRequestSide(session).branch;
   if (!project) {
     return (
       <Section title="Repository">
@@ -129,12 +157,12 @@ export function RepositorySection({ session, project, folder, files, git, onOpen
       {repository.state !== 'ready' && <Line quiet tip={notReadyText(repository)}>{repository.state === 'loading' ? 'Loading repository link…' : 'Repository link unavailable'}</Line>}
       <div className="details-field">
         <div className="details-field-label">Branch</div>
-        <BranchLine branch={session.branch} />
+        <BranchLines where={where} recorded={recorded} />
       </div>
       <div className="details-status-group">
         <h4 className="details-field-label">Git status</h4>
-      <ChangesLine files={files} clean="Working tree clean" onOpen={onOpenChanges} />
-      {session.branch && <SyncLines git={git} />}
+      <ChangesLine files={files} clean="Working tree clean" git={git} onOpen={onOpenChanges} />
+      {where.tree?.branch && git.state !== 'unavailable' && <SyncLines git={git} />}
       </div>
     </Section>
   );

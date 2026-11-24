@@ -17,12 +17,15 @@
 import type { ScopeKind } from './scope.ts';
 
 export type PaneId = 'changes' | 'files' | 'commands' | 'terminal' | 'browser' | 'simulator' | 'context';
-/** What can stack in the tools column. `agent` is one sub-agent's output, opened from the conversation. */
-export type StackPane = 'agent' | 'files' | 'browser' | 'commands' | 'terminal';
+/**
+ * What can stack in the tools column. `agent` is one sub-agent's output and `aside` one sidebar
+ * about a finding (shared/asides.ts), each opened from the conversation.
+ */
+export type StackPane = 'aside' | 'agent' | 'files' | 'browser' | 'commands' | 'terminal';
 export type ColumnId = 'changes' | 'tools' | 'simulator' | 'context';
 
-export type OpenPanes = Readonly<Record<PaneId | 'agent', boolean>>;
-export const NO_PANES: OpenPanes = { changes: false, files: false, commands: false, terminal: false, browser: false, simulator: false, context: false, agent: false };
+export type OpenPanes = Readonly<Record<PaneId | 'agent' | 'aside', boolean>>;
+export const NO_PANES: OpenPanes = { changes: false, files: false, commands: false, terminal: false, browser: false, simulator: false, context: false, agent: false, aside: false };
 
 export const MAIN_MIN_WIDTH = 420;
 /** The least the main content keeps once every column is at its minimum and they still do not fit beside it. */
@@ -35,7 +38,7 @@ export const PANE_WIDTH = { min: 280, max: 1100, initial: 460 } as const;
 /** About a phone's width. */
 export const SIM_WIDTH = { min: 260, max: 900, initial: 360 } as const;
 /** Top to bottom: the terminal sits at the bottom, as in an IDE, with the session's commands just above it. */
-export const STACK_ORDER: readonly StackPane[] = ['agent', 'files', 'browser', 'commands', 'terminal'];
+export const STACK_ORDER: readonly StackPane[] = ['aside', 'agent', 'files', 'browser', 'commands', 'terminal'];
 /** A stacked pane is never squeezed below this many pixels by a divider. */
 export const STACK_MIN_HEIGHT = 80;
 

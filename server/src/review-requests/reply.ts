@@ -15,6 +15,7 @@ import { repliesOnItsOwn, type ReviewAutomation } from '../shared/review-setting
 import type { TranscriptAction } from '../transcript.ts';
 import { Refused } from '../workspace.ts';
 import { postReview } from './post.ts';
+import type { DiffAnchors } from '../shared/diff-anchors.ts';
 
 type Card = Extract<TranscriptAction, { type: 'card' }>;
 
@@ -28,6 +29,16 @@ export interface ReviewRepliesHost {
   byNumber(host: HostKind): ByNumberProvider;
   run: CommandRunner;
   now(): number;
+  /**
+   * Which lines of the request's diff can take a comment, read in the review session's worktree from
+   * its base to the reviewed commit (shared/diff-anchors.ts); undefined when it cannot be read.
+   */
+  diffAnchors?(worktreePath: string, sha: string): Promise<DiffAnchors | undefined>;
+  /**
+   * `post_review` from the reviewer of a session's own work (delegation.ts `handOverRound`): what to
+   * tell the agent, or null when this session is not one.
+   */
+  roundReview?(sessionId: string, args: { verdict?: unknown; summary?: unknown; findings?: unknown; earlier?: unknown }): Promise<ToolResult | null>;
 }
 
 /** What the user changed on the card before posting it. */
@@ -51,15 +62,21 @@ export class ReviewReplies {
   }
 
   /** `post_review`: a refusal goes back to the agent and shows in the conversation, like Kestrel's other tools. */
-  private async tool(sessionId: string, args: { verdict?: unknown; summary?: unknown; findings?: unknown }): Promise<ToolResult> {
+  private async tool(sessionId: string, args: { verdict?: unknown; summary?: unknown; findings?: unknown; earlier?: unknown }): Promise<ToolResult> {
     try {
       const session = await this.host.session(sessionId);
-      if (!session?.review) throw new Refused("This session is not reviewing somebody else's pull request, so there is nothing to post a review to. Say what you found in your reply.");
+      if (!session?.review) {
+        const round = await this.host.roundReview?.(sessionId, args);
+        if (round) return round;
+        throw new Refused("This session is not reviewing somebody else's pull request or another session's work, so there is nothing to hand a review to. Say what you found in your reply.");
+      }
       const drafted = draftReview(args, session.review.sha);
       if ('problem' in drafted) throw new Refused(drafted.problem);
       const id = `review-${randomUUID()}`;
       // The verdict follows the findings from the start: a review whose findings include a blocker asks for changes, whatever word came with it.
-      const review: ReviewReply = { ...drafted.reply, verdict: verdictFor(drafted.reply.verdict, drafted.reply.findings) };
+      // Where each finding will go on the host is decided now, from the commit that was reviewed, and shown on the card.
+      const anchors = session.worktreePath ? await this.host.diffAnchors?.(session.worktreePath, session.review.sha).catch(() => undefined) : undefined;
+      const review: ReviewReply = { ...drafted.reply, verdict: verdictFor(drafted.reply.verdict, drafted.reply.findings), ...(anchors ? { anchors } : {}) };
       this.host.showCard(sessionId, { type: 'card', id, review });
       if (!repliesOnItsOwn(await this.host.settings(), session.startedIn)) return { text: `Shown to the user, who decides whether to post it. Nothing has been posted. ${REVIEW_ENDS_TURN}` };
       try {
@@ -116,9 +133,10 @@ export class ReviewReplies {
         );
       }
       // Kept findings go up as comments on their lines; dismissed ones stay on the card and go nowhere.
+      // Each kept finding goes on its line when that line is part of the diff, else under the summary; comments are anchored to the reviewed commit.
       const how = await postReview(this.host.run, { host, number, cwd: session.worktreePath }, { verdict: reply.verdict, sha: reply.sha, ...postable(reply, withoutComment) });
-      const note = [how, moved ? `It was made of ${reply.sha.slice(0, 12)}; the ${terms.long} has new commits since.` : null].filter(Boolean).join(' ');
-      const posted: ReviewReply = { ...reply, posted: { at: this.host.now(), verdict: reply.verdict, ...(withoutComment ? { withoutComment: true } : {}), ...(onItsOwn ? { onItsOwn: true } : {}), ...(note ? { note } : {}) } };
+      const note = [how.note, moved ? `It was made of ${reply.sha.slice(0, 12)}; the ${terms.long} has new commits since.` : null].filter(Boolean).join(' ');
+      const posted: ReviewReply = { ...reply, posted: { at: this.host.now(), verdict: reply.verdict, ...(withoutComment ? { withoutComment: true } : {}), ...(onItsOwn ? { onItsOwn: true } : {}), ...(note ? { note } : {}), ...(Object.keys(how.moved).length > 0 ? { moved: how.moved } : {}) } };
       this.host.showCard(sessionId, { type: 'card', id: cardId, review: posted });
       return posted;
     } finally {

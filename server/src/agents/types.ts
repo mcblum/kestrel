@@ -250,7 +250,7 @@ export interface KestrelToolHost {
   /** End the turn with where things stand and replies the user can pick. */
   nextStep(args: { recap: string; ask?: string; replies?: string[] }): Promise<ToolResult>;
   /** Hand over a finished review of somebody else's pull request; the user posts it (review-requests/reply.ts). */
-  postReview(args: { verdict?: unknown; summary?: unknown; findings?: unknown }): Promise<ToolResult>;
+  postReview(args: { verdict?: unknown; summary?: unknown; findings?: unknown; earlier?: unknown }): Promise<ToolResult>;
   /** Drop an optional action into the conversation (suggestions/service.ts). Never waits for the user. */
   suggest(args: { kind: string } & Record<string, unknown>): Promise<ToolResult>;
   /** A ticket as the tracker has it now (status, description, criteria, comments): the session's own, or a listed one named by `key`. Read only. */
@@ -422,6 +422,12 @@ export interface AgentHandle {
   answer(requestId: string, answer: InputAnswer): void;
   /** End the running turn. Pending requests are denied. The session can be resumed later. Claude: ends any background work too. */
   stop(): Promise<void>;
+  /**
+   * Compact the conversation by the agent's own means, as a turn of its own that ends like any other
+   * (Claude: its `/compact` command; Codex: `thread/compact/start`; OpenCode: `session.summarize`).
+   * Throws while busy, as `send` does. Absent: the agent cannot compact a conversation from Kestrel.
+   */
+  compact?(): void;
   /** End the agent's process too, for an agent that keeps one per session. The handle is not used again. */
   close?(): Promise<void>;
   /**

@@ -7,6 +7,27 @@ import { describe, expect, it } from 'vitest';
 import { sqlitePersistence } from './sqlite.ts';
 
 describe('an older store', () => {
+  it('marks each guest with its host from what its detail kept, once, and keeps the mark after a restart', async () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'kestrel-sqlite-')), 'kestrel.db');
+    await sqlitePersistence(path).close();
+    const old = new DatabaseSync(path);
+    old.exec('ALTER TABLE sessions DROP COLUMN host_id');
+    const insert = old.prepare('INSERT INTO sessions (id, title, agent, state, note, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    for (const id of ['host', 'guest', 'plain', 'odd']) insert.run(id, id, 'claude', 'done', '', 1, 1);
+    const detail = old.prepare('INSERT INTO session_detail (session_id, json) VALUES (?, ?)');
+    detail.run('guest', JSON.stringify({ messages: [], guest: { hostId: 'host', role: 'design', writes: true } }));
+    detail.run('plain', JSON.stringify({ messages: [] }));
+    detail.run('odd', JSON.stringify({ messages: [], guest: { hostId: 7 } }));
+    old.close();
+    let db = sqlitePersistence(path);
+    expect((await db.getSession('guest'))!.hostId).toBe('host');
+    for (const id of ['host', 'plain', 'odd']) expect((await db.getSession(id))!.hostId).toBeUndefined();
+    await db.close();
+    db = sqlitePersistence(path);
+    expect((await db.getSession('guest'))!.hostId).toBe('host');
+    await db.close();
+  });
+
   it('backfills completion dates once, excludes stopped sessions, and preserves them after restart', async () => {
     const path = join(mkdtempSync(join(tmpdir(), 'kestrel-sqlite-')), 'kestrel.db');
     await sqlitePersistence(path).close();

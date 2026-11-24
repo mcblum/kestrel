@@ -142,6 +142,9 @@ importers:
       '@opencode-ai/sdk':
         specifier: 1.14.25
         version: 1.14.25
+      '@scure/bip39':
+        specifier: 1.6.0
+        version: 1.6.0
       '@sentry/node':
         specifier: 11.16.0
         version: 11.16.0(rollup@4.68.2)
@@ -1245,6 +1248,12 @@ packages:
     resolution: {integrity: sha512-ee+c14ggUiM7lg4PtCjSBYU9O9dHp4FFespRnd5yj7SilUBJCL3x3aHlB+sIqbGjcPo3pEyODASnfKJuZ26YBw==}
     cpu: [x64]
     os: [win32]
+
+  '@scure/base@1.2.6':
+    resolution: {integrity: sha512-g/nm5FgUa//MCj1gV09zTJTaM6KBAHqLN907YVQqf7zC49+DcO4B1so4ZX07Ef10Twr6nuqYEH9GEggFXA4Fmg==}
+
+  '@scure/bip39@1.6.0':
+    resolution: {integrity: sha512-+lF0BbLiJNwVlev4eKelw1WWLaiKXw7sSl8T6FvBlWkdX+94aGJ4o8XjUdlyhTCjd8c+B3KT3JfS8P0bLRNU6A==}
 
   '@sentry/browser-utils@11.16.0':
     resolution: {integrity: sha512-MUTnIZ7LjLEsx5br+xQsoybztbN1cV3bEXp6AEf/Pawz1avUb07J9nKuOyMVPWksqDpoIIkFJ8GyQvxllWQ+7Q==}
@@ -4213,6 +4222,13 @@ snapshots:
 
   '@rollup/rollup-win32-x64-msvc@4.68.2':
     optional: true
+
+  '@scure/base@1.2.6': {}
+
+  '@scure/bip39@1.6.0':
+    dependencies:
+      '@noble/hashes': 1.8.0
+      '@scure/base': 1.2.6
 
   '@sentry/browser-utils@11.16.0':
     dependencies:

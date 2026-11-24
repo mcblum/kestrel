@@ -1,7 +1,7 @@
 // handoff, delegate, spawn, add_project, session_status, complete_workstream and wait_for: what Kestrel's tools do, and how a session
 // that delegates hears back. The tool handlers (agents/claude/tools.ts) only translate; the
 // rules are here. Everything an agent is told is plain text; a refusal never throws at it.
-import { reviewComment, sameAgentNote, clipSummary, findingsText, guestIntro, guestWrites, handBackText, nextRoundText, REVIEW_ROUNDS, reviewBrief, reviewEndNotice, verdictOf, writerRefusal, type Guest, type Review } from './shared/worktree-guests.ts';
+import { reviewComment, sameAgentNote, clipSummary, findingsText, handOverAgainText, guestIntro, guestWrites, handBackText, nextRoundText, REVIEW_ROUNDS, reviewBrief, reviewEndNotice, verdictOf, writerRefusal, type Guest, type Review } from './shared/worktree-guests.ts';
 import { originUrl } from './git.ts';
 import { hostTerms } from './shared/host-terms.ts';
 import { ALREADY_A_REVIEW, CONVERT_DECLINED, convertAsk, converted, noProjectFor, NOT_A_REQUEST, NOT_FIRST_MESSAGE, parseRequestRef, requestHome } from './review-requests/convert.ts';
@@ -18,6 +18,9 @@ import type { SessionRuntime } from './runtime.ts';
 import { expandHome, inspectFolder, projectWithFolder, realDirectory, registerProject, uniqueProjectName } from './runtime/projects.ts';
 import { defaultFolder, folderName, projectPath } from './shared/project-folders.ts';
 import { isWorking, lastAgentTextOf } from './runtime/record.ts';
+import { freshFindings } from './shared/findings.ts';
+import { summaryProblem, verdictProblem, type ReviewVerdict } from './shared/review-reply.ts';
+import { carryForward, checkEarlier, earlierUnknown, REVIEW_END_NOTE, reviewEndId, roundFindingsText, roundNews, roundNotice, roundVerdict, unstructuredFinding, type ReviewEnd, type RoundFindings } from './shared/round-findings.ts';
 import type { PermissionLevel } from './shared/permissions.ts';
 import { matchProject, type Match } from './shared/projects.ts';
 import { ALREADY_COMPLETE, completeRefusal, isComplete, isOpenWork, workstreamNotice, workstreamOf } from './shared/workstreams.ts';
@@ -397,7 +400,7 @@ export class Delegation {
     if (!(await this.approve(caller, 'delegate', `Start ${resolved.length} session${resolved.length === 1 ? '' : 's'}`, lines, 'Start', resolved.some((t) => t.ask)))) {
       return { text: 'The user declined. Nothing was started. Ask what they would like instead, or do the part that belongs here yourself.' };
     }
-    const { children, workstream, created } = await this.delegateIn(callerId, resolved.map((t) => ({ projectId: t.project.id, folderId: t.folder?.id ?? null, brief: t.brief, agent: t.agent, title: titleFrom(t.brief) })), named);
+    const { children, workstream, created } = await this.delegateIn(callerId, resolved.map((t) => ({ projectId: t.project.id, folderId: t.folder?.id ?? null, brief: t.brief, agent: t.agent, title: titleFrom(t.brief), ...(t.hosted ? { hostId: t.hosted.guest.hostId } : {}) })), named);
     // The user sees, where they are, that the work now has one place to follow it. Nothing moved.
     if (workstream) this.rt.notice(callerId, workstreamNotice(workstream.name, created, children.map((c, i) => `${targetName(resolved[i]!)} · ${c.title}`)), 'info');
     for (const child of children) this.noteStarted(callerId, child.id, 'delegate');
@@ -682,7 +685,7 @@ export class Delegation {
     const host = guest ? state.sessions.find((s) => s.id === guest.hostId) : undefined;
     if (guest && !host) throw new Refused('The session whose worktree it worked in is gone.');
     await this.ws.checkLimits(parentId, 1, { depth: true });
-    const { children } = await this.delegateIn(parentId, [{ projectId: project.id, folderId: folder?.id ?? null, brief: run.brief, agent: to.agent, title: child.title }]);
+    const { children } = await this.delegateIn(parentId, [{ projectId: project.id, folderId: folder?.id ?? null, brief: run.brief, agent: to.agent, title: child.title, ...(guest && host ? { hostId: host.id } : {}) }]);
     const next = children[0]!;
     this.noteStarted(parentId, next.id, 'delegate');
     const prompt = [guest && host ? guestIntro(guest.role, host.title) : '', takeoverIntro(from, guest !== null), run.brief].filter(Boolean).join('\n\n');
@@ -745,7 +748,7 @@ export class Delegation {
     const folder = project.folders.find((f) => f.id === author.folderId) ?? null;
     await this.ws.checkLimits(authorId, 1, { depth: true });
     const reviewer = `${preset.name} (${presetSummary(preset)})`;
-    const { children } = await this.delegateIn(authorId, [{ projectId: project.id, folderId: folder?.id ?? null, brief: `Review: ${author.title}`, agent: preset.agent, title: `Review: ${author.title}` }]);
+    const { children } = await this.delegateIn(authorId, [{ projectId: project.id, folderId: folder?.id ?? null, brief: `Review: ${author.title}`, agent: preset.agent, title: `Review: ${author.title}`, hostId: authorId }]);
     const child = children[0]!;
     this.noteStarted(authorId, child.id, 'delegate');
     const guest: Guest = { hostId: authorId, role: 'review', writes: false };
@@ -788,6 +791,46 @@ export class Delegation {
   }
 
   /**
+   * `post_review` from the reviewer of a session's own work: the round's findings, kept until its
+   * turn ends (`reviewStep`), when they go to the author as a card. Null when `reviewerId` is not
+   * reviewing a session's work, so the tool says what it is for instead.
+   */
+  async handOverRound(reviewerId: string, args: { verdict?: unknown; summary?: unknown; findings?: unknown; earlier?: unknown }): Promise<ToolResult | null> {
+    const guest = this.rt.recordOf(reviewerId)?.guest;
+    if (guest?.role !== 'review') return null;
+    const author = this.rt.recordOf(guest.hostId);
+    if (!author?.review || author.review.reviewerId !== reviewerId) return null;
+    if (author.review.status !== 'reviewing') throw new Refused('This round of the review is over: there is nothing to hand findings over to now.');
+    const problem = verdictProblem(args.verdict) ?? summaryProblem(args.summary, true);
+    if (problem) throw new Refused(problem);
+    const checked = freshFindings(args.findings);
+    if ('problem' in checked) throw new Refused(checked.problem);
+    // From the second round, every finding of the round before is accounted for: the open ones are carried forward, the same findings.
+    const previous = this.lastRound(guest.hostId);
+    const early = checkEarlier(args.earlier, previous?.findings ?? []);
+    if ('problem' in early) throw new Refused(early.problem);
+    const findings = carryForward(previous, early.earlier, checked.findings);
+    const handed = { verdict: roundVerdict(args.verdict as ReviewVerdict, findings), summary: (args.summary as string).trim(), findings, ...(early.earlier.length > 0 ? { earlier: early.earlier } : {}) };
+    author.review = { ...author.review, handed };
+    this.rt.saveRecord(guest.hostId);
+    const n = findings.length;
+    const carried = findings.length - checked.findings.length;
+    return { text: `Handed over: ${n} finding${n === 1 ? '' : 's'}${carried > 0 ? ` (${carried} still open from the round before)` : ''} for round ${author.review.round} of ${author.review.rounds}${handed.verdict === 'clean' ? ', nothing that must change' : ''}. Kestrel shows them to the user and gives them to the author when your turn ends. End your turn now and write nothing more.` };
+  }
+
+  /** The findings card of the last round of the review of `authorId`'s work, as it is now (the user may have dismissed some), or null. */
+  private lastRound(authorId: string): RoundFindings | null {
+    const rec = this.rt.recordOf(authorId);
+    const id = rec?.review?.lastCard;
+    return (id && rec?.messages.find((m) => m.id === id)?.roundFindings) || null;
+  }
+
+  /** The id of a session's latest message from its agent: where "Open the review" lands. */
+  private lastAgentMessage(sessionId: string): string | undefined {
+    return this.rt.recordOf(sessionId)?.messages.findLast((m) => m.author === 'agent' && m.id && m.text && !m.notice)?.id;
+  }
+
+  /**
    * One step of a review, when `session`'s turn ending is one: the reviewer finished a round (its
    * findings go to the author, or the review ends), or the author finished answering (the reviewer
    * looks again). True when the turn was a review's and needs no other report.
@@ -808,33 +851,76 @@ export class Delegation {
     const author = this.rt.recordOf(guest.hostId);
     if (!author?.review || author.review.reviewerId !== session.id || author.review.status !== 'reviewing') return false;
     const said = reportOf(this.rt.lastAgentText(session.id));
-    const verdict = verdictOf(said);
-    author.review = { ...author.review, summary: clipSummary(said) };
+    const { handed, said: saidBefore, ...review } = author.review;
+    // Findings only in text are not taken: the reviewer is asked once to hand them over (Matt, 2026-11-24: what the user sees are findings).
+    if (!handed && verdictOf(said) === 'findings' && review.asked !== review.round) {
+      author.review = { ...review, asked: review.round, said };
+      this.rt.saveRecord(guest.hostId);
+      await this.rt.reply(session.id, handOverAgainText(review), {}, { fromAgent: true }).catch((error: unknown) => this.endReview(guest.hostId, 'findings', `It could not be asked for its findings: ${error instanceof Error ? error.message : String(error)}`));
+      return true;
+    }
+    const card = this.roundCard(session.id, review, handed, review.asked === review.round ? (saidBefore ?? said) : null);
+    const verdict = card ? card.verdict : verdictOf(said);
+    const cardId = `round-findings-${session.id}-${review.round}`;
+    const shown = card && (card.findings.length > 0 || card.summary || card.earlier?.length);
+    author.review = { ...review, summary: clipSummary(card ? roundFindingsText(card) : said), ...(shown ? { lastCard: cardId } : {}) };
+    if (card && shown) this.rt.showCard(guest.hostId, { type: 'card', id: cardId, roundFindings: card });
     if (verdict === 'clean' || author.review.round >= author.review.rounds) {
       await this.endReview(guest.hostId, verdict);
       return true;
     }
     author.review = { ...author.review, status: 'answering' };
+    // The findings go to the agent as news with the turn the notice starts: the user reads them on the card.
+    if (card) author.inbox = [...author.inbox, roundNews(card)];
     this.rt.saveRecord(guest.hostId);
     if (author.handle?.busy()) this.answerQueued.add(guest.hostId);
     // The turn that answers the findings is about this review: what it asks the user links here.
     author.newsFrom.push(session.id);
     // Sent as a turn of its own, not as news for its next turn: the author is woken even when this
     // Kestrel has no agent process for it yet (after a restart), and a busy author gets it next.
-    await this.rt.reply(guest.hostId, findingsText(author.review, said), {}, { fromAgent: true }).catch((error: unknown) => this.endReview(guest.hostId, 'findings', `The session could not be given the findings: ${error instanceof Error ? error.message : String(error)}`));
+    await this.rt.reply(guest.hostId, card ? roundNotice(card) : findingsText(author.review, said), {}, { fromAgent: true }).catch((error: unknown) => this.endReview(guest.hostId, 'findings', `The session could not be given the findings: ${error instanceof Error ? error.message : String(error)}`));
     return true;
   }
 
-  /** The review is over: the author's conversation says how it ended. Findings warn; they never block. */
+  /**
+   * A round's card: what the reviewer handed over, or, when it was asked to and still answered only
+   * in text (`textOnly`), its words as one unstructured finding beside the round before's findings,
+   * carried forward since nobody said they were fixed. Null when nothing was handed over or owed.
+   */
+  private roundCard(reviewerId: string, review: Review, handed: Review['handed'], textOnly: string | null): RoundFindings | null {
+    const head = { reviewer: review.reviewer, reviewerId, round: review.round, rounds: review.rounds, ...(this.lastAgentMessage(reviewerId) ? { at: this.lastAgentMessage(reviewerId)! } : {}) };
+    if (handed) return { ...head, verdict: handed.verdict, summary: handed.summary, findings: handed.findings, ...(handed.earlier?.length ? { earlier: handed.earlier } : {}) };
+    if (textOnly === null) return null;
+    const previous = this.lastRound(this.rt.recordOf(reviewerId)!.guest!.hostId);
+    const unknown = previous ? earlierUnknown(previous.findings) : [];
+    const carried = carryForward(previous, unknown.map((e) => ({ ...e, status: 'open' as const })), []);
+    return { ...head, verdict: 'findings', summary: '', findings: [...carried, unstructuredFinding(textOnly, review.reviewer, previous)], ...(unknown.length > 0 ? { earlier: unknown } : {}) };
+  }
+
+  /**
+   * The review is over. Clean: a line says so. With findings: a card that stays above the message box
+   * until the user carries on, and the session needs the user until they act (Matt, 2026-11-24: a
+   * warning line scrolls away). Findings warn; they never block.
+   */
   private async endReview(authorId: string, verdict: 'clean' | 'findings', problem = ''): Promise<void> {
     const rec = this.rt.recordOf(authorId);
     if (!rec?.review) return;
     rec.review = { ...rec.review, status: 'done', verdict };
     this.answerQueued.delete(authorId);
     this.rt.saveRecord(authorId);
+    // The last round's findings are the findings: its card is drawn in full from now on.
+    const last = rec.review.lastCard ? rec.messages.find((m) => m.id === rec.review!.lastCard) : undefined;
+    if (last?.roundFindings && !last.roundFindings.final) this.rt.showCard(authorId, { type: 'card', id: last.id!, roundFindings: { ...last.roundFindings, final: true }, ...(last.at !== undefined ? { at: last.at } : {}) });
     // Posted to the pull request when that was asked for; a failure to post is said, and changes nothing else.
     const posted = rec.review.comment ? await this.rt.postToRequest(authorId, reviewComment(rec.review)).then((where) => (where ? `Posted to ${where}.` : ''), (error: unknown) => `It could not be posted to the pull request: ${error instanceof Error ? error.message : String(error)}`) : '';
-    this.rt.notice(authorId, [reviewEndNotice(rec.review), problem, posted].filter(Boolean).join(' '), verdict === 'clean' ? 'info' : 'warning');
+    if (verdict === 'clean') return this.rt.notice(authorId, [reviewEndNotice(rec.review), problem, posted].filter(Boolean).join(' '), 'info');
+    const { reviewer, reviewerId, round, lastCard } = rec.review;
+    const at = this.lastAgentMessage(reviewerId);
+    const end: ReviewEnd = { reviewer, reviewerId, rounds: round, ...(lastCard ? { card: lastCard } : {}), ...(at ? { at } : {}), state: 'open', ...(problem ? { problem } : {}) };
+    this.rt.showCard(authorId, { type: 'card', id: reviewEndId(reviewerId), reviewEnd: end });
+    if (posted) this.rt.notice(authorId, posted, 'info');
+    const now = (await this.ws.state()).sessions.find((s) => s.id === authorId);
+    if (now && now.state !== 'running' && now.state !== 'attention') await this.ws.setState(authorId, 'attention', REVIEW_END_NOTE, { activity: true });
   }
 
   /**
@@ -865,7 +951,7 @@ export class Delegation {
     if (!project) throw new Refused('This session has no project.');
     const folder = project.folders.find((f) => f.id === host.folderId) ?? null;
     await this.ws.checkLimits(hostId, 1, { depth: true });
-    const { children } = await this.delegateIn(hostId, [{ projectId: project.id, folderId: folder?.id ?? null, brief: text, agent: preset.agent, title: titleFrom(text) }]);
+    const { children } = await this.delegateIn(hostId, [{ projectId: project.id, folderId: folder?.id ?? null, brief: text, agent: preset.agent, title: titleFrom(text), hostId }]);
     const child = children[0]!;
     this.noteStarted(hostId, child.id, 'delegate');
     const launched = await this.rt.launchChild(child, project, folder, `${guestIntro(role, host.title)}\n\n${text}`, 'delegate', preset.model, this.modeOf(hostId), { effort: preset.effort, fast: preset.fast }, { guest: { hostId, role, writes: true }, host }, { role, brief: text, tried: runners.slice(0, runners.indexOf(preset) + 1).map((p) => p.id) });

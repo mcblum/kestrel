@@ -27,5 +27,7 @@ test('a feed that is not there yet is told from a real failure, for every platfo
   assert.equal(isMissingFeed(new Error('Cannot find latest.yml in the latest release artifacts')), true);
   assert.equal(isMissingFeed(new Error('Cannot find latest-linux-arm64.yml in the latest release artifacts')), true);
   assert.equal(isMissingFeed(new Error('HttpError: 404 Not Found')), true);
+  assert.equal(isMissingFeed(new Error('Cannot find channel "beta-mac.yml" update info: HttpError')), true);
+  assert.equal(isMissingFeed(Object.assign(new Error('x'), { message: 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND' })), true);
   assert.equal(isMissingFeed(new Error('net::ERR_INTERNET_DISCONNECTED')), false);
 });

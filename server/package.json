@@ -6,6 +6,7 @@
   "exports": {
     "./onboarding": "./src/shared/onboarding.ts",
     "./model": "./src/model.ts",
+    "./working-tree": "./src/shared/working-tree.ts",
     "./mid-turn": "./src/shared/mid-turn.ts",
     "./landing": "./src/shared/landing.ts",
     "./tabs": "./src/shared/tabs.ts",
@@ -98,6 +99,9 @@
     "./review-settings": "./src/shared/review-settings.ts",
     "./colours": "./src/shared/colours.ts",
     "./review-reply": "./src/shared/review-reply.ts",
+    "./findings": "./src/shared/findings.ts",
+    "./round-findings": "./src/shared/round-findings.ts",
+    "./asides": "./src/shared/asides.ts",
     "./code-excerpt": "./src/shared/code-excerpt.ts",
     "./local-tabs": "./src/shared/local-tabs.ts",
     "./attachments": "./src/shared/attachments.ts",
@@ -124,7 +128,8 @@
     "./background-tasks": "./src/shared/background-tasks.ts",
     "./task-row-name": "./src/shared/task-row-name.ts",
     "./commands": "./src/shared/commands.ts",
-    "./connect": "./src/shared/connect.ts"
+    "./connect": "./src/shared/connect.ts",
+    "./diff-anchors": "./src/shared/diff-anchors.ts"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -137,6 +142,7 @@
     "@anthropic-ai/sdk": "1.8.0",
     "@modelcontextprotocol/sdk": "1.32.2",
     "@opencode-ai/sdk": "1.14.25",
+    "@scure/bip39": "1.6.0",
     "@sentry/node": "11.16.0",
     "marklassian": "1.2.1",
     "node-pty": "^1.1.0",

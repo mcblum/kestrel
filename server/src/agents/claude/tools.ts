@@ -142,7 +142,7 @@ export function kestrelMcpServer(host: KestrelToolHost, omit: readonly string[] 
       ),
       tool(
         'post_review',
-        "Only when this session is reviewing somebody else's pull or merge request (Kestrel started it as a review): hand over your finished review. It is shown to the user as a card they can change and post; nothing reaches the host from this call unless the user chose that. Call it once, at the end, instead of commenting or approving on the host yourself. " + REVIEW_IS_LAST,
+        "Only when this session is reviewing somebody else's pull or merge request (Kestrel started it as a review), or reviewing another session's work in its worktree: hand over your finished review. For a pull request it is shown to the user as a card they can change and post; nothing reaches the host from this call unless the user chose that. For another session's work, its findings go to that session and to the user as a card. Call it once, at the end, instead of commenting or approving on the host yourself. " + REVIEW_IS_LAST,
         {
           verdict: z.enum(['comment', 'approve', 'request_changes']).describe('What you would do: only comment, approve, or ask for changes.'),
           summary: z.string().describe('Always include a concise rationale for the user, even for a clean approval. In Markdown, a few sentences: what the change does and what you make of it overall. Do not list the problems here: each one is a finding.'),
@@ -154,16 +154,36 @@ export function kestrelMcpServer(host: KestrelToolHost, omit: readonly string[] 
                 fix: z.string().optional().describe('What to do instead, in a sentence or two.'),
                 priority: z.enum(['high', 'medium', 'low']).describe('How much it matters.'),
                 blocking: z.boolean().describe('Whether you think it must be fixed before this merges.'),
+                question: z.string().optional().describe('One plain question for the user about this finding, only when the user alone can settle it (whether a behaviour is intended, say). Shown on the finding with a box for the answer.'),
                 refs: z
-                  .array(z.object({ path: z.string().describe('The file, relative to the repository.'), line: z.number().int().describe('The line in the file as the request leaves it.') }))
+                  .array(
+                    z.object({
+                      path: z.string().describe('The file, relative to the repository.'),
+                      line: z.number().int().describe('The line in the file as the request leaves it (the first, for a range).'),
+                      end: z.number().int().optional().describe('The last line, when it is about a range of lines.'),
+                    }),
+                  )
                   .max(5)
                   .optional()
-                  .describe('The lines it is about, the main one first: its comment is posted there, so that one should be a line the request adds or changes. None when it belongs to no line.'),
+                  .describe('The lines it is about, the main one first. On a pull request it is posted as a comment on the first of them that is part of the change (lines the request adds, or near them); one that names no such line stays in the summary. None when it belongs to no line.'),
               }),
             )
             .max(50)
             .optional()
             .describe('The problems you found, one finding each, said once. The user reads, edits and may dismiss each before anything is posted.'),
+          earlier: z
+            .array(
+              z.object({
+                id: z.string().describe('The finding of the round before, by its id (f1, f2, …), as Kestrel gave it to you.'),
+                status: z.enum(['fixed', 'open', 'withdrawn']).describe('fixed: you checked it is. open: it still holds; it is carried forward as the same finding, so do not list it again in findings. withdrawn: the author convinced you.'),
+                author_says_fixed: z.boolean().optional().describe('The author says it fixed it.'),
+                commit: z.string().optional().describe('The commit the author says the fix is in, as a hash.'),
+                note: z.string().optional().describe('A sentence on it, when there is something to say (why it still holds, say).'),
+              }),
+            )
+            .max(50)
+            .optional()
+            .describe("Only when you look again at another session's work in a later round: what became of every finding of the round before. Leave it out otherwise."),
         },
         (args) => guarded(() => host.postReview(args)),
       ),

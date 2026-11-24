@@ -12,6 +12,7 @@ import { FakeAgents, until, type Turn } from './test-agent.ts';
 import { makeRepo } from './test-repo.ts';
 import { GIT_TEST_TIMEOUT_MS } from './test-timeouts.ts';
 import { Workspace } from './workspace.ts';
+import type { Agent } from './model.ts';
 
 vi.setConfig({ testTimeout: GIT_TEST_TIMEOUT_MS });
 
@@ -59,20 +60,21 @@ describe('the rule in words', () => {
   });
 });
 
-async function world() {
+async function world(reviewer: Agent = 'codex') {
   const workspace = new Workspace(memoryPersistence());
   const claude = new FakeAgents();
   const codex = new FakeAgents();
+  const opencode = new FakeAgents();
   /** Comments Kestrel posted to a pull request: [request number, host, text]. */
   const posted: [number, string, string][] = [];
-  const runtime = new SessionRuntime(workspace, { claude: claude.adapter(), codex: codex.adapter() }, realpathSync(mkdtempSync(join(tmpdir(), 'kestrel-guests-'))), { requestComment: async (_cwd, number, body, host) => void posted.push([number, host, body]) });
+  const runtime = new SessionRuntime(workspace, { claude: claude.adapter(), codex: codex.adapter(), opencode: opencode.adapter() }, realpathSync(mkdtempSync(join(tmpdir(), 'kestrel-guests-'))), { requestComment: async (_cwd, number, body, host) => void posted.push([number, host, body]) });
   const project = await runtime.registerProject(makeRepo(), 'app');
-  await runtime.whoDoesWhat.set(who);
+  await runtime.whoDoesWhat.set(reviewer === 'codex' ? who : { ...who, presets: [...who.presets, { id: 'other', name: 'Other', agent: reviewer, model: 'm-1', effort: '', fast: false }], roles: { ...who.roles, review: 'other' } });
   const sessions = async () => (await workspace.state()).sessions;
   const notices = (id: string) => runtime.overlay(id)?.messages.filter((m) => m.notice).map((m) => m.text) ?? [];
   const edit = (turn: Turn, file: string) => turn.options.intercept!({ tool: 'Edit', input: { file_path: join(turn.options.directory, file) } });
   const cards = (id: string) => runtime.overlay(id)?.messages.flatMap((m) => (m.suggestion ? [m.suggestion] : [])) ?? [];
-  return { workspace, claude, codex, runtime, project, sessions, notices, edit, posted, cards };
+  return { workspace, claude, codex, opencode, runtime, project, sessions, notices, edit, posted, cards };
 }
 
 describe('a design part in the asking session’s worktree', () => {
@@ -133,41 +135,168 @@ describe('a design part in the asking session’s worktree', () => {
 });
 
 describe('a review of a session’s work', () => {
-  it('reads in the author’s worktree, sends its findings as a turn, looks again, and ends with a warning', async () => {
-    const { claude, codex, runtime, project, sessions, notices, edit } = await world();
+  // Matt, 2026-11-24: a Codex reviewer used its own review skill and answered in text ending "VERDICT: FIX FIRST",
+  // and the user saw only a warning line. What the user sees are findings, whatever the reviewer's agent.
+  it.each(['codex', 'claude', 'opencode'] as const)('takes no text-only round from a %s reviewer: asks once, then shows its words as an unstructured finding, and ends with a card that stays', async (agent) => {
+    const w = await world(agent);
+    const { runtime, project, sessions, notices, edit } = w;
+    const authorAgent: Agent = agent === 'claude' ? 'codex' : 'claude';
     const reviewer: { directory?: string; edit?: unknown; texts: string[] } = { texts: [] };
-    codex.script = async (turn) => {
+    w[agent].script = async (turn) => {
       reviewer.texts.push(turn.text);
       reviewer.directory = turn.options.directory;
       reviewer.edit ??= await edit(turn, 'App.tsx');
-      turn.emit({ type: 'message', id: `r${turn.n}`, text: `1. app.ts:3 still divides by zero (look ${turn.n}).\n\nVERDICT: FIX FIRST`, delta: '', done: true });
+      const asked = turn.text.includes('Your findings came only as text');
+      turn.emit({ type: 'message', id: `r${turn.n}`, text: asked ? 'I listed them above.\n\nVERDICT: FIX FIRST' : `I used the review skill. 1. app.ts:3 still divides by zero (look ${turn.n}).\n\nVERDICT: FIX FIRST`, delta: '', done: true });
     };
     const author: string[] = [];
-    claude.script = (turn) => {
+    w[authorAgent].script = (turn) => {
       author.push(turn.text);
-      if (turn.n > 1) turn.emit({ type: 'message', id: `a${turn.n}`, text: 'Guarded the division.', delta: '', done: true });
+      if (turn.n > 1) turn.emit({ type: 'message', id: `a${turn.n}`, text: 'Guarded the division in abc1234.', delta: '', done: true });
     };
-    const session = await runtime.start({ agent: 'claude', projectId: project.id, prompt: 'Add the average', permission: 'auto' });
+    const session = await runtime.start({ agent: authorAgent, projectId: project.id, prompt: 'Add the average', permission: 'auto' });
     await runtime.idle(session.id);
 
     const started = await runtime.delegation.startReview(session.id);
-    expect(started).toMatchObject({ reviewer: 'Critic (Codex · gpt-6.2)', round: 1, rounds: 2, status: 'reviewing' });
-    await expect(runtime.delegation.startReview(session.id)).rejects.toThrow('Critic (Codex · gpt-6.2) is already reviewing this work.');
+    expect(started).toMatchObject({ round: 1, rounds: 2, status: 'reviewing' });
+    await expect(runtime.delegation.startReview(session.id)).rejects.toThrow('is already reviewing this work.');
     await until(() => runtime.delegation.reviewOf(session.id)?.status === 'done', 'the review to end');
 
     const worktree = (await sessions()).find((s) => s.id === session.id)!.worktreePath;
     expect(reviewer.directory).toBe(worktree);
     expect(reviewer.edit).toMatchObject({ allow: false, message: expect.stringContaining('a reviewer does not change files') });
     expect(reviewer.texts[0]).toMatch(/^You are reviewing the work of the session "Add the average"/);
-    expect(reviewer.texts[0]).toContain('VERDICT: FIX FIRST');
-    expect(codex.starts[0]!.options.permission).toBe('auto');
-    // Round 1's findings were the author's next turn; its answer went back for round 2.
-    expect(author[1]).toContain('Critic (Codex · gpt-6.2) reviewed your work (round 1 of 2) and found things to fix. Its findings: 1. app.ts:3 still divides by zero (look 1).');
-    expect(reviewer.texts[1]).toContain('The author acted on your findings. It says: Guarded the division.');
-    expect(reviewer.texts[1]).toContain('Look again (round 2 of 2)');
+    expect(reviewer.texts[0]).toContain('This is required, whatever else you use to review (a review skill or command of your own included)');
+    // Each round's text-only answer was not taken: the reviewer was asked once to hand the findings over.
+    expect(reviewer.texts[1]).toContain('Your findings came only as text');
+    expect(reviewer.texts[2]).toContain('The author acted on your findings. It says: Guarded the division in abc1234.');
+    expect(reviewer.texts[2]).toContain('in its earlier field say what became of every finding of the round before');
+    expect(reviewer.texts[3]).toContain('and in earlier what became of each finding of the round before');
+    expect(reviewer.texts).toHaveLength(4);
+
+    const rounds = runtime.overlay(session.id)!.messages.filter((m) => m.roundFindings).map((m) => m.roundFindings!);
+    expect(rounds).toHaveLength(2);
+    // Round 1: the reviewer's words, whole, as one finding marked unstructured, with why.
+    expect(rounds[0]!.findings).toEqual([expect.objectContaining({ id: 'f1', priority: 'high', blocking: true, unstructured: expect.stringContaining('asked twice'), detail: expect.stringContaining('app.ts:3 still divides by zero (look 1)') })]);
+    expect(author[1]).toContain('its findings come with this message');
+    // Round 2: round 1's finding carried forward, the same one, beside the new words; nobody said what became of it.
+    expect(rounds[1]!.findings.map((f) => [f.id, f.since])).toEqual([['f1', 1], ['f2', undefined]]);
+    expect(rounds[1]!.findings[1]!.detail).toContain('look 3');
+    expect(rounds[1]!.earlier).toEqual([expect.objectContaining({ id: 'f1', status: 'unknown' })]);
+    expect(rounds[1]!.at).toBe('r4');
+    // Round 1 was passed between reviewer and author; round 2's are the findings as they finally stand.
+    expect(rounds.map((r) => r.final)).toEqual([undefined, true]);
     expect(author).toHaveLength(2); // the last round's findings are the user's to weigh, not another turn
-    expect(runtime.delegation.reviewOf(session.id)).toMatchObject({ round: 2, status: 'done', verdict: 'findings', summary: expect.stringContaining('look 2') });
-    expect(notices(session.id).at(-1)).toMatch(/reviewed this work \(2 rounds\) and still has findings. They are a warning, not a block/);
+
+    // The end: a card that stays, not a warning line, and the session needs the user.
+    const end = runtime.overlay(session.id)!.messages.find((m) => m.reviewEnd);
+    expect(end?.reviewEnd).toMatchObject({ reviewerId: started.reviewerId, rounds: 2, card: `round-findings-${started.reviewerId}-2`, at: 'r4', state: 'open' });
+    expect(notices(session.id).join(' ')).not.toContain('still has findings');
+    expect((await sessions()).find((s) => s.id === session.id)).toMatchObject({ state: 'attention', note: 'Needs you · Review findings' });
+    expect(runtime.delegation.reviewOf(session.id)).toMatchObject({ round: 2, status: 'done', verdict: 'findings', summary: expect.stringContaining('look 3') });
+  });
+
+  it('carries a finding the reviewer still holds into the next round as the same finding, with what the author says it fixed and where', async () => {
+    const { claude, codex, runtime, project } = await world();
+    const handed: unknown[] = [];
+    codex.script = async (turn) => {
+      const tools = turn.options.tools;
+      if (turn.n === 1) {
+        handed.push(await tools.postReview({ verdict: 'request_changes', summary: 'Two problems.', findings: [{ brief: 'Divides by zero.', priority: 'high', blocking: true, refs: [{ path: 'app.ts', line: 3 }] }, { brief: 'No test.', priority: 'low', blocking: false }] }));
+      } else {
+        // Leaving a finding of the round before unaccounted for is refused, with which.
+        handed.push(await tools.postReview({ verdict: 'request_changes', summary: 'One left.', findings: [] }).catch((e: Error) => e.message));
+        handed.push(await tools.postReview({ verdict: 'request_changes', summary: 'One left, one new.', earlier: [{ id: 'f1', status: 'open', author_says_fixed: true, commit: 'abc1234', note: 'Zero still reaches it.' }, { id: 'f2', status: 'fixed', author_says_fixed: true, commit: 'abc1234' }], findings: [{ brief: 'The fix logs the count.', priority: 'medium', blocking: false }] }));
+      }
+      turn.emit({ type: 'message', id: `r${turn.n}`, text: 'Handed over.', delta: '', done: true });
+    };
+    claude.script = (turn) => {
+      if (turn.n > 1) turn.emit({ type: 'message', id: `a${turn.n}`, text: 'Finding 1: fixed in abc1234. Finding 2: fixed in abc1234.', delta: '', done: true });
+    };
+    const session = await runtime.start({ agent: 'claude', projectId: project.id, prompt: 'Add the average', permission: 'auto' });
+    await runtime.idle(session.id);
+    await runtime.delegation.startReview(session.id, { comment: true });
+    await until(() => runtime.delegation.reviewOf(session.id)?.status === 'done', 'the review to end');
+
+    expect(JSON.stringify(handed[1])).toContain('Say in earlier what became of f1 (\\"Divides by zero.\\"), f2 (\\"No test.\\") from the round before');
+    expect(handed[2]).toMatchObject({ text: expect.stringContaining('Handed over: 2 findings (1 still open from the round before) for round 2 of 2') });
+    const rounds = runtime.overlay(session.id)!.messages.filter((m) => m.roundFindings).map((m) => m.roundFindings!);
+    expect(rounds[1]!.findings.map((f) => [f.id, f.brief, f.since ?? null])).toEqual([
+      ['f1', 'Divides by zero.', 1],
+      ['f3', 'The fix logs the count.', null],
+    ]);
+    expect(rounds.map((r) => r.final)).toEqual([undefined, true]);
+    expect(rounds[1]!.earlier).toEqual([
+      { id: 'f1', brief: 'Divides by zero.', priority: 'high', status: 'open', claimed: true, commit: 'abc1234', note: 'Zero still reaches it.' },
+      { id: 'f2', brief: 'No test.', priority: 'low', status: 'fixed', claimed: true, commit: 'abc1234' },
+    ]);
+    // Asked from the Create pull request form (comment: true): the same card stays at the end.
+    expect(runtime.overlay(session.id)!.messages.find((m) => m.reviewEnd)?.reviewEnd).toMatchObject({ state: 'open', card: rounds[1] && expect.stringContaining('-2') });
+    expect(runtime.delegation.reviewOf(session.id)?.summary).toContain('Finding 1: still open, though the author says it fixed it in abc1234. Zero still reaches it.');
+  });
+
+  it('lets the user ask for chosen findings to be fixed, dismiss one, and carry on, from the card that stays', async () => {
+    const { claude, codex, runtime, project, sessions, workspace } = await world();
+    codex.script = async (turn) => {
+      if (turn.n === 1) await turn.options.tools.postReview({ verdict: 'request_changes', summary: 'Three problems.', findings: [{ brief: 'Divides by zero.', priority: 'high', blocking: true }, { brief: 'No test.', priority: 'low', blocking: false }, { brief: 'Logs a secret.', priority: 'medium', blocking: true }] });
+      else await turn.options.tools.postReview({ verdict: 'request_changes', summary: 'Still there.', earlier: [{ id: 'f1', status: 'open' }, { id: 'f2', status: 'open' }, { id: 'f3', status: 'open' }] });
+      turn.emit({ type: 'message', id: `r${turn.n}`, text: 'Handed over.', delta: '', done: true });
+    };
+    const author: string[] = [];
+    claude.script = (turn) => {
+      author.push(turn.text);
+      if (turn.n > 1) turn.emit({ type: 'message', id: `a${turn.n}`, text: 'Did what I could.', delta: '', done: true });
+    };
+    const session = await runtime.start({ agent: 'claude', projectId: project.id, prompt: 'Add the average', permission: 'auto' });
+    await runtime.idle(session.id);
+    await runtime.delegation.startReview(session.id);
+    await until(() => runtime.delegation.reviewOf(session.id)?.status === 'done', 'the review to end');
+    const endId = runtime.overlay(session.id)!.messages.find((m) => m.reviewEnd)!.id!;
+    const roundId = runtime.overlay(session.id)!.messages.findLast((m) => m.roundFindings)!.id!;
+
+    // Dismissing is the finding's own action on its round's card; the card that stays reads from there.
+    // New findings are numbered highest priority first: f1 high, f2 medium, f3 low ("No test.").
+    await runtime.findingActions.act(session.id, roundId, 'f3', 'dismiss');
+    await expect(runtime.reviewEnds.act(session.id, endId, 'fix', ['f3'])).rejects.toThrow('not open on this card any more');
+    await expect(runtime.reviewEnds.act(session.id, endId, 'fix', [])).rejects.toThrow('Choose the findings to be fixed first.');
+    await runtime.reviewEnds.act(session.id, endId, 'fix', ['f1', 'f2']);
+    await until(() => author.length === 3, 'the author to be asked');
+    expect(author[2]).toMatch(/^Please fix these 2 findings from Critic \(Codex · gpt-6.2\)'s review:/);
+    expect(author[2]).toContain('Finding 1 · High priority · Blocks. Divides by zero.');
+    expect(author[2]).toContain('Finding 2 · Medium priority · Blocks. Logs a secret.');
+    expect(author[2]).not.toContain('No test.');
+    const round = runtime.overlay(session.id)!.messages.find((m) => m.id === roundId)!.roundFindings!;
+    expect(round.findings.filter((f) => f.fixAsked).map((f) => f.id)).toEqual(['f1', 'f2']);
+    await expect(runtime.reviewEnds.act(session.id, endId, 'fix', ['f1'])).rejects.toThrow('A fix was asked for already');
+
+    // Carrying on: the card leaves the foot and the session no longer needs the user for it; Undo brings it back.
+    await runtime.idle(session.id);
+    await workspace.setState(session.id, 'attention', 'Needs you · Review findings');
+    expect(await runtime.reviewEnds.act(session.id, endId, 'close')).toMatchObject({ state: 'closed' });
+    expect((await sessions()).find((s) => s.id === session.id)?.state).toBe('done');
+    expect(await runtime.reviewEnds.act(session.id, endId, 'reopen')).toMatchObject({ state: 'open' });
+    await expect(runtime.reviewEnds.act(session.id, 'nope', 'close')).rejects.toThrow('There is no such review card in this session.');
+  });
+
+  it('ends clean after the author fixed everything: the last round shows what was fixed, and asks nothing', async () => {
+    const { claude, codex, runtime, project, sessions } = await world();
+    codex.script = async (turn) => {
+      if (turn.n === 1) await turn.options.tools.postReview({ verdict: 'request_changes', summary: 'One bug.', findings: [{ brief: 'Divides by zero.', priority: 'high', blocking: true }] });
+      else await turn.options.tools.postReview({ verdict: 'approve', summary: 'Fixed.', earlier: [{ id: 'f1', status: 'fixed', author_says_fixed: true, commit: 'abc1234' }] });
+      turn.emit({ type: 'message', id: `r${turn.n}`, text: 'Handed over.', delta: '', done: true });
+    };
+    claude.script = (turn) => {
+      if (turn.n > 1) turn.emit({ type: 'message', id: `a${turn.n}`, text: 'Finding 1: fixed in abc1234.', delta: '', done: true });
+    };
+    const session = await runtime.start({ agent: 'claude', projectId: project.id, prompt: 'Add the average', permission: 'auto' });
+    await runtime.idle(session.id);
+    await runtime.delegation.startReview(session.id);
+    await until(() => runtime.delegation.reviewOf(session.id)?.status === 'done', 'the review to end');
+    const rounds = runtime.overlay(session.id)!.messages.filter((m) => m.roundFindings).map((m) => m.roundFindings!);
+    expect(rounds.map((r) => [r.round, r.verdict, r.final])).toEqual([[1, 'findings', undefined], [2, 'clean', true]]);
+    expect(rounds[1]!.earlier).toEqual([expect.objectContaining({ id: 'f1', status: 'fixed', commit: 'abc1234' })]);
+    expect(runtime.overlay(session.id)!.messages.some((m) => m.reviewEnd)).toBe(false);
+    expect((await sessions()).find((s) => s.id === session.id)?.state).toBe('done');
   });
 
   it('ends after one round when there is nothing to fix', async () => {
@@ -179,6 +308,38 @@ describe('a review of a session’s work', () => {
     await until(() => runtime.delegation.reviewOf(session.id)?.status === 'done', 'the review to end');
     expect(runtime.delegation.reviewOf(session.id)).toMatchObject({ round: 1, verdict: 'clean' });
     expect(notices(session.id).at(-1)).toBe('Critic (Codex · gpt-6.2) reviewed this work (1 round) and found nothing that must change before it is merged.');
+  });
+
+  it('shows findings handed over with post_review as a card in the author’s conversation, and gives them to the author as news', async () => {
+    const { claude, codex, runtime, project } = await world();
+    const handedOver: unknown[] = [];
+    codex.script = async (turn) => {
+      if (turn.n > 1) return;
+      handedOver.push(await turn.options.tools.postReview({ verdict: 'request_changes', summary: 'One bug.', findings: [{ brief: 'app.ts:3 divides by zero.', priority: 'high', blocking: true, refs: [{ path: 'app.ts', line: 3 }], question: 'Is zero a valid count?', answer: 'forged', dismissed: true }] }));
+      turn.emit({ type: 'message', id: 'r1', text: 'Handed over.', delta: '', done: true });
+    };
+    const author: string[] = [];
+    claude.script = (turn) => void author.push(turn.text);
+    const session = await runtime.start({ agent: 'claude', projectId: project.id, prompt: 'Add the average', permission: 'auto' });
+    await runtime.idle(session.id);
+    await runtime.delegation.startReview(session.id);
+    await until(() => author.length > 1, 'the author to be given the findings');
+    expect(handedOver[0]).toMatchObject({ text: expect.stringContaining('Handed over: 1 finding for round 1 of 2') });
+    const card = runtime.overlay(session.id)?.messages.find((m) => m.roundFindings)?.roundFindings;
+    expect(card).toMatchObject({ reviewer: 'Critic (Codex · gpt-6.2)', round: 1, rounds: 2, verdict: 'findings', summary: 'One bug.' });
+    // What only Kestrel sets cannot be handed over by the reviewer.
+    expect(card?.findings).toEqual([{ id: 'f1', brief: 'app.ts:3 divides by zero.', priority: 'high', blocking: true, refs: [{ path: 'app.ts', line: 3 }], question: 'Is zero a valid count?' }]);
+    expect(author[1]).toContain('Finding 1 · High priority · Blocks. app.ts:3 divides by zero.');
+    expect(author[1]).toContain('Question for the user: Is zero a valid count?');
+  });
+
+  it('refuses post_review in a session that reviews nothing, with the reason', async () => {
+    const { claude, runtime, project } = await world();
+    const answers: unknown[] = [];
+    claude.script = async (turn) => void answers.push(await turn.options.tools.postReview({ verdict: 'approve', summary: 'Fine.' }).catch((e: Error) => e.message));
+    const session = await runtime.start({ agent: 'claude', projectId: project.id, prompt: 'Add the average', permission: 'auto' });
+    await runtime.idle(session.id);
+    expect(JSON.stringify(answers[0])).toContain("not reviewing somebody else's pull request or another session's work");
   });
 
   it('is refused, with what to do, when nobody is set to review or the session is still working', async () => {

@@ -1,30 +1,25 @@
 // A finished review of somebody else's pull request, handed over by the agent with `post_review`
 // (server: shared/review-reply.ts, review-requests/reply.ts). Until it is posted the verdict and
-// the summary and each finding can be changed here, and a finding dismissed (ReviewFindingCard.tsx);
+// the summary and each finding can be changed here, and a finding dismissed (FindingCard.tsx, the one
+// finding component both reviews use);
 // Post review sends what is kept to the host as it stands; an approval may go up alone, and one over
 // blocking findings is confirmed first (ApproveOverBlocking). Once posted it
 // only says what went up. The card itself is server data and comes from the conversation; what is
 // typed here before posting is a draft of this card's own.
 import { memo, useEffect, useRef, useState } from 'react';
 import { Check, Eye, TriangleAlert } from 'lucide-react';
-import { blockingFindings, isCleanApproval, keptFindings, orderFindings, postable, VERDICT_LABEL, VERDICT_POSTED, verdictFor, type ReviewFinding, type ReviewReply, type ReviewVerdict } from '@kestrel/server/review-reply';
+import { blockingFindings, isCleanApproval, keptFindings, postable, postedSummary, VERDICT_LABEL, VERDICT_POSTED, verdictFor, type ReviewFinding, type ReviewReply, type ReviewVerdict } from '@kestrel/server/review-reply';
+import { countLine, numberedFindings, type Finding } from '@kestrel/server/findings';
+import { placeFinding, placementText } from '@kestrel/server/diff-anchors';
 import { act, call } from '../store.ts';
 import { DialogShell } from './DialogShell.tsx';
 import { Markdown } from './Markdown.tsx';
-import { ReviewFindingCard } from './ReviewFindingCard.tsx';
+import { FindingCard } from './FindingCard.tsx';
 
 interface Props {
   review: ReviewReply;
   sessionId: string;
   cardId: string;
-}
-
-/** "3 findings · 1 blocking · 1 dismissed": what the card holds, at a glance. */
-function countLine(findings: readonly ReviewFinding[]): string {
-  const kept = keptFindings(findings);
-  const blocking = kept.filter((f) => f.blocking).length;
-  const dismissed = findings.length - kept.length;
-  return [`${kept.length} finding${kept.length === 1 ? '' : 's'}`, blocking > 0 ? `${blocking} blocking` : null, dismissed > 0 ? `${dismissed} dismissed` : null].filter(Boolean).join(' · ');
 }
 
 /** Asked before an approval is posted while the review still holds findings marked blocking. */
@@ -73,16 +68,29 @@ export const ReviewReplyCard = memo(function ReviewReplyCard({ review, sessionId
     setFindings(after);
     if (!picked) setVerdict(verdictFor(review.verdict, after));
   };
+  // What only Kestrel sets on a finding (the answer to its question) comes from the card as the server has it, not the draft.
+  const own = new Map((review.findings ?? []).map((f) => [f.id, f]));
+  const withMarks = (f: ReviewFinding): ReviewFinding => {
+    const server = own.get(f.id);
+    return server?.answer && !f.answer ? { ...f, answer: server.answer } : f;
+  };
   // Blocking and high priority first; the dismissed ones last. What is posted follows the same order.
-  const shownFindings = posted ? orderFindings(keptFindings(review.findings ?? [])) : [...orderFindings(keptFindings(findings)), ...findings.filter((f) => f.dismissed)];
-
   // Each kept finding has a number, in the order shown, so one can be told from the next and spoken of.
-  const numberOf = new Map(shownFindings.filter((f) => !f.dismissed).map((f, i) => [f.id, i + 1]));
+  const { shown: ordered, numberOf } = numberedFindings(posted ? keptFindings(review.findings ?? []) : findings.map(withMarks));
+  const shownFindings = ordered;
 
   const included = keptFindings(findings).length;
   const withoutComment = verdict === 'approve' && (bare ?? isCleanApproval(verdict, findings));
   const blocking = blockingFindings(findings);
-  const outgoing = previewing ? postable({ summary, findings: [...findings] }, withoutComment) : null;
+  // Where each kept finding goes on the host (shared/diff-anchors.ts): said before posting, and after it where the host moved one.
+  const whereItGoes = (f: Finding): string | undefined => {
+    if (f.dismissed || withoutComment || posted?.withoutComment) return undefined;
+    const moved = posted?.moved?.[f.id];
+    if (moved) return `In the summary, because ${moved}.`;
+    const text = placementText(placeFinding(f, review.anchors));
+    return posted ? text.replace(/^On the code at (.*?)(, if the host takes it there)?\.$/, 'Posted on the code at $1.').replace(/^In the summary,/, 'Posted in the summary,') : text;
+  };
+  const outgoing = previewing ? postable({ summary, findings: [...findings], anchors: review.anchors }, withoutComment) : null;
 
   const post = async () => {
     setPosting(true);
@@ -133,7 +141,7 @@ export const ReviewReplyCard = memo(function ReviewReplyCard({ review, sessionId
           <div className="review-reply-count">{countLine(findings)}</div>
           <ul className="review-reply-findings">
             {shownFindings.map((f) => (
-              <ReviewFindingCard key={f.id} finding={f} number={numberOf.get(f.id)} sessionId={sessionId} disabled={posting} {...(posted ? {} : { onChange: changeFinding })} />
+              <FindingCard key={f.id} finding={f} number={numberOf.get(f.id)} sessionId={sessionId} cardId={cardId} kind="review" disabled={posting} place={whereItGoes(f)} {...(posted ? {} : { onChange: changeFinding })} />
             ))}
           </ul>
         </>
@@ -142,10 +150,10 @@ export const ReviewReplyCard = memo(function ReviewReplyCard({ review, sessionId
       {!posted && outgoing && (
         <section className="review-reply-preview" aria-label="Submission preview">
           <h3>Submission preview</h3>
-          <p className="review-reply-note">{withoutComment ? 'Approval only. No summary or comments will be posted.' : `${VERDICT_LABEL[verdict]} · Summary and ${outgoing.comments.length} inline comment${outgoing.comments.length === 1 ? '' : 's'}. If inline comments are unavailable, they are included in the review body.`}</p>
-          <div className="prose"><Markdown text={outgoing.summary} sessionId={sessionId} /></div>
+          <p className="review-reply-note">{withoutComment ? 'Approval only. No summary or comments will be posted.' : `${VERDICT_LABEL[verdict]} · Summary and ${outgoing.comments.length} comment${outgoing.comments.length === 1 ? '' : 's'} on the code. A comment the host refuses after all goes under the summary instead.`}</p>
+          <div className="prose"><Markdown text={postedSummary(outgoing)} sessionId={sessionId} /></div>
           {outgoing.comments.map((comment, i) => <div className="review-preview-comment" key={i}>
-            <code>{comment.path}:{comment.line}</code>
+            <code>{comment.path}:{comment.start !== undefined ? `${comment.start}–` : ''}{comment.line}</code>
             <div className="prose"><Markdown text={comment.body} sessionId={sessionId} /></div>
           </div>)}
         </section>

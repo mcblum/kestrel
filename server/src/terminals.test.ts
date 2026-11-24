@@ -28,6 +28,15 @@ describe('the user\'s terminals', () => {
     expect(spawned[0]!.written).toEqual(['ls\r']);
   });
 
+  it('starts with Kestrel’s note, dimmed, when it opens somewhere other than the session’s worktree', () => {
+    const { terms, spawned } = make();
+    const { id } = terms.open('s1', '/main', {}, 'The worktree was discarded, so this is the project\'s main checkout, /main.');
+    const c = client();
+    terms.attach('s1', id, {}, c);
+    spawned[0]!.emit('$ ');
+    expect(c.got.join('')).toBe("\x1b[2m[Kestrel] The worktree was discarded, so this is the project's main checkout, /main.\x1b[0m\r\n$ ");
+  });
+
   it('keeps several shells per session, each with its own output', () => {
     const { terms, spawned } = make();
     const a = terms.open('s1', '/work', {});

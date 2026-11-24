@@ -10,7 +10,9 @@ import { AGENT_LABEL, type Agent, type Project, type ProjectFolder, type Session
 import type { ByNumberProvider } from '../pull-requests/by-number.ts';
 import { canonicalHost, remoteHost, remoteRepository } from '../pull-requests/choose.ts';
 import { hostTerms, type HostKind } from '../shared/host-terms.ts';
-import type { PermissionLevel } from '../shared/permissions.ts';
+import { remoteStartPermission, type PermissionLevel } from '../shared/permissions.ts';
+
+const remoteOr = (remote: boolean | undefined, level: PermissionLevel): PermissionLevel => (remote ? remoteStartPermission(level) : level);
 import { repositoryKey, requestNumberLabel, REVIEW_PERMISSION, reviewSessionTitle, type ReviewMark, type ReviewRequest } from '../shared/review-requests.ts';
 import { REVIEW_IS_LAST } from '../shared/review-reply.ts';
 import { DEFAULT_REVIEW_INSTRUCTIONS } from '../shared/review-settings.ts';
@@ -152,6 +154,8 @@ export interface StartReviewDeps {
 export interface StartReviewOptions {
   /** Kestrel is starting it on its own, not the user: it holds back when somebody else is already reviewing. */
   automatic?: boolean;
+  /** Another device of the account asked for it (A8): the mode is this computer's, never Bypass (`remoteStartPermission`). */
+  remote?: boolean;
 }
 
 /**
@@ -178,7 +182,7 @@ export async function startReview(deps: StartReviewDeps, request: ReviewRequest,
   if (opts.automatic && standing?.other) throw new Refused(alreadyReviewing(standing.other, now));
   const { sha, start } = await reviewStart(deps.git, folder.path, request.host, request.number, target);
   const review: ReviewMark = { key: request.key, host: request.host, number: request.number, sha, url: request.url };
-  const session = await deps.start({ agent: reviewer.agent, model: reviewer.model, effort: reviewer.effort, fast: reviewer.fast, permission: (await deps.permission?.()) ?? REVIEW_PERMISSION, projectId: project.id, folderId: folder.id, prompt: reviewPrompt(request, sha, start, (await deps.instructions?.()) ?? ''), title: reviewSessionTitle(request.title), start: { ...start, prefix: REVIEW_BRANCH_PREFIX }, review });
+  const session = await deps.start({ agent: reviewer.agent, model: reviewer.model, effort: reviewer.effort, fast: reviewer.fast, permission: remoteOr(opts.remote, (await deps.permission?.()) ?? REVIEW_PERMISSION), projectId: project.id, folderId: folder.id, prompt: reviewPrompt(request, sha, start, (await deps.instructions?.()) ?? ''), title: reviewSessionTitle(request.title), start: { ...start, prefix: REVIEW_BRANCH_PREFIX }, review });
   // Said only once the review really started, and not twice: a comment of the user's own that still stands is enough.
   if (deps.reviewing && !standing?.mine && (await deps.announces?.())) {
     await deps.reviewing.announce(request, sha).catch((error: unknown) => deps.notice?.(session.id, `The review started, but Kestrel could not post the "Reviewing" comment on the ${terms.long}: ${firstLine(error)}`));

@@ -18,6 +18,8 @@ import { hostTerms } from '../shared/host-terms.ts';
 import { folderOf } from '../shared/project-folders.ts';
 import type { Session, SessionView } from '../model.ts';
 import type { Workspace } from '../workspace.ts';
+import { checkoutIn, type Checkout } from '../working-tree.ts';
+import { requestSideOf, sessionFinder } from '../shared/working-tree.ts';
 import { resolveProvider } from './choose.ts';
 import { preparePR, publishPR, validatePRForm } from './create.ts';
 import { samplePrefill, type SamplePullRequests } from './fake.ts';
@@ -36,7 +38,7 @@ export interface CreateDeps {
   writers: readonly TitleProvider[];
   run?: CommandRunner;
   originOf?: (path: string) => Promise<string | null>;
-  branchOf?: (workspace: Workspace, session: Session) => Promise<string | null>;
+  branchOf?: (workspace: Workspace, session: Pick<Session, 'id' | 'branch' | 'worktreePath'>) => Promise<string | null>;
   /** Whether glab is signed in to a host; the server's shared lookup when absent. */
   glabSignIn?: GlabSignInCheck;
   wait?: (ms: number) => Promise<void>;
@@ -51,21 +53,19 @@ const COMMANDS = { github: githubCommands, gitlab: gitlabCommands } as const;
 const refused = (status: number, error: string): CreateAnswer => ({ status, body: { error } });
 
 /** The answers with sample data: made-up text, and a made-up pull request. */
-async function sampleAnswer(action: string, session: Session, read: Read, samples: SamplePullRequests): Promise<CreateAnswer> {
-  if (!session.branch) return refused(400, 'This session has no branch.');
+async function sampleAnswer(action: string, session: Session, branch: string | null, read: Read, samples: SamplePullRequests): Promise<CreateAnswer> {
+  if (!branch) return refused(400, 'This session has no branch.');
   const body = await read();
-  if (action === 'pr-prepare') return { status: 200, body: { ...samplePrefill(session.title, session.branch, body.generated === true), draft: false } };
-  const pr = samples.create(session.branch, validatePRForm(body));
+  if (action === 'pr-prepare') return { status: 200, body: { ...samplePrefill(session.title, branch, body.generated === true), draft: false } };
+  const pr = samples.create(branch, validatePRForm(body));
   return { status: 200, body: { url: pr.url } };
 }
 
-/** The checkout a session works in, or null when it has none that can be used. */
-async function checkoutOf(workspace: Workspace, session: SessionView): Promise<string | null> {
+/** The checkout a session's request is made from (working-tree.ts `checkoutIn`): its host's worktree for a guest. */
+async function checkoutOf(workspace: Workspace, session: SessionView): Promise<Checkout> {
   const state = await workspace.state();
   const project = state.projects.find((p) => p.id === session.startedIn);
-  const folder = project ? folderOf(project, session.folderId) : null;
-  if (!folder?.isGit || session.worktreeDiscarded) return null;
-  return session.worktreePath ?? folder.path;
+  return checkoutIn(state, session, project ? folderOf(project, session.folderId) : null);
 }
 
 /** The route for one server: it keeps which checkouts are creating a pull request right now. */
@@ -87,13 +87,15 @@ export function createPRRoutes(deps: CreateDeps) {
   }
 
   async function answer(action: string, session: SessionView, read: Read, workspace: Workspace): Promise<CreateAnswer> {
-    const cwd = await checkoutOf(workspace, session);
-    if (!cwd) return refused(400, 'This session needs an available Git checkout.');
+    const checkout = await checkoutOf(workspace, session);
+    if ('reason' in checkout) return refused(400, checkout.reason);
+    const cwd = checkout.path;
     const choice = await resolveProvider(await originOf(cwd), glabSignIn);
     if (choice.kind === 'none') return refused(400, choice.reason);
     const commands = COMMANDS[choice.kind];
     try {
-      const branch = await branchOf(workspace, session);
+      // The branch the checkout is on now, recorded on the worktree's owner (branch-sync.ts).
+      const branch = await branchOf(workspace, checkout.branch === null ? { id: session.id, branch: session.branch, worktreePath: null } : { id: checkout.ownerId, branch: checkout.branch, worktreePath: cwd });
       if (!branch) return refused(400, 'This checkout has no branch.');
       if (action === 'pr-create') {
         const created = await publish(cwd, branch, read, commands);
@@ -111,10 +113,11 @@ export function createPRRoutes(deps: CreateDeps) {
   return async function createPRRoute(parts: readonly string[], method: string, read: Read, workspace: Workspace): Promise<CreateAnswer | null> {
     if (method !== 'POST' || parts.length !== 4 || parts[1] !== 'sessions' || !ACTIONS.has(parts[3]!)) return null;
     const action = parts[3]!;
-    const session = (await workspace.state()).sessions.find((s) => s.id === parts[2]);
+    const state = await workspace.state();
+    const session = state.sessions.find((s) => s.id === parts[2]);
     if (!session) return refused(404, 'No such session');
     try {
-      if (deps.samples) return await sampleAnswer(action, session, read, deps.samples);
+      if (deps.samples) return await sampleAnswer(action, session, requestSideOf(session, sessionFinder(state)).branch, read, deps.samples);
       return await answer(action, session, read, workspace);
     } catch (error) {
       return refused(400, ghFailureReason(error));

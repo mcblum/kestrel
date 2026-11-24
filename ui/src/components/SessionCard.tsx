@@ -6,7 +6,9 @@
 // in the Details pane or the session bar: the branch copies, changed files open the Changes pane,
 // the pull request opens its tab, the session it came from opens, and the time shows in full.
 import { useMemo } from 'react';
-import { Bot, Clock, CornerDownRight, Folder, GitBranch, GitPullRequest, Split } from 'lucide-react';
+import { Bot, Clock, CornerDownRight, Folder, GitBranch, GitPullRequest, Split, Users } from 'lucide-react';
+import { guestWhere } from '@kestrel/server/working-tree';
+import { useWorkingTree } from '../workingTree.ts';
 import { primaryPullRequest } from '@kestrel/server/details';
 import type { SessionView } from '@kestrel/server/model';
 import { changesIcon, requestIcon } from '@kestrel/server/row-slot';
@@ -85,6 +87,8 @@ export function SessionCardBody({ session, lineage }: { session: SessionView; li
   const projects = useApp((s) => s.workspace?.projects);
   const group = useApp((s) => (session.groupId ? s.workspace?.groups.find((g) => g.id === session.groupId)?.name : undefined));
   const dot = useRowDot(session);
+  // A guest's card shows the worktree it works in: its host's branch, changes and pull request.
+  const tree = useWorkingTree(session).tree;
   const lines = useMemo(() => {
     const project = projectName(session, projects ?? []);
     return sessionCardLines(
@@ -97,12 +101,12 @@ export function SessionCardBody({ session, lineage }: { session: SessionView; li
         dot: dot.label,
         note: session.note,
         mark: filingMark(session.filing.status, session.filing.discarded)?.label ?? null,
-        branch: session.worktreeDiscarded ? null : session.branch,
+        branch: tree?.branch ?? null,
         activityAt: activityAt(session),
       },
       Date.now(),
     );
-  }, [session, projects, group, dot.label]);
+  }, [session, projects, group, dot.label, tree]);
   const hasBranch = !!lines.branch;
   return (
     <>
@@ -133,12 +137,18 @@ export function SessionCardBody({ session, lineage }: { session: SessionView; li
             <code className="card-text" title={lines.branch!}>{lines.branch}</code>
             <CopyButton value={lines.branch!} label="branch name" />
           </div>
-          {session.worktreePath && <ChangesLine session={session} />}
+          {tree?.host && (
+            <div className="card-line card-muted">
+              <Users aria-hidden />
+              <span className="card-text">{guestWhere(tree.host)}</span>
+            </div>
+          )}
+          {tree && <ChangesLine session={session} />}
           <RequestLine sessionId={session.id} />
         </>
       )}
       {/* Its worktree, opened where the work is done (Matt, 2026-11-19). Not for one that was discarded. */}
-      {session.worktreePath && !session.worktreeDiscarded && (
+      {tree && (
         <>
           <div className="menu-sep" role="separator" />
           <CardOpenIn scope={session.id} />

@@ -6,6 +6,7 @@ import { middleTruncate, type GitStatus } from '@kestrel/server/details';
 import type { ChangedFile } from '@kestrel/server/model';
 import type { Sourced } from '@kestrel/server/sourced';
 import { diffCounts } from '@kestrel/server/diff-counts';
+import { guestWhere, type HostRef } from '@kestrel/server/working-tree';
 
 /** The branch name is cut to this many characters in the top line. */
 export const BRANCH_SUMMARY_CHARS = 22;
@@ -23,15 +24,17 @@ function AheadBehind({ git }: { git: Sourced<GitStatus> }) {
 
 interface Props {
   branch: string;
+  /** Set for a guest: the session whose worktree and branch these are. */
+  host?: HostRef | null;
   files: readonly ChangedFile[];
   git: Sourced<GitStatus>;
   onOpen: () => void;
 }
 
-export function GitSummary({ branch, files, git, onOpen }: Props) {
+export function GitSummary({ branch, files, git, host = null, onOpen }: Props) {
   const { added, removed } = diffCounts(files.map((f) => f.diff));
   return (
-    <button type="button" className="bar-item git-summary" title={`${branch} · open Details`} aria-label={`Branch ${branch}. Open Details`} onClick={onOpen}>
+    <button type="button" className="bar-item git-summary" title={`${branch}${host ? ` · ${guestWhere(host)}` : ''} · open Details`} aria-label={`Branch ${branch}. Open Details`} onClick={onOpen}>
       <GitBranch aria-hidden />
       <span className="git-summary-branch">{middleTruncate(branch, BRANCH_SUMMARY_CHARS)}</span>
       {files.length > 0 && (

@@ -11,6 +11,8 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
-# The live feed is asked again by make-release.sh's preflight, so a version already out stops there too.
-scripts/release/make-release.sh --feed "${KESTREL_RELEASE_FEED:-https://starfish.nationalmachine.io/kestrel/releases/-/raw/main/latest-mac.yml}"
+# The live feeds are asked again by make-release.sh's preflight (release-needed.sh), so a version
+# already out stops there too. A beta (1.2.3-beta.4) takes the same path: its channel decides the
+# feeds it is compared with and written to (app/release-channel.mjs).
+scripts/release/make-release.sh --feeds "${KESTREL_RELEASE_FEEDS:-https://starfish.nationalmachine.io/kestrel/releases/-/raw/main/}"
 scripts/release/publish.sh

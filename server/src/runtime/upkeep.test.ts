@@ -1,7 +1,7 @@
 // The changed-file refresh says why when it cannot read the worktree, instead of leaving the
 // Changes pane on "No changes yet" while git status reports uncommitted files.
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
@@ -32,10 +32,15 @@ function repoWithEdit(): { path: string; head: string } {
   return { path, head: git('rev-parse', 'HEAD') };
 }
 
+/** The base Kestrel records when it makes a worktree (git.ts `baseOf`), so a record with none finds it. */
+function recordBase(path: string, head: string): void {
+  execFileSync('git', ['config', 'branch.main.kestrelbase', head], { cwd: path, stdio: 'pipe' });
+}
+
 function harness(path: string) {
-  const session = { id: 's1', worktreePath: path, branch: 'main', landedIn: null, startedIn: null } as unknown as Session;
+  const session = { id: 's1', worktreePath: path, branch: 'main', worktreeDiscarded: false, landedIn: null, startedIn: null } as unknown as Session;
   const workspace = {
-    state: async () => ({ sessions: [session] }),
+    state: async () => ({ sessions: [session], archived: { sessions: [] } }),
     setLandedIn: async () => undefined,
     setBranch: async () => undefined,
     setDetail: async () => undefined,
@@ -46,19 +51,59 @@ function harness(path: string) {
 }
 
 describe('Upkeep.refreshFiles', () => {
-  test('a change found in the worktree is looked for by the other sessions working in it', async () => {
+  // A guest as it really is: no worktree or branch on its row, only the host it works for. Before
+  // shared/working-tree.ts its refresh returned at once, so its edit reached neither list.
+  test('a guest’s change is read from its host’s worktree and reaches the host’s list', async () => {
     const { path, head } = repoWithEdit();
-    const session = { id: 'guest', worktreePath: path, branch: 'main', landedIn: null, startedIn: null } as unknown as Session;
-    const host = { ...session, id: 'host' } as Session;
-    const workspace = { state: async () => ({ sessions: [session, host] }), setLandedIn: async () => undefined, setBranch: async () => undefined, setDetail: async () => undefined } as unknown as Workspace;
+    const host = { id: 'host', title: 'Fix the inputs', worktreePath: path, branch: 'main', worktreeDiscarded: false, landedIn: null, startedIn: null } as unknown as Session;
+    const guest = { id: 'guest', title: 'Restyle', worktreePath: null, branch: null, worktreeDiscarded: false, landedIn: null, startedIn: null, hostId: 'host' } as unknown as Session;
+    const landed: string[] = [];
+    const workspace = { state: async () => ({ sessions: [host, guest], archived: { sessions: [] } }), setLandedIn: async (id: string) => void landed.push(id), setBranch: async () => undefined, setDetail: async () => undefined } as unknown as Workspace;
     const hostRec = newRecord(null, head);
-    const upkeep = new Upkeep(workspace, () => undefined, (_rec, work) => void work(), () => undefined, (id) => (id === 'guest' ? [['host', hostRec]] : []));
-    const rec = newRecord(null, head);
+    recordBase(path, head);
+    const rec = newRecord(null, null); // a guest is launched with no base of its own
+    const upkeep = new Upkeep(workspace, () => undefined, (_rec, work) => void work(), () => undefined, (id) => (id === 'host' ? hostRec : id === 'guest' ? rec : undefined));
 
     await upkeep.refreshFiles('guest', rec);
+
+    expect(rec.files.map((f) => f.path)).toEqual(['a.txt']);
+    expect(rec.filesProblem).toBeNull();
     await vi.waitFor(() => expect(hostRec.files.map((f) => f.path)).toEqual(['a.txt']), { timeout: 15_000 });
+    expect(landed).not.toContain('guest'); // filing is the worktree owner's
     upkeep.cancelTimers(rec);
     upkeep.cancelTimers(hostRec);
+  });
+
+  test('a host’s change reaches its guests’ lists, and a guest with no record loaded is left for when it is opened', async () => {
+    const { path, head } = repoWithEdit();
+    const host = { id: 'host', title: 'Fix the inputs', worktreePath: path, branch: 'main', worktreeDiscarded: false, landedIn: null, startedIn: null } as unknown as Session;
+    const guest = { id: 'guest', title: 'Restyle', worktreePath: null, branch: null, worktreeDiscarded: false, landedIn: null, startedIn: null, hostId: 'host' } as unknown as Session;
+    const asleep = { ...guest, id: 'asleep' } as Session;
+    const workspace = { state: async () => ({ sessions: [host, guest, asleep], archived: { sessions: [] } }), setLandedIn: async () => undefined, setBranch: async () => undefined, setDetail: async () => undefined } as unknown as Workspace;
+    recordBase(path, head);
+    const guestRec = newRecord(null, null);
+    const hostRec = newRecord(null, head);
+    const upkeep = new Upkeep(workspace, () => undefined, (_rec, work) => void work(), () => undefined, (id) => (id === 'guest' ? guestRec : undefined));
+
+    await upkeep.refreshFiles('host', hostRec);
+    await vi.waitFor(() => expect(guestRec.files.map((f) => f.path)).toEqual(['a.txt']), { timeout: 15_000 });
+    upkeep.cancelTimers(guestRec);
+    upkeep.cancelTimers(hostRec);
+  });
+
+  test('a guest whose host’s worktree was discarded says so, and keeps its last list', async () => {
+    const host = { id: 'host', title: 'Fix the inputs', worktreePath: null, branch: 'main', worktreeDiscarded: true } as unknown as Session;
+    const guest = { id: 'guest', title: 'Restyle', worktreePath: null, branch: null, worktreeDiscarded: false, hostId: 'host' } as unknown as Session;
+    const workspace = { state: async () => ({ sessions: [host, guest], archived: { sessions: [] } }) } as unknown as Workspace;
+    const patches: LivePatch[] = [];
+    const upkeep = new Upkeep(workspace, (_id, patch) => patches.push(patch), (_rec, work) => void work());
+    const rec = newRecord({ files: [{ path: 'old.txt', status: 'M', diff: '' }] }, null);
+
+    await upkeep.refreshFiles('guest', rec);
+
+    expect(rec.files.map((f) => f.path)).toEqual(['old.txt']);
+    expect(rec.filesProblem).toBe('The worktree of "Fix the inputs", where this session worked, was discarded');
+    expect(patches).toContainEqual({ filesProblem: rec.filesProblem });
   });
 
   test('lists the edited file and reports no problem when git can read the worktree', async () => {
@@ -71,6 +116,22 @@ describe('Upkeep.refreshFiles', () => {
     expect(rec.files.map((f) => f.path)).toEqual(['a.txt']);
     expect(rec.filesProblem).toBeNull();
     expect(patches.some((p) => 'filesProblem' in p)).toBe(false);
+  });
+
+  test('lists the new files it can, and says which it could not, when one folder is an empty repository of its own', async () => {
+    const { path, head } = repoWithEdit();
+    writeFileSync(join(path, 'new.txt'), 'n\n');
+    mkdirSync(join(path, 'nested'));
+    execFileSync('git', ['init', '-q'], { cwd: join(path, 'nested'), stdio: 'pipe' });
+    writeFileSync(join(path, 'nested', 'f.txt'), 'x\n');
+    const { upkeep, patches } = harness(path);
+    const rec = newRecord(null, head);
+
+    await upkeep.refreshFiles('s1', rec);
+
+    expect(rec.files.map((f) => f.path)).toEqual(['a.txt', 'new.txt']);
+    expect(rec.filesProblem).toMatch(/Not every new file could be listed: .*nested/);
+    expect(patches).toContainEqual({ filesProblem: rec.filesProblem });
   });
 
   test('says why, in git’s words, when the diff fails, and keeps the last list', async () => {

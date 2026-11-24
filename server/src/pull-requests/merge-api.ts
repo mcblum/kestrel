@@ -1,4 +1,6 @@
 import type { Workspace } from '../workspace.ts';
+import { checkoutIn } from '../working-tree.ts';
+import { worktreeOwnerId } from '../shared/working-tree.ts';
 import { folderOf } from '../shared/project-folders.ts';
 import { currentBranch, originUrl } from '../git.ts';
 import { repositoryWebUrl } from '../repository-url.ts';
@@ -17,8 +19,10 @@ export async function mergePRRoute(parts: readonly string[], method: string, rea
     if (!session) return {status:404,body:{error:'No such session'}};
     const project = state.projects.find(p => p.id === session.startedIn);
     const folder = project && folderOf(project, session.folderId);
-    if (!folder?.isGit || session.worktreeDiscarded) throw new Error('The session needs an available Git checkout.');
-    const cwd = session.worktreePath ?? folder.path;
+    // A guest merges from its host's worktree (working-tree.ts `checkoutIn`).
+    const checkout = checkoutIn(state, session, folder);
+    if ('reason' in checkout) throw new Error(checkout.reason);
+    const cwd = checkout.path;
     const origin = await originUrl(cwd);
     const choice = await resolveProvider(origin, sharedGlabSignIn);
     if (choice.kind === 'none') throw new Error(choice.reason);
@@ -37,6 +41,6 @@ export async function mergePRRoute(parts: readonly string[], method: string, rea
     if (active.has(key)) throw new Error('A merge is already in progress.');
     active.add(key);
     try { return {status:200,body:await performMerge(ctx, number, {sha:body.sha,base:body.base,method:body.method})}; }
-    finally { active.delete(key); store.due(session.id); }
+    finally { active.delete(key); store.due(worktreeOwnerId(session)); }
   } catch (error) { return {status:400,body:{error:ghFailureReason(error)}}; }
 }

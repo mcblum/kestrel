@@ -5,6 +5,8 @@
 // writes at a time: the host while no writing guest is at work, a writing guest while it is; a
 // reviewer never writes. Pure and browser-safe: the rule and the words.
 import type { Role } from './who-does-what.ts';
+import { checkFindings, type Finding } from './findings.ts';
+import type { EarlierFinding } from './round-findings.ts';
 import { ROLE_LABEL } from './who-does-what.ts';
 
 export interface Guest {
@@ -77,13 +79,38 @@ export interface Review {
   verdict?: 'clean' | 'findings';
   /** The reviewer's last findings, clipped: what a pull request's description can carry. */
   summary?: string;
+  /** What the reviewer handed over with `post_review` in the round under way (shared/round-findings.ts); taken when its turn ends. */
+  handed?: HandedRound;
+  /** The round in which the reviewer, having answered in text only, was asked to hand its findings over properly; and what it had written. */
+  asked?: number;
+  said?: string;
+  /** The message id of the last round's findings card in the author's conversation. */
+  lastCard?: string;
+}
+
+/** A round's findings as the reviewer hands them over, before Kestrel passes them on. */
+export interface HandedRound {
+  verdict: 'clean' | 'findings';
+  summary: string;
+  findings: Finding[];
+  /** What became of the round before's findings (shared/round-findings.ts `checkEarlier`). */
+  earlier?: EarlierFinding[];
+}
+
+function sanitizeHanded(value: unknown): HandedRound | null {
+  const v = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
+  if (v.verdict !== 'clean' && v.verdict !== 'findings') return null;
+  const checked = checkFindings(v.findings);
+  if ('problem' in checked) return null;
+  const earlier = Array.isArray(v.earlier) ? (v.earlier as EarlierFinding[]).filter((e) => typeof e?.id === 'string' && typeof e.status === 'string') : [];
+  return { verdict: v.verdict, summary: typeof v.summary === 'string' ? v.summary : '', findings: checked.findings, ...(earlier.length > 0 ? { earlier } : {}) };
 }
 
 export function sanitizeReview(value: unknown): Review | null {
   const v = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
   if (typeof v.reviewerId !== 'string' || typeof v.round !== 'number') return null;
   const status = v.status === 'answering' || v.status === 'done' ? v.status : 'reviewing';
-  return { reviewerId: v.reviewerId, reviewer: typeof v.reviewer === 'string' ? v.reviewer : 'The reviewer', round: v.round, rounds: typeof v.rounds === 'number' ? v.rounds : REVIEW_ROUNDS, status, ...(v.verdict === 'clean' || v.verdict === 'findings' ? { verdict: v.verdict } : {}), ...(typeof v.summary === 'string' ? { summary: v.summary } : {}), ...(v.comment === true ? { comment: true } : {}) };
+  return { reviewerId: v.reviewerId, reviewer: typeof v.reviewer === 'string' ? v.reviewer : 'The reviewer', round: v.round, rounds: typeof v.rounds === 'number' ? v.rounds : REVIEW_ROUNDS, status, ...(v.verdict === 'clean' || v.verdict === 'findings' ? { verdict: v.verdict } : {}), ...(typeof v.summary === 'string' ? { summary: v.summary } : {}), ...(v.comment === true ? { comment: true } : {}), ...(sanitizeHanded(v.handed) ? { handed: sanitizeHanded(v.handed)! } : {}), ...(typeof v.asked === 'number' ? { asked: v.asked } : {}), ...(typeof v.said === 'string' ? { said: v.said } : {}), ...(typeof v.lastCard === 'string' ? { lastCard: v.lastCard } : {}) };
 }
 
 const VERDICT_CLEAN = 'VERDICT: NOTHING TO FIX';
@@ -96,8 +123,8 @@ export function reviewBrief(base: string | null): string {
     'Review this work as a sceptical second engineer from another team would, before it becomes a pull request. Your job is to find what is wrong with it, not to approve it.',
     range,
     'Read the changed code and the code around it. Run the tests and the type checker if the project has them. Look for: bugs and wrong behaviour, cases not handled, things the change breaks elsewhere, tests that do not test what they claim, security and data-loss risks, and anything the change says it does but does not.',
-    'Report findings as a numbered list, most serious first. For each: the file and line, what is wrong, why it matters, and what would fix it. Leave out style preferences and praise. If you checked something and it holds, do not list it.',
-    `End with exactly one of these two lines, alone: "${VERDICT_FINDINGS}" when anything must change before this is merged, or "${VERDICT_CLEAN}" when nothing must.`,
+    'Hand over your findings with the post_review tool, once, as the last thing in your turn. This is required, whatever else you use to review (a review skill or command of your own included): Kestrel shows the user only what comes through post_review, and a round that ends without it is not taken as finished. Give verdict "request_changes" when anything must change before this is merged, "approve" when nothing must; a summary of a few sentences; and findings, most serious first, one problem each, with a brief, the technical detail, a fix, a priority, whether it blocks, and the file and line in refs. When only the user can settle a finding (whether a behaviour is intended, say), put that one question in its question field. Leave out style preferences and praise. If you checked something and it holds, do not list it.',
+    `Also end your message with exactly one of these two lines, alone: "${VERDICT_FINDINGS}" when anything must change before this is merged, or "${VERDICT_CLEAN}" when nothing must.`,
   ].join('\n\n');
 }
 
@@ -112,7 +139,12 @@ export function findingsText(review: Pick<Review, 'reviewer' | 'round' | 'rounds
 
 /** What the reviewer is asked for the next round. */
 export function nextRoundText(review: Pick<Review, 'round' | 'rounds'>, authorSaid: string): string {
-  return `[Kestrel] The author acted on your findings.${authorSaid ? ` It says: ${authorSaid}` : ''}\n\nLook again (round ${review.round} of ${review.rounds}): check each finding was really fixed, weigh any disagreement on its merits, and look for anything the fixes broke. Report only what still must change, in the same form, and end with the same verdict line.`;
+  return `[Kestrel] The author acted on your findings.${authorSaid ? ` It says: ${authorSaid}` : ''}\n\nLook again (round ${review.round} of ${review.rounds}): check each finding was really fixed, weigh any disagreement on its merits, and look for anything the fixes broke. Hand over with post_review as before, and in its earlier field say what became of every finding of the round before, by its id: "fixed" when you checked it is, "open" when it still holds (it is carried forward as the same finding: do not list it again in findings), or "withdrawn" when the author's disagreement convinces you; with author_says_fixed and the commit when the author says it fixed it in one, and a note when there is something to say. In findings list only what is new. End with the verdict line.`;
+}
+
+/** What a reviewer that answered in text only is asked, once: hand the findings over properly. */
+export function handOverAgainText(review: Pick<Review, 'round' | 'rounds'>): string {
+  return `[Kestrel] Your findings came only as text, and Kestrel shows the user findings, not text. Hand them over now with the post_review tool, in its fields: for each, a brief, the detail, a fix, a priority, whether it blocks, and the file and line in refs${review.round > 1 ? ', and in earlier what became of each finding of the round before' : ''}. Do not review again; hand over what you found (round ${review.round} of ${review.rounds}), and end your turn.`;
 }
 
 /** The line the user sees in the author's conversation when the review is over. */

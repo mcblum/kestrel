@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Checks before a release build. Sourced by make-release.sh with its settings, or run alone:
-#   scripts/release/preflight.sh [--skip-notarize] [--allow-dirty] [--feed <latest-mac.yml path or URL>] [--version x.y.z]
+#   scripts/release/preflight.sh [--skip-notarize] [--allow-dirty] [--feeds <base URL or folder>] [--version x.y.z | x.y.z-beta.n]
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SIGN_ID="${KESTREL_SIGN_ID:-Developer ID Application: Matthew Blum (NLJAPE8842)}"
 NOTARY_PROFILE="${KESTREL_NOTARY_PROFILE:-Vireo}"
-SKIP_NOTARIZE=0; ALLOW_DIRTY=0; FEED=""; VERSION=""
+SKIP_NOTARIZE=0; ALLOW_DIRTY=0; FEEDS=""; VERSION=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --skip-notarize) SKIP_NOTARIZE=1 ;;
     --allow-dirty) ALLOW_DIRTY=1 ;;
-    --feed) FEED="${2:?--feed needs a path or URL}"; shift ;;
+    --feeds) FEEDS="${2:?--feeds needs a base URL or a folder}"; shift ;;
     --version) VERSION="${2:?--version needs x.y.z}"; shift ;;
     *) echo "!! unknown option $1" >&2; exit 2 ;;
   esac
@@ -19,7 +19,8 @@ done
 [ -n "$VERSION" ] || VERSION="$(node -p "require('$ROOT/app/package.json').version")"
 fail() { echo "!! preflight: $*" >&2; exit 1; }
 
-echo "==> Preflight for Kestrel $VERSION"
+CHANNEL="$(node "$ROOT/scripts/release/version.mjs" channel "$VERSION")" || fail "app/package.json's version cannot be released"
+echo "==> Preflight for Kestrel $VERSION ($CHANNEL)"
 [ "$(uname -s)-$(uname -m)" = "Darwin-arm64" ] || fail "release builds are made on an Apple Silicon Mac"
 
 # Tracked files only: untracked scratch folders never reach the bundle.
@@ -42,18 +43,9 @@ fi
 [ -x "$(command -v pnpm)" ] || fail "pnpm is not on PATH"
 xcrun --find swiftc >/dev/null 2>&1 || fail "Xcode's swiftc is needed for the simulator helper"
 
-if [ -n "$FEED" ]; then
-  case "$FEED" in
-    http*://*) live="$(curl -fsSL "$FEED" 2>/dev/null || true)" ;;
-    *) live="$(cat "$FEED" 2>/dev/null || true)" ;;
-  esac
-  published="$(printf '%s\n' "$live" | sed -n 's/^version: *//p' | head -1)"
-  if [ -n "$published" ]; then
-    newest="$(printf '%s\n%s\n' "$published" "$VERSION" | sort -V | tail -1)"
-    { [ "$VERSION" != "$published" ] && [ "$newest" = "$VERSION" ]; } || fail "the feed already has $published; $VERSION is not newer (bump app/package.json)"
-    echo "    feed: has $published, building $VERSION"
-  else
-    echo "    feed: nothing published at $FEED"
-  fi
+# The one check of whether this version is due, against the feeds of its channel.
+if [ -n "$FEEDS" ]; then
+  said="$("$ROOT/scripts/release/release-needed.sh" --feeds "$FEEDS" --version "$VERSION" 2>&1)" || fail "$said"
+  echo "    feeds: $said"
 fi
 echo "    ok"

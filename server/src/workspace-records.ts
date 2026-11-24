@@ -6,6 +6,7 @@ import { Refused } from './refused.ts';
 import { depthOf, rootOf, subtreeIds } from './tree.ts';
 import type { Agent, Link, Project, Session, SessionState } from './model.ts';
 import type { Persistence, StoredDetail } from './persistence/types.ts';
+import type { AsideOf } from './shared/asides.ts';
 
 export interface NewSession {
   id?: string;
@@ -21,6 +22,10 @@ export interface NewSession {
   landedIn?: string | null;
   /** A review of somebody else's request (shared/review-requests.ts). */
   review?: ReviewMark;
+  /** A sidebar about a finding (shared/asides.ts). */
+  aside?: AsideOf;
+  /** A guest: the session whose worktree it works in (Session.hostId). */
+  hostId?: string;
 }
 
 export interface DelegateTask {
@@ -30,6 +35,8 @@ export interface DelegateTask {
   agent?: Agent;
   /** Short title for the child; defaults to the brief. */
   title?: string;
+  /** The child is a guest in this session's worktree (Session.hostId). */
+  hostId?: string;
 }
 
 export const EMPTY_DETAIL: StoredDetail = { messages: [], files: [], agentOutput: '', kestrelTools: 'connected' };
@@ -54,6 +61,8 @@ export async function insertSession(tx: Persistence, s: NewSession, now: number)
     updatedAt: now,
     lastActivityAt: now,
     ...(s.review ? { review: s.review } : {}),
+    ...(s.aside ? { aside: s.aside } : {}),
+    ...(s.hostId ? { hostId: s.hostId } : {}),
   };
   await tx.insertSession(session);
   return session;

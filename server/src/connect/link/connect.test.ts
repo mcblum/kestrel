@@ -3,6 +3,7 @@ import { memorySettings } from '../../suggestions/prefs.ts';
 import { connectRoute } from './api.ts';
 import { FakeIdentity, FakeService, fakeListener, tokensFor } from './connect-fakes.ts';
 import { CONNECT_PREFS_KEY, KestrelConnect } from './connect.ts';
+import { HeldApi } from './held-api.ts';
 import { BACKOFF_MAX_MS, HEARTBEAT_MS, REMOVED_REASON, RENEW_AHEAD_MS } from './relay-link.ts';
 import { ServiceRefusal } from './service.ts';
 import { memoryVault, type VaultData } from './vault.ts';
@@ -36,6 +37,18 @@ describe('sign-in state', () => {
     expect(connect.view()).toMatchObject({ enabled: false, account: { state: 'signed-out', reason: null }, link: { state: 'off' }, storage: 'keystore', computerName: 'Desk' });
     await connect.setEnabled(true);
     expect(service.sockets).toHaveLength(0); // on, but nobody signed in
+  });
+
+  test('switched off, a signed-in computer with a device opens no socket and reads no account state', async () => {
+    const vault = { ...signedIn(), device: { subject: 'sub-1', id: 'device-9', name: 'Desk', ...{ signing: { publicKey: 'x', privateKey: 'y' }, agreement: { publicKey: 'x', privateKey: 'y' } } } } as VaultData;
+    const { connect, service } = setup({ vault });
+    await connect.start();
+    await vi.advanceTimersByTimeAsync(10 * BACKOFF_MAX_MS);
+    expect(service.sockets).toHaveLength(0);
+    expect(service.seen).toEqual([]); // no HTTP call: no keys, devices, requests to join or held records
+    expect(service.held.calls).toEqual([]);
+    expect(connect.view()).toMatchObject({ devices: [], joining: null, requests: [], keys: { state: 'unknown' } });
+    expect(() => connect.join.open('join-1')).toThrow();
   });
 
   test('signed in but switched off dials nothing', async () => {
@@ -228,6 +241,53 @@ describe('the relay link', () => {
     expect(connect.view().link.state).toBe('connected');
   });
 
+  test('dials with a token that outlives the renewal margin, so a new socket is not renewed at once', async () => {
+    // 2026-11-23: after an edge restart the desk dialled with 76 s left on its token and renewed 16 s later.
+    const now = Date.now();
+    const { connect, service, identity } = setup({ vault: { tokens: { ...tokensFor(0, now), accessExpiresAt: now + RENEW_AHEAD_MS + 16_000 }, device: null }, enabled: true });
+    await connect.start();
+    await flush();
+    expect(identity.refreshes).toBe(1);
+    expect(service.last().token).toBe('access-1');
+    service.welcome(service.last(), Date.now() + 300_000);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(service.sockets).toHaveLength(1);
+    expect(connect.view().link.state).toBe('connected');
+  });
+
+  test('the service replacing the old socket before the renewal opens keeps the link up, with no wait', async () => {
+    const { connect, service } = await linked();
+    const first = service.last();
+    service.welcome(first, Date.now() + 300_000);
+    await vi.advanceTimersByTimeAsync(300_000 - RENEW_AHEAD_MS);
+    await flush();
+    const second = service.last();
+    expect(second).not.toBe(first);
+    const states: string[] = [];
+    connect.onChange((v) => states.push(v.link.state));
+    first.events.closed(4000, 'replaced'); // the service took the new one first
+    expect(connect.view().link.state).toBe('connected');
+    service.welcome(second, Date.now() + 300_000);
+    expect(connect.view().link.state).toBe('connected');
+    expect(states).not.toContain('offline');
+    await vi.advanceTimersByTimeAsync(BACKOFF_MAX_MS);
+    expect(service.sockets).toHaveLength(2);
+  });
+
+  test('a renewal that fails after the old socket was replaced reconnects at once, not in five minutes', async () => {
+    const { connect, service } = await linked();
+    const first = service.last();
+    service.welcome(first, Date.now() + 300_000);
+    await vi.advanceTimersByTimeAsync(300_000 - RENEW_AHEAD_MS);
+    await flush();
+    const second = service.last();
+    first.events.closed(4000, 'replaced');
+    second.events.closed(1006, '');
+    expect(connect.view().link).toMatchObject({ state: 'offline', retryAt: Date.now() + 1000 });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(service.sockets).toHaveLength(3);
+  });
+
   test('a 4401 close renews the token and connects again', async () => {
     const { connect, service, identity } = await linked();
     service.welcome(service.last(), Date.now() + 300_000);
@@ -319,5 +379,32 @@ describe('the relay link', () => {
     expect(connect.view().link).toEqual({ state: 'off' });
     await vi.advanceTimersByTimeAsync(10 * BACKOFF_MAX_MS);
     expect(service.sockets).toHaveLength(1);
+  });
+});
+
+describe('every call to the service renews the sign-in once when it is refused (401)', () => {
+  test('registering this computer and an API call each retry once with a renewed token', async () => {
+    const { connect, service, identity } = setup({ vault: signedIn(), enabled: true });
+    service.rejected.add('access-0');
+    await connect.start();
+    const id = await connect.deviceId();
+    expect(service.seen.filter((c) => c.startsWith('POST /devices'))).toEqual(['POST /devices access-0', 'POST /devices access-1']);
+    expect(identity.refreshes).toBe(1);
+
+    service.rejected.add('access-1');
+    service.held.addDevice('phone-x', 'Phone', 'phone');
+    await expect(new HeldApi((m, p, b) => (connect as unknown as { call(): (m: string, p: string, b?: unknown) => Promise<unknown> }).call()(m, p, b)).devices()).resolves.toHaveLength(2);
+    expect(service.seen.filter((c) => c.startsWith('GET /devices'))).toEqual(['GET /devices access-1', 'GET /devices access-2']);
+    expect(id).toBe('device-1');
+  });
+
+  test('a refusal that is not 401 is not retried, and a second 401 is said', async () => {
+    const { connect, service } = setup({ vault: signedIn(), enabled: true });
+    await connect.start();
+    await connect.deviceId();
+    service.rejected.add('access-0').add('access-1');
+    const call = (connect as unknown as { call(): (m: string, p: string) => Promise<unknown> }).call();
+    await expect(call('GET', '/devices')).rejects.toThrow(/expired/);
+    expect(service.seen.filter((c) => c.startsWith('GET /devices'))).toHaveLength(2);
   });
 });

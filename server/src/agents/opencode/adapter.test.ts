@@ -89,6 +89,21 @@ describe('OpenCode adapter, against a fake opencode serve', () => {
     await handle.close!();
   });
 
+  it('compacts with session.summarize and the session\'s model, as a turn measured again at its end', async () => {
+    const t = setup('reply');
+    const handle = t.adapter.start({ ...t.options, model: 'fakeprov/fake-1' }, 'hi', t.emit);
+    await t.next('done');
+    const before = t.events.length;
+    handle.compact!();
+    expect(handle.busy()).toBe(true);
+    expect(() => handle.compact!()).toThrow('still working');
+    expect(await t.next('done', () => true, before)).toMatchObject({ type: 'done', reason: 'complete' });
+    expect(t.requests('POST', /\/summarize$/).map((r) => r.body)).toEqual([{ providerID: 'fakeprov', modelID: 'fake-1', auto: false }]);
+    expect(t.events.slice(before).find((e) => e.type === 'context')).toMatchObject({ usage: { usedTokens: 200, windowTokens: 200000 } });
+    expect(handle.busy()).toBe(false);
+    await handle.close!();
+  });
+
   it('serves Kestrel tools to the process and gives it the standing instruction, without the launch token', async () => {
     const t = setup('reply', 'ask', { options: () => ({ model: 'fakeprov/fake-1', effort: 'high', setup: { loadSettings: false, inProject: true, mcpServers: {} } }) });
     const handle = t.adapter.start(t.options, 'hi', t.emit);

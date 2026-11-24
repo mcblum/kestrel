@@ -115,6 +115,82 @@ One source: `version` in `app/package.json`. It goes into the bundle (`CFBundleS
 the About panel, Settings > General, and the updater's comparison with the feed. Bump it in the
 merge request that should become a release.
 
+It is `1.2.3` for a release or `1.2.3-beta.4` for a beta; anything else (`1.2.3-rc.1`, `1.2`) is
+refused by every script. The channel follows from the version alone, by one function
+(`app/release-channel.mjs`; the shell scripts ask it through `scripts/release/version.mjs`).
+
+## Beta versions
+
+A beta is a build of the next version for the people who turned on **Get beta versions**
+(Settings → General → Updates) and nobody else. It goes through the same scripts and the same CI
+job as a release; only the version string differs.
+
+| | A release (`0.0.32`) | A beta (`0.0.32-beta.1`) |
+|---|---|---|
+| Is due when newer than | `latest-mac.yml` | both `latest-mac.yml` and `beta-mac.yml` (a beta never follows its release) |
+| Uploaded to the package registry | zip, blockmap, DMG | the same, as package version `0.0.32-beta.1` |
+| GitLab Release, permanent `Kestrel.dmg` link, release notes | made, and moved to it | **none**: they stay on the last release |
+| Feeds committed | `latest-mac.yml`, and the same text as `beta-mac.yml` unless that already serves a newer beta | `beta-mac.yml` only |
+| Who gets it | every copy | copies with Get beta versions on |
+| Printed at the end | the feeds and the permanent download | the beta feed and the beta DMG's own address in the registry |
+
+An installed copy with Get beta versions off reads `latest-mac.yml`. With it on, it reads
+`beta-mac.yml`, unless that is missing or older than `latest-mac.yml` (then the stable feed); it
+reads both versions before each check to decide (`app/updater.mjs`). So a beta copy takes each new
+beta, and moves to `0.0.32` when `0.0.32` ships (a beta comes before its release). No copy is ever
+downgraded: electron-updater turns `allowDowngrade` on whenever its `channel` is set, and the updater
+turns it off again every time. Turning betas off keeps the beta that is installed until a release
+newer than it ships; a beta already downloaded when the switch is turned off is still installed
+when Kestrel quits.
+
+The choice is kept by the app shell, not the server, because the updater runs in the shell and
+needs it before the server starts: `update-channel.json` in the shell's userData folder
+(`~/Library/Application Support/Kestrel/`, or `KESTREL_APP_USER_DATA`), `{"beta": true}` or
+`{"beta": false}`. Without the file a beta build is on the beta channel and a release is not, which
+is how the first beta, installed by hand on a computer whose copy had no switch, comes up on the
+beta channel. About and Settings → General show the version with `(beta)` and which channel the copy
+is on.
+
+### Cutting a beta
+
+1. In the merge request, set `version` in `app/package.json` to the next version with a beta
+   number: `0.0.32-beta.1` (then `0.0.32-beta.2`, …; the release itself is `0.0.32`).
+2. Merge. `release-notify` posts "Kestrel 0.0.32-beta.1 (beta channel only) is ready to release".
+3. Press play on `release`. It builds, signs, notarizes, uploads, commits `beta-mac.yml`, checks the
+   public beta feed, and ends with:
+
+   ```
+   Published Kestrel 0.0.32-beta.1 to the beta channel only
+       feed:     https://starfish.nationalmachine.io/kestrel/releases/-/raw/main/beta-mac.yml
+       download: https://starfish.nationalmachine.io/api/v4/projects/<id>/packages/generic/kestrel/0.0.32-beta.1/Kestrel-0.0.32-beta.1-arm64.dmg
+   ```
+
+4. **The first beta on a computer** is installed by hand: download that DMG, quit Kestrel, drag
+   Kestrel to Applications replacing the old one, open it. Its switch starts on; Settings → General
+   says "0.0.32-beta.1 (beta)" and "On the beta channel". From then on it updates itself. On a
+   computer already running a beta, nothing is needed.
+5. To go back to stable: turn off Get beta versions. The copy stays on its beta until a release
+   newer than it ships (`0.0.32` is newer than every `0.0.32-beta.n`), then takes that.
+
+By hand the same is `scripts/release/make-release.sh --feeds https://starfish.nationalmachine.io/kestrel/releases/-/raw/main/`
+then `scripts/release/publish.sh`, with `version` set as in step 1.
+
+What a beta does not do: it makes no GitLab Release, so the permanent download link
+(`…/permalink/latest/downloads/Kestrel.dmg`) and the release notes still give the last release; it
+does not touch `latest-mac.yml`, so copies on the stable channel never see it; it is announced
+nowhere except Matt's own Slack message from `release-notify`. The beta's DMG is public in the
+package registry (the project is public), but nothing links to it.
+
+What has been checked (2026-11-24): the updater's choice against a local feed, in Electron 45.3.2
+with electron-updater 6.8.11, for every case above (scripts aside: a scratch Electron app with
+the version under test and the real `release-channel.mjs`, as `app/updater.mjs` uses it); a
+`--skip-notarize` build of `0.0.32-beta.1` (it wrote `beta-mac.yml` and no `latest-mac.yml` or
+`Kestrel.dmg`), and that build, opened with empty userData against a local feed: it came up on the
+beta channel, read both feeds, chose `beta-mac.yml`, and refused to downgrade. Not
+checked until the first real beta: notarizing a prerelease version string, the registry accepting
+the version `0.0.32-beta.1`, Squirrel installing a prerelease over a release on a real Mac, and the
+public `beta-mac.yml`.
+
 ## Building a release
 
 ```bash
@@ -132,11 +208,13 @@ scripts/release/make-release.sh            # from a clean tree, on an Apple Sili
    zip are made from the stapled app.
 5. The DMG is signed, notarized and stapled.
 6. `dist/release/`: `Kestrel.dmg`, `Kestrel-<v>-arm64.dmg`, `Kestrel-<v>-arm64-mac.zip` and its
-   `.blockmap`, `latest-mac.yml` (relative URLs, for a local test server).
+   `.blockmap`, `latest-mac.yml` and the same text as `beta-mac.yml` (relative URLs, for a local
+   test server). A beta writes no `Kestrel.dmg` and no `latest-mac.yml`: only `beta-mac.yml`.
 
 Options: `--skip-notarize` (sign only, for quick local builds that will not open on another
-Mac), `--allow-dirty`, `--feed`, `--version x.y.z` (put another version in the bundle without
-touching `app/package.json`, for updater tests).
+Mac), `--allow-dirty`, `--feeds <base URL or folder>` (refuse a version that is not due against the
+feeds there, by `release-needed.sh`), `--version x.y.z` or `x.y.z-beta.n` (put another version in
+the bundle without touching `app/package.json`, for updater tests).
 
 Environment, names only: `KESTREL_SIGN_ID` (default `Developer ID Application: Matthew Blum
 (NLJAPE8842)`), `KESTREL_NOTARY_PROFILE` (default `Vireo`, a notarytool keychain profile).
@@ -202,7 +280,8 @@ URL in it without a token.
 - Download: `https://starfish.nationalmachine.io/kestrel/releases/-/releases/permalink/latest/downloads/Kestrel.dmg`
 - Windows and Linux: the same address ending in `Kestrel-Setup.exe` and `Kestrel.AppImage`
 - Feed: `https://starfish.nationalmachine.io/kestrel/releases/-/raw/main/latest-mac.yml`, and
-  `latest.yml` and `latest-linux.yml` beside it
+  `latest.yml` and `latest-linux.yml` beside it; the beta channel's `beta-mac.yml`, `beta.yml` and
+  `beta-linux.yml` there too
   (the app's `FEED_URL` in `app/updater.mjs`; `KESTREL_UPDATE_FEED` overrides it for tests)
 
 What `publish.sh` assumes about `kestrel/releases`: public; default branch `main` (or an empty
@@ -216,7 +295,7 @@ sends the big uploads straight to the GitLab box when the edge's upload size lim
 Build two signed versions (`--skip-notarize --version 0.0.2` for the newer one), serve the
 newer `dist/release` with any static server, and open the older copy with
 `KESTREL_UPDATE_FEED=http://127.0.0.1:<port>/`, its own `KESTREL_DATA_DIR` and
-`--user-data-dir`. `KESTREL_UPDATE_FIRST_CHECK_MS` shortens the first check's delay;
+`--user-data-dir` (its `update-channel.json` is the beta switch). `KESTREL_UPDATE_FIRST_CHECK_MS` shortens the first check's delay;
 `KESTREL_UPDATE_NO_RELAUNCH=1` makes Restart install without reopening (Squirrel reopens the
 app with no arguments, which would land a test copy on the real profile).
 

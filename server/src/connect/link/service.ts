@@ -3,6 +3,7 @@
 // contract is the service's (kestrel/connect, ARCHITECTURE.md): `GET /api/v1/config`, `POST
 // /api/v1/devices`, and the relay at `/api/v1/relay` with `Authorization` and `Kestrel-Device`.
 import WebSocket from 'ws';
+import type { PublicIdentity } from '../keys.ts';
 
 export interface ServiceConfig {
   issuer: string;
@@ -27,7 +28,15 @@ export class ServiceRefusal extends Error {
 
 export interface ConnectService {
   config(): Promise<ServiceConfig>;
-  registerDevice(accessToken: string, name: string, kind?: 'desktop' | 'phone'): Promise<RegisteredDevice>;
+  /** Registers a device with its public keys (shown to whoever lets it in; trusted by nobody for being there). */
+  registerDevice(accessToken: string, name: string, kind?: 'desktop' | 'phone', keys?: PublicIdentity): Promise<RegisteredDevice>;
+  /**
+   * One call to the service's API for a device (`/api/v1` + `path`): the account data key, held
+   * records and waiting messages. The JSON answer, null for 204, or throws `ServiceRefusal`.
+   */
+  call(accessToken: string, deviceId: string, method: ServiceMethod, path: string, body?: unknown): Promise<unknown>;
+  /** Removes a device from the account (`DELETE /api/v1/devices/:id`). */
+  removeDevice(accessToken: string, deviceId: string): Promise<void>;
   /** Opens the relay socket; the caller watches it through `RelayEvents`. */
   openRelay(accessToken: string, deviceId: string, events: RelayEvents): RelaySocket;
 }
@@ -48,7 +57,11 @@ export interface RelayEvents {
   error(error: Error): void;
 }
 
+export type ServiceMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
+
 const TIMEOUT_MS = 15_000;
+/** A held record can be tens of megabytes. */
+const CALL_TIMEOUT_MS = 120_000;
 
 async function refusalOf(res: Response): Promise<ServiceRefusal> {
   const body = (await res.json().catch(() => ({}))) as { code?: unknown; reason?: unknown };
@@ -77,12 +90,26 @@ export class HttpConnectService implements ConnectService {
     return this.found;
   }
 
-  async registerDevice(accessToken: string, name: string, kind: 'desktop' | 'phone' = 'desktop'): Promise<RegisteredDevice> {
-    const res = await this.fetcher(`${this.baseUrl}/api/v1/devices`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ name, kind }), signal: AbortSignal.timeout(TIMEOUT_MS) });
+  async registerDevice(accessToken: string, name: string, kind: 'desktop' | 'phone' = 'desktop', keys?: PublicIdentity): Promise<RegisteredDevice> {
+    const res = await this.fetcher(`${this.baseUrl}/api/v1/devices`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ name, kind, ...(keys ? { keys } : {}) }), signal: AbortSignal.timeout(TIMEOUT_MS) });
     if (res.status !== 201 && res.status !== 200) throw await refusalOf(res);
     const body = (await res.json()) as { device?: { id?: unknown; name?: unknown } };
     if (typeof body.device?.id !== 'string') throw new Error('The Kestrel Connect service did not give this computer an id.');
     return { id: body.device.id, name: typeof body.device.name === 'string' ? body.device.name : name };
+  }
+
+  async call(accessToken: string, deviceId: string, method: ServiceMethod, path: string, body?: unknown): Promise<unknown> {
+    const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}`, 'Kestrel-Device': deviceId };
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    const res = await this.fetcher(`${this.baseUrl}/api/v1${path}`, { method, headers, ...(body !== undefined ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(CALL_TIMEOUT_MS) });
+    if (!res.ok) throw await refusalOf(res);
+    return res.status === 204 ? null : res.json();
+  }
+
+  async removeDevice(accessToken: string, deviceId: string): Promise<void> {
+    const res = await this.fetcher(`${this.baseUrl}/api/v1/devices/${encodeURIComponent(deviceId)}`, { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    // Already gone is what was asked for.
+    if (!res.ok && res.status !== 404) throw await refusalOf(res);
   }
 
   openRelay(accessToken: string, deviceId: string, events: RelayEvents): RelaySocket {

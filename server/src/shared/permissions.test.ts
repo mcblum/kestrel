@@ -1,7 +1,7 @@
 import { NO_TOOLS } from '../agents/test-support.ts';
 import { describe, expect, it } from 'vitest';
 import { baseOptions } from '../agents/claude/options.ts';
-import { PERMISSION_LEVELS, asksOutsideFolder, childPermission, claudePermission, isPermissionLevel, permissionHint, stickyPermission } from './permissions.ts';
+import { PERMISSION_LEVELS, asksOutsideFolder, childPermission, claudePermission, isPermissionLevel, permissionHint, remoteStartPermission, stickyPermission } from './permissions.ts';
 
 const opts = { directory: '/w', instruction: 'x', tools: NO_TOOLS };
 
@@ -80,5 +80,12 @@ describe('permissionHint', () => {
   it('falls back to the common hint for a mode or agent with no wording of its own', () => {
     expect(permissionHint(mode('ask'), 'codex')).toBe(mode('ask').hint);
     expect(permissionHint(mode('auto'))).toBe(mode('auto').hint);
+  });
+});
+
+describe('remoteStartPermission (A8: never Bypass from another device)', () => {
+  it('keeps what the desk would use, and turns Bypass into Auto', () => {
+    expect(remoteStartPermission('bypass')).toBe('auto');
+    for (const level of ['auto', 'ask', 'edits', 'plan'] as const) expect(remoteStartPermission(level)).toBe(level);
   });
 });

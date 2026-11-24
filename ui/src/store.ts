@@ -54,8 +54,10 @@ declare global {
       onBrowserLoadFailed?(listener: (failure: { webContentsId: number; url: string; text: string }) => void): () => void;
       /** Whether the window is full screen (the Mac hides its traffic lights then), now and on every change. */
       onFullScreen?(listener: (fullScreen: boolean) => void): () => void;
-      /** The app's name and version. Absent in older shells. */
-      app?: { name: string; version: string; packaged: boolean };
+      /** The app's name and version, and its update channel (absent in shells older than the beta channel). Absent in older shells. */
+      app?: { name: string; version: string; packaged: boolean; updateChannel?: UpdateChannel | null };
+      /** Settings → General → Get beta versions (app/update-channel.mjs): the channel now, or the reason it was not saved. Absent in older shells. */
+      setBetaUpdates?(beta: boolean): Promise<UpdateChannel | { error: string }>;
       /** The updater (packaged app only does anything): its state now, its changes, and restarting into a downloaded update. */
       updateState?(): Promise<UpdateState | null>;
       onUpdate?(listener: (state: UpdateState) => void): () => void;
@@ -63,6 +65,9 @@ declare global {
     };
   }
 }
+
+/** The Electron shell's update channel (app/update-channel.mjs): whether it takes betas, and whether this build is one. */
+export type UpdateChannel = { beta: boolean; build: 'stable' | 'beta' };
 
 /** The Electron shell's updater (app/updater.mjs). */
 export type UpdateState = { status: 'idle' | 'checking' | 'downloading' | 'ready' | 'error'; version?: string; percent?: number };
@@ -115,6 +120,8 @@ export interface AppState {
   signIn: Readonly<Partial<Record<Agent, SignInProgress>>>;
   /** Kestrel Connect's sign-in, switch and link, as the server pushes it (connectStore.ts owns the writes); null until the first push. */
   connect: ConnectView | null;
+  /** The shell's update channel (Settings → General → Get beta versions; UpdateChannelSetting.tsx owns the writes); null in a browser or an older shell. */
+  updateChannel: UpdateChannel | null;
   error: string | null;
 }
 
@@ -142,7 +149,7 @@ async function refreshLaunch(): Promise<boolean> {
   }
 }
 
-const initialState: AppState = { connection: launch ? 'connecting' : 'no-server', live: new Map(), renaming: null, tagging: null, openedFromReference: null, workspace: null, sessionsById: new Map(), details: new Map(), pullRequests: new Map(), reviewRequests: NO_REVIEW_REQUESTS, tickets: NO_TICKETS, seen: null, pullRequestsVersion: 0, resources: new Map(), tabs: { loaded: false, state: initialTabs(), remembered: DEFAULT_REMEMBERED, sidebar: EMPTY_SIDEBAR }, simulator: { devices: { loaded: false, devices: [], unavailable: null }, infos: new Map(), chosen: new Map(), errors: new Map() }, signIn: {}, connect: null, error: null };
+const initialState: AppState = { connection: launch ? 'connecting' : 'no-server', live: new Map(), renaming: null, tagging: null, openedFromReference: null, workspace: null, sessionsById: new Map(), details: new Map(), pullRequests: new Map(), reviewRequests: NO_REVIEW_REQUESTS, tickets: NO_TICKETS, seen: null, pullRequestsVersion: 0, resources: new Map(), tabs: { loaded: false, state: initialTabs(), remembered: DEFAULT_REMEMBERED, sidebar: EMPTY_SIDEBAR }, simulator: { devices: { loaded: false, devices: [], unavailable: null }, infos: new Map(), chosen: new Map(), errors: new Map() }, signIn: {}, connect: null, updateChannel: window.kestrelShell?.app?.updateChannel ?? null, error: null };
 
 /** The one store (Zustand). Everything the app knows about the server lives here, once. */
 const appStoreApi = createStore<AppState>()(() => initialState);
@@ -154,13 +161,15 @@ function set(patch: Partial<AppState>) {
 }
 
 /** For the modules that own a slice's writes: the tabs (tabsStore.ts), the simulator (simulatorStore.ts) and agent sign-ins (signIn.ts). */
-export function setApp(patch: Pick<Partial<AppState>, 'tabs' | 'simulator' | 'signIn' | 'connect'>) {
+export function setApp(patch: Pick<Partial<AppState>, 'tabs' | 'simulator' | 'signIn' | 'connect' | 'updateChannel'>) {
   set(patch);
 }
 
 /** For other stores (tabs) that follow this one. */
 /** Sessions to open scrolled to their pending card (set by the Needs you queue). */
 export const focusRequests = new Set<string>();
+/** Sessions to open scrolled to one message, by its id (a link to the review that made some findings). */
+export const messageFocus = new Map<string, string>();
 
 export const appStore = { subscribe: (listener: () => void) => appStoreApi.subscribe(() => listener()), get: current };
 
@@ -588,6 +597,8 @@ export const actions = {
       (error: unknown) => (error instanceof Error ? error.message : String(error)),
     ),
   stop: (id: string) => act(() => call(`/api/sessions/${encodeURIComponent(id)}/stop`, { method: 'POST', body: '{}' })),
+  /** Compact the conversation (the context popup's button; a phone's `session.compact` calls the same). A refusal shows as any error. */
+  compact: (id: string) => act(() => call(`/api/sessions/${encodeURIComponent(id)}/compact`, { method: 'POST', body: '{}' })),
   /** Stop one piece of background work; the row shows the refusal itself: the reason, or null when it was asked. */
   stopBackgroundTask: (id: string, taskId: string): Promise<string | null> =>
     call(`/api/sessions/${encodeURIComponent(id)}/background-tasks/${encodeURIComponent(taskId)}/stop`, { method: 'POST', body: '{}' }).then(

@@ -104,6 +104,33 @@ describe('Codex adapter, against a fake app-server', () => {
     await handle.close!();
   });
 
+  it('compacts the thread with thread/compact/start, as a turn measured again at its end', async () => {
+    const t = setup('reply');
+    const handle = t.adapter.start(t.options, 'one', t.emit);
+    await t.next('done');
+    const before = t.events.length;
+    handle.compact!();
+    expect(handle.busy()).toBe(true);
+    expect(() => handle.compact!()).toThrow('still working');
+    expect(await t.next('done', () => true, before)).toEqual({ type: 'done', reason: 'complete' });
+    expect(t.received().filter((m) => m.method === 'thread/compact/start').map((m) => m.params)).toEqual([{ threadId: 'thread-1' }]);
+    expect(t.events.slice(before).some((e) => e.type === 'status' && e.text === 'Compacting the conversation…')).toBe(true);
+    expect(t.events.slice(before).find((e) => e.type === 'context')).toMatchObject({ usage: { usedTokens: 200, windowTokens: 10000 } });
+    expect(handle.busy()).toBe(false);
+    await handle.close!();
+  });
+
+  it('a compaction is stopped like any turn', async () => {
+    const t = setup('stop');
+    const handle = t.adapter.resume('thread-1', t.options, t.emit);
+    handle.compact!();
+    await until(() => (handle as unknown as { turnId: string | null }).turnId !== null);
+    await handle.stop();
+    expect(t.events.filter(terminal)).toEqual([{ type: 'done', reason: 'stopped' }]);
+    expect(t.received().some((m) => m.method === 'turn/interrupt')).toBe(true);
+    await handle.close!();
+  });
+
   it('stop interrupts the running turn, which ends as stopped', async () => {
     const t = setup('stop');
     const handle = t.adapter.start(t.options, 'wait', t.emit);

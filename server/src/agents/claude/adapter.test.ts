@@ -55,6 +55,30 @@ describe('turn state', () => {
   });
 });
 
+describe('compact', () => {
+  it("runs Claude Code's own /compact as a turn of the conversation, and is refused while one runs", async () => {
+    const prompts: unknown[] = [];
+    const runQuery = ((args: any) => {
+      const read = (async () => {
+        for await (const m of args.prompt) return void prompts.push(m.message.content);
+      })();
+      return Object.assign((async function* () { await read; yield done; })(), { interrupt: async () => undefined });
+    }) as any;
+    const events: AgentEvent[] = [];
+    const finished = new Promise<void>((resolve) => {
+      const handle = claudeAdapter(runQuery).resume('s', options, (e) => {
+        events.push(e);
+        if (e.type === 'done') resolve();
+      });
+      handle.compact!();
+      expect(handle.busy()).toBe(true);
+      expect(() => handle.compact!()).toThrow(/still working/);
+    });
+    await finished;
+    expect(JSON.stringify(prompts)).toContain('/compact');
+  });
+});
+
 describe('AskUserQuestion', () => {
   async function ask(input: Record<string, unknown>) {
     let canUseTool: any;

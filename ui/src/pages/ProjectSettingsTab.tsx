@@ -13,6 +13,7 @@ import { SavedActionsSetting } from '../components/SavedActionsSetting.tsx';
 import { ProjectScriptsSetting } from '../components/ProjectScriptsSetting.tsx';
 import { ProjectSetup } from '../components/ProjectSetup.tsx';
 import { StartBaseSetting } from '../components/StartBaseSetting.tsx';
+import { ConnectKeepOffSwitch } from '../components/ConnectHeldSetting.tsx';
 import { openView, showLocal } from '../route.ts';
 import { projectSettings } from '@kestrel/server/routes';
 import { SettingsLayout, type SettingsItem } from '../components/SettingsLayout.tsx';
@@ -27,6 +28,7 @@ export function ProjectSettingsTab({ project, section }: { project: Project; sec
         <h2 id={heading('general')}>General</h2>
         <ProjectNameField projectId={project.id} name={project.name} />
         <StartBaseSetting project={project} />
+        <ConnectKeepOffSwitch projectId={project.id} projectName={project.name} />
       </section>
     ) },
     { id: 'folders', label: 'Folders', content: <ProjectFolders project={project} headingId={heading('folders')} /> },

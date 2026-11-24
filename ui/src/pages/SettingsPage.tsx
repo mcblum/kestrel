@@ -12,6 +12,7 @@ import { ComposerControls } from '../components/ComposerControls.tsx';
 import { ProjectSetup } from '../components/ProjectSetup.tsx';
 import { TagSuggestionSettings } from '../components/TagSuggestionSettings.tsx';
 import { ProjectEditsSetting } from '../components/ProjectEditsSetting.tsx';
+import { RemoteStartsSetting } from '../components/RemoteStartsSetting.tsx';
 import { CommandsKeptSetting } from '../components/CommandsKeptSetting.tsx';
 import { AppearanceSetting } from '../components/AppearanceSetting.tsx';
 import { ColoursSetting } from '../components/ColoursSetting.tsx';
@@ -27,8 +28,9 @@ import { SandboxAllowSetting } from '../components/SandboxAllowSetting.tsx';
 import { DelegationLimitsSetting } from '../components/DelegationLimitsSetting.tsx';
 import { CommitSigningSetting } from '../components/CommitSigningSetting.tsx';
 import { CrashReportsSetting } from '../components/CrashReportsSetting.tsx';
+import { UpdateChannelSetting } from '../components/UpdateChannelSetting.tsx';
 import { KestrelConnectSetting } from '../components/KestrelConnectSetting.tsx';
-import { ConnectPairPage } from '../components/ConnectPairPage.tsx';
+import { ConnectRecoveryPage } from '../components/ConnectRecoveryPage.tsx';
 import { WorktreesSetting } from '../components/WorktreesSetting.tsx';
 import { SessionOrderSetting } from '../components/SessionOrderSetting.tsx';
 import { BranchPrefixSetting } from '../components/BranchPrefixSetting.tsx';
@@ -63,15 +65,7 @@ function General() {
       <KeepAwakeSetting />
       <SetupSetting />
       <CrashReportsSetting />
-      {window.kestrelShell?.app && (
-        <section className="settings-section">
-          <h2>About</h2>
-          <p className="settings-version">
-            Kestrel {window.kestrelShell.app.version}
-            {window.kestrelShell.app.packaged ? '' : ' (run from a checkout)'}. Check for updates from the Kestrel menu.
-          </p>
-        </section>
-      )}
+      <UpdateChannelSetting />
     </>
   );
 }
@@ -117,6 +111,7 @@ function Workflow() {
       <DelegationLimitsSetting />
       <CommandsKeptSetting />
       <TagSuggestionSettings />
+      <RemoteStartsSetting />
     </>
   );
 }
@@ -202,8 +197,8 @@ export function SettingsPage({ section: asked = 'general' }: { section?: string 
           <Workflow />
         ) : section === 'connections' ? (
           <Connections />
-        ) : section === 'connections/pair' ? (
-          <ConnectPairPage />
+        ) : section === 'connections/recovery' ? (
+          <ConnectRecoveryPage />
         ) : section === 'archived' ? (
           <ArchivedSettings />
         ) : section === 'worktrees' ? (

@@ -1,27 +1,33 @@
 // A stand-in for the iPhone app, on the command line: signs in to Kestrel Connect, registers as a
-// phone, pairs with a running desktop by the code its Pair a phone page shows, then reads the
-// workspace and answers a card over the end-to-end encrypted channel, through the real relay. It
-// proves the path without iOS code (phase 3 of docs/designs/kestrel-connect.md). Not part of the app.
+// phone, asks to be let into the account (a computer of the account types the code it shows, and it
+// keeps the account key once you say yes), then reads the workspace and answers a card over the
+// end-to-end encrypted channel, through the real relay. It proves the path without iOS code
+// (docs/designs/kestrel-connect.md, "Account stage 1 as built"). Not part of the app.
 //
 //   pnpm --filter @kestrel/server exec tsx scripts/connect-phone.ts sign-in
-//   pnpm --filter @kestrel/server exec tsx scripts/connect-phone.ts pair 'kestrel-pair:…'
+//   pnpm --filter @kestrel/server exec tsx scripts/connect-phone.ts join [computer name]
 //   pnpm --filter @kestrel/server exec tsx scripts/connect-phone.ts state
 //   pnpm --filter @kestrel/server exec tsx scripts/connect-phone.ts cards
 //   pnpm --filter @kestrel/server exec tsx scripts/connect-phone.ts answer <sessionId> <requestId> <optionId>
 //   pnpm --filter @kestrel/server exec tsx scripts/connect-phone.ts sign-out
 //
 // Signs in as the desktop's public client (the phone's own client redirects to the app's URL
-// scheme, which a terminal cannot receive). Keeps its sign-in, its keys and the paired desk in a file
+// scheme, which a terminal cannot receive). Keeps its sign-in, its keys, what it trusts and the computer in a file
 // only the user can read: KESTREL_PHONE_FILE, or connect-phone.json in Kestrel's data folder.
 // KESTREL_CONNECT_URL names another service, as for the desktop.
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
+import { createInterface } from 'node:readline/promises';
 import { dataDir } from '../src/data-dir.ts';
-import { newIdentity, type Identity } from '../src/connect/keys.ts';
+import { newIdentity, publicIdentity, type Identity } from '../src/connect/keys.ts';
+import { AccountKeys, type KeysTrust } from '../src/connect/link/account-keys.ts';
+import { HeldApi } from '../src/connect/link/held-api.ts';
+import { AccountJoin } from '../src/connect/link/join.ts';
+import { JoinApi } from '../src/connect/link/join-api.ts';
 import { OidcProvider } from '../src/connect/link/identity.ts';
 import { listenForCallback } from '../src/connect/link/loopback.ts';
-import { PhoneChannel, type PairedDesk } from '../src/connect/link/phone.ts';
-import { HttpConnectService } from '../src/connect/link/service.ts';
+import { PhoneChannel, type KnownDesk } from '../src/connect/link/phone.ts';
+import { HttpConnectService, type ServiceMethod } from '../src/connect/link/service.ts';
 import { serviceUrl } from '../src/connect/link/start.ts';
 import { plainFileVault, type StoredTokens } from '../src/connect/link/vault.ts';
 import { CONNECT_DESKTOP_CLIENT } from '../src/shared/connect.ts';
@@ -31,16 +37,17 @@ import { statusOf } from '../src/shared/status.ts';
 interface PhoneFile {
   tokens: StoredTokens | null;
   device: { id: string; identity: Identity; subject: string } | null;
-  desk: PairedDesk | null;
+  trust: KeysTrust | null;
+  desk: KnownDesk | null;
 }
 
 const file = plainFileVault(process.env.KESTREL_PHONE_FILE || join(dataDir(), 'connect-phone.json'));
 const read = async (): Promise<PhoneFile> => {
   const raw = (await file.read()) as unknown as Partial<PhoneFile> & { paired?: unknown };
   const extra = (raw.paired ?? {}) as Partial<PhoneFile>;
-  return { tokens: raw.tokens ?? null, device: extra.device ?? null, desk: extra.desk ?? null };
+  return { tokens: raw.tokens ?? null, device: extra.device ?? null, trust: extra.trust ?? null, desk: extra.desk ?? null };
 };
-const write = (data: PhoneFile) => file.write({ tokens: data.tokens, device: null, paired: { device: data.device, desk: data.desk } });
+const write = (data: PhoneFile) => file.write({ tokens: data.tokens, device: null, paired: { device: data.device, trust: data.trust, desk: data.desk } });
 
 const service = new HttpConnectService(serviceUrl());
 const identity = new OidcProvider(async () => (await service.config()).issuer, CONNECT_DESKTOP_CLIENT);
@@ -69,10 +76,12 @@ async function signIn(): Promise<void> {
   const tokens = await identity.exchange(result.code, request);
   let device = data.device?.subject === tokens.subject ? data.device : null;
   if (!device) {
-    const registered = await service.registerDevice(tokens.accessToken, NAME, 'phone');
-    device = { id: registered.id, identity: newIdentity(), subject: tokens.subject };
+    const keys = newIdentity();
+    const registered = await service.registerDevice(tokens.accessToken, NAME, 'phone', publicIdentity(keys));
+    device = { id: registered.id, identity: keys, subject: tokens.subject };
   }
-  await write({ tokens, device, desk: device === data.device ? data.desk : null });
+  const same = device === data.device;
+  await write({ tokens, device, trust: same ? data.trust : null, desk: same ? data.desk : null });
   console.log(`Signed in as ${tokens.email}; this stand-in is device ${device.id}.`);
 }
 
@@ -111,13 +120,62 @@ async function connect(data: PhoneFile): Promise<{ phone: PhoneChannel; close():
   });
 }
 
-async function pair(code: string): Promise<void> {
-  const data = await read();
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Asks to be let into the account, as the iPhone app does, and keeps the computer named (or the first one). */
+async function joinAccount(computer: string): Promise<void> {
+  let data = await read();
+  const device = data.device ?? fail('Sign in first: connect-phone.ts sign-in');
+  const accessToken = await token(data);
+  const call = (method: ServiceMethod, path: string, body?: unknown) => service.call(accessToken, device.id, method, path, body);
+  const me = () => ({ id: device.id, name: NAME, kind: 'phone' as const, identity: device.identity });
+  const keys = new AccountKeys({
+    api: () => new HeldApi(call),
+    me,
+    trust: () => data.trust,
+    saveTrust: async (trust) => {
+      data = { ...data, trust };
+      await write(data);
+    },
+    changed: () => undefined,
+  });
   const { phone, close } = await connect(data);
+  const joining = new AccountJoin({ api: () => new JoinApi(call), me, keys, hello: (to, body) => phone.sendHello(to, body), changed: () => undefined });
+  phone.onJoin((from, body) => joining.receive(from, body));
   try {
-    const desk = await phone.pair(code);
-    await write({ ...data, desk });
-    console.log(`Paired with ${desk.id}.`);
+    await new JoinApi(call).putKeys(publicIdentity(device.identity));
+    await keys.sync();
+    // A copy it cannot open, left from a join it was closed part-way through: deleted, and it asks again (step 8b).
+    if (keys.stranded()) await keys.discardCopy();
+    if (!keys.ready()) {
+      await joining.ask();
+      console.log('Asked to join your account. On a computer of your account, open Settings → Connections → Kestrel Connect and choose Let in.');
+      let shown = '';
+      for (;;) {
+        const view = joining.joining();
+        if (view?.state === 'code' && view.code !== shown) console.log(`Type this code on ${view.by}: ${(shown = view.code)}`);
+        if (view?.state === 'ended') fail(view.reason);
+        if (view?.state === 'confirm') {
+          const ask = createInterface({ input: process.stdin, output: process.stdout });
+          const answer = await ask.question(`${view.by} let this device in. Type the second code ${view.by} shows now (empty to cancel): `);
+          ask.close();
+          if (answer.trim() === '') {
+            await joining.cancel();
+            fail('Cancelled: the key was not kept.');
+          }
+          await joining.confirm(answer).catch((error: unknown) => console.error(error instanceof Error ? error.message : String(error)));
+          const after = joining.joining();
+          if (after?.state === 'ended') fail(after.reason);
+          if (after?.state === 'in') break;
+          continue;
+        }
+        await sleep(300);
+      }
+    }
+    const devices = (await new JoinApi(call).devices()).filter((d) => d.kind === 'desktop' && keys.member(d.id) && (!computer || d.name === computer));
+    const desk = devices[0] ?? fail(computer ? `No computer called ${computer} is in your account.` : 'No computer is in your account yet.');
+    await write({ ...data, desk: { id: desk.id, signing: keys.member(desk.id)! } });
+    console.log(`In your account. Talking to ${desk.name} (${desk.id}) from now on.`);
   } finally {
     close();
   }
@@ -126,7 +184,7 @@ async function pair(code: string): Promise<void> {
 /** Runs `work` over an open channel to the paired desk. */
 async function withDesk(work: (phone: PhoneChannel) => Promise<void>): Promise<void> {
   const data = await read();
-  if (!data.desk) fail('Pair first: connect-phone.ts pair <code>');
+  if (!data.desk) fail('Join your account first: connect-phone.ts join');
   const { phone, close } = await connect(data);
   try {
     await phone.open(data.desk);
@@ -159,7 +217,7 @@ try {
     if (data.tokens) await identity.revoke(data.tokens).catch(() => undefined);
     await write({ ...data, tokens: null });
     console.log('Signed out.');
-  } else if (command === 'pair') await pair(rest.join(' ') || fail('Give the code the Pair a phone page shows.'));
+  } else if (command === 'join') await joinAccount(rest.join(' '));
   else if (command === 'state')
     await withDesk(async (phone) => {
       const state = (await ok(phone, 'state.read')) as WorkspaceState;
@@ -180,7 +238,7 @@ try {
     const [sessionId, requestId, optionId] = rest;
     if (!sessionId || !requestId || !optionId) fail('answer <sessionId> <requestId> <optionId>');
     await withDesk(async (phone) => console.log(JSON.stringify(await ok(phone, 'session.answer', { sessionId, requestId, optionId }))));
-  } else fail('Commands: sign-in, pair <code>, state, cards, answer <sessionId> <requestId> <optionId>, sign-out');
+  } else fail('Commands: sign-in, join [computer name], state, cards, answer <sessionId> <requestId> <optionId>, sign-out');
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error));
 }

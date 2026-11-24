@@ -5,6 +5,8 @@ import { guestEditRefusal, hostEditRefusal } from '../shared/worktree-guests.ts'
 import { hostSandboxSupport } from '../agents/claude/sandbox-support.ts';
 import { resolveEnv } from '../project-env/resolve.ts';
 import { existsSync, realpathSync } from 'node:fs';
+import { workingTreeIn } from '../working-tree.ts';
+import { MAIN_CHECKOUT } from '../shared/working-tree.ts';
 import { join, sep } from 'node:path';
 import { resolveReal } from '../agents/claude/confine.ts';
 import { kestrelToolName } from '../agents/claude/map.ts';
@@ -24,6 +26,13 @@ const EDIT_PATH_KEYS: Record<string, string> = { Write: 'file_path', Edit: 'file
 
 export type OptionsHost = Pick<RuntimeHost, 'workspace' | 'dataDir' | 'browser' | 'attachments' | 'sandboxAllow' | 'commitSigning' | 'projectEdits' | 'projectEnv' | 'whoDoesWhat' | 'records' | 'mcpAccess' | 'toolHost' | 'checkPlainFolderFree'>;
 
+/** Why a session whose worktree cannot be opened cannot go on. */
+function cannotContinue(session: Session, guest: boolean): string {
+  if (guest) return `"${session.title}" worked in another session's worktree, which is gone, so it cannot continue.`;
+  if (session.worktreeDiscarded) return `The worktree of "${session.title}" was discarded, so it cannot continue. Start a new session for more work.`;
+  return `The worktree ${session.worktreePath} is gone, so this session cannot resume.`;
+}
+
 /**
  * The options an existing session's agent runs with: where it works, its project, its settings.
  * `forTurn`: a turn will run, so a plain folder must not be in use by another session.
@@ -32,15 +41,14 @@ export async function optionsFor(host: OptionsHost, session: Session, rec: Live,
   const state = await host.workspace.state();
   const project = state.projects.find((p) => p.id === session.startedIn) ?? null;
   const source = project ? folderOf(project, state.sessions.find((s) => s.id === session.id)?.folderId) : null;
-  if (session.worktreeDiscarded) throw new Refused(`The worktree of "${session.title}" was discarded, so it cannot continue. Start a new session for more work.`);
-  if (session.worktreePath && !existsSync(session.worktreePath)) throw new Refused(`The worktree ${session.worktreePath} is gone, so this session cannot resume.`);
-  // A guest works in its host's worktree (shared/worktree-guests.ts); when that is gone it cannot go on.
-  const hostSession = rec.guest ? state.sessions.find((s) => s.id === rec.guest!.hostId) : undefined;
-  if (rec.guest && (!hostSession?.worktreePath || hostSession.worktreeDiscarded || !existsSync(hostSession.worktreePath))) throw new Refused(`"${session.title}" worked in another session's worktree, which is gone, so it cannot continue.`);
-  const directory = hostSession?.worktreePath ?? session.worktreePath ?? source?.path ?? join(host.dataDir, 'scratch');
+  // The worktree it works in: its own, or its host's for a guest (shared/working-tree.ts). When that
+  // is gone it cannot go on; a session that works in the main checkout works there.
+  const where = workingTreeIn(state, { ...session, hostId: session.hostId ?? rec.guest?.hostId });
+  if (!where.tree && where.reason !== MAIN_CHECKOUT) throw new Refused(cannotContinue(session, where.host !== null || rec.guest !== null));
+  const directory = where.tree?.path ?? source?.path ?? join(host.dataDir, 'scratch');
   if (forTurn && project && source && !source.isGit) host.checkPlainFolderFree(project, source, state.sessions, session.id);
   // A spawned session has no link to say another session started it: its record does.
-  const options = await startOptions(host, session.id, directory, hostSession?.branch ?? session.branch, project, source, rec.settings, rec.spawned ? 'spawn' : undefined);
+  const options = await startOptions(host, session.id, directory, where.tree?.branch ?? session.branch, project, source, rec.settings, rec.spawned ? 'spawn' : undefined);
   // "Allow all outside the sandbox", once chosen in this session, holds for as long as the session does.
   return rec.outsideAllowed ? { ...options, outsideAllowed: true } : options;
 }

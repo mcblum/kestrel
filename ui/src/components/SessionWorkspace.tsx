@@ -1,4 +1,5 @@
 import { ThinkingMark } from './ThinkingMark.tsx';
+import { useWorkingTree } from '../workingTree.ts';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { sessionFolder } from '../sessionFolder.ts';
 import { ChevronDown } from 'lucide-react';
@@ -18,6 +19,8 @@ import { hostTerms } from '@kestrel/server/host-terms';
 import { uncommittedCount } from '@kestrel/server/commit-request';
 import { SessionBar } from './SessionBar.tsx';
 import { PaneArea } from './PaneArea.tsx';
+import { AsidePane } from './AsidePane.tsx';
+import { AsideContext, type AsideHost } from '../asides.ts';
 import { simulator } from '../simulatorStore.ts';
 import { browserPane, useBrowserTitle } from '../browserStore.ts';
 import { serveRuns } from '../codeRun.ts';
@@ -30,7 +33,7 @@ import { ComposerControls } from './ComposerControls.tsx';
 import { Composer, type Inject } from './Conversation.tsx';
 import { MessageList, type MessageListHandle } from './MessageList.tsx';
 import { ComposerFoot } from './ComposerFoot.tsx';
-import { act, actions, focusRequests, useApp, type AttachmentRefs } from '../store.ts';
+import { act, actions, focusRequests, messageFocus, useApp, type AttachmentRefs } from '../store.ts';
 import { presetForRole, ROLE_LABEL } from '@kestrel/server/who-does-what';
 import { startRole } from '../review.ts';
 import { useWhoDoesWhat } from '../whoDoesWhat.ts';
@@ -48,6 +51,9 @@ const isAtBottom = (el: HTMLElement) => el.scrollHeight - el.scrollTop - el.clie
  *  left at the bottom has no entry and opens at the bottom, however much it has grown since. */
 const scrollMemory = new Map<string, number>();
 
+
+/** What the hooks read before the session is in the workspace: no worktree. */
+const NO_TREE = { id: '', title: '', worktreePath: null, branch: null, worktreeDiscarded: false };
 export function SessionWorkspace({ id }: { id: string }) {
   const session = useApp((s) => s.sessionsById.get(id));
   const stored = useApp((s) => s.details.get(id));
@@ -159,7 +165,10 @@ export function SessionWorkspace({ id }: { id: string }) {
     // The list starts where the session was left, or at the end (MessageList's `initialTop`).
     // Opened from the Needs you queue: land on the card that is waiting. The list moves there
     // itself: only the rows near the screen are drawn, and they are measured as they come.
-    const card = focusRequests.delete(id) && (list.current?.scrollToPendingCard() ?? false);
+    // Opened from a link to the review: land on the reviewer's message the findings came from.
+    const at = messageFocus.get(id);
+    messageFocus.delete(id);
+    const card = (at !== undefined && (list.current?.scrollToMessage(at) ?? false)) || (focusRequests.delete(id) && (list.current?.scrollToPendingCard() ?? false));
     const top = scrollMemory.get(id);
     // On the way to the end every step is downwards, so none of them reads as the reader scrolling up.
     lastTop.current = top ?? 0;
@@ -192,6 +201,8 @@ export function SessionWorkspace({ id }: { id: string }) {
   // to one of them instead, to be done in this session's worktree (server: delegation.ts `startRole`).
   const who = useWhoDoesWhat();
   const worktree = Boolean(session?.worktreePath) && !session?.worktreeDiscarded;
+  // The branch a pull request is made from: a guest's is its host's (@kestrel/server/working-tree).
+  const requestBranch = useWorkingTree(session ?? NO_TREE).tree?.branch ?? '';
   const sendTo = useMemo(() => {
     const options = (['design', 'build'] as const).flatMap((role) => {
       const preset = presetForRole(who, role);
@@ -200,6 +211,11 @@ export function SessionWorkspace({ id }: { id: string }) {
     const sendRole = async (role: string, text: string) => (await act(() => startRole(id, role as 'design' | 'build', text).then(() => true))) === true;
     return { options, send: sendRole };
   }, [who, id, worktree]);
+  // Sidebars about a finding open in this page's tools column (asides.ts); what one concluded comes back into this message box, unsent.
+  const asideCalls = useRef({ show: panes.showAside, put: (_: string) => {} });
+  asideCalls.current = { show: panes.showAside, put: (text: string) => setInject({ id, text, n: Date.now(), append: true }) };
+  const openAsideId = open.aside ? panes.state.asideId : null;
+  const asideHost = useMemo<AsideHost>(() => ({ sessionId: id, openId: openAsideId, show: (asideId) => asideCalls.current.show(asideId), putInMessageBox: (text) => asideCalls.current.put(text) }), [id, openAsideId]);
   if (!session) return <section className="session-workspace"><div className="empty-list pad">{loaded ? 'This session no longer exists.' : 'Loading…'}</div></section>;
 
   const settings = live?.settings ?? detail?.settings;
@@ -236,6 +252,7 @@ export function SessionWorkspace({ id }: { id: string }) {
   return (
     <section className={`session-workspace${hasColumns ? '' : ' focus-conversation'}`} data-session-id={id}>
       <SessionBar session={session} detail={detail} panes={panes} browserTitle={browserTitle} git={git.value} pullRequests={pullRequests} onOpenPullRequest={(request) => openPullRequest(id, request)} />
+      <AsideContext.Provider value={asideHost}>
       <PaneArea
         scopeKey={id}
         state={panes.state}
@@ -245,6 +262,7 @@ export function SessionWorkspace({ id }: { id: string }) {
         changes={detail && <Changes detail={detail} files={detail.files} problem={live?.filesProblem ?? null} plainFolder={projectIsPlain} git={git.value} />}
         context={detail && <DetailsPanel detail={detail} controls={current} pending={changed} git={git.value} refreshKey={refreshKey} onOpenChanges={() => panes.show('changes')} />}
         agent={<SubAgentView agent={live?.subagents.find((a) => a.id === panes.state.agentId)} onClose={panes.closeAgent} />}
+        aside={<AsidePane asideId={panes.state.asideId} onUse={asideHost.putInMessageBox} onShow={asideHost.show} onClose={panes.closeAside} />}
         commands={(visible) => <CommandsPane sessionId={id} selectedId={panes.state.commandId} onSelect={panes.showCommand} visible={visible} />}
         main={
         <div className="session-content">
@@ -255,7 +273,7 @@ export function SessionWorkspace({ id }: { id: string }) {
               {activeDocument.kind === 'pull-request' && <PullRequestView source={pullRequests} number={activeDocument.number} />}
               {activeDocument.kind === 'file' && <FileDocumentView key={activeDocument.id} sessionId={id} path={activeDocument.path} />}
               {activeDocument.kind === 'new-pull-request' && (
-                <NewPullRequestView sessionId={id} doc={activeDocument} terms={terms} branch={session.branch ?? ''} uncommitted={uncommittedCount(git.value) > 0} onCreated={pullRequests.refresh} />
+                <NewPullRequestView sessionId={id} doc={activeDocument} terms={terms} branch={requestBranch} uncommitted={uncommittedCount(git.value) > 0} onCreated={pullRequests.refresh} />
               )}
             </div>
           )}
@@ -344,6 +362,7 @@ export function SessionWorkspace({ id }: { id: string }) {
         </div>
         }
       />
+      </AsideContext.Provider>
     </section>
   );
 }

@@ -3,8 +3,9 @@
 // session, so a burst of agent activity becomes one write.
 import type { StoredCommands } from '../shared/commands.ts';
 import { nextLandedIn } from '../filing.ts';
-import { syncBranch } from '../branch-sync.ts';
-import { baseOf, changedFiles } from '../git.ts';
+import { currentWorkingTree } from '../working-tree.ts';
+import { MAIN_CHECKOUT, worktreeSharers } from '../shared/working-tree.ts';
+import { baseOf, readChanges } from '../git.ts';
 import type { ChangedFile, LivePatch } from '../model.ts';
 import { reasonOf } from '../shared/sourced.ts';
 import type { Workspace } from '../workspace.ts';
@@ -24,8 +25,8 @@ export class Upkeep {
     private readonly queue: (rec: Live, work: () => Promise<unknown>) => void,
     /** What else is stored with a session's conversation: its commands (runtime/commands.ts). */
     private readonly commandsOf: (id: string) => StoredCommands | undefined = () => undefined,
-    /** The other live sessions working in the same worktree: a guest's host, a host's guests (shared/worktree-guests.ts). */
-    private readonly matesOf: (id: string) => ReadonlyArray<readonly [string, Live]> = () => [],
+    /** A session's live record, when it is loaded: how the others working in the same worktree are told it changed. */
+    private readonly recordOf: (id: string) => Live | undefined = () => undefined,
   ) {}
 
   // ---- the row's status line -------------------------------------------------------------
@@ -65,42 +66,65 @@ export class Upkeep {
     rec.refreshTimer = null;
   }
 
-  /** Recompute the changed-file list from the worktree, file the session from it, and note the branch it is on now. */
+  /**
+   * Recompute the changed-file list from the worktree the session works in (its own, or its host's
+   * for a guest: shared/working-tree.ts), file the session from it, and note the branch it is on now.
+   * A guest's list is the worktree's list, compared with its host's base.
+   */
   async refreshFiles(id: string, rec: Live): Promise<void> {
     if (rec.refreshing) {
       rec.refreshAgain = true;
       return;
     }
-    const session = (await this.workspace.state()).sessions.find((s) => s.id === id);
-    if (!session?.worktreePath) return;
-    // The agent (or the user, in the terminal) may have renamed or switched the worktree's branch.
-    // Looked at even when there is no base to compare files with (a session carried over a restart).
-    const branch = await syncBranch(this.workspace, session);
+    const state = await this.workspace.state();
+    const session = state.sessions.find((s) => s.id === id) ?? state.archived.sessions.find((s) => s.id === id);
+    if (!session) return;
+    // The agent (or the user, in the terminal) may have renamed or switched the worktree's branch;
+    // recorded on the worktree's owner (working-tree.ts). Looked at even when there is no base to
+    // compare files with (a session carried over a restart).
+    const where = await currentWorkingTree(this.workspace, state, session);
+    if (!where.tree) {
+      // A session that never had a worktree has nothing to read; one whose worktree it works in is gone says why.
+      if (where.reason !== MAIN_CHECKOUT) this.setFilesProblem(id, rec, where.reason);
+      return;
+    }
+    const { path, branch, ownerId } = where.tree;
     // Asked each time, under the name the worktree is on now: the base moves when the branch is
     // rebased (git.ts, `movedBase`), and a record loaded just after a rename had none at all.
-    if (branch) rec.base = (await baseOf(session.worktreePath, branch)) ?? rec.base;
+    if (branch) rec.base = (await baseOf(path, branch)) ?? rec.base;
     if (!rec.base) return this.setFilesProblem(id, rec, NO_BASE);
     rec.refreshing = true;
     try {
       do {
         rec.refreshAgain = false;
         let files: ChangedFile[];
+        let unlisted: string | null;
         try {
-          files = await changedFiles(session.worktreePath, rec.base);
+          const read = await readChanges(path, rec.base);
+          files = read.files;
+          unlisted = read.unlisted;
         } catch (error) {
           // Keep the last list rather than blank it, and say why it is not current.
           this.setFilesProblem(id, rec, reasonOf(error));
           continue;
         }
-        this.setFilesProblem(id, rec, null);
+        // Null when every file is listed; otherwise the list is shown with what it is missing.
+        this.setFilesProblem(id, rec, unlisted);
         if (JSON.stringify(files) !== JSON.stringify(rec.files)) {
           rec.files = files;
           this.emitLive(id, { files });
           this.schedulePersist(id, rec);
-          // The worktree changed under everyone in it: a guest's edit is its host's change too, and
-          // nothing else tells the host. Ends by itself: a mate whose list is already this one changes nothing.
-          for (const [mateId, mate] of this.matesOf(id)) this.scheduleRefresh(mateId, mate);
+          // The worktree changed under everyone in it: a guest's edit is its host's change too, and a
+          // host's is its guests'; nothing else tells them. Found from the rows (Session.hostId), so it
+          // holds after a restart; a mate whose record is not loaded reads its list when it is opened
+          // (Runtime.snapshot). Ends by itself: a mate whose list is already this one changes nothing.
+          for (const mate of worktreeSharers(state.sessions, ownerId)) {
+            const mateRec = mate.id === id ? undefined : this.recordOf(mate.id);
+            if (mateRec) this.scheduleRefresh(mate.id, mateRec);
+          }
         }
+        // Filing is about owning the worktree: a guest is filed where it started (filing.ts).
+        if (ownerId !== id) continue;
         const landed = nextLandedIn(session.landedIn, session.startedIn ? { projectId: session.startedIn, differsFromBase: files.length > 0 } : null);
         if (landed !== session.landedIn) await this.workspace.setLandedIn(id, landed);
       } while (rec.refreshAgain);

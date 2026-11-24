@@ -19,7 +19,7 @@ export function nextLandedIn(current: string | null, evidence: GitEvidence | nul
   return current;
 }
 
-type FilingInput = Pick<Session, 'id' | 'startedIn' | 'landedIn' | 'worktreeDiscarded'>;
+type FilingInput = Pick<Session, 'id' | 'startedIn' | 'landedIn' | 'worktreeDiscarded'> & Partial<Pick<Session, 'aside'>>;
 
 /**
  * Decide where one session is listed.
@@ -36,6 +36,8 @@ type FilingInput = Pick<Session, 'id' | 'startedIn' | 'landedIn' | 'worktreeDisc
  * Git evidence always wins: wherever landedIn is set, that is the project.
  */
 export function fileSession(session: FilingInput, links: readonly Link[]): Filing {
+  // A sidebar about a finding is drawn only in its pane, beside the session it is about (shared/asides.ts).
+  if (session.aside) return { projectId: session.startedIn, status: 'hidden', discarded: false };
   const discarded = session.worktreeDiscarded && session.landedIn !== null;
   const handedOff = links.some((l) => l.parentId === session.id && l.kind === 'handoff');
   const isChild = startLinkOf(session.id, links) !== undefined;

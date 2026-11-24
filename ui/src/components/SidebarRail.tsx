@@ -4,6 +4,7 @@
 // the pinned ones, then any waiting for an answer, as their initial with the row's dot (or, with no
 // dot, its open request's icon: RowRequest.tsx); the title is in the tooltip. The rest is one
 // click on the sidebar toggle away (the full sidebar, floating).
+import { useRequestSide } from '../workingTree.ts';
 import { TicketsRailButton } from './TicketsLink.tsx';
 import { useSessionTint } from '../colours.ts';
 import { Fragment, useMemo, type MouseEvent, type ReactNode } from 'react';
@@ -47,9 +48,13 @@ function useRailSessions(): RailSession[] {
   }, [workspace, byId, seen, mode]);
 }
 
+/** What a rail button asks about before its session has loaded: nothing. */
+const NO_SESSION = { id: '', title: '', worktreePath: null, branch: null, worktreeDiscarded: false };
+
 function RailSessionButton({ entry, selected }: { entry: RailSession; selected: boolean }) {
   const session = useApp((s) => s.sessionsById.get(entry.id));
   const tint = useSessionTint(session);
+  const side = useRequestSide(session ?? NO_SESSION);
   if (!session) return null;
   // A review says so in words too, as its row's hover card does: its violet initial is not the only sign.
   const tip = [session.review ? 'Code review' : '', session.title, DOT_LABEL[entry.dot]].filter(Boolean).join(' · ');
@@ -60,7 +65,7 @@ function RailSessionButton({ entry, selected }: { entry: RailSession; selected: 
         {[...session.title.trim()][0]?.toUpperCase() ?? '·'}
       </span>
       {dot !== 'none' && <span className={`status-dot rail-dot ${dot}`} aria-hidden />}
-      {asksForRequest(dot !== 'none', session.branch) && <RowRequest sessionId={session.id} updatedAt={session.updatedAt} className="rail-dot" />}
+      {asksForRequest(dot !== 'none', side.branch) && <RowRequest sessionId={session.id} updatedAt={session.updatedAt} className="rail-dot" />}
     </button>
   );
 }

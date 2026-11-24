@@ -26,6 +26,9 @@ export interface Turn {
  */
 export type MidTurnMode = 'absent' | 'accept' | 'refuse';
 
+/** The text of the turn a fake compaction runs, so a script can tell it from a message. */
+export const COMPACTION = '(compaction)';
+
 export class FakeAgents {
   starts: { options: StartOptions; prompt: string; handle: AgentHandle }[] = [];
   resumes: { id: string; options: StartOptions }[] = [];
@@ -40,6 +43,10 @@ export class FakeAgents {
   hold = false;
   /** How handles made from now on take messages mid-turn. */
   midTurn: MidTurnMode = 'absent';
+  /** Whether handles made from now on can compact (`AgentHandle.compact`); a compaction runs as a turn whose text is `COMPACTION`. */
+  canCompact = true;
+  /** The conversations compacted, by agent session id. */
+  compactions: string[] = [];
   private running = new Set<Promise<void>>();
   private counter = 0;
 
@@ -82,6 +89,13 @@ export class FakeAgents {
         if (busy) end({ type: 'done', reason: 'stopped' });
       },
     };
+    if (this.canCompact) {
+      handle.compact = () => {
+        if (busy) throw new Error('The agent is still working on the previous message.');
+        this.compactions.push(id);
+        handle.send(COMPACTION);
+      };
+    }
     if (this.midTurn === 'absent') return handle;
     const mode = this.midTurn;
     return {
@@ -111,6 +125,8 @@ export class FakeAgents {
         this.resumes.push({ id, options });
         return this.handle(options, emit, id, 1);
       },
+      // Like Codex and OpenCode: nothing to say of an idle conversation; a script reports it with a `context` event.
+      contextUsage: async () => null,
       fork: async (id, where) => {
         if (this.forkFailure) throw new Error(this.forkFailure);
         const forkedId = `${id}-fork-${++this.counter}`;

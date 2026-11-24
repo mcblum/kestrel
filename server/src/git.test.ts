@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { GIT_TEST_TIMEOUT_MS } from './test-timeouts.ts';
 import { makeRepo } from './test-repo.ts';
-import { baseOf, changedFileCount, changedFiles, createWorktree, repoRoot, splitDiff } from './git.ts';
+import { baseOf, changedFileCount, changedFiles, createWorktree, readChanges, repoRoot, splitDiff } from './git.ts';
 
 // Builds real git repositories: room under a loaded machine (test-timeouts.ts).
 vi.setConfig({ testTimeout: GIT_TEST_TIMEOUT_MS });
@@ -155,6 +155,31 @@ describe('worktrees', () => {
     const other = makeRepo();
     await expect(createWorktree(repo, join(other, 'worktrees'), 'cccccccc-1', 'x', 'kestrel')).rejects.toThrow(/inside the git work tree/);
     mkdirSync(join(other, 'unused'), { recursive: true });
+  });
+});
+
+describe('readChanges and a path git cannot add', () => {
+  it('lists every other new file, and says what it left out, when a folder is a repository of its own with no commit', async () => {
+    const repo = makeRepo();
+    const base = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo }).toString().trim();
+    writeFileSync(join(repo, 'new.txt'), 'n\n');
+    mkdirSync(join(repo, 'nested'));
+    execFileSync('git', ['init', '-q'], { cwd: join(repo, 'nested') });
+    writeFileSync(join(repo, 'nested', 'f.txt'), 'x\n');
+
+    const read = await readChanges(repo, base);
+
+    expect(read.files.map((f) => f.path)).toEqual(['new.txt']);
+    expect(read.unlisted).toMatch(/^Not every new file could be listed: .*nested/);
+    expect((await changedFiles(repo, base)).map((f) => f.path)).toEqual(['new.txt']);
+  });
+
+  it('says nothing is unlisted when every new file can be added', async () => {
+    const repo = makeRepo();
+    const base = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo }).toString().trim();
+    writeFileSync(join(repo, 'new.txt'), 'n\n');
+
+    expect(await readChanges(repo, base)).toMatchObject({ files: [{ path: 'new.txt', status: 'A' }], unlisted: null });
   });
 });
 

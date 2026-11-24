@@ -34,6 +34,8 @@ export interface FoldMessage {
   file?: unknown;
   next?: unknown;
   review?: unknown;
+  roundFindings?: unknown;
+  reviewEnd?: unknown;
   suggestion?: unknown;
   started?: unknown;
 }
@@ -62,7 +64,7 @@ type Part = 'steps' | 'pictures' | 'approval';
 /** Nothing on it besides tool lines and pictures (no prose, card, notice, list, widget, file or next step). */
 function bare(m: FoldMessage): boolean {
   if (m.author !== 'agent' || m.notice || m.text.trim()) return false;
-  return !(m.question || m.input || m.todos?.length || m.widget || m.file || m.next || m.review || m.suggestion || m.started);
+  return !(m.question || m.input || m.todos?.length || m.widget || m.file || m.next || m.review || m.roundFindings || m.reviewEnd || m.suggestion || m.started);
 }
 
 /** An approval that has been answered (or abandoned). Plans and questions keep their own form. */
@@ -73,7 +75,7 @@ export function isAnsweredApproval(card: FoldCard | undefined): card is FoldCard
 /** Agent text with tool lines after it and nothing else: its tool lines can join the fold that follows. */
 function textThenSteps(m: FoldMessage | undefined): boolean {
   if (!m || m.author !== 'agent' || m.notice || !m.text.trim() || !m.activity?.length || m.images?.length) return false;
-  return !(m.question || m.input || m.todos?.length || m.widget || m.file || m.next || m.review || m.suggestion || m.started);
+  return !(m.question || m.input || m.todos?.length || m.widget || m.file || m.next || m.review || m.roundFindings || m.reviewEnd || m.suggestion || m.started);
 }
 
 /** What a message can be inside a fold, or null when it ends one. */

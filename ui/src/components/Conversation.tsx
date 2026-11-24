@@ -9,6 +9,8 @@ import { UserText } from './UserText.tsx';
 import { InputCardView } from './Decisions.tsx';
 import { FileCardView, NextStepBox, TodoCard } from './Cards.tsx';
 import { ReviewReplyCard } from './ReviewReplyCard.tsx';
+import { RoundFindingsCard } from './RoundFindingsCard.tsx';
+import { ReviewEndLine } from './ReviewEndCard.tsx';
 import { StartedHere } from './Lineage.tsx';
 import { WidgetView } from './Widget.tsx';
 import { Pictures } from './Pictures.tsx';
@@ -98,7 +100,7 @@ export function Steps({ activity, sessionId }: { activity: ChatActivity[]; /** L
 
 /** Whether an agent message has anything to show. A turn where it only thought leaves nothing. */
 function hasContent(m: ChatMessage): boolean {
-  return Boolean(m.text || m.activity?.length || m.input || m.question || m.todos?.length || m.widget || m.file || m.review || m.next || m.started || m.images?.length);
+  return Boolean(m.text || m.activity?.length || m.input || m.question || m.todos?.length || m.widget || m.file || m.review || m.roundFindings || m.next || m.started || m.images?.length);
 }
 
 interface MessageProps {
@@ -135,6 +137,7 @@ export const Message = memo(function Message({ message, sessionId, onChoice, onR
       </div>
     );
   if (message.suggestion) return <SuggestionLine sessionId={sessionId} suggestion={message.suggestion} />;
+  if (message.reviewEnd && message.id) return <ReviewEndLine sessionId={sessionId} cardId={message.id} end={message.reviewEnd} />;
   if (!mine && !hasContent(message)) return null;
   return (
     <div className={`chat-message ${mine ? 'mine' : 'theirs'}`}>
@@ -158,6 +161,7 @@ export const Message = memo(function Message({ message, sessionId, onChoice, onR
       {message.widget && <WidgetView widget={message.widget} onPrompt={onReply} />}
       {message.file && <FileCardView file={message.file} sessionId={sessionId} />}
       {message.review && message.id && <ReviewReplyCard review={message.review} sessionId={sessionId} cardId={message.id} />}
+      {message.roundFindings && message.id && <RoundFindingsCard round={message.roundFindings} sessionId={sessionId} cardId={message.id} />}
       {message.input && <InputCardView card={message.input} sessionId={sessionId} />}
       {message.question && (
         <div className="decision-box">

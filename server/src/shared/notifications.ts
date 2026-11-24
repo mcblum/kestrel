@@ -79,7 +79,7 @@ export interface Looking {
   openSessionId: string | null;
 }
 
-type Notified = Pick<SessionView, 'id' | 'title' | 'state' | 'note'> & Partial<Pick<SessionView, 'request' | 'stopped'>>;
+type Notified = Pick<SessionView, 'id' | 'title' | 'state' | 'note'> & Partial<Pick<SessionView, 'request' | 'stopped' | 'aside'>>;
 
 /** The event a change of status is, if it is one worth telling: only a session that was working can finish or fail. */
 function kindOf(before: StatusKey, after: StatusKey): Exclude<NotifyKind, 'review-request'> | null {
@@ -113,6 +113,8 @@ export function notifyEvents(before: readonly Notified[] | null, after: readonly
   for (const session of after) {
     const old = was.get(session.id);
     if (!old || old === session) continue;
+    // A sidebar is drawn only in its pane, beside the conversation it is about: it is never news (shared/asides.ts).
+    if (session.aside) continue;
     const kind = kindOf(statusOf(old), statusOf(session));
     if (!kind || !prefs.events[kind]) continue;
     if (kind === 'done' && delegated.has(session.id)) continue;
@@ -174,6 +176,40 @@ export function ticketNotifyEvents(before: TicketsSeenBefore | null, after: Pick
   return after.tickets
     .filter((t) => !was.has(t.key) && unread.has(t.key) && asked.has(t.source))
     .map((t) => ({ kind: 'ticket' as const, sessionId: '', ticketKey: t.key, title: `${t.ref}: ${t.title}`, body: `Assigned to you in ${t.tracker}${t.sprint?.current ? `, in ${t.sprint.name}` : ''}.` }));
+}
+
+/** What one look saw, to compare the next with: each part null until it was first seen. */
+export interface NotifySeen {
+  sessions: readonly Notified[] | null;
+  /** The keys of the review requests waiting. */
+  requests: readonly string[] | null;
+  tickets: TicketsSeenBefore | null;
+}
+
+export const NOTHING_SEEN: NotifySeen = { sessions: null, requests: null, tickets: null };
+
+/** What is there now: the workspace's sessions and links, the review requests and the tickets. */
+export interface NotifyNow {
+  sessions: readonly Notified[];
+  links: readonly Pick<Link, 'childId' | 'kind'>[];
+  reviewRequests: Pick<ReviewRequestsView, 'requests' | 'unread'>;
+  tickets: Pick<TicketsView, 'tickets' | 'unread' | 'sources' | 'settings'>;
+}
+
+/**
+ * The one rule for what is news (Kestrel Connect, design doc section 9): the window's notifier and the
+ * desk's push sender both call this, so the two never disagree. Pure. Gives the events to tell, in
+ * order (sessions, review requests, tickets), and what is now seen, which the caller keeps for the
+ * next look. Nothing is news on the first look at each part; what is seen moves on whatever `prefs`
+ * say, so turning an event on later brings no backlog.
+ */
+export function notificationsOf(seen: NotifySeen, now: NotifyNow, prefs: NotifyPrefs, looking: Looking): { events: NotifyEvent[]; seen: NotifySeen } {
+  const events = [
+    ...notifyEvents(seen.sessions, now.sessions, now.links, prefs, looking),
+    ...reviewNotifyEvents(seen.requests, now.reviewRequests, prefs),
+    ...ticketNotifyEvents(seen.tickets, now.tickets, prefs),
+  ];
+  return { events, seen: { sessions: now.sessions, requests: now.reviewRequests.requests.map((r) => r.key), tickets: ticketsBefore(now.tickets) } };
 }
 
 /** A banner's click target as the desktop shell carries it back: a session's id, or a review request's key behind this mark. */

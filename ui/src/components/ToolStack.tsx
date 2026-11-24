@@ -8,9 +8,10 @@ import { dragDivider, PANE_WIDTH, STACK_ORDER, stackShares, type StackPane, type
 import type { ScopeKind } from '@kestrel/server/scope';
 import { tabActions, useTabs } from '../tabsStore.ts';
 import { ResizeEdge } from './ResizeEdge.tsx';
+import { ASIDE_NAME } from '@kestrel/server/asides';
 
 const NO_WEIGHTS: StackWeights = {};
-const LABEL: Record<StackPane, string> = { agent: 'Sub-agent output', files: 'Files', browser: 'Browser', commands: 'Commands', terminal: 'Terminal' };
+const LABEL: Record<StackPane, string> = { aside: ASIDE_NAME, agent: 'Sub-agent output', files: 'Files', browser: 'Browser', commands: 'Commands', terminal: 'Terminal' };
 
 interface Props {
   kind: ScopeKind;

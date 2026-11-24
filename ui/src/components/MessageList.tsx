@@ -52,6 +52,8 @@ interface Props {
 export interface MessageListHandle {
   /** Bring the card that waits for an answer into view. False when there is none. */
   scrollToPendingCard: () => boolean;
+  /** Bring one message into view, by its id, wherever it is drawn (a folded stretch included). False when it is not in the list. */
+  scrollToMessage: (id: string) => boolean;
 }
 
 /** The rows, keeping the object of every row that draws the same as last time. */
@@ -85,6 +87,8 @@ function afterFrames(frames: number, fn: () => void): void {
 }
 
 const isPendingCard = (row: ConversationRow) => row.kind === 'message' && Boolean(row.message.input && !row.message.input.resolved);
+/** The row a message is drawn in: its own, or the folded stretch that reads it. */
+const drawsMessage = (id: string) => (row: ConversationRow) => (row.kind === 'message' && row.message.id === id) || (row.kind === 'fold' && row.reads.some((m) => m.id === id));
 
 interface ListOptions {
   rows: readonly ConversationRow[];
@@ -141,6 +145,12 @@ function useListHandle(ref: ForwardedRef<MessageListHandle>, rows: readonly Conv
           virtualizer.scrollToIndex(at + 1, { align: 'center' });
           afterFrames(CARD_SETTLE_FRAMES, () => void scrollRef.current?.querySelector('[data-pending-card]')?.scrollIntoView({ block: 'center' }));
         });
+        return true;
+      },
+      scrollToMessage: (id) => {
+        const at = rows.findIndex(drawsMessage(id));
+        if (at < 0) return false;
+        afterFrames(1, () => virtualizer.scrollToIndex(at + 1, { align: 'center' }));
         return true;
       },
     }),

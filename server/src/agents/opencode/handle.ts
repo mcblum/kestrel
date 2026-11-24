@@ -6,6 +6,7 @@
 import type { ContextUsage } from '../../shared/context-usage.ts';
 import type { PermissionLevel } from '../../shared/permissions.ts';
 import type { ElementLookup } from '../claude/describe.ts';
+import { setTimeout as delay } from 'node:timers/promises';
 import type { AgentAttachment, AgentEvent, AgentHandle, InputAnswer, InputOption, StartOptions } from '../types.ts';
 import { AskDesk } from './asks.ts';
 import { call, clientFor, type OpencodeClient } from './client.ts';
@@ -47,6 +48,8 @@ export const IMPLEMENT_PLAN = 'The user approved your plan. Implement it now.';
 /** A retry OpenCode schedules further out than this (a used-up free tier: hours) ends the turn instead. */
 export const MAX_RETRY_WAIT_MS = 120_000;
 const SESSION_TITLE = 'Kestrel';
+/** How long after `session.summarize` answers its events may still be arriving. */
+const COMPACTION_IDLE_WAIT_MS = 2_000;
 
 class TurnAbandoned extends Error {}
 
@@ -82,12 +85,22 @@ export class OpencodeHandle implements AgentHandle {
   busy = () => this.running;
 
   send(text: string, attachments?: readonly AgentAttachment[]): void {
+    this.begin(() => this.runTurn(text, attachments));
+  }
+
+  /** OpenCode's own compaction (`session.summarize`) with the session's model, followed as a turn. */
+  compact(): void {
+    if (!this.sessionId) throw new Error('This conversation has not started yet, so there is nothing to compact.');
+    this.begin(() => this.runCompaction());
+  }
+
+  private begin(run: () => Promise<AgentEvent>): void {
     if (this.closed) throw new Error('This OpenCode session was closed.');
     if (this.running) throw new Error('The agent is still working on the previous message.');
     this.running = true;
     this.stopping = false;
     const token = ++this.turnToken;
-    this.turn = this.runTurn(text, attachments).then((terminal) => {
+    this.turn = run().then((terminal) => {
       if (token === this.turnToken) this.running = false;
       this.emit(terminal);
     });
@@ -142,6 +155,32 @@ export class OpencodeHandle implements AgentHandle {
         if (!message) return { ...end, reason: this.stopping ? 'stopped' : 'complete' };
       }
       return { type: 'done', reason: 'complete' };
+    } catch (error) {
+      if (this.stopping || error instanceof TurnAbandoned) return { type: 'done', reason: 'stopped' };
+      if (error instanceof OpencodeUnavailable) return { type: 'failed', reason: error.message, kind: error.kind === 'auth' ? 'auth' : 'other' };
+      return { type: 'failed', reason: error instanceof Error ? error.message : String(error), kind: 'other' };
+    }
+  }
+
+  /** A compaction: `session.summarize` answers once OpenCode has compacted; its events stream as a turn's do. Never rejects. */
+  private async runCompaction(): Promise<AgentEvent> {
+    try {
+      const client = await this.ensureServer();
+      if (this.stopping) return { type: 'done', reason: 'stopped' };
+      const mapper = this.mapper!;
+      mapper.beginTurn();
+      this.gaveUp = null;
+      const model = this.opts.model ? splitModel(this.opts.model) : null;
+      const idle = new Promise<void>((resolve, reject) => (this.waiter = { resolve, reject }));
+      idle.catch(() => undefined); // observed below
+      await call('compact the conversation', client.session.summarize({ sessionID: this.sessionId!, ...(model ?? {}), auto: false }));
+      // The answer can come before the events that went with it (the summary's tokens, then idle): wait for idle, briefly.
+      const late = new AbortController();
+      await Promise.race([idle, delay(COMPACTION_IDLE_WAIT_MS, undefined, { signal: late.signal }).catch(() => undefined)]);
+      late.abort();
+      this.waiter = null;
+      await this.reportContext(mapper);
+      return turnEnd({ error: mapper.lastError, text: mapper.lastText, costUsd: mapper.usage.costUsd }, this.stopping, this.gaveUp, mapper.usage.costUsd);
     } catch (error) {
       if (this.stopping || error instanceof TurnAbandoned) return { type: 'done', reason: 'stopped' };
       if (error instanceof OpencodeUnavailable) return { type: 'failed', reason: error.message, kind: error.kind === 'auth' ? 'auth' : 'other' };

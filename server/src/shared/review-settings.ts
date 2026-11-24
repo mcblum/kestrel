@@ -39,6 +39,9 @@ export const REVIEW_PLACE_LABEL: Record<ReviewPlace, string> = {
   page: 'On their own page',
 };
 
+/** What a device says in the Code reviews list's place while review requests are Off (kestrel-connect.md, "The Code reviews and Tickets pages on a phone"). */
+export const REVIEWS_OFF_REASON = 'Review requests are switched off, so GitHub and GitLab are not asked. Change it at the desk, in Settings → Code reviews.';
+
 /** How many requests nobody has started on the sidebar's section lists before "Show more". */
 export const SIDEBAR_LIMIT = { min: 1, max: 50, initial: 5 } as const;
 

@@ -172,11 +172,21 @@
 .kestrel .connect-devices { display: grid; gap: 12px; border-top: 1px solid var(--s-line); padding-top: 16px; margin-top: 2px; }
 .kestrel .connect-devices-heading { display: flex; align-items: center; gap: 8px; }
 .kestrel .connect-devices h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.kestrel .connect-held-projects { display: grid; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.kestrel .connect-recovery-words { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px 16px; margin: 0; padding: 12px 12px 12px 36px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-paper); font-family: var(--mono); font-size: 13px; user-select: all; }
+.kestrel .connect-recovery-input { width: 100%; max-width: 560px; font-family: var(--mono); font-size: 13px; padding: 8px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-paper); color: inherit; }
 .kestrel .connect-device-list { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
 .kestrel .connect-device-list li { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-paper); }
 .kestrel .connect-device-icon { width: 20px; height: 20px; flex: none; color: var(--s-label); }
 .kestrel .connect-device-detail { display: grid; gap: 3px; min-width: 0; flex: 1; }
 .kestrel .connect-device-name { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.kestrel .connect-join { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-paper); }
+.kestrel .connect-join p { margin: 0; }
+.kestrel .connect-join-title { font-size: 13px; font-weight: 600; }
+.kestrel .connect-join-code { font-family: var(--mono); font-size: 28px; letter-spacing: 0.12em; user-select: all; }
+.kestrel .connect-join-actions { display: flex; gap: 8px; }
+.kestrel .connect-join-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.kestrel .connect-join-input { width: 9ch; font-family: var(--mono); font-size: 15px; letter-spacing: 0.08em; }
 .kestrel .connections-services .connection-list li { padding: 10px; font-size: 13px; flex-wrap: wrap; }
 .kestrel .connections-services .connection-list small { font-size: 12px; overflow-wrap: anywhere; }
 @container (max-width: 580px) {

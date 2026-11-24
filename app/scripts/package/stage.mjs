@@ -18,6 +18,7 @@
 import { build } from 'esbuild';
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { isVersion } from '../../release-channel.mjs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { buildServer } from './build-server.mjs';
@@ -140,10 +141,11 @@ function stageBinaries() {
 }
 
 const appPackage = JSON.parse(readFileSync(join(appDir, 'package.json'), 'utf8'));
+if (!isVersion(appPackage.version)) fail(`app/package.json's version must look like 1.2.3 or 1.2.3-beta.4, not ${appPackage.version}`);
 // For test builds only (make-release.sh --version): the version in the bundle, without touching app/package.json.
 const override = process.env.KESTREL_VERSION_OVERRIDE;
 if (override) {
-  if (!/^\d+\.\d+\.\d+$/.test(override)) fail(`KESTREL_VERSION_OVERRIDE must look like 1.2.3, not ${override}`);
+  if (!isVersion(override)) fail(`KESTREL_VERSION_OVERRIDE must look like 1.2.3 or 1.2.3-beta.4, not ${override}`);
   appPackage.version = override;
 }
 rmSync(stage, { recursive: true, force: true });

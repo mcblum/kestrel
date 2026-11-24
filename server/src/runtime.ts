@@ -42,6 +42,11 @@ import { BrowserTools } from './browser-tools.ts';
 import { CommitSigning } from './commit-signing/prefs.ts';
 import { CrashReports } from './crash-reports/prefs.ts';
 import { Delegation, type ChildOrigin } from './delegation.ts';
+import { FindingActions } from './finding-actions.ts';
+import { ReviewEndActions } from './review-end.ts';
+import { Asides } from './asides.ts';
+import { reviewAnchors } from './review-requests/anchors.ts';
+import { ASIDE_TOOL_REFUSAL, ASIDE_TOOLS } from './shared/asides.ts';
 import { Display } from './display.ts';
 import { Forks } from './fork.ts';
 import { GitPrefs } from './git-settings/prefs.ts';
@@ -49,9 +54,10 @@ import { READ_ONLY_OMITTED, type McpSessions } from './kestrel-mcp.ts';
 import { AGENT_LABEL, type Agent, type LivePatch, type Project, type ProjectFolder, type Session, type SessionDetail, type SessionSettings } from './model.ts';
 import { OpenIn } from './open-in/prefs.ts';
 import { ProjectEdits } from './project-edits/prefs.ts';
+import { RemoteStarts } from './remote-starts/prefs.ts';
 import { StartBase } from './start-base/prefs.ts';
 import { CommandsKept } from './commands-kept/prefs.ts';
-import { AgentInfo, type AgentAvailability, type ModelList } from './runtime/agent-info.ts';
+import { AgentInfo, type AgentAvailability, type ContextShown, type ModelList } from './runtime/agent-info.ts';
 import type { AgentSignIn } from './agents/sign-in.ts';
 import { editVerdict, optionsFor, startOptions } from './runtime/agent-options.ts';
 import { BackgroundWork } from './runtime/background.ts';
@@ -95,12 +101,13 @@ import { SessionWorktrees } from './runtime/session-worktrees.ts';
 import { assertPlainFolderFree, interruptAfterRestart } from './runtime/start-options.ts';
 import { WorkStopper } from './runtime/stop-work.ts';
 import { Titler } from './runtime/titling.ts';
-import { answerCard, dropQueued, flushQueue, moveSettings, reply, sendQueued, stopTurn, type ReplyOptions } from './runtime/turns.ts';
+import { answerCard, compactTurn, dropQueued, flushQueue, moveSettings, reply, sendQueued, stopTurn, type ReplyOptions } from './runtime/turns.ts';
 import { Upkeep } from './runtime/upkeep.ts';
 import type { RuntimeOptions } from './runtime/workdir.ts';
 import { folderContext } from './sandbox-allow/context.ts';
 import { SandboxAllowList } from './sandbox-allow/store.ts';
-import { projectDirectory, scopeFolder, sessionDirectory } from './scope-folder.ts';
+import { projectDirectory, scopeFolder, sessionDirectory, sessionFolderOf } from './scope-folder.ts';
+import { parseScope } from './shared/scope.ts';
 import { canRetry, retryMessage, type CommandOutput } from './shared/commands.ts';
 import type { ContextUsage } from './shared/context-usage.ts';
 import type { PermissionLevel } from './shared/permissions.ts';
@@ -116,7 +123,7 @@ import { appendOutput, applyToTranscript, outputLine, type TranscriptAction } fr
 import type { WorktreeList } from './worktree-cleanup.ts';
 import { Refused, type Workspace } from './workspace.ts';
 
-export type { ModelList } from './runtime/agent-info.ts';
+export type { ContextShown, ModelList } from './runtime/agent-info.ts';
 export type { ReplyOptions } from './runtime/turns.ts';
 export type { StartRequest } from './runtime/bring-up.ts';
 export { titleFrom, noteFromText };
@@ -127,6 +134,8 @@ export class SessionRuntime implements McpSessions {
   readonly delegation: Delegation;
   /** Fork a session: a copy of its conversation in a new session (fork.ts). */
   readonly forks: Forks;
+  /** Sidebars about a finding (asides.ts). */
+  readonly asides: Asides;
   readonly display: Display;
   readonly browser: BrowserTools;
   readonly sim: SimTools;
@@ -141,6 +150,8 @@ export class SessionRuntime implements McpSessions {
   private readonly baseRefresh: BaseRefresh;
   /** Settings → Workflow: whether an edit to another project's file is refused (project-edits/prefs.ts). */
   readonly projectEdits: ProjectEdits;
+  /** Whether other devices of the account may start sessions here (A8; Settings → Workflow). */
+  readonly remoteStarts: RemoteStarts;
   readonly startBase: StartBase;
   /** Each project's setup and archive scripts (project-scripts/prefs.ts), and what runs them. */
   readonly projectScripts: ScriptsHost;
@@ -189,6 +200,9 @@ export class SessionRuntime implements McpSessions {
   private readonly reviewing: ReviewingComments | null;
   /** The `post_review` tool, and posting a review card to its host (review-requests/reply.ts). */
   readonly reviewReplies: ReviewReplies;
+  /** What the user does to one finding of a review card (finding-actions.ts). */
+  readonly findingActions: FindingActions;
+  readonly reviewEnds: ReviewEndActions;
   /** Stops one command or piece of background work on the user's word (runtime/stop-work.ts). */
   private readonly stopper: WorkStopper;
   /** Which agent each live session runs, for the words the Commands pane uses. */
@@ -235,6 +249,20 @@ export class SessionRuntime implements McpSessions {
       byNumber: (host) => (host === 'github' ? githubByNumber() : gitlabByNumber()),
       run: opts.reviewRunner ?? execRunner,
       now: () => this.now(),
+      roundReview: (id, args) => this.delegation.handOverRound(id, args),
+      diffAnchors: reviewAnchors,
+    });
+    this.findingActions = new FindingActions({
+      messages: (id) => this.records.get(id)?.messages ?? [],
+      showCard: (id, card) => this.showCard(id, card),
+      send: (id, text) => this.reply(id, text),
+    });
+    this.reviewEnds = new ReviewEndActions({
+      messages: (id) => this.records.get(id)?.messages ?? [],
+      showCard: (id, card) => this.showCard(id, card),
+      send: (id, text) => this.reply(id, text),
+      stateOf: async (id) => (await workspace.state()).sessions.find((s) => s.id === id) ?? null,
+      settle: async (id) => workspace.setState(id, 'done', await this.delegation.doneNote(id, false)),
     });
     this.stopper = new WorkStopper(this.background, this.commands, opts.processes ?? systemProcesses);
     this.delegation = new Delegation(this, workspace, dataDir);
@@ -294,6 +322,7 @@ export class SessionRuntime implements McpSessions {
     this.gitPrefs = new GitPrefs(opts.git);
     this.baseRefresh = new BaseRefresh({ enabled: () => this.gitPrefs.startFromLatest(), fetch: opts.baseFetch });
     this.projectEdits = new ProjectEdits(opts.projectEdits);
+    this.remoteStarts = new RemoteStarts(opts.remoteStarts);
     this.startBase = new StartBase(opts.startBase);
     this.projectEnv = new ProjectEnvPrefs(opts.projectEnv);
     this.savedActions = new SavedActionsPrefs(opts.savedActions);
@@ -318,8 +347,14 @@ export class SessionRuntime implements McpSessions {
     this.openIn = new OpenIn(opts.openIn);
     this.sandboxAllow = new SandboxAllowList({ settings: opts.sandboxAllow?.settings, context: () => folderContext(workspace, dataDir) });
     this.titler = new Titler(workspace, opts.titleProviders, opts.titleWait, undefined, (id, tags) => this.suggestions.fromTitle(id, tags));
-    this.upkeep = new Upkeep(workspace, (id, patch) => this.emitLive(id, patch), (rec, work) => this.queue(rec, work), (id) => this.commands.stored(id), (id) => this.worktreeMates(id));
+    this.upkeep = new Upkeep(workspace, (id, patch) => this.emitLive(id, patch), (rec, work) => this.queue(rec, work), (id) => this.commands.stored(id), (id) => this.records.get(id));
     this.forks = this.makeForks();
+    this.asides = new Asides({
+      workspace: this.workspace,
+      adapterFor: (agent) => this.adapters[agent],
+      isWorking: (id) => isWorking(this.records.get(id)),
+      conversation: async (id) => this.overlay(id) ?? this.workspace.storedDetail(id),
+    });
     this.host = this.makeHost();
     this.checkouts = new SessionWorktrees(this.host);
     this.info = new AgentInfo(this.host);
@@ -542,6 +577,16 @@ export class SessionRuntime implements McpSessions {
     return this.info.contextUsage(sessionId);
   }
 
+  /** The same with the words shown in its place when it is not known: what the window's ring and a phone show. */
+  contextShown(sessionId: string): Promise<ContextShown> {
+    return this.info.contextShown(sessionId);
+  }
+
+  /** What is known now of a session's context window, asking no agent (the held index). */
+  contextKnown(session: Session): ContextShown {
+    return this.info.contextKnown(session, this.records.get(session.id) ?? null);
+  }
+
   // ---- projects -----------------------------------------------------------------------
 
   registerProject(path: string, name?: string): Promise<Project> {
@@ -657,6 +702,11 @@ export class SessionRuntime implements McpSessions {
     setQueue: (id, rec, queue) => this.setQueue(id, rec, queue),
     forAgent: (id, attachments) => this.attachments.forAgent(id, attachments),
   };
+
+  /** Compact the conversation by the agent's own means, as a turn (runtime/turns.ts `compactTurn`). */
+  compact(sessionId: string): Promise<void> {
+    return compactTurn(this.host, sessionId);
+  }
 
   /** Send what is queued now, as one turn: "Send now" after a stop, a failure or a restart. */
   sendQueued(sessionId: string): Promise<void> {
@@ -908,9 +958,16 @@ export class SessionRuntime implements McpSessions {
     });
   }
 
-  /** The folder a session works in: its worktree, its plain directory, or the shared scratch folder. */
+  /** The folder a session works in: the worktree it works in (its host's for a guest), its plain directory, or the shared scratch folder. */
   async directoryOf(sessionId: string): Promise<string | null> {
     return sessionDirectory(await this.workspace.state(), sessionId, join(this.dataDir, 'scratch'));
+  }
+
+  /** Why a scope's folder is not where its work is (a discarded or missing worktree), or null (scope-folder.ts `sessionFolderOf`). */
+  async folderNote(scopeKey: string): Promise<string | null> {
+    const scope = parseScope(scopeKey);
+    if (scope?.kind !== 'session') return null;
+    return sessionFolderOf(await this.workspace.state(), scope.id, join(this.dataDir, 'scratch'))?.note ?? null;
   }
 
   /**
@@ -937,7 +994,23 @@ export class SessionRuntime implements McpSessions {
 
   /** The Kestrel tools one session gets (delegation, display, suggestions, tickets, browser, simulator). */
   private toolHost(sessionId: string): KestrelToolHost {
-    return { ...this.delegation.hostFor(sessionId), ...this.display.hostFor(sessionId), ...this.reviewReplies.hostFor(sessionId), ...this.suggestions.hostFor(sessionId), ...this.ticketTools(sessionId), ...this.browser.hostFor(sessionId), ...this.sim.hostFor(sessionId) };
+    const host: KestrelToolHost = { ...this.delegation.hostFor(sessionId), ...this.display.hostFor(sessionId), ...this.reviewReplies.hostFor(sessionId), ...this.suggestions.hostFor(sessionId), ...this.ticketTools(sessionId), ...this.browser.hostFor(sessionId), ...this.sim.hostFor(sessionId) };
+    return this.asideGuard(sessionId, host);
+  }
+
+  /**
+   * A sidebar only talks (shared/asides.ts): every Kestrel tool that starts, changes or sends
+   * something is refused there with the reason, for every agent alike, since all reach this one host.
+   */
+  private asideGuard(sessionId: string, host: KestrelToolHost): KestrelToolHost {
+    const guarded = Object.fromEntries(
+      Object.entries(host).map(([name, call]) => {
+        if (ASIDE_TOOLS.includes(name) || typeof call !== 'function') return [name, call];
+        const fn = call as (...args: unknown[]) => Promise<unknown>;
+        return [name, async (...args: unknown[]) => ((await this.asides.asideOf(sessionId)) ? { text: ASIDE_TOOL_REFUSAL, isError: true } : fn(...args))];
+      }),
+    );
+    return guarded as unknown as KestrelToolHost;
   }
 
   private queue(rec: Live, work: () => Promise<unknown>): void {
@@ -1048,12 +1121,6 @@ export class SessionRuntime implements McpSessions {
   saveRecord(sessionId: string): void {
     const rec = this.records.get(sessionId);
     if (rec) this.upkeep.schedulePersist(sessionId, rec);
-  }
-
-  /** The other live sessions in the same worktree as `id`: its host when it is a guest, and that host's other guests. */
-  private worktreeMates(id: string): Array<readonly [string, Live]> {
-    const hostId = this.records.get(id)?.guest?.hostId ?? id;
-    return [...this.records].filter(([other, rec]) => other !== id && (other === hostId || rec.guest?.hostId === hostId));
   }
 
   /**

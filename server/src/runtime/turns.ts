@@ -5,7 +5,7 @@
 import { randomUUID } from 'node:crypto';
 import type { InputAnswer } from '../agents/types.ts';
 import type { DraftRefs } from '../attachments/store.ts';
-import type { Session, SessionSettings } from '../model.ts';
+import { AGENT_LABEL, type Session, type SessionSettings } from '../model.ts';
 import { afterTurn, enqueue, removeQueued, takeAll, type OutgoingPart } from '../shared/queue.ts';
 import { anyRunning } from '../shared/subagents.ts';
 import { RESTORED_NOTICE } from '../shared/workstreams.ts';
@@ -119,6 +119,35 @@ async function sendTurn(host: TurnHost, session: Session, rec: Live, parts: Outg
   if (notice) host.apply(sessionId, rec, { type: 'notice', id: `notice-${randomUUID()}`, text, level: 'info', startsTurn: true });
   else showUserParts(host, sessionId, rec, parts);
   rec.handle.send([news, text].filter(Boolean).join('\n\n'), host.attachments.forAgent(sessionId, parts.flatMap((p) => p.attachments ?? [])));
+}
+
+/** The words a compaction starts with: the line in the conversation and the session's status. */
+export const COMPACTING = 'Compacting the conversation';
+
+/**
+ * Compact the conversation by the agent's own means, as a turn of its own (kestrel-connect.md, "The
+ * context window, and Compact"): the window's Compact button and a phone's `session.compact` both come
+ * here. Refused while the agent works, while a card waits on the user, before the conversation has
+ * started, and for an agent that cannot.
+ */
+export async function compactTurn(host: TurnHost, sessionId: string): Promise<void> {
+  const { session, rec } = await liveSession(host, sessionId);
+  // A card first: a turn waiting on one is also working, and the card is what the user can act on.
+  if (rec.pendingInput.size > 0) throw new Refused('This session is waiting on your answer to a card. Answer it first, then compact.');
+  if (isWorking(rec)) throw new Refused('The agent is working. Compact once this turn ends, or stop it first.');
+  if (!rec.agentSessionId) throw new Refused('This conversation has not started yet, so there is nothing to compact.');
+  // Settings Kestrel changed while the last turn ran take effect now, as for any turn.
+  if (rec.rebuild) rebuild(host, session, rec);
+  if (!rec.handle) rec.handle = await reattach(host, session, rec);
+  const handle = rec.handle;
+  if (!handle.compact) throw new Refused(`${AGENT_LABEL[session.agent]} cannot compact a conversation from Kestrel.`);
+  await host.workspace.setState(sessionId, 'running', `${COMPACTING}…`, ACTIVITY);
+  rec.stopped = false;
+  rec.turnByUser = true;
+  rec.endedForUser = false;
+  host.delegation.onSessionRunning(sessionId);
+  host.apply(sessionId, rec, { type: 'notice', id: `notice-${randomUUID()}`, text: COMPACTING, level: 'info', startsTurn: true });
+  handle.compact();
 }
 
 /** Messages that waited in the queue show as written, one bubble each; the agent gets one turn. */

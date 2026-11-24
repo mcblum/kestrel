@@ -254,6 +254,21 @@ async function runTurn(sessionID, directory, body) {
   ctx.idle();
 }
 
+/** `POST /session/:id/summarize`, as 1.14.25: a compaction part, `session.compacted`, then idle; answers true once done. */
+async function summarize(sessionID, directory, body) {
+  const ctx = turnContext(sessionID, directory, id('msg'));
+  turn = ctx;
+  ctx.start();
+  compactPart(ctx, { type: 'compaction', auto: body.auto === true });
+  emit('session.compacted', { sessionID });
+  ctx.finish({ input: 150, output: 50, reasoning: 0, cache: { read: 0, write: 0 } }, 0.001);
+  turn = null;
+  ctx.idle();
+  return true;
+}
+
+const compactPart = (ctx, p) => emit('message.part.updated', { sessionID: ctx.sessionID, part: { id: id('prt'), messageID: ctx.messageID, sessionID: ctx.sessionID, ...p }, time: Date.now() });
+
 // ---- answers ------------------------------------------------------------------------------
 
 const PROVIDERS = {
@@ -298,9 +313,10 @@ function route(method, path, body, directory) {
     if (method === 'PATCH') Object.assign(session, body.permission ? { permission: body.permission } : {}, body.title ? { title: body.title } : {}), save();
     return session;
   }
-  if ((match = m(/^\/session\/([^/]+)\/(prompt_async|command|abort|fork)$/))) {
+  if ((match = m(/^\/session\/([^/]+)\/(prompt_async|command|abort|fork|summarize)$/))) {
     const [, sessionID, action] = match;
     if (!sessions[sessionID]) return [404, { name: 'NotFoundError', data: { message: `Session not found: ${sessionID}` } }];
+    if (action === 'summarize') return summarize(sessionID, directory, body);
     if (action === 'prompt_async') return void runTurn(sessionID, directory, body), [204, null];
     if (action === 'command') return runTurn(sessionID, directory, { agent: body.agent, parts: [{ text: `/${body.command} ${body.arguments}` }] }).then(() => ({ info: { id: 'msg_cmd' }, parts: [] }));
     if (action === 'abort') return turn?.sessionID === sessionID && turn.abort(), true;

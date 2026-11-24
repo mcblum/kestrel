@@ -124,13 +124,23 @@ export class CodexHandle implements AgentHandle {
   busy = () => this.running;
 
   send(text: string, attachments?: readonly AgentAttachment[]): void {
+    this.begin(() => this.runTurn(text, attachments));
+  }
+
+  /** `thread/compact/start` on the thread: a compaction turn Codex starts and ends, followed as any turn. */
+  compact(): void {
+    if (!this.threadId) throw new Error('This conversation has not started yet, so there is nothing to compact.');
+    this.begin(() => this.runCompaction());
+  }
+
+  private begin(run: () => Promise<AgentEvent>): void {
     if (this.closed) throw new Error('This Codex session was closed.');
     if (this.running) throw new Error('The agent is still working on the previous message.');
     this.running = true;
     this.stopping = false;
     const token = ++this.turnToken;
     // The terminal event goes out after the state is cleared, so a listener can send again at once.
-    this.turn = this.runTurn(text, attachments).then((terminal) => {
+    this.turn = run().then((terminal) => {
       if (token === this.turnToken) {
         this.running = false;
         this.turnId = null;
@@ -226,6 +236,30 @@ export class CodexHandle implements AgentHandle {
         if (!next) return { type: 'done', reason: this.stopping ? 'stopped' : 'complete' };
       }
       return { type: 'done', reason: 'complete' };
+    } catch (error) {
+      if (this.stopping || error instanceof TurnAbandoned) return { type: 'done', reason: 'stopped' };
+      if (error instanceof CodexUnavailable) return { type: 'failed', reason: error.message, kind: error.kind === 'auth' ? 'auth' : 'other' };
+      return { type: 'failed', reason: error instanceof Error ? error.message : String(error), kind: 'other' };
+    }
+  }
+
+  /** A compaction turn: Codex starts it (`thread/compact/start`) and reports it as any turn. Never rejects. */
+  private async runCompaction(): Promise<AgentEvent> {
+    try {
+      const server = await this.ensureServer();
+      if (this.stopping) return { type: 'done', reason: 'stopped' };
+      const mapper = new CodexMapper(this.opts.directory, this.opts.browserElement as ElementLookup | undefined);
+      this.mapper = mapper;
+      const done = new Promise<unknown>((resolve, reject) => (this.waiter = { resolve, reject }));
+      done.catch(() => undefined); // observed below
+      this.turnId = null; // the turn's id arrives with `turn/started`
+      this.asked.clear();
+      await server.rpc.request('thread/compact/start', { threadId: this.threadId });
+      if (this.stopping && this.turnId) await server.rpc.request('turn/interrupt', { threadId: this.threadId, turnId: this.turnId }).catch(() => undefined);
+      const turn = await done;
+      this.reportPoint(turn);
+      this.reportContext();
+      return turnEnd(turn, this.stopping, mapper.lastError);
     } catch (error) {
       if (this.stopping || error instanceof TurnAbandoned) return { type: 'done', reason: 'stopped' };
       if (error instanceof CodexUnavailable) return { type: 'failed', reason: error.message, kind: error.kind === 'auth' ? 'auth' : 'other' };
