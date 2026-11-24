@@ -11,8 +11,9 @@ import { Refused } from './workspace.ts';
 
 type Card = Extract<TranscriptAction, { type: 'card' }>;
 
-export const REVIEW_END_ACTIONS = ['fix', 'close', 'reopen'] as const;
-export type ReviewEndAction = (typeof REVIEW_END_ACTIONS)[number];
+import { REVIEW_END_ACTIONS, type ReviewEndAction } from './shared/round-findings.ts';
+
+export { REVIEW_END_ACTIONS, type ReviewEndAction };
 export const isReviewEndAction = (v: unknown): v is ReviewEndAction => REVIEW_END_ACTIONS.includes(v as ReviewEndAction);
 
 export interface ReviewEndHost {

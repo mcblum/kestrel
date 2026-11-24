@@ -258,3 +258,7 @@ export function reviewEndLine(end: Pick<ReviewEnd, 'reviewer' | 'rounds' | 'stat
 
 /** What the session's row says while the card waits. */
 export const REVIEW_END_NOTE = 'Needs you · Review findings';
+
+/** What the user does with the review-end card (review-end.ts): the window's buttons and a phone's `reviewEnd.act`. */
+export const REVIEW_END_ACTIONS = ['fix', 'close', 'reopen'] as const;
+export type ReviewEndAction = (typeof REVIEW_END_ACTIONS)[number];

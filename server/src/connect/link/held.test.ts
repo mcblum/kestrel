@@ -24,7 +24,8 @@ import { connectLists, type ConnectLists, type ListKind } from '../lists.ts';
 import { NO_REVIEW_REQUESTS, type ReviewRequest } from '../../shared/review-requests.ts';
 import { REVIEWS_OFF_REASON } from '../../shared/review-settings.ts';
 import { NO_TICKETS, TICKETS_OFF_REASON, type Ticket } from '../../shared/tickets.ts';
-import type { ReviewsAnswer, TicketsAnswer } from '../../shared/connect-lists.ts';
+import type { PullRequestsAnswer, ReviewsAnswer, TicketsAnswer } from '../../shared/connect-lists.ts';
+import { DEFAULT_ATTENTION_PREFS } from '../../shared/request-attention.ts';
 import { CHUNK_MESSAGES, DEFAULT_HELD_PREFS, HeldConversations, heldSource, NO_PROJECT, type HeldPrefs, type HeldSource } from './held.ts';
 
 const MAC = 'mac-1';
@@ -149,7 +150,7 @@ describe.each(SELECTABLE_AGENTS)('held conversations, for a %s session', (agent)
 });
 
 /** A source the test drives by hand. */
-function stubSource(initial: { sessions: { id: string; project: string | null; messages: ChatMessage[] }[] }) {
+function stubSource(initial: { sessions: { id: string; project: string | null; messages: ChatMessage[]; extra?: Record<string, unknown> }[] }) {
   let sessions = initial.sessions;
   let stamp = 1;
   const changes = new Set<() => void>();
@@ -160,15 +161,16 @@ function stubSource(initial: { sessions: { id: string; project: string | null; m
   const measured = new Set<() => void>();
   let reviews: ReviewsAnswer = { on: false, reason: REVIEWS_OFF_REASON };
   let tickets: TicketsAnswer = { on: false, reason: TICKETS_OFF_REASON };
+  let pullRequests: PullRequestsAnswer = { pullRequests: {}, attention: {}, prefs: DEFAULT_ATTENTION_PREFS };
   const listChanges = new Set<(kind: ListKind) => void>();
-  const lists: ConnectLists = { reviews: async () => reviews, tickets: () => tickets, onChange: (l) => (listChanges.add(l), () => listChanges.delete(l)) };
+  const lists: ConnectLists = { reviews: async () => reviews, tickets: () => tickets, pullRequests: async () => pullRequests, onChange: (l) => (listChanges.add(l), () => listChanges.delete(l)) };
   const source: HeldSource = {
     lists,
     state: async () => {
       counts.passes++;
       return {
         projects: [{ id: 'p1', name: 'Shop', folders: [] }, { id: 'p2', name: 'Secret', folders: [] }],
-        sessions: sessions.map((s) => ({ id: s.id, title: `t-${s.id}`, agent: 'claude', state: 'done', note: '', startedIn: s.project, landedIn: s.project, createdAt: 1, updatedAt: stamp, lastActivityAt: stamp })),
+        sessions: sessions.map((s) => ({ id: s.id, title: `t-${s.id}`, agent: 'claude', state: 'done', note: '', startedIn: s.project, landedIn: s.project, createdAt: 1, updatedAt: stamp, lastActivityAt: stamp, ...s.extra })),
         archived: { sessions: [] },
       } as unknown as WorkspaceState;
     },
@@ -197,10 +199,11 @@ function stubSource(initial: { sessions: { id: string; project: string | null; m
       for (const l of lives) l(id, true);
     },
     /** The Code reviews or Tickets list changed. */
-    lists(next: { reviews?: ReviewsAnswer; tickets?: TicketsAnswer }) {
+    lists(next: { reviews?: ReviewsAnswer; tickets?: TicketsAnswer; pullRequests?: PullRequestsAnswer }) {
       reviews = next.reviews ?? reviews;
       tickets = next.tickets ?? tickets;
-      for (const l of listChanges) l(next.reviews ? 'reviews' : 'tickets');
+      pullRequests = next.pullRequests ?? pullRequests;
+      for (const l of listChanges) l(next.reviews ? 'reviews' : next.tickets ? 'tickets' : 'pull-requests');
     },
     /** A new measurement (null: the desk restarted and knows none now). */
     measure(id: string, usage: ContextUsage | null) {
@@ -275,6 +278,44 @@ describe('the Code reviews and Tickets lists, held', () => {
   });
 });
 
+describe('the day’s desk changes, held (2026-11-24)', () => {
+  const lookup = { state: 'ready', value: { host: 'github', pullRequests: [] } } as unknown as PullRequestsAnswer['pullRequests'][string];
+  const attention = { host: 'github', number: 7, title: 'Fix it', url: 'https://github.com/acme/shop/pull/7', commit: 'abc', reasons: [{ reason: 'conflicts', occurrence: 'abc', base: 'main' }] } as PullRequestsAnswer['attention'][string];
+
+  it('holds the pull requests of the sessions the index holds only, a guest’s host, and no sidebar at all', async () => {
+    const service = new FakeHeldService();
+    const keys = await openKeys(service);
+    const s = stubSource({
+      sessions: [
+        { id: 's1', project: 'p1', messages: msgs(1) },
+        { id: 's2', project: 'p2', messages: msgs(1) },
+        { id: 'g1', project: 'p1', messages: msgs(1), extra: { hostId: 's1' } },
+        { id: 'a1', project: 'p1', messages: msgs(1), extra: { aside: { parentId: 's1' } } },
+      ],
+    });
+    s.lists({ pullRequests: { pullRequests: { s1: lookup, s2: lookup, a1: lookup }, attention: { s1: attention, s2: attention }, prefs: DEFAULT_ATTENTION_PREFS } });
+    const held = uploader(service, keys, s.source, { prefs: () => ({ ...DEFAULT_HELD_PREFS, keptOff: ['p2'] }) });
+    await held.run();
+    const record = opened(service, keys, `pull-requests|${MAC}`);
+    expect(record).toMatchObject({ v: 1, kind: 'pull-requests', desk: MAC, pullRequests: { pullRequests: { s1: lookup }, attention: { s1: attention }, prefs: DEFAULT_ATTENTION_PREFS } });
+    expect(Object.keys(record.pullRequests.pullRequests)).toEqual(['s1']);
+    const index = opened(service, keys, `index|${MAC}`);
+    expect(index.sessions.map((x: { id: string }) => x.id)).toEqual(['s1', 'g1']);
+    expect(index.sessions.find((x: { id: string }) => x.id === 'g1').hostId).toBe('s1');
+    expect(index.sessions.find((x: { id: string }) => x.id === 's1')).not.toHaveProperty('hostId');
+    expect(service.records.has(tagOf(keys.ready()!.idKey, `chunk|${MAC}|a1|0`))).toBe(false);
+    expect(service.records.has(tagOf(keys.ready()!.idKey, `chunk|${MAC}|g1|0`))).toBe(true);
+
+    const before = puts(service);
+    await held.run();
+    expect(puts(service)).toBe(before);
+    s.lists({ pullRequests: { pullRequests: { s1: lookup }, attention: {}, prefs: DEFAULT_ATTENTION_PREFS } });
+    await held.run();
+    expect(opened(service, keys, `pull-requests|${MAC}`).pullRequests.attention).toEqual({});
+    await held.close();
+  });
+});
+
 describe('what is sent, and when', () => {
   it('sends only the chunks whose content changed', async () => {
     const service = new FakeHeldService();
@@ -282,7 +323,7 @@ describe('what is sent, and when', () => {
     const s = stubSource({ sessions: [{ id: 's1', project: 'p1', messages: msgs(CHUNK_MESSAGES + 10) }] });
     const held = uploader(service, keys, s.source);
     await held.run();
-    expect(puts(service)).toBe(5); // two chunks, the index, and the Code reviews and Tickets lists
+    expect(puts(service)).toBe(6); // two chunks, the index, and the Code reviews, Tickets and pull-request lists
     s.set([{ id: 's1', project: 'p1', messages: msgs(CHUNK_MESSAGES + 11) }]);
     service.calls = [];
     await held.run();
@@ -303,7 +344,7 @@ describe('what is sent, and when', () => {
     await vi.advanceTimersByTimeAsync(999);
     expect(service.calls).toEqual([]);
     await vi.advanceTimersByTimeAsync(10);
-    expect(puts(service)).toBe(4); // the chunk, the index and the two lists
+    expect(puts(service)).toBe(5); // the chunk, the index and the three lists
     const passes = s.counts.passes;
     for (let i = 0; i < 20; i++) {
       s.live('s1');
@@ -334,7 +375,7 @@ describe('what is sent, and when', () => {
     s.set([{ id: 's2', project: 'p2', messages: msgs(2) }, { id: 's3', project: null, messages: msgs(2) }]);
     await held.run();
     expect(opened(service, keys, `chunk|${MAC}|s1|0`)).toBeUndefined();
-    expect([...service.records.values()]).toHaveLength(3); // the index and the two lists alone
+    expect([...service.records.values()]).toHaveLength(4); // the index and the three lists alone
     // Switched back on: held again in full.
     await held.prefsChanged(prefs, DEFAULT_HELD_PREFS);
     prefs = DEFAULT_HELD_PREFS;
@@ -375,7 +416,7 @@ describe('what is sent, and when', () => {
     expect(service.records.size).toBe(0);
     online = true;
     await first.run();
-    expect(service.records.size).toBe(4);
+    expect(service.records.size).toBe(5);
     await first.close();
     // Restarted: nothing changed, nothing is sent again.
     service.calls = [];

@@ -3,6 +3,8 @@
 // One definition: the dispatcher (connect/dispatcher.ts) carries out only what is named here, and a
 // request for anything else is refused with a reason the phone shows. Adding an operation is a
 // design change, not a code change. Pure: no Node, so a client written from this file can share it.
+import { ANSWER_MAX, FINDING_ACTIONS, type FindingAction } from './findings.ts';
+import { REVIEW_END_ACTIONS, type ReviewEndAction } from './round-findings.ts';
 import type { PageAsk } from './transcript-page.ts';
 
 /** The protocol version this copy of Kestrel speaks. A frame of any other version is refused. */
@@ -107,7 +109,16 @@ export interface ConnectOpArgs {
   'tickets.comment': { key: string; body: string };
   'tickets.detail': { key: string };
   'tickets.work': { key: string };
+  /** A session's pull request and what needs the user, as the window has them (2026-11-24). */
+  'pullRequests.read': Record<string, never>;
+  /** One finding of a review card: answer its question, ask for it to be fixed, dismiss it or take it back (2026-11-24). */
+  'findings.act': { sessionId: string; cardId: string; findingId: string; action: FindingAction; text?: string };
+  /** The card left when a review of a session's own work ended with findings open: fix, carry on, or undo that (2026-11-24). */
+  'reviewEnd.act': { sessionId: string; cardId: string; action: ReviewEndAction; findingIds?: string[] };
 }
+
+/** As many findings as one Fix sends (the review-end route's own limit). */
+export const FINDING_IDS_MAX = 50;
 export type ConnectOp = keyof ConnectOpArgs;
 
 /** A decrypted request body: one operation and its arguments. */
@@ -132,6 +143,11 @@ const recordKey = (a: Args, field: string): Checked<string> => (typeof a[field] 
 const recordKeys = (a: Args, field: string): Checked<string[]> => {
   const v = a[field];
   return Array.isArray(v) && v.length >= 1 && v.length <= KEYS_MAX && v.every((k) => typeof k === 'string' && k.length > 0 && k.length <= RECORD_KEY_MAX) ? { ok: true, value: v as string[] } : fail(`${field} must be a list of 1 to ${KEYS_MAX} keys.`);
+};
+const oneOf = <T extends string>(names: readonly T[]) => (a: Args, field: string): Checked<T> => (names.includes(a[field] as T) ? { ok: true, value: a[field] as T } : fail(`${field} must be one of: ${names.join(', ')}.`));
+const ids = (max: number) => (a: Args, field: string): Checked<string[]> => {
+  const v = a[field];
+  return Array.isArray(v) && v.length <= max && v.every((x) => typeof x === 'string' && KEY.test(x)) ? { ok: true, value: v as string[] } : fail(`${field} must be a list of at most ${max} ids.`);
 };
 const flag = (a: Args, field: string): Checked<boolean> => (typeof a[field] === 'boolean' ? { ok: true, value: a[field] as boolean } : fail(`${field} must be true or false.`));
 
@@ -259,6 +275,20 @@ export const CONNECT_OPS: { readonly [K in ConnectOp]: OpSpec } = {
   'tickets.comment': { mapsTo: 'POST /api/tickets/comment (commentOnTicket)', fields: ['key', 'body'], check: (a) => all({ key: recordKey(a, 'key'), body: text(MESSAGE_MAX)(a, 'body') }) },
   'tickets.detail': { mapsTo: 'POST /api/tickets/read', fields: ['key'], check: (a) => all({ key: recordKey(a, 'key') }) },
   'tickets.work': { mapsTo: 'POST /api/tickets/work (A8)', fields: ['key'], check: (a) => all({ key: recordKey(a, 'key') }) },
+  // The day's desk changes on the phone (2026-11-24; kestrel-connect.md, "What a phone gets of the desk's changes").
+  'pullRequests.read': { mapsTo: 'the pull-requests push (PullRequestStore.all) and Settings → Git’s choices', fields: [], check: () => ({ ok: true, value: {} }) },
+  // A finding and the review-end card are in the chat window (Matt, 2026-11-22: "if it's in the chat window, the phone
+  // can interact with it"); their buttons are routes of their own, so each op calls what its route calls.
+  'findings.act': {
+    mapsTo: 'POST /api/sessions/:id/findings',
+    fields: ['sessionId', 'cardId', 'findingId', 'action', 'text'],
+    check: (a) => all({ sessionId: id(a, 'sessionId'), cardId: id(a, 'cardId'), findingId: id(a, 'findingId'), action: oneOf(FINDING_ACTIONS)(a, 'action'), text: optional(a, 'text', text(ANSWER_MAX, true)) }),
+  },
+  'reviewEnd.act': {
+    mapsTo: 'POST /api/sessions/:id/review-end',
+    fields: ['sessionId', 'cardId', 'action', 'findingIds'],
+    check: (a) => all({ sessionId: id(a, 'sessionId'), cardId: id(a, 'cardId'), action: oneOf(REVIEW_END_ACTIONS)(a, 'action'), findingIds: optional(a, 'findingIds', ids(FINDING_IDS_MAX)) }),
+  },
 };
 
 export const CONNECT_OP_NAMES = Object.keys(CONNECT_OPS) as ConnectOp[];
@@ -285,6 +315,9 @@ export const NEVER_REMOTE: Readonly<Record<string, string>> = {
   'session.permission': 'A session\'s mode is changed at the desk.',
   pair: 'Devices are paired at a desk or an already-paired phone, never by a request.',
 };
+
+/** Every op that names a sidebar's session is refused with this (kestrel-connect.md, "Sidebars"). */
+export const ASIDE_REFUSAL = 'A sidebar is used beside its conversation at the desk.';
 
 /** Checks a decrypted request body against the list. Anything not on it is refused with a reason. */
 export function checkRequest(raw: unknown): Checked<ConnectRequest> {

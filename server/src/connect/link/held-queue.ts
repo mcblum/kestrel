@@ -46,7 +46,7 @@ export interface QueueState {
   /** The last context-window measurement the index carried per session, so a desk restart does not wipe it. */
   contexts: Record<string, ContextUsage>;
   /** What the held Code reviews and Tickets records last carried, by kind: sent again only when it differs. */
-  listHashes: { reviews?: string; tickets?: string };
+  listHashes: { reviews?: string; tickets?: string; 'pull-requests'?: string };
 }
 
 export const EMPTY_QUEUE: QueueState = { v: 1, scope: null, dirty: [], deleteSessions: [], deleteProjects: [], deleteRecords: [], held: {}, indexHash: null, taken: [], deliveries: [], contexts: {}, listHashes: {} };
@@ -93,7 +93,7 @@ function asQueue(raw: unknown): QueueState {
     taken: strings(q.taken),
     deliveries: Array.isArray(q.deliveries) ? q.deliveries.filter((d): d is Delivery => typeof d?.id === 'string' && typeof d.ok === 'boolean' && typeof d.at === 'number') : [],
     contexts,
-    listHashes: { ...(typeof q.listHashes?.reviews === 'string' ? { reviews: q.listHashes.reviews } : {}), ...(typeof q.listHashes?.tickets === 'string' ? { tickets: q.listHashes.tickets } : {}) },
+    listHashes: { ...(typeof q.listHashes?.reviews === 'string' ? { reviews: q.listHashes.reviews } : {}), ...(typeof q.listHashes?.tickets === 'string' ? { tickets: q.listHashes.tickets } : {}), ...(typeof q.listHashes?.['pull-requests'] === 'string' ? { 'pull-requests': q.listHashes['pull-requests'] } : {}) },
   };
 }
 

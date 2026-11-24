@@ -15,7 +15,7 @@ import { ReviewReplies } from '../review-requests/reply.ts';
 import { SessionRuntime } from '../runtime.ts';
 import { ALWAYS_COMMAND, ALWAYS_FOLDER } from '../shared/sandbox-allow.ts';
 import { MOVE_DECLINED } from '../shared/session-move.ts';
-import { CONNECT_PROTOCOL_VERSION, NEVER_REMOTE, type ConnectResponse, type Envelope } from '../shared/connect-ops.ts';
+import { ASIDE_REFUSAL, CONNECT_PROTOCOL_VERSION, NEVER_REMOTE, type ConnectResponse, type Envelope } from '../shared/connect-ops.ts';
 import type { PullRequest } from '../shared/details.ts';
 import { ready } from '../shared/sourced.ts';
 import { openSuggestions } from '../shared/suggestions.ts';
@@ -30,7 +30,15 @@ import { TicketStore } from '../tickets/store.ts';
 import { syncTickets } from '../tickets/sync.ts';
 import type { TicketSource } from '../tickets/source.ts';
 import { remoteStartsOff } from '../remote-starts/prefs.ts';
-import { connectLists } from './lists.ts';
+import { connectLists, PULL_REQUESTS_LOOK_MS } from './lists.ts';
+import { PullRequestStore } from '../pull-requests/store.ts';
+import { DEFAULT_ATTENTION_PREFS } from '../shared/request-attention.ts';
+import { REQUEST_KIND } from '../suggestions/request-kind.ts';
+import { ARCHIVE_KIND } from '../shared/archive-approved.ts';
+import { reviewRequestKey } from '../shared/review-requests.ts';
+import { FINDING_ACTIONS } from '../finding-actions.ts';
+import { REVIEW_END_ACTIONS } from '../review-end.ts';
+import type { RoundFindings } from '../shared/round-findings.ts';
 import { NO_REVIEW_REQUESTS, type ReviewRequest, type ReviewRequestsView } from '../shared/review-requests.ts';
 import { REVIEWS_OFF_REASON } from '../shared/review-settings.ts';
 import { NO_TICKETS, TICKETS_OFF_REASON, type Ticket, type TicketsView } from '../shared/tickets.ts';
@@ -697,3 +705,154 @@ describe.each(SELECTABLE_AGENTS)('starting from a phone, for a %s lead (A8)', (a
   });
 });
 
+
+describe('the day’s desk changes on a phone (2026-11-24)', () => {
+  const SHA = '0123456789abcdef0123456789abcdef01234567';
+  const failing = (): PullRequest => ({ number: 431, title: 'Polish the sign-in form', state: 'open', checks: 'failing', review: 'none', url: 'https://github.com/o/r/pull/431', headSha: SHA, baseBranch: 'main', failedChecks: [{ name: 'lint', url: 'https://github.com/o/r/actions/runs/1/job/2' }] });
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  /** A desk whose phone reads pull requests from a real PR store. */
+  async function prDesk() {
+    const store = new PullRequestStore(() => 0);
+    const d = await desk((workspace, runtime) => ({ lists: connectLists(runtime.reviewPrefs, null, null, { store, prefs: runtime.gitPrefs, workspace }) }));
+    let n = 0;
+    const answer = (id: string, prs: PullRequest[]) => store.get(id, `k${++n}`, async () => ready({ host: 'github' as const, pullRequests: prs }));
+    return { ...d, store, answer };
+  }
+
+  it('pullRequests.read gives the store’s answers, the desk’s fact of what needs the user, and the Settings → Git choices', async () => {
+    const d = await prDesk();
+    const session = await d.start('claude');
+    await d.settle();
+    await d.answer(session.id, [failing()]);
+    const result = await d.ok('pullRequests.read');
+    expect(result.prefs).toEqual(DEFAULT_ATTENTION_PREFS);
+    expect(result.pullRequests[session.id]).toMatchObject({ state: 'ready', value: { host: 'github', pullRequests: [{ number: 431, failedChecks: [{ name: 'lint' }] }] } });
+    expect(result.attention[session.id]).toMatchObject({ number: 431, commit: SHA, reasons: [{ reason: 'checks-failed', checks: [{ name: 'lint' }] }] });
+    // A reason switched off in Settings → Git is not watched: the fact goes, the request stays.
+    await d.runtime.gitPrefs.setAttention({ reason: 'checks-failed', watch: false });
+    const after = await d.ok('pullRequests.read');
+    expect(after.attention).toEqual({});
+    expect(after.pullRequests[session.id]).toBeDefined();
+  });
+
+  it('is pushed again to a device that read it, once per real change, and only then', async () => {
+    const d = await prDesk();
+    const session = await d.start('claude');
+    await d.settle();
+    await sleep(PULL_REQUESTS_LOOK_MS * 2);
+    await d.ok('pullRequests.read');
+    await d.answer(session.id, [failing()]);
+    await sleep(PULL_REQUESTS_LOOK_MS * 2);
+    d.dispatcher.flush();
+    const pushed = d.listPushes().filter((f) => (f.body as ConnectPush).type === 'pull-requests');
+    expect(pushed).toHaveLength(1);
+    expect((pushed[0]!.body as Extract<ConnectPush, { type: 'pull-requests' }>).pullRequests.attention[session.id]).toBeDefined();
+    // A workspace change that does not change the answer is not pushed.
+    await d.workspace.seen.mark([session.id]);
+    await sleep(PULL_REQUESTS_LOOK_MS * 2);
+    d.dispatcher.flush();
+    expect(d.listPushes().filter((f) => (f.body as ConnectPush).type === 'pull-requests')).toHaveLength(1);
+  });
+
+  describe.each(SELECTABLE_AGENTS)('a %s session', (agent) => {
+    it('answers the “pull request needs you” card from a phone: its main button sends the agent a turn, and Dismiss leaves the next', async () => {
+      const d = await prDesk();
+      const session = await d.start(agent);
+      await d.settle();
+      const watch = d.runtime.watchRequestAttention(d.store);
+      await d.answer(session.id, [failing()]);
+      await watch.look();
+      const card = openSuggestions(d.runtime.recordOf(session.id)?.messages ?? []).find((s) => s.kind === REQUEST_KIND)!;
+      expect(card.buttons.map((b) => b.label)).toEqual(['Fix them', 'Dismiss', 'Don’t ask again']);
+      const turns = d.fakes[agent].turns.length;
+      expect(await d.ok('suggestion.answer', { sessionId: session.id, suggestionId: card.id, button: 'fix' })).toMatchObject({ suggestion: { state: 'answered' } });
+      await d.settle();
+      expect(d.fakes[agent].turns.length).toBe(turns + 1);
+      expect(d.fakes[agent].turns.at(-1)!.text).toContain('lint');
+
+      // Conflicts on the next look: dismissed from the phone, nothing sent.
+      await d.answer(session.id, [{ ...failing(), checks: 'passing', failedChecks: undefined, readiness: 'conflicts' }]);
+      await watch.look();
+      const conflicts = openSuggestions(d.runtime.recordOf(session.id)?.messages ?? []).find((s) => s.kind === REQUEST_KIND)!;
+      expect(await d.ok('suggestion.dismiss', { sessionId: session.id, suggestionId: conflicts.id })).toMatchObject({ suggestion: { state: 'dismissed' } });
+      expect(d.fakes[agent].turns.length).toBe(turns + 1);
+    });
+
+    it('answers the offer to archive a review session after an approval, and Undo brings the session back', async () => {
+      const d = await desk();
+      const base = { host: 'github' as const, hostName: 'github.com', repository: 'acme/app', number: 12, title: 'Fix the cache', author: 'sam', url: 'https://github.com/acme/app/pull/12', updatedAt: 1, projectId: null };
+      const key = reviewRequestKey(base);
+      const session = await d.runtime.start({ agent, projectId: null, prompt: 'Review it', title: 'Review: Fix the cache', review: { key, host: 'github', number: 12, sha: 'a'.repeat(40), url: base.url } });
+      await d.settle();
+      await d.runtime.approvalPosted(session.id, '#12');
+      const offer = openSuggestions(d.runtime.recordOf(session.id)?.messages ?? []).find((s) => s.kind === ARCHIVE_KIND)!;
+      expect(offer.buttons.map((b) => b.label)).toEqual(['Archive', 'Always archive', 'Not now', "Don't ask again"]);
+      expect(await d.ok('suggestion.answer', { sessionId: session.id, suggestionId: offer.id, button: 'archive' })).toMatchObject({ suggestion: { state: 'answered' } });
+      expect((await d.workspace.state()).archived.sessions.map((s) => s.id)).toContain(session.id);
+      await d.ok('suggestion.undo', { sessionId: session.id, suggestionId: offer.id });
+      expect((await d.workspace.state()).sessions.map((s) => s.id)).toContain(session.id);
+    });
+
+    it('acts on a finding and on the card left when the review ended, as the desk’s buttons do', async () => {
+      const d = await desk();
+      const session = await d.start(agent);
+      await d.settle();
+      d.runtime.showCard(session.id, { type: 'card', id: 'round-1', roundFindings: ROUND });
+      const answered = await d.ok('findings.act', { sessionId: session.id, cardId: 'round-1', findingId: 'f1', action: 'answer', text: 'Archive them.' });
+      expect(answered.finding).toMatchObject({ id: 'f1', answer: 'Archive them.' });
+      expect(await d.ask('findings.act', { sessionId: session.id, cardId: 'round-1', findingId: 'f2', action: 'answer', text: 'x' })).toEqual({ ok: false, reason: 'This finding asks no question.' });
+      expect(await d.ok('findings.act', { sessionId: session.id, cardId: 'round-1', findingId: 'f2', action: 'dismiss' })).toMatchObject({ finding: { id: 'f2', dismissed: true } });
+      expect(await d.ask('findings.act', { sessionId: session.id, cardId: 'nope', findingId: 'f1', action: 'fix' })).toEqual({ ok: false, reason: 'There is no such review card in this session.' });
+      await d.settle();
+
+      d.runtime.showCard(session.id, { type: 'card', id: 'end-1', reviewEnd: { reviewer: 'Astra', reviewerId: 'reviewer', rounds: 2, card: 'round-1', state: 'open' } });
+      expect(await d.ok('reviewEnd.act', { sessionId: session.id, cardId: 'end-1', action: 'close' })).toMatchObject({ reviewEnd: { state: 'closed' } });
+      expect(await d.ok('reviewEnd.act', { sessionId: session.id, cardId: 'end-1', action: 'reopen' })).toMatchObject({ reviewEnd: { state: 'open' } });
+      const turns = d.fakes[agent].turns.length;
+      await d.ok('reviewEnd.act', { sessionId: session.id, cardId: 'end-1', action: 'fix', findingIds: ['f1'] });
+      await d.settle();
+      expect(d.fakes[agent].turns.length).toBe(turns + 1);
+    });
+  });
+
+  it('the action lists are the routes’ own', () => {
+    expect(FINDING_ACTIONS).toEqual(['answer', 'fix', 'dismiss', 'restore']);
+    expect(REVIEW_END_ACTIONS).toEqual(['fix', 'close', 'reopen']);
+  });
+
+  it('refuses every op on a sidebar, which a phone leaves out by its mark', async () => {
+    const d = await desk();
+    const repo = await d.runtime.registerProject(makeRepo(), 'repo');
+    const main = await d.start('claude', 'Build it', repo.id);
+    await d.settle();
+    d.runtime.showCard(main.id, { type: 'card', id: 'round-1', roundFindings: ROUND });
+    const aside = await d.runtime.asides.open(main.id, { at: 'round-1', key: 'round-1/f1', subject: { name: 'Finding #1', summary: 'Drafts are deleted after a week.' } });
+    const state = await d.ok('state.read');
+    expect(state.sessions.find((s: Session & { aside?: unknown }) => s.id === aside.id)?.aside).toBeTruthy();
+    for (const [op, args] of [
+      ['session.read', {}],
+      ['session.watch', {}],
+      ['session.reply', { text: 'hi' }],
+      ['session.stop', {}],
+      ['session.seen', {}],
+      ['findings.act', { cardId: 'round-1', findingId: 'f1', action: 'fix' }],
+    ] as const) {
+      expect(await d.ask(op, { sessionId: aside.id, ...args })).toEqual({ ok: false, reason: ASIDE_REFUSAL });
+    }
+    expect(await d.ok('session.read', { sessionId: main.id })).toMatchObject({ sessionId: main.id });
+  });
+});
+
+const ROUND: RoundFindings = {
+  reviewer: 'Astra',
+  reviewerId: 'reviewer',
+  round: 2,
+  rounds: 2,
+  verdict: 'findings',
+  summary: 'Two things.',
+  findings: [
+    { id: 'f1', brief: 'Drafts are deleted after a week.', priority: 'high', blocking: true, refs: [], question: 'Should they be archived instead?' },
+    { id: 'f2', brief: 'A name is unclear.', priority: 'low', blocking: false, refs: [] },
+  ],
+};

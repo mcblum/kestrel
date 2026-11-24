@@ -56,6 +56,10 @@ export const DETAIL_MAX = 5_000;
 export const FIX_MAX = 2_000;
 export const QUESTION_MAX = 600;
 export const ANSWER_MAX = 4_000;
+
+/** What the user does to one finding on a card (finding-actions.ts): the window's buttons and a phone's `findings.act`. */
+export const FINDING_ACTIONS = ['answer', 'fix', 'dismiss', 'restore'] as const;
+export type FindingAction = (typeof FINDING_ACTIONS)[number];
 export const FINDINGS_MAX = 50;
 export const REFS_MAX = 5;
 

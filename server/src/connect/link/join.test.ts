@@ -853,7 +853,7 @@ describe('the account data key and held conversations, through the module', () =
     const project = await createProject(t.workspace, { name: 'Shop' });
     await t.runtime.start({ agent: 'claude', projectId: project.id, prompt: 'set it up' });
     // The index and the Code reviews and Tickets lists are always held: three records before any session.
-    await until(() => t.service.held.records.size > 3, 'the session is held');
+    await until(() => t.service.held.records.size > 4, 'the session is held');
     const pushed: string[][] = [];
     t.desk.onChange((view) => pushed.push(view.held.keptOff));
     const route = (keptOff: string[]) => connectRoute(['api', 'connect', 'held'], 'PATCH', async () => ({ keptOff }), t.desk);
@@ -861,10 +861,10 @@ describe('the account data key and held conversations, through the module', () =
     await route(keptOffWith(t.desk.view().held.keptOff, project.id, true));
     expect(t.desk.view().held.keptOff).toEqual([project.id]);
     expect(pushed.at(-1)).toEqual([project.id]); // what every window's other place shows
-    await until(() => t.service.held.records.size === 3, 'what was held of it is deleted, the index and the lists alone left');
+    await until(() => t.service.held.records.size === 4, 'what was held of it is deleted, the index and the lists alone left');
     await route(keptOffWith(t.desk.view().held.keptOff, project.id, false));
     expect(t.desk.view().held.keptOff).toEqual([]);
-    await until(() => t.service.held.records.size > 3, 'held again');
+    await until(() => t.service.held.records.size > 4, 'held again');
   });
 
   it('saves the held-conversation choices as changed, and shows and puts away the recovery words', async () => {

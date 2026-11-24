@@ -68,6 +68,9 @@ const GOOD: Record<string, Record<string, unknown>> = {
   'suggestion.answer': { sessionId: 's1', suggestionId: 'g1', button: 'accept' },
   'suggestion.dismiss': { sessionId: 's1', suggestionId: 'g1' },
   'suggestion.undo': { sessionId: 's1', suggestionId: 'g1' },
+  'pullRequests.read': {},
+  'findings.act': { sessionId: 's1', cardId: 'c1', findingId: 'f1', action: 'answer', text: 'Yes, on purpose.' },
+  'reviewEnd.act': { sessionId: 's1', cardId: 'c1', action: 'fix', findingIds: ['f1', 'f2'] },
 };
 
 describe('the operations', () => {
@@ -105,6 +108,10 @@ describe('the operations', () => {
     ['tickets.move', { key: 'k1', to: '' }, /to must be non-empty/],
     ['tickets.comment', { key: 'k1', body: 'x'.repeat(20_001) }, /at most 20000/],
     ['tickets.work', { key: 'x'.repeat(301) }, /key must be a key of at most 300/],
+    ['findings.act', { sessionId: 's1', cardId: 'c1', findingId: 'f1', action: 'post' }, /action must be one of: answer, fix, dismiss, restore/],
+    ['findings.act', { sessionId: 's1', cardId: 'c1', findingId: 'f1', action: 'answer', text: 'x'.repeat(4_001) }, /at most 4000/],
+    ['reviewEnd.act', { sessionId: 's1', cardId: 'c1', action: 'archive' }, /action must be one of: fix, close, reopen/],
+    ['reviewEnd.act', { sessionId: 's1', cardId: 'c1', action: 'fix', findingIds: Array.from({ length: 51 }, (_, i) => `f${i}`) }, /at most 50 ids/],
   ])('%s refuses bad arguments with a reason', (op, args, reason) => {
     const checked = checkRequest({ op, args });
     expect(checked.ok).toBe(false);

@@ -16,8 +16,9 @@ import { Refused } from './workspace.ts';
 
 type Card = Extract<TranscriptAction, { type: 'card' }>;
 
-export const FINDING_ACTIONS = ['answer', 'fix', 'dismiss', 'restore'] as const;
-export type FindingAction = (typeof FINDING_ACTIONS)[number];
+import { FINDING_ACTIONS, type FindingAction } from './shared/findings.ts';
+
+export { FINDING_ACTIONS, type FindingAction };
 export const isFindingAction = (v: unknown): v is FindingAction => FINDING_ACTIONS.includes(v as FindingAction);
 
 export interface FindingActionsHost {

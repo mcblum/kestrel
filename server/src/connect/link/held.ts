@@ -9,7 +9,7 @@
 //   patches only mark what is owed and set a timer; the work runs later, one pass at a time.
 // - One second after a turn settles, at most every five seconds while one streams; only chunks whose
 //   content changed are sent. What is owed survives a restart (held-queue.ts).
-import { heldLists } from '../../shared/connect-lists.ts';
+import { heldLists, heldPullRequests } from '../../shared/connect-lists.ts';
 import type { ConnectLists } from '../lists.ts';
 import { createHash } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
@@ -273,7 +273,8 @@ export class HeldConversations {
     const prefs = this.deps.prefs();
     const state = await this.deps.source.state();
     const keptOff = new Set(prefs.keptOff);
-    const want = state.sessions.filter((s) => !keptOff.has(projectOfSession(s) ?? NO_PROJECT));
+    // A sidebar is listed nowhere and drawn only in its pane at the desk: never held (kestrel-connect.md, "Sidebars").
+    const want = state.sessions.filter((s) => !s.aside && !keptOff.has(projectOfSession(s) ?? NO_PROJECT));
     const wanted = new Set(want.map((s) => s.id));
     for (const id of Object.keys(this.q.held)) {
       if (wanted.has(id)) continue;
@@ -293,7 +294,7 @@ export class HeldConversations {
       await this.save();
     }
     await this.uploadIndex(api, key, desk, state, want, tag);
-    await this.uploadLists(api, key, desk.id, state, prefs.keptOff, tag);
+    await this.uploadLists(api, key, desk.id, state, want, prefs.keptOff, tag);
     this.problem = null;
     this.deps.changed();
   }
@@ -384,7 +385,7 @@ export class HeldConversations {
     const sessions = want.map((s) => {
       const projectId = projectOfSession(s);
       const count = this.q.held[s.id]?.count ?? 0;
-      return { id: s.id, title: s.title, agent: s.agent, state: s.state, note: s.note, project: projectId ? { id: projectId, name: projects.get(projectId) ?? '' } : null, createdAt: s.createdAt, updatedAt: s.updatedAt, lastActivityAt: s.lastActivityAt ?? s.updatedAt, messages: count, chunks: Math.ceil(count / CHUNK_MESSAGES), ...this.contextOf(s, contexts) };
+      return { id: s.id, title: s.title, agent: s.agent, state: s.state, note: s.note, project: projectId ? { id: projectId, name: projects.get(projectId) ?? '' } : null, ...(s.hostId ? { hostId: s.hostId } : {}), createdAt: s.createdAt, updatedAt: s.updatedAt, lastActivityAt: s.lastActivityAt ?? s.updatedAt, messages: count, chunks: Math.ceil(count / CHUNK_MESSAGES), ...this.contextOf(s, contexts) };
     });
     const content = { v: 1, kind: 'index', desk, sessions, deliveries: this.q.deliveries };
     const h = hash(JSON.stringify(content));
@@ -398,11 +399,16 @@ export class HeldConversations {
    * The Code reviews and Tickets lists as a phone reads them, for when this computer is away: one record each,
    * replaced when what it holds changes. Nothing of a project kept off, and no ticket pages (`heldLists`).
    */
-  private async uploadLists(api: HeldApi, key: ReadyKey, deskId: string, state: WorkspaceState, keptOff: readonly string[], tag: (label: string) => string): Promise<void> {
+  private async uploadLists(api: HeldApi, key: ReadyKey, deskId: string, state: WorkspaceState, want: readonly SessionView[], keptOff: readonly string[], tag: (label: string) => string): Promise<void> {
     const projectOf = new Map([...state.sessions, ...state.archived.sessions].map((s) => [s.id, projectOfSession(s) ?? NO_PROJECT]));
-    const held = heldLists(await this.deps.source.lists.reviews(), this.deps.source.lists.tickets(), keptOff, (id) => projectOf.get(id) ?? null);
-    for (const kind of ['reviews', 'tickets'] as const) {
-      const content = { v: 1, kind, desk: deskId, [kind]: held[kind] };
+    const lists = this.deps.source.lists;
+    const held = {
+      ...heldLists(await lists.reviews(), lists.tickets(), keptOff, (id) => projectOf.get(id) ?? null),
+      // Only the sessions the index holds: no kept-off project, no archived session, no sidebar.
+      'pull-requests': heldPullRequests(await lists.pullRequests(), new Set(want.map((s) => s.id))),
+    };
+    for (const kind of ['reviews', 'tickets', 'pull-requests'] as const) {
+      const content = { v: 1, kind, desk: deskId, [kind === 'pull-requests' ? 'pullRequests' : kind]: held[kind] };
       const h = hash(JSON.stringify(content));
       if (h === this.q.listHashes[kind]) continue;
       if (!(await this.put(api, key, tag(`${kind}|${deskId}`), { ...content, asOf: this.now() }, null, null))) continue;

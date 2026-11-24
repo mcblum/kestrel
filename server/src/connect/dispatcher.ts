@@ -11,7 +11,8 @@ import { Refused } from '../refused.ts';
 import type { SessionRuntime } from '../runtime.ts';
 import { checkEnvelope, checkRequest, CONNECT_PROTOCOL_VERSION, isConnectId, versionRefusal, type ConnectOpArgs, type ConnectRequest, type ConnectResponse, type Envelope } from '../shared/connect-ops.ts';
 import { pageRefusal, transcriptPage } from '../shared/transcript-page.ts';
-import type { ReviewsAnswer, TicketsAnswer } from '../shared/connect-lists.ts';
+import type { PullRequestsAnswer, ReviewsAnswer, TicketsAnswer } from '../shared/connect-lists.ts';
+import { ASIDE_REFUSAL } from '../shared/connect-ops.ts';
 import type { Workspace } from '../workspace.ts';
 import { connectLists, type ConnectLists, type ListKind } from './lists.ts';
 import { deskLeadChoices } from '../remote-starts/choices.ts';
@@ -24,7 +25,7 @@ import { ticketsRoute, type TicketsApi } from '../tickets/api.ts';
  * A frame pushed to a phone: live output of a session it watches, or the Code reviews or Tickets list
  * again when it changed, to a device that read it since its channel opened.
  */
-export type ConnectPush = { type: 'live'; sessionId: string; patch: LivePatch } | { type: 'reviews'; reviews: ReviewsAnswer } | { type: 'tickets'; tickets: TicketsAnswer };
+export type ConnectPush = { type: 'live'; sessionId: string; patch: LivePatch } | { type: 'reviews'; reviews: ReviewsAnswer } | { type: 'tickets'; tickets: TicketsAnswer } | { type: 'pull-requests'; pullRequests: PullRequestsAnswer };
 
 export interface ConnectDeps {
   workspace: Workspace;
@@ -145,7 +146,9 @@ export class ConnectDispatcher {
     return this.deps.newId?.() ?? `d${++this.counter}`;
   }
 
-  private run(device: string, request: ConnectRequest): Promise<unknown> {
+  private async run(device: string, request: ConnectRequest): Promise<unknown> {
+    // A sidebar is used only beside its conversation at the desk: no op acts on one (kestrel-connect.md, "Sidebars").
+    if ('sessionId' in request.args) await this.notAside(request.args.sessionId);
     switch (request.op) {
       case 'state.read':
         return this.deps.workspace.state();
@@ -206,7 +209,20 @@ export class ConnectDispatcher {
         return this.ticket('read', 'POST', { key: request.args.key });
       case 'tickets.work':
         return this.workTicket(request.args.key);
+      case 'pullRequests.read':
+        return this.readList(device, 'pull-requests');
+      case 'findings.act':
+        return this.findingAct(request.args);
+      case 'reviewEnd.act':
+        return this.reviewEndAct(request.args);
     }
+  }
+
+  /** Refuses a sidebar; any other id (one not in Kestrel too) is left to the op's own check. */
+  private async notAside(sessionId: string): Promise<void> {
+    const state = await this.deps.workspace.state();
+    const session = state.sessions.find((s) => s.id === sessionId) ?? state.archived.sessions.find((s) => s.id === sessionId);
+    if (session?.aside) throw new Refused(ASIDE_REFUSAL);
   }
 
   /** A session anywhere in the workspace, archived ones too, or refused. */
@@ -296,6 +312,18 @@ export class ConnectDispatcher {
     return { review: await this.deps.runtime.reviewReplies.post(sessionId, cardId, edit) };
   }
 
+  /** One finding of a review card, as its route does it (finding-actions.ts): the finding as it now is. */
+  private async findingAct({ sessionId, cardId, findingId, action, text }: ConnectOpArgs['findings.act']) {
+    await this.session(sessionId);
+    return { finding: await this.deps.runtime.findingActions.act(sessionId, cardId, findingId, action, text ?? '') };
+  }
+
+  /** The review-end card, as its route does it (review-end.ts): the card as it now is. */
+  private async reviewEndAct({ sessionId, cardId, action, findingIds }: ConnectOpArgs['reviewEnd.act']) {
+    await this.session(sessionId);
+    return { reviewEnd: await this.deps.runtime.reviewEnds.act(sessionId, cardId, action, findingIds ?? []) };
+  }
+
   private async media({ sessionId, name }: ConnectOpArgs['media.read']) {
     const media = this.deps.runtime.display.mediaFile(sessionId, name);
     if (!media) throw new Refused('That picture is no longer there.');
@@ -309,10 +337,12 @@ export class ConnectDispatcher {
   }
 
   /** The list as the window's page has it, or off in the desk's words; and the device is sent it again when it changes. */
-  private readList(device: string, kind: ListKind): Promise<ReviewsAnswer | TicketsAnswer> {
+  private readList(device: string, kind: ListKind): Promise<ReviewsAnswer | TicketsAnswer | PullRequestsAnswer> {
     const set = this.reading.get(device) ?? new Set<ListKind>();
     this.reading.set(device, set.add(kind));
-    return kind === 'reviews' ? this.lists.reviews() : Promise.resolve(this.lists.tickets());
+    if (kind === 'reviews') return this.lists.reviews();
+    if (kind === 'pull-requests') return this.lists.pullRequests();
+    return Promise.resolve(this.lists.tickets());
   }
 
   // ---- the pages' buttons (Matt, 2026-11-24; kestrel-connect.md, "Actions") ---------------------
@@ -399,6 +429,7 @@ export class ConnectDispatcher {
         for (const device of devices) if (this.reading.get(device)?.has(kind)) this.deps.send({ v: CONNECT_PROTOCOL_VERSION, from: this.deps.deviceId, to: device, kind: 'push', id: this.newId(), body });
       };
       if (kind === 'tickets') send({ type: 'tickets', tickets: this.lists.tickets() });
+      else if (kind === 'pull-requests') void this.lists.pullRequests().then((pullRequests) => send({ type: 'pull-requests', pullRequests }), (error) => console.error('[kestrel] connect pull-requests push failed', error));
       else void this.lists.reviews().then((reviews) => send({ type: 'reviews', reviews }), (error) => console.error('[kestrel] connect reviews push failed', error));
     }
   }
