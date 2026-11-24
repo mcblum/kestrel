@@ -34,6 +34,7 @@ import { ConnectRecoveryPage } from '../components/ConnectRecoveryPage.tsx';
 import { WorktreesSetting } from '../components/WorktreesSetting.tsx';
 import { SessionOrderSetting } from '../components/SessionOrderSetting.tsx';
 import { BranchPrefixSetting } from '../components/BranchPrefixSetting.tsx';
+import { PullRequestsNeedYouSetting } from '../components/PullRequestsNeedYouSetting.tsx';
 import { StartFromLatestSetting } from '../components/StartFromLatestSetting.tsx';
 import { ConnectionList } from '../components/StatusArea.tsx';
 import { useConnections } from '../components/useAgents.ts';
@@ -97,6 +98,7 @@ function Git() {
       <h1>Git</h1>
       <BranchPrefixSetting />
       <StartFromLatestSetting />
+      <PullRequestsNeedYouSetting />
       <CleanupPolicySetting />
     </>
   );

@@ -64,6 +64,11 @@ export class ReviewRequestStore {
     this.replace(this.hosts);
   }
 
+  /** Whether the user dismissed this request. */
+  isDismissed(key: string): boolean {
+    return this.dismissedKeys.includes(key);
+  }
+
   /** Mark these requests read (`seen`), or unread again. A waiting request not marked read is new. */
   markSeen(keys: readonly string[], seen: boolean): void {
     if (this.keepSeen(withDismissed(this.seenKeys, keys, seen))) this.replace(this.hosts);

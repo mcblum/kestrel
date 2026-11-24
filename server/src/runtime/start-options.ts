@@ -11,6 +11,7 @@ import type { Project, ProjectFolder, Session, SessionSettings } from '../model.
 import { folderName, repositoryLabel, resolveStartedFolder } from '../shared/project-folders.ts';
 import { enabledServers } from '../shared/setup.ts';
 import { tagCounts } from '../shared/tags.ts';
+import { turnUnderWay } from '../shared/turns.ts';
 import { startLinkOf } from '../tree.ts';
 import { Refused, type Workspace } from '../workspace.ts';
 import type { Live } from './record.ts';
@@ -120,6 +121,9 @@ export async function interruptAfterRestart(workspace: Workspace): Promise<numbe
     if (s.state !== 'running' && s.state !== 'attention') continue;
     const stored = await workspace.storedDetail(s.id);
     if (!stored || stored.agentSessionId === undefined) continue; // fake data, not a real session
+    // Waiting on the user with its turn done and no card a restart would close (a review's findings,
+    // a failure): nothing was lost, so it stays as it was, card, note and all (Matt, 2026-11-24).
+    if (s.state === 'attention' && !turnUnderWay(stored.messages) && !stored.messages.some((m) => m.input && !m.input.resolved)) continue;
     const messages = stored.messages.map((m) => (m.input && !m.input.resolved ? { ...m, input: { ...m.input, resolved: 'Interrupted by restart' } } : { ...m, streaming: false }));
     const lost = stored.messages.flatMap((m) => (m.input && !m.input.resolved ? [lostRequestNews(m.input)] : []));
     const news = lost.length ? lost : s.state === 'running' ? [CUT_OFF_NEWS] : [];

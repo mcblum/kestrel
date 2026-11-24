@@ -2,7 +2,7 @@
 // Kestrel tool reaches it, so no agent can let itself start reviews.
 //
 //   GET /api/review-settings                                   200 ReviewSettings
-//   PUT /api/review-settings  { mode?, projects?, show?, sidebarLimit?, announce?, permission?, instructions?, confirmed? } 200 ReviewSettings | 400 { error }
+//   PUT /api/review-settings  { mode?, projects?, show?, sidebarLimit?, announce?, permission?, instructions?, afterApproval?, confirmed? } 200 ReviewSettings | 400 { error }
 //
 // `mode: "reply"` posts in the user's name, so it is stored only with `confirmed: true`: the
 // warning was shown and agreed to.
@@ -11,6 +11,7 @@
 import { asReviewProjects, asSidebarLimit, isReviewPlace, REVIEW_MODES, REVIEW_PLACES, SIDEBAR_LIMIT, type ReviewMode, type ReviewSettings } from '../shared/review-settings.ts';
 import { DEFAULT_REVIEW_INSTRUCTIONS, instructionsProblem } from '../shared/review-settings.ts';
 import { isReviewPermission, REVIEW_PERMISSIONS } from '../shared/review-requests.ts';
+import { AFTER_APPROVAL, isAfterApproval } from '../shared/archive-approved.ts';
 import type { ReviewPrefs } from './prefs.ts';
 
 export type ReviewSettingsAnswer = { status: number; body: unknown };
@@ -60,6 +61,10 @@ export async function reviewSettingsRoute(parts: readonly string[], method: stri
     if (typeof body.announce !== 'boolean') return bad('announce must be true or false.');
     change = { ...change, announce: body.announce };
   }
-  if (Object.keys(change).length === 0) return bad('Give a mode, a choice of projects, where they are shown, how many the sidebar lists, the mode reviews start in, the review instructions, or whether a review is announced.');
+  if (body.afterApproval !== undefined) {
+    if (!isAfterApproval(body.afterApproval)) return bad(`afterApproval must be one of: ${AFTER_APPROVAL.join(', ')}.`);
+    change = { ...change, afterApproval: body.afterApproval };
+  }
+  if (Object.keys(change).length === 0) return bad('Give a mode, a choice of projects, where they are shown, how many the sidebar lists, the mode reviews start in, the review instructions, whether a review is announced, or what is done after an approval.');
   return { status: 200, body: await prefs.set(change) };
 }

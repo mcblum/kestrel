@@ -34,8 +34,12 @@ export interface SuggestionRuntime {
 export function createSuggestions(runtime: SuggestionRuntime, workspace: Workspace, opts: SuggestionOptions = {}): Suggestions {
   return new Suggestions(
     {
-      // A stored session is loaded first, so a suggestion can be answered after a restart.
-      messages: async (id) => ((await runtime.snapshot(id)) ? (runtime.recordOf(id)?.messages ?? null) : null),
+      // A stored session is loaded first, so a suggestion can be answered after a restart. One out of
+      // sight (archived) has no snapshot; while its record is still held, its line's Undo still works.
+      messages: async (id) => {
+        await runtime.snapshot(id);
+        return runtime.recordOf(id)?.messages ?? null;
+      },
       show: (id, suggestion: Suggestion) => runtime.showCard(id, { type: 'card', id: suggestionMessageId(suggestion.id), suggestion }),
     },
     { registry: suggestionKinds(opts.testKinds, opts.kinds), workspace, prefs: new SuggestionPrefs(opts.settings ?? memorySettings()) },

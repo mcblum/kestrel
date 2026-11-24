@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { useDraft } from '../unsaved.ts';
 import { PERMISSION_LEVELS, permissionHint, type PermissionLevel } from '@kestrel/server/permissions';
 import { REVIEW_PERMISSIONS } from '@kestrel/server/review-requests';
+import { AFTER_APPROVAL, AFTER_APPROVAL_LABEL, type AfterApproval } from '@kestrel/server/archive-approved';
 import { useResource } from '../data/resources.ts';
 import { openView } from '../route.ts';
 import { asReviewSettings as asSettings, REVIEW_SETTINGS_PATH, saveReviewSettings as save } from '../reviewSettings.ts';
@@ -208,6 +209,19 @@ const ANNOUNCE_HELP = (
   </p>
 );
 
+const AFTER_APPROVAL_HELP = (
+  <p className="settings-help">
+    Once your approval of a pull request is posted from its review session, by your click on the review card or on its own, the review is done. Kestrel can ask, in a card in that session, whether to archive it, or archive it without asking. Archiving puts it out of
+    sight with Undo and deletes nothing; a session still working waits until its turn ends. Nothing is offered after a comment or a request for changes.
+  </p>
+);
+
+const AFTER_APPROVAL_NOTE: Record<AfterApproval, string> = {
+  ask: 'A card in the review session asks, with Archive, Always archive, Not now and Don’t ask again.',
+  always: 'The review session is archived when your approval is posted. Its conversation says so, with Undo.',
+  never: 'Nothing is offered; the review session stays where it is.',
+};
+
 const INSTRUCTIONS_HELP = (
   <p className="settings-help">
     What every review is told about how to review and how to write it up. It goes into the first message of a review session, after what is being reviewed and before how the review is handed over; those two parts are Kestrel's and are not changed here. Write your
@@ -267,6 +281,17 @@ function ReviewRunSettings() {
           Post a "Reviewing" comment on the pull request
         </label>
         <p className="settings-help">{settings.announce ? 'Posted in your name on GitHub or GitLab as each review starts, by hand or on its own.' : 'Nothing is posted when a review starts.'}</p>
+      </SettingSection>
+      <SettingSection title="After an approval" help={AFTER_APPROVAL_HELP}>
+        <select aria-label="After an approval" className="form-control review-setting-mode" value={settings.afterApproval} onChange={(e) => void save({ afterApproval: e.target.value as AfterApproval })}>
+          {AFTER_APPROVAL.map((choice) => (
+            <option key={choice} value={choice}>
+              {AFTER_APPROVAL_LABEL[choice]}
+              {choice === DEFAULT_REVIEW_SETTINGS.afterApproval ? ' (default)' : ''}
+            </option>
+          ))}
+        </select>
+        <p className="settings-help">{AFTER_APPROVAL_NOTE[settings.afterApproval]}</p>
       </SettingSection>
       <SettingSection title="Review instructions" help={INSTRUCTIONS_HELP}>
         <p className="settings-help">Instructions included in every review session. Edit them here, then save your changes.</p>

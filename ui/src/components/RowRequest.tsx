@@ -3,11 +3,12 @@
 // shows the request alone; a sidebar row draws its changed-files icon too (RowIcons.tsx). Not a
 // button: the whole rail button stays the click target. Drawn only when asked (asksForRequest).
 import { requestIcon } from '@kestrel/server/row-slot';
+import { useAttentionPrefs } from '../attentionPrefs.ts';
 import { usePullRequests } from './details/sources.ts';
 import { SlotIcon } from './RowIcons.tsx';
 
 export function RowRequest({ sessionId, updatedAt, className }: { sessionId: string; updatedAt: number; className: string }) {
   const source = usePullRequests(sessionId);
-  const icon = requestIcon(source.value);
+  const icon = requestIcon(source.value, useAttentionPrefs());
   return icon ? <SlotIcon kind="request" icon={icon} className={className} /> : null;
 }

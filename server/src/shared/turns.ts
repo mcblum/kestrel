@@ -140,3 +140,14 @@ export function durationText(ms: number): string {
   if (minutes < 60) return `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`;
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`;
 }
+
+/**
+ * Whether the agent's turn is still under way: the last turn started has not been stamped as ended.
+ * True on a turn paused on the agent's own card (an approval, a question, a plan), which a restart
+ * cuts off; false once it ended, whatever cards it left. With no turn recorded it cannot be known to
+ * have ended, so it counts as under way.
+ */
+export function turnUnderWay(messages: readonly ChatMessage[]): boolean {
+  const index = messages.findLastIndex(startsTurn);
+  return index < 0 || messages[index]!.turnEndedAt === undefined;
+}

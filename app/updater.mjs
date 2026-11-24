@@ -57,8 +57,9 @@ const logger = {
 };
 
 /**
- * Starts the updater. `send(state)` tells the page; `beforeRestart()` stops the server (and its
- * agents) before the app quits into the new version. Returns what the menu and IPC need.
+ * Starts the updater. `send(state)` tells the page; `beforeRestart()` asks the quit guard and, on a
+ * yes, stops the server (and its agents) before the app quits into the new version, answering
+ * whether to go ahead. Returns what the menu and IPC need.
  */
 export function startUpdater({ send, beforeRestart, getWindow }) {
   /** @type {UpdateState} */
@@ -96,7 +97,9 @@ export function startUpdater({ send, beforeRestart, getWindow }) {
   if (enabled) {
     autoUpdater.logger = logger;
     autoUpdater.autoDownload = true;
-    // A downloaded update is also installed when Kestrel quits normally, so nobody has to restart for it.
+    // A downloaded update is also installed when Kestrel quits normally, so nobody has to restart for
+    // it. That never ends agents by itself: it happens only after a quit the user asked for, which
+    // the quit guard has already let through (quit-guard.mjs).
     autoUpdater.autoInstallOnAppQuit = true;
     autoUpdater.allowPrerelease = false;
     // Test aid: the installer reopens the app with no arguments, so a test copy run with its own
@@ -162,10 +165,14 @@ export function startUpdater({ send, beforeRestart, getWindow }) {
         return tell('Could not check for updates', String(error?.message ?? error).split('\n')[0]);
       }
     },
-    /** The page's Restart button. Only once an update is downloaded. */
+    /**
+     * The page's Restart button. Only once an update is downloaded, and only when `beforeRestart`
+     * agrees: with sessions working it asks (quit-guard.mjs), and Install later answers false,
+     * leaving the update downloaded and the notice up. Nothing here restarts on its own.
+     */
     async restart() {
       if (state.status !== 'ready') return false;
-      await beforeRestart();
+      if (!(await beforeRestart())) return false;
       autoUpdater.quitAndInstall();
       return true;
     },

@@ -202,3 +202,9 @@
 .kestrel .settings-code-reviews .settings-section > .settings-help { max-width: 60ch; }
 .kestrel .settings-code-reviews .review-setting-projects { margin: 12px 0 0; padding: 0; }
 .kestrel .settings-code-reviews .review-setting-warning div { flex-wrap: wrap; }
+
+/* Settings → Git → Pull requests that need you: each reason's switch, its card's switch indented under it. */
+.kestrel .attention-settings { display: flex; flex-direction: column; gap: 6px; }
+.kestrel .attention-setting { display: flex; flex-direction: column; }
+.kestrel .attention-card-switch { padding-left: 24px; }
+.kestrel .attention-card-switch:has(input:disabled) { color: var(--s-muted); }

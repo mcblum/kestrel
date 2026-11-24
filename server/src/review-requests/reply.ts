@@ -39,6 +39,8 @@ export interface ReviewRepliesHost {
    * tell the agent, or null when this session is not one.
    */
   roundReview?(sessionId: string, args: { verdict?: unknown; summary?: unknown; findings?: unknown; earlier?: unknown }): Promise<ToolResult | null>;
+  /** An approval was posted to the host from this session; `request` names it ("#12"). Not called for a comment, a request for changes or a failed post. */
+  approved?(sessionId: string, request: string): void;
 }
 
 /** What the user changed on the card before posting it. */
@@ -138,6 +140,7 @@ export class ReviewReplies {
       const note = [how.note, moved ? `It was made of ${reply.sha.slice(0, 12)}; the ${terms.long} has new commits since.` : null].filter(Boolean).join(' ');
       const posted: ReviewReply = { ...reply, posted: { at: this.host.now(), verdict: reply.verdict, ...(withoutComment ? { withoutComment: true } : {}), ...(onItsOwn ? { onItsOwn: true } : {}), ...(note ? { note } : {}), ...(Object.keys(how.moved).length > 0 ? { moved: how.moved } : {}) } };
       this.host.showCard(sessionId, { type: 'card', id: cardId, review: posted });
+      if (posted.posted!.verdict === 'approve') this.host.approved?.(sessionId, `${terms.sigil}${number}`);
       return posted;
     } finally {
       this.posting.delete(cardId);

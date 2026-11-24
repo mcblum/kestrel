@@ -3,9 +3,10 @@
 // then the pull/merge request icon in its status colour. Not buttons: the whole row stays the click
 // target. Drawn only for a row that asks (asksForRequest, asksForChanges), so a row with a dot, a
 // session with no branch or worktree, or a row in a folded list never asks.
-import { GitPullRequest } from 'lucide-react';
+import { GitPullRequest, X } from 'lucide-react';
 import type { SessionView } from '@kestrel/server/model';
 import { asksForChanges, asksForRequest, rowSlot, type RowIcon } from '@kestrel/server/row-slot';
+import { useAttentionPrefs } from '../attentionPrefs.ts';
 import { useChangeCounts, usePullRequests } from './details/sources.ts';
 import { CHANGES_ICON } from './PaneToolbar.tsx';
 import { useRequestSide, useWorkingTree } from '../workingTree.ts';
@@ -23,6 +24,8 @@ export function SlotIcon({ kind, icon, className = '' }: { kind: keyof typeof GL
   return (
     <span className={`status-dot row-icon ${className} ${TONE_PREFIX[kind]}-${icon.tone}`} role="img" aria-label={icon.label} title={icon.label}>
       <Glyph aria-hidden />
+      {/* Its request needs the user (checks failed): a cross as well as the red, so it reads without colour. */}
+      {icon.alert && <X className="row-icon-alert" aria-hidden />}
     </span>
   );
 }
@@ -39,14 +42,16 @@ function Icons({ slot }: { slot: ReturnType<typeof rowSlot> }) {
 
 function RequestOnly({ session }: { session: Asker }) {
   const requests = usePullRequests(session.id);
-  return <Icons slot={rowSlot(false, requests.value)} />;
+  const attention = useAttentionPrefs();
+  return <Icons slot={rowSlot(false, requests.value, null, attention)} />;
 }
 
 function RequestAndChanges({ session }: { session: Asker }) {
   const key = String(session.updatedAt);
   const requests = usePullRequests(session.id);
   const counts = useChangeCounts(session.id, key);
-  return <Icons slot={rowSlot(false, requests.value, counts.value)} />;
+  const attention = useAttentionPrefs();
+  return <Icons slot={rowSlot(false, requests.value, counts.value, attention)} />;
 }
 
 /** The slot's icons for a sidebar row; nothing when the row has a dot (the row draws that). */

@@ -102,6 +102,21 @@ describe('what the user has looked at', () => {
   });
 });
 
+describe('the shell\'s quit check', () => {
+  test('names the sessions quitting would stop, with no Origin (the shell is not a page) and only with the token', async () => {
+    expect((await fetch(`${base}/api/quit-check`)).status).toBe(401);
+    const before = (await ws.state()).sessions.find((s) => s.id === 's1')!;
+    await ws.setState('s1', 'done', '');
+    expect(await (await fetch(`${base}/api/quit-check`, { headers: auth })).json()).toEqual({ working: [] });
+    await ws.setState('s1', 'running', '');
+    try {
+      expect(await (await fetch(`${base}/api/quit-check`, { headers: auth })).json()).toEqual({ working: [{ id: 's1', title: 'One' }] });
+    } finally {
+      await ws.setState('s1', before.state, before.note);
+    }
+  });
+});
+
 describe('access rules', () => {
   test('binds to loopback only', () => {
     expect((app.server.address() as AddressInfo).address).toBe('127.0.0.1');

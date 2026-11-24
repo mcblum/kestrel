@@ -167,6 +167,7 @@ describe('posting a review card', () => {
     let messages: ChatMessage[] = [];
     const calls: string[][] = [];
     const notices: string[] = [];
+    const approvals: string[] = [];
     const replies = new ReviewReplies({
       session: async () => opts.session ?? session(),
       messages: () => messages,
@@ -180,9 +181,10 @@ describe('posting a review card', () => {
       run: async (_bin, args) => (calls.push([...args]), { stdout: opts.answer?.(args) ?? '' }),
       now: () => 1000,
       diffAnchors: async () => opts.anchors,
+      approved: (id, request) => void approvals.push(`${id} ${request}`),
     });
     const tool = (args: Record<string, unknown>) => replies.hostFor('s1').postReview(args);
-    return { replies, tool, calls, notices, card: () => messages[0] };
+    return { replies, tool, calls, notices, approvals, card: () => messages[0] };
   };
 
   it('shows the review and posts nothing until the user does', async () => {
@@ -199,6 +201,27 @@ describe('posting a review card', () => {
     const result = await tool({ verdict: 'comment', summary: 'x' });
     expect(result.isError).toBe(true);
     expect(notices[0]).toContain('Kestrel refused post_review');
+  });
+
+  it('says an approval was posted only when one really went up: not a comment, a request for changes, or a post that failed', async () => {
+    const approve = setUp();
+    await approve.tool({ verdict: 'approve', summary: 'Good.' });
+    await approve.replies.post('s1', approve.card()!.id!);
+    expect(approve.approvals).toEqual(['s1 #12']);
+    for (const verdict of ['comment', 'request_changes'] as const) {
+      const other = setUp();
+      await other.tool({ verdict: 'comment', summary: 'A note.' });
+      await other.replies.post('s1', other.card()!.id!, { verdict });
+      expect(other.approvals).toEqual([]);
+    }
+    const moved = setUp({ request: ready({ number: 12, state: 'open', headSha: OTHER } as PullRequest) });
+    await moved.tool({ verdict: 'approve', summary: 'Good.' });
+    await expect(moved.replies.post('s1', moved.card()!.id!)).rejects.toThrow(/new commits since/);
+    expect(moved.approvals).toEqual([]);
+    // Posted on its own, where the user chose that: the same.
+    const alone = setUp({ settings: { mode: 'reply', projects: 'all' } });
+    await alone.tool({ verdict: 'approve', summary: 'Good.' });
+    expect(alone.approvals).toEqual(['s1 #12']);
   });
 
   it('posts the card with what the user changed on it, and marks it posted', async () => {

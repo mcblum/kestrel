@@ -105,12 +105,15 @@ export class Suggestions {
     });
   }
 
-  /** Open cards of a kind that something else has since settled (Kestrel added the tag itself, say): each leaves `line` instead of asking. How many. */
-  settle(sessionId: string, kind: string, settled: (payload: unknown) => boolean, line: string): Promise<number> {
+  /**
+   * Open cards of a kind that something else has since settled (Kestrel added the tag itself, say): each
+   * leaves `line` instead of asking. `line` may be worked out per card from its payload. How many.
+   */
+  settle(sessionId: string, kind: string, settled: (payload: Record<string, unknown>) => boolean, line: string | ((payload: Record<string, unknown>) => string)): Promise<number> {
     return this.serial(sessionId, async () => {
       const ctx = await this.context(sessionId);
       const open = ctx ? suggestionsIn(ctx.messages).filter((s) => s.kind === kind && s.state === 'open' && settled(s.payload)) : [];
-      for (const s of open) this.host.show(sessionId, { ...s, state: 'expired', answeredAt: this.now(), line });
+      for (const s of open) this.host.show(sessionId, { ...s, state: 'expired', answeredAt: this.now(), line: typeof line === 'string' ? line : line(s.payload) });
       return open.length;
     });
   }

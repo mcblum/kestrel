@@ -12,6 +12,8 @@ import { useMemo } from 'react';
 import type { SessionView, WorkspaceState } from '@kestrel/server/model';
 import { FILTER_LABEL, emptyState, inView, overviewLine } from '@kestrel/server/status';
 import { overviewSections, showsStatus } from '@kestrel/server/overview';
+import { attentionBySession } from '@kestrel/server/request-attention';
+import { useAttentionPrefs } from '../attentionPrefs.ts';
 import { runMenuAction } from '../commands.ts';
 import { item } from '@kestrel/server/menu';
 import { AttentionRow } from './AttentionRow.tsx';
@@ -72,8 +74,12 @@ function WorktreeCleanupNotice() {
 
 export function OverviewPage({ workspace }: { workspace: WorkspaceState }) {
   const seen = useApp((s) => s.seen);
+  const pullRequests = useApp((s) => s.pullRequests);
   const listed = useMemo(() => workspace.sessions.filter((s) => inView(s, { kind: 'overview' })), [workspace.sessions]);
-  const { rows, counts } = useMemo(() => overviewSections(listed, seen), [listed, seen]);
+  // Idle sessions whose pull request needs the user (its checks failed): listed under Needs you.
+  const attentionPrefs = useAttentionPrefs();
+  const attention = useMemo(() => attentionBySession(listed, (id) => pullRequests.get(id), attentionPrefs), [listed, pullRequests, attentionPrefs]);
+  const { rows, counts } = useMemo(() => overviewSections(listed, seen, attention), [listed, seen, attention]);
 
   const empty = emptyState({ view: 'overview', shown: listed.length, unfiltered: listed.length, projects: workspace.projects.length, sessions: workspace.sessions.length });
   const newSession = (newTab: boolean) => void runMenuAction(item.newSession().action!, newTab);
@@ -99,7 +105,7 @@ export function OverviewPage({ workspace }: { workspace: WorkspaceState }) {
             <Section title={FILTER_LABEL['needs-you']} count={counts['needs-you']}>
               <div className="queue">
                 {rows['needs-you'].map((s) => (
-                  <AttentionRow key={s.id} session={s} workspace={workspace} />
+                  <AttentionRow key={s.id} session={s} workspace={workspace} attention={attention.get(s.id) ?? null} />
                 ))}
               </div>
             </Section>

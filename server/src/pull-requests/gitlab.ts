@@ -1,9 +1,17 @@
 // GitLab merge requests through the `glab` CLI, mapped onto the same PullRequest shape GitHub's use.
 // The list (`glab mr list --source-branch <b> --all --output json`) has no pipeline, so each open or
 // draft one is viewed too (`glab mr view <iid> --output json`) for `head_pipeline.status`. Review and
-// readiness come from `detailed_merge_status` alone: no extra calls for approvals. Also GitLab's
+// readiness come from `detailed_merge_status` alone: no extra calls for approvals. When that pipeline
+// failed, its failed jobs are asked for once (`glab api …/pipelines/<id>/jobs?scope[]=failed`, then its
+// failed trigger jobs when there are none, for a child pipeline) and kept for as long as the pipeline
+// is unchanged, so a request polled every few seconds costs one call per failed pipeline. Conflicts come
+// with the view (`has_conflicts`, `detailed_merge_status`). Whether a reviewer asked for changes is in
+// `detailed_merge_status` only while nothing else blocks the merge (a conflict or a failed pipeline
+// hides it), so each open one's reviewers are asked too (`…/merge_requests/<iid>/reviewers`), once per
+// change to the merge request (its `updated_at` and head), and, only when one asked for changes, its
+// discussions, for what they said (`reviewLookup`). Also GitLab's
 // commands for creating one (`gitlabCommands`). The runner is injected: tests never call glab.
-import type { ChecksState, MergeReadiness, PullRequest, PullRequestState, ReviewState } from '../shared/details.ts';
+import { clipReviewText, REVIEW_COMMENTS_KEPT, type ChangesRequest, type ChecksState, type FailedCheck, type MergeReadiness, type PullRequest, type PullRequestState, type ReviewComment, type ReviewState } from '../shared/details.ts';
 import { ready, reasonOf, unavailable, type Sourced } from '../shared/sourced.ts';
 import { execRunner } from './github.ts';
 import { GLAB_TIMEOUT_MS, glabFailureReason } from './glab.ts';
@@ -84,19 +92,147 @@ export function parseGlabList(json: string): Fields[] {
 export const listArgs = (branch: string): string[] => ['mr', 'list', `--source-branch=${branch}`, '--all', '--output', 'json'];
 export const viewArgs = (iid: number): string[] => ['mr', 'view', String(iid), '--output', 'json'];
 
-/** One list item with its single view, for the pipeline; the view wins where both say something. */
-async function withView(run: CommandRunner, cwd: string, item: Fields): Promise<PullRequest> {
+type FailedJobs = ReturnType<typeof failedJobsLookup>;
+type Reviews = ReturnType<typeof reviewLookup>;
+
+/**
+ * One list item with its single view, for the pipeline; the view wins where both say something. A
+ * failed pipeline's jobs are added, and who asked for changes.
+ */
+async function withView(run: CommandRunner, failedJobs: FailedJobs, reviews: Reviews, cwd: string, item: Fields): Promise<PullRequest> {
   const listed = mapGlabMergeRequest(item);
   if (!isActive(listed)) return listed;
   const { stdout } = await run('glab', viewArgs(listed.number), { cwd, timeoutMs: GLAB_TIMEOUT_MS });
   const view: unknown = JSON.parse(stdout);
   if (!hasIid(view)) throw new Error(`glab gave no merge request for !${listed.number}`);
-  return mapGlabMergeRequest({ ...item, ...view });
+  const merged = { ...item, ...view };
+  const pr = mapGlabMergeRequest(merged);
+  const pipeline = (merged.head_pipeline ?? merged.pipeline) as Fields | null | undefined;
+  const failed = pr.checks === 'failing' && pipeline && typeof pipeline === 'object' ? await failedJobs(cwd, pipeline) : null;
+  const asked = await reviews(cwd, merged);
+  // The reviewers' own state wins; where glab could not say (or names nobody), the merge status stands.
+  const review: ReviewState = asked ? 'changes-requested' : pr.review;
+  return { ...pr, review, ...(failed ? { failedChecks: failed } : {}), ...(asked ? { changesRequested: asked } : {}) };
+}
+
+export const reviewersArgs = (iid: number): string[] => ['api', `projects/:id/merge_requests/${iid}/reviewers`];
+export const discussionsArgs = (iid: number): string[] => ['api', `projects/:id/merge_requests/${iid}/discussions?per_page=100`];
+
+/** The reviewers whose state is "requested changes", from `…/reviewers`. Pure. */
+export function reviewersAskingOf(json: string): string[] {
+  const parsed: unknown = JSON.parse(json);
+  if (!Array.isArray(parsed)) throw new Error('glab did not answer with a list of reviewers');
+  return parsed
+    .filter((r): r is Fields => typeof r === 'object' && r !== null && r.state === 'requested_changes')
+    .map((r) => (r.user && typeof r.user === 'object' ? text((r.user as Fields).username) : undefined) ?? 'A reviewer');
+}
+
+/**
+ * What the asking reviewers said: their notes that are not system notes and not resolved, oldest
+ * first. The newest one's id names the occurrence and its link is the review's. Pure.
+ */
+export function changesFromDiscussions(reviewers: string[], json: string, mrUrl: string): ChangesRequest {
+  const parsed: unknown = JSON.parse(json);
+  if (!Array.isArray(parsed)) throw new Error('glab did not answer with a list of discussions');
+  const who = new Set(reviewers);
+  const notes = parsed
+    .flatMap((d) => (typeof d === 'object' && d !== null && Array.isArray((d as Fields).notes) ? ((d as Fields).notes as unknown[]) : []))
+    .filter((n): n is Fields => typeof n === 'object' && n !== null)
+    .filter((n) => n.system !== true && n.resolved !== true && typeof n.body === 'string' && typeof n.id === 'number' && who.has(String((n.author as Fields | undefined)?.username)));
+  const newest = notes.reduce<Fields | null>((a, n) => (!a || (n.id as number) > (a.id as number) ? n : a), null);
+  const noteUrl = (id: unknown) => (mrUrl ? `${mrUrl}#note_${String(id)}` : undefined);
+  const comments: ReviewComment[] = notes.slice(0, REVIEW_COMMENTS_KEPT).map((n) => {
+    const position = (n.position ?? {}) as Fields;
+    const path = text(position.new_path) ?? text(position.old_path);
+    const line = typeof position.new_line === 'number' ? position.new_line : typeof position.old_line === 'number' ? position.old_line : undefined;
+    const url = noteUrl(n.id);
+    return { body: clipReviewText(String(n.body)), ...(path ? { path } : {}), ...(line !== undefined && Number.isInteger(line) && line >= 0 ? { line } : {}), ...(url ? { url } : {}) };
+  });
+  const url = newest ? noteUrl(newest.id) : mrUrl || undefined;
+  return { id: `${[...reviewers].sort().join(',')}@${newest ? String(newest.id) : '-'}`, reviewers, ...(url ? { url } : {}), comments };
+}
+
+/** How many merge requests' review answers are remembered. */
+const REVIEWS_KEPT = 50;
+
+/**
+ * Who asked for changes on an open merge request, and what they said: asked once per change to the
+ * merge request (its `updated_at` and head commit) and remembered. Undefined when nobody asks; null
+ * when glab could not say (then `detailed_merge_status` is all there is).
+ */
+function reviewLookup(run: CommandRunner) {
+  let kept: ReadonlyMap<string, ChangesRequest | undefined | null> = new Map();
+  return async (cwd: string, mr: Fields): Promise<ChangesRequest | undefined | null> => {
+    const iid = mr.iid as number;
+    const key = `${cwd}\n${iid}\n${String(mr.updated_at ?? '')}\n${String(mr.sha ?? '')}`;
+    if (kept.has(key)) return kept.get(key);
+    let found: ChangesRequest | undefined | null;
+    try {
+      const ask = async (args: string[]) => (await run('glab', args, { cwd, timeoutMs: GLAB_TIMEOUT_MS })).stdout;
+      const reviewers = reviewersAskingOf(await ask(reviewersArgs(iid)));
+      const mrUrl = typeof mr.web_url === 'string' && /^https:\/\//.test(mr.web_url) ? mr.web_url : '';
+      found = reviewers.length === 0 ? undefined : changesFromDiscussions(reviewers, await ask(discussionsArgs(iid)), mrUrl);
+    } catch {
+      found = null;
+    }
+    const next = new Map(kept).set(key, found);
+    kept = next.size > REVIEWS_KEPT ? new Map([...next].slice(-REVIEWS_KEPT)) : next;
+    return found;
+  };
+}
+
+const webUrl = (value: unknown): string | undefined => (typeof value === 'string' && /^https:\/\//.test(value) ? value : undefined);
+
+/** A pipeline's failed jobs (or trigger jobs) as failed checks, leaving out the ones allowed to fail. Pure. */
+export function failedJobsOf(json: string): FailedCheck[] {
+  const parsed: unknown = JSON.parse(json);
+  if (!Array.isArray(parsed)) throw new Error('glab did not answer with a list of jobs');
+  return parsed
+    .filter((j): j is Fields => typeof j === 'object' && j !== null && j.allow_failure !== true)
+    .map((j) => {
+      const name = (text(j.name) ?? '').trim() || 'A job';
+      const downstream = j.downstream_pipeline && typeof j.downstream_pipeline === 'object' ? webUrl((j.downstream_pipeline as Fields).web_url) : undefined;
+      const url = webUrl(j.web_url) ?? downstream;
+      return url ? { name, url } : { name };
+    });
+}
+
+export const failedJobsArgs = (pipelineId: number, kind: 'jobs' | 'bridges'): string[] => ['api', `projects/:id/pipelines/${pipelineId}/${kind}?scope[]=failed&per_page=100`];
+
+/** Kept per pipeline: how many pipelines' failed jobs are remembered. */
+const FAILED_JOBS_KEPT = 50;
+
+/**
+ * The failed jobs of a failed pipeline, asked once per pipeline as it stands (its id, status and
+ * update time) and remembered. Null when glab could not say: the request then shows the count it
+ * has (none) and the pipeline's link.
+ */
+function failedJobsLookup(run: CommandRunner) {
+  let kept: ReadonlyMap<string, FailedCheck[]> = new Map();
+  return async (cwd: string, pipeline: Fields): Promise<FailedCheck[] | null> => {
+    const id = pipeline.id;
+    if (typeof id !== 'number' || !Number.isInteger(id)) return null;
+    const key = `${cwd}\n${id}\n${String(pipeline.status)}\n${String(pipeline.updated_at ?? '')}`;
+    const known = kept.get(key);
+    if (known) return known;
+    try {
+      const ask = async (kind: 'jobs' | 'bridges') => failedJobsOf((await run('glab', failedJobsArgs(id, kind), { cwd, timeoutMs: GLAB_TIMEOUT_MS })).stdout);
+      const jobs = await ask('jobs');
+      const found = jobs.length > 0 ? jobs : await ask('bridges');
+      const next = new Map(kept).set(key, found);
+      kept = next.size > FAILED_JOBS_KEPT ? new Map([...next].slice(-FAILED_JOBS_KEPT)) : next;
+      return found;
+    } catch {
+      return null;
+    }
+  };
 }
 
 const unreadable = (error: unknown) => `glab gave an answer Kestrel cannot read: ${reasonOf(error)}`;
 
 export function gitlabProvider(run: CommandRunner = execRunner): PullRequestProvider {
+  const failedJobs = failedJobsLookup(run);
+  const reviews = reviewLookup(run);
   return {
     async pullRequestsFor(repoPath, branch): Promise<Sourced<PullRequest[]>> {
       let stdout: string;
@@ -112,7 +248,7 @@ export function gitlabProvider(run: CommandRunner = execRunner): PullRequestProv
         return unavailable(unreadable(error));
       }
       try {
-        return ready(await Promise.all(items.map((item) => withView(run, repoPath, item))));
+        return ready(await Promise.all(items.map((item) => withView(run, failedJobs, reviews, repoPath, item))));
       } catch (error) {
         return unavailable(error instanceof SyntaxError ? unreadable(error) : glabFailureReason(error));
       }

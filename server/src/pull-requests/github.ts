@@ -1,14 +1,19 @@
 // GitHub pull requests through the `gh` CLI ("borrow, do not build"): its sign-in, its API. Run in
 // the repository so gh picks the repository from its remotes. The command runner is injected:
 // tests never call the real gh. Also GitHub's commands for creating one (`githubCommands`).
+//
+// What it costs: one `gh pr list` per branch per refresh gives the checks (with the failed ones' names
+// and links), the conflict state and the reviews that ask for changes (`latestReviews`). Only when a
+// review asks for changes are two more calls made, once per such set of reviews and then remembered
+// (`reviewDetailsLookup`): the reviews (for each one's link) and the request's review comments.
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { ChecksState, MergeReadiness, PullRequest, PullRequestState, ReviewState } from '../shared/details.ts';
+import { clipReviewText, REVIEW_COMMENTS_KEPT, type ChangesRequest, type ChecksState, type FailedCheck, type MergeReadiness, type PullRequest, type PullRequestState, type ReviewComment, type ReviewState } from '../shared/details.ts';
 import { ready, reasonOf, unavailable, type Sourced } from '../shared/sourced.ts';
 import type { CommandRunner, HostCommands, PullRequestProvider } from './types.ts';
 
 export const GH_TIMEOUT_MS = 10_000;
-export const GH_FIELDS = 'number,title,state,isDraft,url,reviewDecision,statusCheckRollup,body,author,headRefName,baseRefName,mergeStateStatus,mergeable,headRefOid';
+export const GH_FIELDS = 'number,title,state,isDraft,url,reviewDecision,statusCheckRollup,body,author,headRefName,baseRefName,mergeStateStatus,mergeable,headRefOid,latestReviews';
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 /** Keeps gh and glab from asking anything or checking for updates while Kestrel waits on them. */
 const QUIET_CLI_ENV = { GH_PROMPT_DISABLED: '1', NO_COLOR: '1', GLAB_NO_PROMPT: 'true', GLAB_CHECK_UPDATE: 'false' };
@@ -39,6 +44,24 @@ export function checksOf(rollup: unknown): ChecksState {
   return outcomes.length > 0 ? 'passing' : 'none';
 }
 
+const webUrl = (value: unknown): string | undefined => (typeof value === 'string' && /^https:\/\//.test(value) ? value : undefined);
+
+/**
+ * The checks that failed, by name with their log's address: a CheckRun's `name` and `detailsUrl`, a
+ * StatusContext's `context` and `targetUrl`. gh's rollup does not say which checks are required, so
+ * every failed one is listed. Pure.
+ */
+export function failedChecksOf(rollup: unknown): FailedCheck[] {
+  if (!Array.isArray(rollup)) return [];
+  return rollup
+    .filter((i): i is Record<string, unknown> => typeof i === 'object' && i !== null && checkOutcome(i) === 'failed')
+    .map((i) => {
+      const name = String(i.name ?? i.context ?? '').trim() || 'A check';
+      const url = webUrl(i.detailsUrl) ?? webUrl(i.targetUrl);
+      return url ? { name, url } : { name };
+    });
+}
+
 const REVIEW: Record<string, ReviewState> = { APPROVED: 'approved', CHANGES_REQUESTED: 'changes-requested', REVIEW_REQUIRED: 'review-required' };
 
 function stateOf(state: unknown, isDraft: unknown): PullRequestState {
@@ -58,12 +81,42 @@ export function githubReadiness(mergeState: unknown, mergeable: unknown): MergeR
 }
 
 const text = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined);
+const loginOf = (who: unknown): string | undefined => (who && typeof who === 'object' ? text((who as { login?: unknown }).login) : undefined);
+
+/**
+ * The reviews that ask for changes now, from `latestReviews` (each reviewer's newest review): who, and
+ * what they wrote. Its id is those reviews' ids, so a new review asking for changes is a new one. Null
+ * when none does. The links and comments are added by `reviewDetailsLookup`. Pure.
+ */
+export function changesRequestedOf(latestReviews: unknown): ChangesRequest | null {
+  if (!Array.isArray(latestReviews)) return null;
+  const asking = latestReviews.filter((r): r is Record<string, unknown> => typeof r === 'object' && r !== null && r.state === 'CHANGES_REQUESTED');
+  if (asking.length === 0) return null;
+  const reviewers = asking.map((r) => loginOf(r.author) ?? 'A reviewer');
+  const bodies = asking.map((r, i) => ({ who: reviewers[i]!, body: (text(r.body) ?? '').trim() })).filter((b) => b.body);
+  const body = bodies.length === 1 && asking.length === 1 ? bodies[0]!.body : bodies.map((b) => `${b.who}: ${b.body}`).join('\n\n');
+  return {
+    id: asking.map((r) => String(r.id ?? '')).sort().join(','),
+    reviewers,
+    ...(body ? { body: clipReviewText(body) } : {}),
+    comments: [],
+  };
+}
 
 /** One `gh pr list` item as a pull request. Pure. */
 export function mapGhItem(p: Record<string, unknown>): PullRequest {
   const login = p.author && typeof p.author === 'object' ? text((p.author as { login?: unknown }).login) : undefined;
   const readiness = githubReadiness(p.mergeStateStatus, p.mergeable);
+  const checks = checksOf(p.statusCheckRollup);
+  const state = stateOf(p.state, p.isDraft);
+  // Named only while it can still be fixed: a merged or closed request's failures are not asked about.
+  const active = state === 'open' || state === 'draft';
+  const named = checks === 'failing' && active;
+  const review = REVIEW[String(p.reviewDecision ?? '')] ?? 'none';
+  const asked = active && review === 'changes-requested' ? changesRequestedOf(p.latestReviews) : null;
   return {
+    ...(named ? { failedChecks: failedChecksOf(p.statusCheckRollup) } : {}),
+    ...(asked ? { changesRequested: asked } : {}),
     ...(text(p.headRefOid) ? { headSha: text(p.headRefOid) } : {}),
     ...(typeof p.url === 'string' && /^https:\/\//.test(p.url) ? { checksUrl: `${p.url}/checks` } : {}),
     ...(text(p.body) !== undefined ? { body: text(p.body) } : {}),
@@ -73,9 +126,9 @@ export function mapGhItem(p: Record<string, unknown>): PullRequest {
     ...(readiness !== 'unknown' ? { readiness } : {}),
     number: p.number as number,
     title: typeof p.title === 'string' ? p.title : `#${String(p.number)}`,
-    state: stateOf(p.state, p.isDraft),
-    checks: checksOf(p.statusCheckRollup),
-    review: REVIEW[String(p.reviewDecision ?? '')] ?? 'none',
+    state,
+    checks,
+    review,
     url: typeof p.url === 'string' && /^https:\/\//.test(p.url) ? p.url : '',
   };
 }
@@ -85,6 +138,57 @@ export function mapGhPullRequests(json: string): PullRequest[] {
   const parsed: unknown = JSON.parse(json);
   if (!Array.isArray(parsed)) throw new Error('gh did not answer with a list');
   return parsed.filter((p): p is Record<string, unknown> => typeof p === 'object' && p !== null && typeof p.number === 'number').map(mapGhItem);
+}
+
+export const reviewsArgs = (number: number): string[] => ['api', `repos/{owner}/{repo}/pulls/${number}/reviews?per_page=100`];
+export const reviewCommentsArgs = (number: number): string[] => ['api', `repos/{owner}/{repo}/pulls/${number}/comments?per_page=100`];
+
+/**
+ * `changes` with each asking review's link and the review comments left with them, from the REST
+ * reviews (`node_id` matches latestReviews' `id`) and the request's review comments. Pure.
+ */
+export function withReviewDetails(changes: ChangesRequest, reviewsJson: string, commentsJson: string): ChangesRequest {
+  const reviews: unknown = JSON.parse(reviewsJson);
+  const comments: unknown = JSON.parse(commentsJson);
+  if (!Array.isArray(reviews) || !Array.isArray(comments)) throw new Error('gh did not answer with lists of reviews and comments');
+  const ids = new Set(changes.id.split(','));
+  const asking = reviews.filter((r): r is Record<string, unknown> => typeof r === 'object' && r !== null && ids.has(String(r.node_id)));
+  const reviewIds = new Set(asking.map((r) => r.id));
+  const url = webUrl(asking.at(-1)?.html_url);
+  const left: ReviewComment[] = comments
+    .filter((c): c is Record<string, unknown> => typeof c === 'object' && c !== null && reviewIds.has(c.pull_request_review_id) && typeof c.body === 'string')
+    .slice(0, REVIEW_COMMENTS_KEPT)
+    .map((c) => {
+      const line = typeof c.line === 'number' ? c.line : typeof c.original_line === 'number' ? c.original_line : undefined;
+      return { body: clipReviewText(String(c.body)), ...(text(c.path) ? { path: text(c.path) } : {}), ...(line !== undefined && Number.isInteger(line) && line >= 0 ? { line } : {}), ...(webUrl(c.html_url) ? { url: webUrl(c.html_url) } : {}) };
+    });
+  return { ...changes, ...(url ? { url } : {}), comments: left };
+}
+
+/** How many sets of reviews' details are remembered. */
+const REVIEW_DETAILS_KEPT = 50;
+
+/**
+ * The details of the reviews that ask for changes, asked once per set of reviews and remembered; when
+ * gh cannot say, the request keeps what the list gave (who, and what they wrote) and is not asked again.
+ */
+function reviewDetailsLookup(runner: CommandRunner) {
+  let kept: ReadonlyMap<string, ChangesRequest> = new Map();
+  return async (cwd: string, number: number, changes: ChangesRequest): Promise<ChangesRequest> => {
+    const key = `${cwd}\n${number}\n${changes.id}`;
+    const known = kept.get(key);
+    if (known) return known;
+    let found = changes;
+    try {
+      const ask = async (args: string[]) => (await runner('gh', args, { cwd, timeoutMs: GH_TIMEOUT_MS })).stdout;
+      found = withReviewDetails(changes, await ask(reviewsArgs(number)), await ask(reviewCommentsArgs(number)));
+    } catch {
+      // Kept as the list gave it.
+    }
+    const next = new Map(kept).set(key, found);
+    kept = next.size > REVIEW_DETAILS_KEPT ? new Map([...next].slice(-REVIEW_DETAILS_KEPT)) : next;
+    return found;
+  };
 }
 
 /** Why gh could not answer, said plainly. */
@@ -98,6 +202,9 @@ export function ghFailureReason(error: unknown): string {
 }
 
 export function githubProvider(runner: CommandRunner = execRunner): PullRequestProvider {
+  const reviewDetails = reviewDetailsLookup(runner);
+  const detailed = (cwd: string, pr: PullRequest): Promise<PullRequest> | PullRequest =>
+    pr.changesRequested ? reviewDetails(cwd, pr.number, pr.changesRequested).then((changesRequested) => ({ ...pr, changesRequested })) : pr;
   return {
     async pullRequestsFor(repoPath, branch): Promise<Sourced<PullRequest[]>> {
       let stdout: string;
@@ -107,7 +214,8 @@ export function githubProvider(runner: CommandRunner = execRunner): PullRequestP
         return unavailable(ghFailureReason(error));
       }
       try {
-        return ready(mapGhPullRequests(stdout));
+        const mapped = mapGhPullRequests(stdout);
+        return ready(await Promise.all(mapped.map((pr) => detailed(repoPath, pr))));
       } catch (error) {
         return unavailable(`gh gave an answer Kestrel cannot read: ${reasonOf(error)}`);
       }

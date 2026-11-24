@@ -120,7 +120,7 @@ function stubSource(initial: NotifyNow) {
 }
 
 const session = (id: string, state: 'running' | 'done' | 'attention', note = '') => ({ id, title: `Session ${id}`, state, note });
-const nothing: NotifyNow = { sessions: [], links: [], reviewRequests: { requests: [], unread: [] }, tickets: { tickets: [], unread: [], sources: [], settings: { on: true, off: [], show: 'page' } } };
+const nothing: NotifyNow = { sessions: [], links: [], pullRequests: new Map(), reviewRequests: { requests: [], unread: [] }, tickets: { tickets: [], unread: [], sources: [], settings: { on: true, off: [], show: 'page' } } };
 
 describe('which phones are told', () => {
   it('each phone by its own choices; one with no choices is told everything; one with no token nothing', async () => {

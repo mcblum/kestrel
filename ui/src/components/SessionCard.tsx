@@ -22,6 +22,7 @@ import { openPullRequest } from '../sessionView.ts';
 import { useApp } from '../store.ts';
 import { CardOpenIn } from './CardOpenIn.tsx';
 import { CopyButton } from './CopyButton.tsx';
+import { useAttentionPrefs } from '../attentionPrefs.ts';
 import { useChangeCounts, usePullRequests } from './details/sources.ts';
 import { CHANGES_ICON } from './PaneToolbar.tsx';
 import { useRowDot } from './useRowDot.ts';
@@ -51,7 +52,7 @@ function ChangesLine({ session }: { session: SessionView }) {
 
 function RequestLine({ sessionId }: { sessionId: string }) {
   const lookup = usePullRequests(sessionId).value;
-  const icon = requestIcon(lookup);
+  const icon = requestIcon(lookup, useAttentionPrefs());
   const pr = lookup.state === 'ready' ? primaryPullRequest(lookup.value.pullRequests) : undefined;
   if (!icon || !pr) return null;
   return (

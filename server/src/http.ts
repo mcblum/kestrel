@@ -4,7 +4,7 @@ import { landingRoute, worktreesRoute } from './landing-api.ts';
 // HTTP and WebSocket API. Thin: checks access, validates input, calls the Workspace.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { isSelectableAgent, SELECTABLE_AGENTS, type Agent } from './model.ts';
+import { isSelectableAgent, SELECTABLE_AGENTS, type Agent, type ChatMessage } from './model.ts';
 import { isPermissionLevel } from './shared/permissions.ts';
 import { sanitize } from './shared/tabs.ts';
 import { existsSync, readFileSync, statSync } from 'node:fs';
@@ -36,9 +36,9 @@ import { savedActionsRoute } from './saved-actions/api.ts';
 import { resolveAction, type PreviewWait } from './saved-actions/run.ts';
 import { projectEnvRoute } from './project-env/api.ts';
 import { projectScriptsRoute } from './project-scripts/api.ts';
-import { scriptFailure } from './shared/project-scripts.ts';
 import { commandsKeptRoute } from './commands-kept/api.ts';
 import { delegationLimitsRoute } from './limits-api.ts';
+import { quitCheck } from './shared/quit-check.ts';
 import { commitSigningRoute } from './commit-signing/api.ts';
 import { crashReportsRoute } from './crash-reports/api.ts';
 import type { CrashReportSetup } from './shared/crash-reports.ts';
@@ -234,6 +234,15 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
     if (parts[0] !== 'api') return send(req, res, 404, { error: 'Not found' });
 
     if (method === 'GET' && parts[1] === 'state' && parts.length === 2) return send(req, res, 200, await currentStateJson());
+    // The shell's quit check (app/quit-guard.mjs): what quitting would stop, by the one rule (shared/quit-check.ts).
+    if (method === 'GET' && parts[1] === 'quit-check' && parts.length === 2) {
+      const state = await workspace.state();
+      const sessions = [...state.sessions, ...state.archived.sessions];
+      // The conversation of each session waiting on the user, to tell a paused turn from a finished one: the live copy where there is one.
+      const messages = new Map<string, readonly ChatMessage[] | undefined>();
+      for (const s of sessions) if (s.state === 'attention') messages.set(s.id, runtime?.overlay(s.id)?.messages ?? (await workspace.storedDetail(s.id))?.messages);
+      return send(req, res, 200, quitCheck(sessions, (id) => messages.get(id)));
+    }
 
     const connected = options.connect ? await connectRoute(parts, method, () => readJson(req), options.connect) : null;
     if (connected) return send(req, res, connected.status, connected.body);
@@ -590,10 +599,10 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
       const id = str(body.id, 'id', 100);
       // A session's own archive runs its project's archive script first; a failure stops the archive
       // and says why, and the same request with `skipScript` archives without it.
-      if (runtime && body.kind === 'session' && body.archived !== false && body.skipScript !== true) {
-        const outcome = await runtime.runArchiveScript(id);
-        const failure = outcome && scriptFailure('archive', outcome);
-        if (outcome && failure) return send(req, res, 409, { error: `${failure} The session was not archived.`, archiveScript: { output: outcome.tail } });
+      if (runtime && body.kind === 'session' && body.archived !== false) {
+        const failure = await runtime.archiveSession(id, body.skipScript === true);
+        if (failure) return send(req, res, 409, { error: failure.reason, archiveScript: { output: failure.output } });
+        return send(req, res, 204);
       }
       await workspace.setArchived(body.kind, id, body.archived !== false);
       return send(req, res, 204);

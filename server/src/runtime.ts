@@ -72,8 +72,13 @@ import { ColourPrefs } from './colours/prefs.ts';
 import { execRunner } from './pull-requests/github.ts';
 import type { ReviewRequest } from './shared/review-requests.ts';
 import { moveKind } from './suggestions/move-kind.ts';
+import { ARCHIVE_KIND, archiveKind } from './suggestions/archive-kind.ts';
 import { TICKET_KIND, ticketKind } from './suggestions/ticket-kind.ts';
 import { TICKET_WORK_KIND, ticketWorkKind } from './suggestions/ticket-work-kind.ts';
+import { REQUEST_KIND, requestKind } from './suggestions/request-kind.ts';
+import { AttentionWatch } from './pull-requests/attention-watch.ts';
+import type { PullRequestStore } from './pull-requests/store.ts';
+import { requestAttention } from './shared/request-attention.ts';
 import { ticketMention } from './shared/ticket-mention.ts';
 import { NO_SESSION_TICKETS, type SessionTickets } from './tickets/session.ts';
 import { ticketLead, ticketOf, type Ticket } from './shared/tickets.ts';
@@ -95,7 +100,7 @@ import { GitDefaultsPrefs } from './git-defaults/prefs.ts';
 import { SavedActionsPrefs } from './saved-actions/prefs.ts';
 import { ProjectScriptsPrefs } from './project-scripts/prefs.ts';
 import { runArchive, type ScriptsHost } from './runtime/project-scripts.ts';
-import type { ScriptOutcome } from './shared/project-scripts.ts';
+import { scriptFailure, type ScriptOutcome } from './shared/project-scripts.ts';
 import { clock, isWorking, lastAgentTextOf, noteFromText, type Live } from './runtime/record.ts';
 import { SessionWorktrees } from './runtime/session-worktrees.ts';
 import { assertPlainFolderFree, interruptAfterRestart } from './runtime/start-options.ts';
@@ -143,6 +148,9 @@ export class SessionRuntime implements McpSessions {
   readonly titler: Titler;
   readonly suggestions: Suggestions;
   private readonly stopReviewOffer: () => void;
+  /** The PR store, once handed over (`watchRequestAttention`): what the failed-checks card reads. */
+  private requestStore: PullRequestStore | null = null;
+  private attentionWatch: AttentionWatch | null = null;
   /** Adds a comment to a pull request (pull-requests/create.ts `commentOnPR`); tests pass their own. */
   private readonly requestComment: NonNullable<RuntimeOptions['requestComment']>;
   /** Settings → Git: the branch name prefix new worktrees get (git-settings/prefs.ts). */
@@ -251,6 +259,7 @@ export class SessionRuntime implements McpSessions {
       now: () => this.now(),
       roundReview: (id, args) => this.delegation.handOverRound(id, args),
       diffAnchors: reviewAnchors,
+      approved: (id, request) => void this.approvalPosted(id, request).catch((error: unknown) => console.error('[kestrel] could not offer to archive the review session', error)),
     });
     this.findingActions = new FindingActions({
       messages: (id) => this.records.get(id)?.messages ?? [],
@@ -307,6 +316,24 @@ export class SessionRuntime implements McpSessions {
           moveTo: (key, category) => this.tickets.moveTo(key, category),
           moveBack: (key, to) => this.tickets.moveBack(key, to),
           comment: (key, body) => this.tickets.comment(key, body),
+        }),
+        archiveKind({
+          answer: async () => (await this.reviewPrefs.current()).afterApproval,
+          setAnswer: async (afterApproval) => void (await this.reviewPrefs.set({ afterApproval })),
+          archive: async (id) => {
+            const failure = await this.archiveSession(id);
+            if (failure) throw new Refused(failure.reason);
+          },
+          restore: (id) => workspace.setArchived('session', id, false),
+        }),
+        requestKind({
+          send: (id, text) => this.reply(id, text),
+          current: async (id) => {
+            const lookup = this.requestStore?.peek(id);
+            return lookup?.state === 'ready' ? requestAttention(lookup, await this.gitPrefs.attention()) : undefined;
+          },
+          prefs: () => this.gitPrefs.attention(),
+          stopOffering: (reason) => this.gitPrefs.setAttention({ reason, card: 'never' }),
         }),
         ticketWorkKind({
           attach: (id, key, from) => this.ticketTaken(id, key, from),
@@ -399,6 +426,7 @@ export class SessionRuntime implements McpSessions {
       turnComplete: (id) => {
         void this.proposeTicketFinished(id).catch((error: unknown) => console.error('[kestrel] could not propose the ticket’s summary', error));
         void this.startWaitingReview(id);
+        void this.offerWaitingArchive(id);
       },
       endRunning: (id) => this.endRunning(id),
       idle: (id) => this.idle(id),
@@ -615,11 +643,15 @@ export class SessionRuntime implements McpSessions {
    * Start reviewing a request somebody asked the user to review, or give back the review already
    * started (review-requests/start.ts): a session in the request's project, at the request's commit.
    */
-  startReview(request: ReviewRequest, opts: StartReviewOptions = {}): Promise<Session> {
-    return startReview(
+  async startReview(request: ReviewRequest, opts: StartReviewOptions = {}): Promise<Session> {
+    const session = await startReview(
       {
         projects: async () => (await this.workspace.state()).projects,
-        sessions: async () => (await this.workspace.state()).sessions,
+        // Archived ones too: a request has one review session, and one archived after an approval is brought back rather than a second made.
+        sessions: async () => {
+          const state = await this.workspace.state();
+          return [...state.sessions, ...state.archived.sessions];
+        },
         originOf: originUrl,
         git,
         byNumber: (host) => (host === 'github' ? githubByNumber() : gitlabByNumber()),
@@ -636,6 +668,8 @@ export class SessionRuntime implements McpSessions {
       request,
       opts,
     );
+    if ((await this.workspace.state()).archived.sessions.some((s) => s.id === session.id)) await this.workspace.setArchived('session', session.id, false);
+    return session;
   }
 
   /**
@@ -894,6 +928,21 @@ export class SessionRuntime implements McpSessions {
   }
 
   /**
+   * Archive a session as the user's archive does: its project's archive script first (unless
+   * `skipScript`), then the workspace's archive, whose refusal (still working or waiting) is thrown
+   * as it is. A failed script stops it: what failed, and the script's output, are returned.
+   */
+  async archiveSession(sessionId: string, skipScript = false): Promise<{ reason: string; output: string } | null> {
+    if (!skipScript) {
+      const outcome = await this.runArchiveScript(sessionId);
+      const failure = outcome && scriptFailure('archive', outcome);
+      if (outcome && failure) return { reason: `${failure} The session was not archived.`, output: outcome.tail };
+    }
+    await this.workspace.setArchived('session', sessionId, true);
+    return null;
+  }
+
+  /**
    * Before a session is archived: its project's archive script, run in its worktree. Null when there
    * is nothing to run, or the session is still working (archiving is refused for that anyway).
    */
@@ -910,7 +959,30 @@ export class SessionRuntime implements McpSessions {
     return interruptAfterRestart(this.workspace);
   }
 
+  /**
+   * Raise and withdraw the cards about a pull request that needs the user from the PR store's answers
+   * and Settings → Git (pull-requests/attention-watch.ts).
+   * Called once, by the server, with the one store.
+   */
+  watchRequestAttention(store: PullRequestStore): AttentionWatch {
+    this.requestStore = store;
+    this.attentionWatch?.stop();
+    this.attentionWatch = new AttentionWatch({
+      sessions: async () => (await this.workspace.state()).sessions,
+      lookup: (id) => store.peek(id),
+      prefs: () => this.gitPrefs.attention(),
+      onChange: (listener) => {
+        const offs = [this.workspace.onChange(listener), store.onChange(() => listener()), this.gitPrefs.onAttentionChange(() => listener())];
+        return () => offs.forEach((off) => off());
+      },
+      raise: (id, card) => this.suggestions.suggest(id, { kind: REQUEST_KIND, ...card }),
+      withdraw: (id, line) => this.suggestions.settle(id, REQUEST_KIND, (payload) => line(payload) !== null, (payload) => line(payload) ?? ''),
+    });
+    return this.attentionWatch;
+  }
+
   async shutdown(): Promise<void> {
+    this.attentionWatch?.stop();
     this.stopKeepAwake();
     this.stopReviewOffer();
     this.stopMergeCleanup();
@@ -1076,6 +1148,41 @@ export class SessionRuntime implements McpSessions {
     if (this.formRequests.delete(sessionId)) return;
     if (link.state !== 'open' && link.state !== 'draft') return;
     void this.suggestions.suggest(sessionId, { kind: REVIEW_KIND });
+  }
+
+  /** Review sessions whose approval was posted while they were on a turn or waiting on the user, by the request's name: the archive offer comes when the turn ends. */
+  private readonly archivesWaiting = new Map<string, string>();
+  /** Whether the user dismissed a review request, by its key (the review request store's); none until index.ts hands it over. */
+  private reviewDismissed: (key: string) => boolean = () => false;
+
+  useReviewDismissed(isDismissed: (key: string) => boolean): void {
+    this.reviewDismissed = isDismissed;
+  }
+
+  /**
+   * The user's approval of somebody else's pull request was posted from this review session: its work
+   * is done, so archiving it is offered (suggestions/archive-kind.ts), or done at once where the user
+   * chose that. Not for a request the user dismissed. A session still on a turn or waiting on the user
+   * cannot be archived, so the offer waits for the turn to end.
+   */
+  async approvalPosted(sessionId: string, request: string): Promise<void> {
+    const session = (await this.workspace.state()).sessions.find((s) => s.id === sessionId);
+    if (!session?.review || this.reviewDismissed(session.review.key)) return;
+    if (session.state === 'running' || session.state === 'attention') {
+      this.archivesWaiting.set(sessionId, request);
+      return;
+    }
+    await this.suggestions.suggest(sessionId, { kind: ARCHIVE_KIND, request });
+  }
+
+  /** A turn ended: the archive offer that waited for it is made, unless the session still waits on the user. */
+  private async offerWaitingArchive(sessionId: string): Promise<void> {
+    const request = this.archivesWaiting.get(sessionId);
+    if (request === undefined) return;
+    const session = (await this.workspace.state()).sessions.find((s) => s.id === sessionId);
+    if (session?.state === 'running' || session?.state === 'attention') return;
+    this.archivesWaiting.delete(sessionId);
+    if (session) await this.approvalPosted(sessionId, request).catch((error: unknown) => console.error('[kestrel] could not offer to archive the review session', error));
   }
 
   /** Sessions whose review was agreed while they were still on a turn: it starts when that turn ends. */

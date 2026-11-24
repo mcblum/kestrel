@@ -1,7 +1,9 @@
 // The Overview's sections: which one each session is listed in, in what order, and what the intro
 // line counts. Pure, shared with the UI. Every session the Overview lists is in exactly one section,
 // in this order, by what asks for the user first:
-//   Needs you       waiting on the user (a question, an approval, a failure); longest waiting first
+//   Needs you       waiting on the user (a question, an approval, a failure), or idle with a pull
+//                   request that needs them (its checks failed: shared/request-attention.ts); longest
+//                   waiting first
 //   Unread          finished since the user last looked: the sidebar's green dot (unread.ts), so a
 //                   session is unread here exactly when its dot is; opening it moves it on
 //   Working         an agent is running
@@ -21,11 +23,15 @@ export const RECENT_DONE = 5;
 
 type Listed = Pick<SessionView, 'id' | 'updatedAt' | 'lastActivityAt'> & Statused;
 
-/** The one section a session is listed in. */
-export function overviewSection(session: Listed, seen: Seen | null): OverviewSection {
+/**
+ * The one section a session is listed in. `requestNeedsYou`: its pull request needs the user
+ * (`attentionBySession`, which already holds it back while the session works).
+ */
+export function overviewSection(session: Listed, seen: Seen | null, requestNeedsYou = false): OverviewSection {
   const status = statusOf(session);
   if (status === 'needs-you' || status === 'failed') return 'needs-you';
   if (status === 'working') return 'working';
+  if (requestNeedsYou) return 'needs-you';
   if (sessionDot(session, seen) === 'unread') return 'unread';
   return status === 'stopped' ? 'done' : status;
 }
@@ -36,12 +42,13 @@ export interface OverviewSections<T> {
   counts: Record<OverviewSection, number>;
 }
 
+const NONE: ReadonlyMap<string, unknown> = new Map();
 const newest = (a: { updatedAt: number }, b: { updatedAt: number }) => b.updatedAt - a.updatedAt;
 
-/** The sessions sorted into sections: needs you waiting longest first, the rest newest first. */
-export function overviewSections<T extends Listed>(sessions: readonly T[], seen: Seen | null): OverviewSections<T> {
+/** The sessions sorted into sections: needs you waiting longest first, the rest newest first. `attention`: the sessions whose pull request needs the user, by id. */
+export function overviewSections<T extends Listed>(sessions: readonly T[], seen: Seen | null, attention: ReadonlyMap<string, unknown> = NONE): OverviewSections<T> {
   const rows = Object.fromEntries(OVERVIEW_SECTIONS.map((k) => [k, [] as T[]])) as Record<OverviewSection, T[]>;
-  for (const s of sessions) rows[overviewSection(s, seen)].push(s);
+  for (const s of sessions) rows[overviewSection(s, seen, attention.has(s.id))].push(s);
   const counts = Object.fromEntries(OVERVIEW_SECTIONS.map((k) => [k, rows[k].length])) as Record<OverviewSection, number>;
   for (const k of OVERVIEW_SECTIONS) rows[k].sort(k === 'needs-you' ? (a, b) => -newest(a, b) : newest);
   rows.done = rows.done.slice(0, RECENT_DONE);

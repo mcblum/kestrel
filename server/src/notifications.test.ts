@@ -55,7 +55,7 @@ describe('what the user is told about', () => {
   });
 
   it('only the events switched on', () => {
-    const prefs = { ...DEFAULT_NOTIFY, events: { 'needs-you': true, failed: false, done: false, 'review-request': false, ticket: false } };
+    const prefs = { ...DEFAULT_NOTIFY, events: { 'needs-you': true, failed: false, done: false, 'review-request': false, ticket: false, 'pull-request': false } };
     const before = [session('a', 'running'), session('b', 'running')];
     expect(told(before, [session('a', 'done'), session('b', 'attention', 'Needs you · ?')], { prefs }).map(([kind]) => kind)).toEqual(['needs-you']);
   });
@@ -68,11 +68,11 @@ describe('what the user is told about', () => {
 
 describe('the settings', () => {
   it('are on for all three with no sound until changed, and say when nothing is on', () => {
-    expect(DEFAULT_NOTIFY).toEqual({ enabled: true, banner: true, sound: 'none', events: { 'needs-you': true, failed: true, done: true, 'review-request': true, ticket: true } });
+    expect(DEFAULT_NOTIFY).toEqual({ enabled: true, banner: true, sound: 'none', events: { 'needs-you': true, failed: true, done: true, 'review-request': true, ticket: true, 'pull-request': true } });
     expect(notifies(DEFAULT_NOTIFY)).toBe(true);
     expect(notifies({ ...DEFAULT_NOTIFY, banner: false })).toBe(false);
     expect(notifies({ ...DEFAULT_NOTIFY, banner: false, sound: 'ping' })).toBe(true);
-    expect(notifies({ ...DEFAULT_NOTIFY, events: { 'needs-you': false, failed: false, done: false, 'review-request': false, ticket: false } })).toBe(false);
+    expect(notifies({ ...DEFAULT_NOTIFY, events: { 'needs-you': false, failed: false, done: false, 'review-request': false, ticket: false, 'pull-request': false } })).toBe(false);
   });
 
   it('refuse what they cannot use, with the reason, and read back anything unreadable as the default', () => {
@@ -80,7 +80,7 @@ describe('the settings', () => {
     expect(notifyProblem({ ...DEFAULT_NOTIFY, sound: 'gong' })).toBe('sound must be one of: none, chime, ping, pop.');
     expect(notifyProblem({ banner: 'yes', sound: 'none', events: {} })).toBe('banner must be true or false.');
     expect(notifyProblem({ banner: true, sound: 'none', events: { done: true } })).toMatch(/events must say true or false/);
-    expect(sanitizeNotify({ banner: false, sound: 'gong', events: { done: false } })).toEqual({ enabled: true, banner: false, sound: 'none', events: { 'needs-you': true, failed: true, done: false, 'review-request': true, ticket: true } });
+    expect(sanitizeNotify({ banner: false, sound: 'gong', events: { done: false } })).toEqual({ enabled: true, banner: false, sound: 'none', events: { 'needs-you': true, failed: true, done: false, 'review-request': true, ticket: true, 'pull-request': true } });
   });
 
   it('are served and stored over HTTP', async () => {
@@ -88,7 +88,7 @@ describe('the settings', () => {
     const route = (method: string, body: Record<string, unknown> = {}) => notificationsRoute(['api', 'notifications'], method, async () => body, store);
     expect(await route('GET')).toEqual({ status: 200, body: { prefs: DEFAULT_NOTIFY } });
     expect(await route('PUT', { banner: true })).toMatchObject({ status: 400 });
-    const quiet = { banner: false, sound: 'chime', events: { 'needs-you': true, failed: true, done: false, 'review-request': true, ticket: true } };
+    const quiet = { banner: false, sound: 'chime', events: { 'needs-you': true, failed: true, done: false, 'review-request': true, ticket: true, 'pull-request': true } };
     expect(await route('PUT', quiet)).toEqual({ status: 200, body: { prefs: { enabled: true, ...quiet } } });
     expect(await store.prefs()).toEqual({ enabled: true, ...quiet });
     expect(await notificationsRoute(['api', 'other'], 'GET', async () => ({}), store)).toBeNull();
@@ -167,7 +167,7 @@ describe('told, or never told (0.0.23)', () => {
     expect(tellsSomehow({ banner: false, sound: 'ping' })).toBe(true);
     expect(tellsSomehow({ banner: false, sound: 'none' })).toBe(false);
     expect(silentReason({ ...DEFAULT_NOTIFY, banner: false })).toBe('Nothing will tell you: turn on the desktop notification or pick a sound.');
-    expect(silentReason({ ...DEFAULT_NOTIFY, events: { 'needs-you': false, failed: false, done: false, 'review-request': false, ticket: false } })).toMatch(/Nothing is ticked/);
+    expect(silentReason({ ...DEFAULT_NOTIFY, events: { 'needs-you': false, failed: false, done: false, 'review-request': false, ticket: false, 'pull-request': false } })).toMatch(/Nothing is ticked/);
     expect(silentReason(DEFAULT_NOTIFY)).toBeNull();
     // Turned off on purpose is not a mistake to point out.
     expect(silentReason({ ...off, banner: false })).toBeNull();
@@ -202,7 +202,7 @@ describe('a ticket newly assigned', () => {
     expect(ticketNotifyEvents(before, view([t('A-1'), t('A-2')], { on: false }), DEFAULT_NOTIFY)).toEqual([]);
     expect(ticketNotifyEvents(before, view([t('A-1'), t('A-2')], { unread: [] }), DEFAULT_NOTIFY)).toEqual([]);
     expect(ticketNotifyEvents(before, view([t('A-1')]), DEFAULT_NOTIFY)).toEqual([]); // a dismissed ticket is not listed
-    expect(ticketNotifyEvents(before, view([t('A-1'), t('A-2')]), { ...DEFAULT_NOTIFY, events: { ...DEFAULT_NOTIFY.events, ticket: false } })).toEqual([]);
+    expect(ticketNotifyEvents(before, view([t('A-1'), t('A-2')]), { ...DEFAULT_NOTIFY, events: { ...DEFAULT_NOTIFY.events, ticket: false, 'pull-request': false } })).toEqual([]);
   });
 
   it('is on by default, and settings from before it keep it on', () => {
@@ -220,6 +220,7 @@ describe('one rule for the window and for push (Kestrel Connect phase 6)', () =>
   const now = (sessions: S[], requests: string[], tickets: string[]) => ({
     sessions,
     links: [],
+    pullRequests: new Map(),
     reviewRequests: { requests: requests.map(request), unread: requests },
     tickets: { tickets: tickets.map(ticket), unread: tickets.map((t) => `fake:${t}`), sources: ['fake'], settings: { on: true, off: [], show: 'page' as const } },
   });

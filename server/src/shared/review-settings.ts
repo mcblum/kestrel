@@ -4,6 +4,7 @@
 // Pure and browser-safe.
 import type { PermissionLevel } from './permissions.ts';
 import { isReviewPermission, REVIEW_PERMISSION, type ReviewRequest } from './review-requests.ts';
+import { isAfterApproval, type AfterApproval } from './archive-approved.ts';
 
 /**
  * `off`: no host is asked. `list`: requests are listed. `start`: a review also starts on its own.
@@ -60,12 +61,14 @@ export interface ReviewSettings {
   permission: PermissionLevel;
   /** How to review and how to write it up, in the user's own words; '' for Kestrel's (`DEFAULT_REVIEW_INSTRUCTIONS`). */
   instructions: string;
+  /** What is done with a review session once the user's approval of its request was posted (shared/archive-approved.ts). */
+  afterApproval: AfterApproval;
 }
 
 /** The part that decides what Kestrel does on its own: all the starting and replying rules read. */
 export type ReviewAutomation = Pick<ReviewSettings, 'mode' | 'projects'>;
 
-export const DEFAULT_REVIEW_SETTINGS: ReviewSettings = { mode: 'list', projects: 'all', show: 'page', sidebarLimit: SIDEBAR_LIMIT.initial, announce: false, permission: REVIEW_PERMISSION, instructions: '' };
+export const DEFAULT_REVIEW_SETTINGS: ReviewSettings = { mode: 'list', projects: 'all', show: 'page', sidebarLimit: SIDEBAR_LIMIT.initial, announce: false, permission: REVIEW_PERMISSION, instructions: '', afterApproval: 'ask' };
 
 /**
  * How a review is done and written up, unless the user wrote their own (Settings → Code reviews →
@@ -127,6 +130,7 @@ export function sanitizeReviewSettings(raw: unknown): ReviewSettings {
     announce: r.announce === true,
     permission: isReviewPermission(r.permission) ? r.permission : DEFAULT_REVIEW_SETTINGS.permission,
     instructions: typeof r.instructions === 'string' && instructionsProblem(r.instructions) === null ? r.instructions : '',
+    afterApproval: isAfterApproval(r.afterApproval) ? r.afterApproval : DEFAULT_REVIEW_SETTINGS.afterApproval,
   };
 }
 

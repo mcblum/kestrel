@@ -208,13 +208,15 @@ runtime.useTickets(
 // The Tickets routes, for the window and a phone of the account alike (tickets/api.ts).
 const ticketsApi = { store: tickets, sync: ticketSync, work: ticketWork, jira, linear, sources: () => sourcesOfTickets.status() };
 // Kestrel Connect (connect/link/): signed in and switched on in Settings, it links to the relay.
-const connect = await startConnect({ dataDir, settings: db, fake, workspace, runtime, reviewRequests, tickets, ticketsApi, vaultKey });
+const connect = await startConnect({ dataDir, settings: db, fake, workspace, runtime, reviewRequests, tickets, ticketsApi, pullRequests: details.store, vaultKey });
 const app = createKestrelServer(workspace, { token, allowedOrigins: uiOrigins, port }, runtime, { details: { sources: details, sample: fake }, writers: titles, reviewRequests, tickets: ticketsApi, crashReporting, connect });
 watchedNow = () => app.watched();
 checkTickets = () => void ticketSync.check();
 await app.listen();
 // The one copy of every session's pull requests, kept current and pushed to every window.
 const pullRequestSync = syncPullRequests(workspace, details, fake, () => app.watched(), (sessionId) => app.watching(sessionId));
+// The cards about a pull request that needs the user, from the same store (suggestions/request-kind.ts).
+runtime.watchRequestAttention(details.store);
 // The requests the user was asked to review, asked of each host the projects are on and pushed.
 // With fake data they are samples, and no host is asked.
 const seedSampleReviews = async (): Promise<void> => {
@@ -244,14 +246,18 @@ const seedSampleReviews = async (): Promise<void> => {
   // that hands over a sample review), so the review card can be seen. It has no project or worktree.
   const scriptedReview = samples[2];
   if (scripted && scriptedReview && !state.sessions.some((s) => s.review?.key === scriptedReview.key)) {
-    await runtime.start({ agent: 'claude', projectId: null, prompt: '/review', title: reviewSessionTitle(scriptedReview.title), review: { key: scriptedReview.key, host: scriptedReview.host, number: scriptedReview.number, sha: '9ab3c1d27e4f5a60b1c2d3e4f5a6b7c8d9e0f1a2', url: scriptedReview.url } });
+    const session = await runtime.start({ agent: 'claude', projectId: null, prompt: '/review', title: reviewSessionTitle(scriptedReview.title), review: { key: scriptedReview.key, host: scriptedReview.host, number: scriptedReview.number, sha: '9ab3c1d27e4f5a60b1c2d3e4f5a6b7c8d9e0f1a2', url: scriptedReview.url } });
+    // SAMPLE: as if its approval had been posted (it has no worktree to post from), so the offer to archive it can be seen when its turn ends.
+    await runtime.approvalPosted(session.id, `#${scriptedReview.number}`);
   }
 };
 if (fake && reviewSettings.mode !== 'off') await seedSampleReviews();
 const reviewRequestSync = fake ? null : syncReviewRequests(workspace, { github: githubReviewRequests(), gitlab: gitlabReviewRequests(), glabSignIn: sharedGlabSignIn, originOf: originUrl }, reviewRequests, () => app.watched() && reviewSettings.mode !== 'off');
 // Reviews that start on their own: whenever the list changes, and every few seconds, since a
 // review that finishes frees a place for one that waited.
-const reviewStarts = reviewStarter({ settings: () => reviewPrefs.current(), sessions: async () => (await workspace.state()).sessions, start: (request) => runtime.startReview(request, { automatic: true }) }, reviewRequests);
+runtime.useReviewDismissed((key) => reviewRequests.isDismissed(key));
+// Archived review sessions count: a request whose review was archived after an approval is not started again.
+const reviewStarts = reviewStarter({ settings: () => reviewPrefs.current(), sessions: async () => { const state = await workspace.state(); return [...state.sessions, ...state.archived.sessions]; }, start: (request) => runtime.startReview(request, { automatic: true }) }, reviewRequests);
 reviewRequests.onChange(() => void reviewStarts.run());
 const reviewStartTimer = setInterval(() => void reviewStarts.run(), REVIEW_CHECK_MS);
 reviewPrefs.onChange((next) => {

@@ -11,6 +11,7 @@ import { bannerProblem, DEFAULT_NOTIFY, NOTHING_SEEN, sanitizeNotify, notifies, 
 import { ready, type Sourced } from '@kestrel/server/sourced';
 import { openSession, openView } from './route.ts';
 import { playSound } from './sounds.ts';
+import { heldAttentionPrefs } from './attentionPrefs.ts';
 import { appStore, call, putResource } from './store.ts';
 import { activeTab, tabsView } from './tabsStore.ts';
 
@@ -88,7 +89,7 @@ function show(event: NotifyEvent, prefs: NotifyPrefs): void {
 }
 
 /** What the last look saw (shared/notifications.ts); nothing until the server's first push, so what was already there is never news. */
-let seen: { rule: NotifySeen; sessions: unknown; reviewRequests: unknown; tickets: unknown } = { rule: NOTHING_SEEN, sessions: null, reviewRequests: null, tickets: null };
+let seen: { rule: NotifySeen; sessions: unknown; reviewRequests: unknown; tickets: unknown; pullRequests: unknown } = { rule: NOTHING_SEEN, sessions: null, reviewRequests: null, tickets: null, pullRequests: null };
 let asked = false;
 
 function check(): void {
@@ -100,12 +101,12 @@ function check(): void {
     asked = true;
     void call<NotifyAnswer>(NOTIFICATIONS_PATH).then((answer) => putResource(NOTIFICATIONS_PATH, asNotifyPrefs(answer)), () => void (asked = false));
   }
-  if (seen.sessions === ws.sessions && seen.reviewRequests === state.reviewRequests && seen.tickets === state.tickets) return;
+  if (seen.sessions === ws.sessions && seen.reviewRequests === state.reviewRequests && seen.tickets === state.tickets && seen.pullRequests === state.pullRequests) return;
   const prefs = heldPrefs();
   const tab = tabsView().loaded ? activeTab(tabsView()) : undefined;
   // The one rule, which the desk's push sender also runs (server/src/connect/link/push.ts).
-  const next = notificationsOf(seen.rule, { sessions: ws.sessions, links: ws.links, reviewRequests: state.reviewRequests, tickets: state.tickets }, prefs, { focused: document.hasFocus(), openSessionId: tab?.kind === 'session' ? tab.sessionId : null });
-  seen = { rule: next.seen, sessions: ws.sessions, reviewRequests: state.reviewRequests, tickets: state.tickets };
+  const next = notificationsOf(seen.rule, { sessions: ws.sessions, links: ws.links, pullRequests: state.pullRequests, attention: heldAttentionPrefs(), reviewRequests: state.reviewRequests, tickets: state.tickets }, prefs, { focused: document.hasFocus(), openSessionId: tab?.kind === 'session' ? tab.sessionId : null });
+  seen = { rule: next.seen, sessions: ws.sessions, reviewRequests: state.reviewRequests, tickets: state.tickets, pullRequests: state.pullRequests };
   if (!notifies(prefs) || next.events.length === 0) return;
   next.events.forEach((event) => show(event, prefs));
   playSound(prefs.sound); // once, however many things changed in this push

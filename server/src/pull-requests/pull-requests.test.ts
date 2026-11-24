@@ -96,7 +96,7 @@ describe('the GitHub provider', () => {
   it('runs gh with an argument list in the repository, with a timeout', async () => {
     const gh = fakeGh({ stdout: '[]' });
     expect(await githubProvider(gh.runner).pullRequestsFor('/repo', 'feat/x')).toEqual(ready([]));
-    expect(gh.calls).toEqual([{ command: 'gh', args: ['pr', 'list', '--head=feat/x', '--state', 'all', '--json', 'number,title,state,isDraft,url,reviewDecision,statusCheckRollup,body,author,headRefName,baseRefName,mergeStateStatus,mergeable,headRefOid'], cwd: '/repo', timeoutMs: 10_000 }]);
+    expect(gh.calls).toEqual([{ command: 'gh', args: ['pr', 'list', '--head=feat/x', '--state', 'all', '--json', 'number,title,state,isDraft,url,reviewDecision,statusCheckRollup,body,author,headRefName,baseRefName,mergeStateStatus,mergeable,headRefOid,latestReviews'], cwd: '/repo', timeoutMs: 10_000 }]);
   });
   it('says when gh is missing, not signed in, too slow, or answers nonsense', async () => {
     const ask = async (outcome: { stdout: string } | { error: object }) => githubProvider(fakeGh(outcome).runner).pullRequestsFor('/repo', 'b');

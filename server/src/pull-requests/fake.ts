@@ -21,20 +21,65 @@ import type { PullRequestProvider } from './types.ts';
 const SAMPLE: Readonly<Record<string, readonly PullRequest[]>> = {
   // "Make search feel instant": one open pull request, checks still running.
   'feat/instant-search': [{ number: 412, title: 'Make search feel instant', state: 'open', checks: 'running', review: 'review-required', url: 'https://github.com/example/bellbird/pull/412' }],
-  // "Keyboard shortcuts": an earlier one merged, a follow-up still a draft.
+  // "Keyboard shortcuts": an earlier one merged, a follow-up still a draft that conflicts with main, so
+  // the finished session shows the request mark, Overview line and notification for one reason
+  // (shared/request-attention.ts).
   'feat/shortcuts': [
-    { number: 398, title: 'Keyboard shortcuts: follow-up for the command palette', state: 'draft', checks: 'failing', review: 'none', url: 'https://github.com/example/bellbird/pull/398' },
+    {
+      number: 398,
+      title: 'Keyboard shortcuts: follow-up for the command palette',
+      state: 'draft',
+      checks: 'passing',
+      review: 'none',
+      readiness: 'conflicts',
+      url: 'https://github.com/example/bellbird/pull/398',
+      checksUrl: 'https://github.com/example/bellbird/pull/398/checks',
+      headSha: '5be1a0d47c2e9f13b8a6d0e4c7f2a91b3d8e6c05',
+      headBranch: 'feat/shortcuts',
+      baseBranch: 'main',
+    },
     { number: 377, title: 'Keyboard shortcuts for switching sessions', state: 'merged', checks: 'passing', review: 'approved', url: 'https://github.com/example/bellbird/pull/377' },
   ],
   // "Fix partial writes in the search index" (done, so no dot once looked at): open and ready to
   // merge, so the sidebar's request icon can be seen, in green.
   'kestrel/index-atomic-writes': [{ number: 419, title: 'Fix partial writes in the search index', state: 'open', checks: 'passing', review: 'approved', readiness: 'ready', url: 'https://github.com/example/platform/pull/419' }],
   // "Polish the sign-in form": opened by its Design guest, which works in its worktree, so the host
-  // and the guest show this one request (shared/working-tree.ts).
-  'feat/sign-in-polish': [{ number: 431, title: 'Polish the sign-in form', state: 'open', checks: 'running', review: 'review-required', url: 'https://github.com/example/bellbird/pull/431' }],
+  // and the guest show this one request (shared/working-tree.ts). Its checks failed and a reviewer asked
+  // for changes: both rows show the mark, and only the host is listed on the Overview, with one line
+  // naming both (shared/request-attention.ts). A sample session has no agent behind it, so it takes no
+  // card; suggestions/request-kind.test.ts shows the cards.
+  'feat/sign-in-polish': [
+    {
+      number: 431,
+      title: 'Polish the sign-in form',
+      state: 'open',
+      checks: 'failing',
+      review: 'changes-requested',
+      url: 'https://github.com/example/bellbird/pull/431',
+      checksUrl: 'https://github.com/example/bellbird/pull/431/checks',
+      headSha: 'e41f09b2c7d35a8e6f1b0c94d2a7e53f8b6c1d20',
+      headBranch: 'feat/sign-in-polish',
+      baseBranch: 'main',
+      failedChecks: [
+        { name: 'lint', url: 'https://github.com/example/bellbird/actions/runs/8840/job/24410' },
+        { name: 'test', url: 'https://github.com/example/bellbird/actions/runs/8840/job/24411' },
+      ],
+      changesRequested: {
+        id: 'PRR_sample431',
+        reviewers: ['sam-reviewer'],
+        url: 'https://github.com/example/bellbird/pull/431#pullrequestreview-9001',
+        body: 'Close, but the error state needs work before this goes in.',
+        comments: [
+          { body: 'The error text should sit under the field, not above the button.', path: 'src/sign-in/Form.tsx', line: 88, url: 'https://github.com/example/bellbird/pull/431#discussion_r9101' },
+          { body: 'Please keep the old aria-describedby so screen readers still read the hint.', path: 'src/sign-in/Form.tsx', line: 112, url: 'https://github.com/example/bellbird/pull/431#discussion_r9102' },
+        ],
+      },
+    },
+  ],
   // "Billing migration": open and ready on its current branch; the two below came from earlier branches.
   'feat/billing-v2': [{ number: 421, title: 'Billing v2: switch reads behind the flag', state: 'open', checks: 'passing', review: 'approved', readiness: 'ready', url: 'https://github.com/example/platform/pull/421' }],
-  'feat/billing-backfill': [{ number: 406, title: 'Billing v2: backfill existing accounts', state: 'open', checks: 'failing', review: 'review-required', readiness: 'blocked', url: 'https://github.com/example/platform/pull/406' }],
+  // Shared with "Background job retries", which is working: its failed checks are held until the turn ends.
+  'feat/billing-backfill': [{ number: 406, title: 'Billing v2: backfill existing accounts', state: 'open', checks: 'failing', review: 'review-required', readiness: 'blocked', url: 'https://github.com/example/platform/pull/406', headSha: '9d41c7e2a0b85f63e1d47a2c9b0e8f5d6a3c1b74', failedChecks: [{ name: 'migrate-check', url: 'https://github.com/example/platform/actions/runs/8790/job/24177' }] }],
   'feat/billing-schema': [{ number: 388, title: 'Billing v2: add the billing tables', state: 'merged', checks: 'passing', review: 'approved', url: 'https://github.com/example/platform/pull/388' }],
 };
 

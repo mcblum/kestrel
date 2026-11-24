@@ -389,6 +389,10 @@ body { background: light-dark(#fafbf9, #171a19); }
 .kestrel .qrow-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--s-muted); }
 .kestrel .qrow-reason { display: flex; align-items: flex-start; gap: 7px; font-size: 12px; line-height: 1.5; }
 .kestrel .qrow-reason .status-dot { margin-top: 6px; }
+/* A session listed for its pull request (checks failed): the request's mark, red with a cross, where the dot would be. */
+.kestrel .qrow-request { position: relative; flex: none; display: inline-flex; width: 12px; height: 12px; margin-top: 2px; }
+.kestrel .qrow-request > svg { width: 12px; height: 12px; stroke-width: 2; }
+.kestrel .qrow-request > .qrow-request-alert { position: absolute; right: -5px; top: -3px; width: 7px; height: 7px; stroke-width: 4; }
 .kestrel .qrow-detail { display: block; font-size: 10.5px; color: var(--s-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kestrel .qrow-action { align-self: center; display: inline-flex; align-items: center; gap: 5px; flex: none; }
 .kestrel .qrow-action svg { width: 12px; height: 12px; }

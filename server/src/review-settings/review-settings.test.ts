@@ -258,4 +258,15 @@ describe('review instructions (0.0.23)', () => {
     expect((await put({ permission: 'bypass' }))!.status).toBe(400);
     expect(((await put({ permission: 'ask', announce: true }))!.body as { permission: string; announce: boolean })).toMatchObject({ permission: 'ask', announce: true });
   });
+
+  it('after an approval: asks by default, keeps Always or Never, and reads anything else as Ask', async () => {
+    expect(DEFAULT_REVIEW_SETTINGS.afterApproval).toBe('ask');
+    expect(sanitizeReviewSettings({ mode: 'list' }).afterApproval).toBe('ask');
+    expect(sanitizeReviewSettings({ afterApproval: 'always' }).afterApproval).toBe('always');
+    expect(sanitizeReviewSettings({ afterApproval: 'later' }).afterApproval).toBe('ask');
+    const prefs = new ReviewPrefs();
+    const put = (body: Record<string, unknown>) => reviewSettingsRoute(['api', 'review-settings'], 'PUT', async () => body, { state: async () => ({ projects: [] }) } as never, prefs);
+    expect(((await put({ afterApproval: 'never' }))!.body as { afterApproval: string }).afterApproval).toBe('never');
+    expect(await put({ afterApproval: 'sometimes' })).toMatchObject({ status: 400, body: { error: 'afterApproval must be one of: ask, always, never.' } });
+  });
 });

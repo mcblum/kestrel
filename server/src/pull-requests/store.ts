@@ -9,6 +9,7 @@
 // then. The clock is injected, so tests never wait.
 import { nextPullRequestAsk } from '../shared/pull-request-poll.ts';
 import type { PullRequestLookup } from '../shared/details.ts';
+import { carryConflictsSince } from '../shared/request-attention.ts';
 import { reasonOf, unavailable, type Sourced } from '../shared/sourced.ts';
 
 type Lookup = Sourced<PullRequestLookup>;
@@ -112,8 +113,10 @@ export class PullRequestStore {
   private run(sessionId: string, entry: Entry): Promise<Lookup> {
     if (entry.inFlight) return entry.inFlight;
     const asked = entry.load().catch((error: unknown) => unavailable(reasonOf(error)));
-    const flight = asked.then((value) => {
+    const flight = asked.then((answered) => {
       entry.inFlight = undefined;
+      // A request that keeps conflicting keeps the commit it was first seen conflicting at (shared/request-attention.ts).
+      const value = carryConflictsSince(entry.value, answered);
       // Forgotten, or replaced by a newer key, while it was on its way: the answer is not this entry's any more.
       if (this.entries.get(sessionId) !== entry) return value;
       entry.askedAt = this.now();

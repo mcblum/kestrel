@@ -31,7 +31,7 @@ pnpm dev:app
 Opens Kestrel in an Electron window. It starts its own server (on a free port, as a child process
 on Electron's Node), so it does not collide with `pnpm dev:server` / `pnpm dev:ui`. Both use
 `~/.kestrel-dev` unless you set `KESTREL_DATA_DIR`, so give one of them its own if you run both
-at once. (`~/.kestrel` is kept for an installed app; nothing run from this checkout opens it.) Quitting the app stops the server and any agents. To run the built UI instead of Vite:
+at once. (`~/.kestrel` is kept for an installed app; nothing run from this checkout opens it.) Quitting the app stops the server and any agents; with agents at work it asks first (`app/quit-guard.mjs`), except when stopped from its terminal (Ctrl-C, `pnpm dev:restart`), which goes ahead and says so. To run the built UI instead of Vite:
 `pnpm --filter @kestrel/ui build`, then `pnpm --filter @kestrel/app start`.
 
 A signed, notarized `Kestrel.dmg` (Apple Silicon) is built by `scripts/release/make-release.sh`,

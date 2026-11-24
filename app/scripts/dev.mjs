@@ -29,5 +29,10 @@ await new Promise((resolve) => vite.stdout.on('data', (d) => (process.stdout.wri
 
 const app = spawn(electron, ['.'], { cwd: join(here, '..'), stdio: 'inherit', env: { ...process.env, KESTREL_UI_URL: url } });
 app.on('exit', (code) => stop(code ?? 0));
-process.on('SIGINT', () => (app.kill('SIGTERM'), stop(0)));
-process.on('SIGTERM', () => (app.kill('SIGTERM'), stop(0)));
+// Stopped from the terminal (Ctrl-C, `pnpm dev:restart`): a deliberate quit, so the app is told
+// with SIGUSR2, which main.mjs takes as "quit without asking", stopping any agent at work. SIGTERM
+// would reach Electron's own quit and wait on the app's quit check (quit-guard.mjs). Windows has
+// no signals: there the app is ended outright, as before.
+const quitFromTerminal = () => app.kill(process.platform === 'win32' ? 'SIGTERM' : 'SIGUSR2');
+process.on('SIGINT', () => (quitFromTerminal(), stop(0)));
+process.on('SIGTERM', () => (quitFromTerminal(), stop(0)));

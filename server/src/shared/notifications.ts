@@ -1,20 +1,26 @@
 // Desktop notifications and sounds (0.0.20, matt/kestrel#17): when a session finishes, fails or
 // needs an answer, (0.0.23) the user is asked to review a pull request, or (tickets) a ticket is
-// newly assigned to them, they are told even
+// newly assigned to them, or (2026-11-24) an idle session's pull request needs them
+// (shared/request-attention.ts), they are told even
 // with Kestrel in the background. Which of those, a
 // banner or not, and which sound are settings. Pure and browser-safe: what to say and when, from
 // two pushes of the workspace; showing the banner and playing the sound is the UI's
 // (ui/src/notifier.ts). Status words come from shared/status.ts, as everywhere.
 import type { Link, SessionView } from '../model.ts';
+import type { PullRequestLookup } from './details.ts';
+import { attentionBySession, attentionLine, DEFAULT_ATTENTION_PREFS, occurrenceKey, type AttentionPrefs } from './request-attention.ts';
+import type { Sourced } from './sourced.ts';
 import { PLATFORM_NAME, type Platform } from './platform.ts';
 import type { ReviewRequestsView } from './review-requests.ts';
 import { statusOf, type StatusKey } from './status.ts';
 import { ticketsOn, type TicketsView } from './tickets.ts';
 
-export type NotifyKind = 'done' | 'failed' | 'needs-you' | 'review-request' | 'ticket';
-export const NOTIFY_KINDS: readonly NotifyKind[] = ['needs-you', 'failed', 'done', 'review-request', 'ticket'];
+export type NotifyKind = 'done' | 'failed' | 'needs-you' | 'review-request' | 'ticket' | 'pull-request';
+export const NOTIFY_KINDS: readonly NotifyKind[] = ['needs-you', 'failed', 'done', 'pull-request', 'review-request', 'ticket'];
+/** Kinds added after the first release of the setting: a client that does not know one leaves it as it was (absent reads as on). */
+const LATER_KINDS: readonly NotifyKind[] = ['ticket', 'pull-request'];
 /** Each reads on from the list's heading, "Tell me when", so they say "my", never "your" (Matt, 2026-11-21). */
-export const NOTIFY_KIND_LABEL: Record<NotifyKind, string> = { 'needs-you': 'A session needs my input', failed: 'A session fails', done: 'A session finishes', 'review-request': 'I’m asked to review a pull request', ticket: 'A ticket is assigned to me' };
+export const NOTIFY_KIND_LABEL: Record<NotifyKind, string> = { 'needs-you': 'A session needs my input', failed: 'A session fails', done: 'A session finishes', 'pull-request': 'A session’s pull request needs me', 'review-request': 'I’m asked to review a pull request', ticket: 'A ticket is assigned to me' };
 
 export const SOUNDS = ['none', 'chime', 'ping', 'pop'] as const;
 export type SoundId = (typeof SOUNDS)[number];
@@ -32,7 +38,7 @@ export interface NotifyPrefs {
 }
 
 /** On for all of them, with no sound: silence is the least surprising default, a missed approval the most costly. */
-export const DEFAULT_NOTIFY: NotifyPrefs = { enabled: true, banner: true, sound: 'none', events: { 'needs-you': true, failed: true, done: true, 'review-request': true, ticket: true } };
+export const DEFAULT_NOTIFY: NotifyPrefs = { enabled: true, banner: true, sound: 'none', events: { 'needs-you': true, failed: true, done: true, 'review-request': true, ticket: true, 'pull-request': true } };
 
 const isSound = (value: unknown): value is SoundId => (SOUNDS as readonly unknown[]).includes(value);
 
@@ -44,8 +50,8 @@ export function notifyProblem(value: unknown): string | null {
   if (v.enabled !== undefined && typeof v.enabled !== 'boolean') return 'enabled must be true or false.';
   if (typeof v.banner !== 'boolean') return 'banner must be true or false.';
   if (!isSound(v.sound)) return `sound must be one of: ${SOUNDS.join(', ')}.`;
-  // `ticket` came later: a client that does not know it yet leaves it as it was (absent reads as on).
-  if (!events || NOTIFY_KINDS.some((kind) => typeof events[kind] !== 'boolean' && !(kind === 'ticket' && events[kind] === undefined))) return `events must say true or false for each of: ${NOTIFY_KINDS.join(', ')}.`;
+  // Later kinds: a client that does not know one yet leaves it as it was (absent reads as on).
+  if (!events || NOTIFY_KINDS.some((kind) => typeof events[kind] !== 'boolean' && !(LATER_KINDS.includes(kind) && events[kind] === undefined))) return `events must say true or false for each of: ${NOTIFY_KINDS.join(', ')}.`;
   return null;
 }
 
@@ -54,7 +60,7 @@ export function sanitizeNotify(value: unknown): NotifyPrefs {
   const v = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
   const events = (typeof v.events === 'object' && v.events !== null ? v.events : {}) as Record<string, unknown>;
   const event = (kind: NotifyKind): boolean => (typeof events[kind] === 'boolean' ? (events[kind] as boolean) : DEFAULT_NOTIFY.events[kind]);
-  return { enabled: v.enabled !== false, banner: typeof v.banner === 'boolean' ? v.banner : DEFAULT_NOTIFY.banner, sound: isSound(v.sound) ? v.sound : DEFAULT_NOTIFY.sound, events: { 'needs-you': event('needs-you'), failed: event('failed'), done: event('done'), 'review-request': event('review-request'), ticket: event('ticket') } };
+  return { enabled: v.enabled !== false, banner: typeof v.banner === 'boolean' ? v.banner : DEFAULT_NOTIFY.banner, sound: isSound(v.sound) ? v.sound : DEFAULT_NOTIFY.sound, events: Object.fromEntries(NOTIFY_KINDS.map((kind) => [kind, event(kind)])) as Record<NotifyKind, boolean> };
 }
 
 export interface NotifyEvent {
@@ -82,7 +88,9 @@ export interface Looking {
 type Notified = Pick<SessionView, 'id' | 'title' | 'state' | 'note'> & Partial<Pick<SessionView, 'request' | 'stopped' | 'aside'>>;
 
 /** The event a change of status is, if it is one worth telling: only a session that was working can finish or fail. */
-function kindOf(before: StatusKey, after: StatusKey): Exclude<NotifyKind, 'review-request'> | null {
+type SessionKind = Extract<NotifyKind, 'done' | 'failed' | 'needs-you'>;
+
+function kindOf(before: StatusKey, after: StatusKey): SessionKind | null {
   if (before === after) return null;
   if (after === 'needs-you') return 'needs-you';
   if (before !== 'working') return null;
@@ -93,7 +101,7 @@ function kindOf(before: StatusKey, after: StatusKey): Exclude<NotifyKind, 'revie
 const NOTE_MAX = 140;
 const clip = (text: string): string => (text.length > NOTE_MAX ? `${text.slice(0, NOTE_MAX - 1)}…` : text);
 
-function bodyOf(kind: Exclude<NotifyKind, 'review-request'>, session: Notified): string {
+function bodyOf(kind: SessionKind, session: Notified): string {
   if (kind === 'done') return statusOf(session) === 'review' ? 'Finished. Its pull request is ready to review.' : 'Finished.';
   // The note already reads "Needs you · …" or "Failed · …" (runtime/events.ts).
   return clip(session.note || (kind === 'failed' ? 'Failed.' : 'Needs your answer.'));
@@ -178,19 +186,66 @@ export function ticketNotifyEvents(before: TicketsSeenBefore | null, after: Pick
     .map((t) => ({ kind: 'ticket' as const, sessionId: '', ticketKey: t.key, title: `${t.ref}: ${t.title}`, body: `Assigned to you in ${t.tracker}${t.sprint?.current ? `, in ${t.sprint.name}` : ''}.` }));
 }
 
+/** What the pull-request notifier remembers from one look to the next. */
+export interface RequestsSeenBefore {
+  /** The sessions whose pull requests the store had an answer for. */
+  answered: ReadonlySet<string>;
+  /** Per session, the newest occurrences already told about (or seen when telling was not due): never told twice. */
+  told: ReadonlyMap<string, readonly string[]>;
+}
+
+/** How many occurrences per session are remembered as told. */
+export const TOLD_KEPT = 20;
+
+type RequestSession = Notified & Partial<Pick<SessionView, 'hostId'>>;
+
+/**
+ * The sessions to tell about because their pull request needs the user (shared/request-attention.ts):
+ * its checks failed, it has conflicts, or a reviewer asked for changes, and that reason is watched in
+ * Settings → Git. Once per occurrence (the failing commit, the commit that conflicts, the review), so
+ * not per job, not again when the same commit fails again, and nothing when it clears; when several
+ * hold at once, one event names them all. Nothing on the first look (`before` null), nor the first
+ * time the store answers for a session (what needed the user when Kestrel opened is not news), nor
+ * while the session works (the fact is held, and told when the turn ends), nor for a guest (its host
+ * is told), nor for the session in front of a focused window (it is remembered as told). Pure.
+ */
+export function requestNotifyEvents(before: RequestsSeenBefore | null, sessions: readonly RequestSession[], pullRequests: ReadonlyMap<string, Sourced<PullRequestLookup>>, attention: AttentionPrefs, prefs: NotifyPrefs, looking: Looking): { events: NotifyEvent[]; seen: RequestsSeenBefore } {
+  const facts = attentionBySession(sessions, (id) => pullRequests.get(id), attention);
+  const present = new Set(sessions.map((s) => s.id));
+  const told = new Map([...(before?.told ?? [])].filter(([id]) => present.has(id)));
+  const events: NotifyEvent[] = [];
+  for (const session of sessions) {
+    const fact = facts.get(session.id);
+    if (!fact) continue;
+    const already = told.get(session.id) ?? [];
+    const fresh = fact.reasons.map((d) => `${fact.number}\n${occurrenceKey(d)}`).filter((k) => !already.includes(k));
+    if (fresh.length === 0) continue;
+    told.set(session.id, [...already, ...fresh].slice(-TOLD_KEPT));
+    if (!before?.answered.has(session.id) || !prefs.enabled || !prefs.events['pull-request'] || session.aside) continue;
+    if (looking.focused && looking.openSessionId === session.id) continue;
+    events.push({ kind: 'pull-request', sessionId: session.id, title: session.title, body: attentionLine(fact) });
+  }
+  const answered = new Set(sessions.filter((s) => pullRequests.get(s.id)?.state === 'ready').map((s) => s.id));
+  return { events, seen: { answered, told } };
+}
+
 /** What one look saw, to compare the next with: each part null until it was first seen. */
 export interface NotifySeen {
   sessions: readonly Notified[] | null;
   /** The keys of the review requests waiting. */
   requests: readonly string[] | null;
   tickets: TicketsSeenBefore | null;
+  checks: RequestsSeenBefore | null;
 }
 
-export const NOTHING_SEEN: NotifySeen = { sessions: null, requests: null, tickets: null };
+export const NOTHING_SEEN: NotifySeen = { sessions: null, requests: null, tickets: null, checks: null };
 
-/** What is there now: the workspace's sessions and links, the review requests and the tickets. */
+/** What is there now: the workspace's sessions and links, their pull requests (the PR store's, by session), the review requests and the tickets. */
 export interface NotifyNow {
-  sessions: readonly Notified[];
+  sessions: readonly RequestSession[];
+  pullRequests: ReadonlyMap<string, Sourced<PullRequestLookup>>;
+  /** Settings → Git → Pull requests that need you; the defaults when absent. */
+  attention?: AttentionPrefs;
   links: readonly Pick<Link, 'childId' | 'kind'>[];
   reviewRequests: Pick<ReviewRequestsView, 'requests' | 'unread'>;
   tickets: Pick<TicketsView, 'tickets' | 'unread' | 'sources' | 'settings'>;
@@ -199,17 +254,19 @@ export interface NotifyNow {
 /**
  * The one rule for what is news (Kestrel Connect, design doc section 9): the window's notifier and the
  * desk's push sender both call this, so the two never disagree. Pure. Gives the events to tell, in
- * order (sessions, review requests, tickets), and what is now seen, which the caller keeps for the
+ * order (sessions, pull requests that need the user, review requests, tickets), and what is now seen, which the caller keeps for the
  * next look. Nothing is news on the first look at each part; what is seen moves on whatever `prefs`
  * say, so turning an event on later brings no backlog.
  */
 export function notificationsOf(seen: NotifySeen, now: NotifyNow, prefs: NotifyPrefs, looking: Looking): { events: NotifyEvent[]; seen: NotifySeen } {
+  const checks = requestNotifyEvents(seen.checks, now.sessions, now.pullRequests, now.attention ?? DEFAULT_ATTENTION_PREFS, prefs, looking);
   const events = [
     ...notifyEvents(seen.sessions, now.sessions, now.links, prefs, looking),
+    ...checks.events,
     ...reviewNotifyEvents(seen.requests, now.reviewRequests, prefs),
     ...ticketNotifyEvents(seen.tickets, now.tickets, prefs),
   ];
-  return { events, seen: { sessions: now.sessions, requests: now.reviewRequests.requests.map((r) => r.key), tickets: ticketsBefore(now.tickets) } };
+  return { events, seen: { sessions: now.sessions, requests: now.reviewRequests.requests.map((r) => r.key), tickets: ticketsBefore(now.tickets), checks: checks.seen } };
 }
 
 /** A banner's click target as the desktop shell carries it back: a session's id, or a review request's key behind this mark. */

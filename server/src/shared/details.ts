@@ -24,6 +24,38 @@ export type ReviewState = 'approved' | 'changes-requested' | 'review-required' |
  */
 export type MergeReadiness = 'ready' | 'conflicts' | 'behind' | 'blocked' | 'unknown';
 
+/** One check (GitHub) or job (GitLab) that failed, with where its log is when the host says. */
+export interface FailedCheck {
+  name: string;
+  url?: string;
+}
+
+/** One comment a reviewer left with a review that asked for changes. */
+export interface ReviewComment {
+  body: string;
+  path?: string;
+  line?: number;
+  url?: string;
+}
+
+/**
+ * The reviews that ask for changes now, together: who, where the newest one is, what it says and its
+ * comments. `id` names this occurrence (the reviews, or on GitLab the reviewers and their newest
+ * note), so a new review asking for changes is a new one and the same reviews polled again are not.
+ */
+export interface ChangesRequest {
+  id: string;
+  reviewers: string[];
+  url?: string;
+  body?: string;
+  comments: ReviewComment[];
+}
+
+/** The most review comments a request carries, and the longest a body or comment is kept. */
+export const REVIEW_COMMENTS_KEPT = 50;
+export const REVIEW_TEXT_KEPT = 4000;
+export const clipReviewText = (text: string): string => (text.length > REVIEW_TEXT_KEPT ? `${text.slice(0, REVIEW_TEXT_KEPT)}…` : text);
+
 export interface PullRequest {
   number: number;
   title: string;
@@ -39,6 +71,20 @@ export interface PullRequest {
   baseBranch?: string;
   /** Absent means the host said nothing: the same as `unknown`. */
   readiness?: MergeReadiness;
+  /**
+   * While `readiness` is conflicts: the head commit it was first seen conflicting at, kept by the PR
+   * store (pull-requests/store.ts, `carryConflictsSince`) until it stops conflicting, so a push that
+   * leaves it conflicted is the same conflict, not a new one. Not from the host.
+   */
+  conflictsSince?: string;
+  /**
+   * While `checks` is failing: the checks or jobs that failed, required ones only where the host says
+   * which are optional (GitLab's allowed-to-fail jobs are left out). Absent when the host could not
+   * say cheaply; the request's `checksUrl` still leads to them.
+   */
+  failedChecks?: FailedCheck[];
+  /** While `review` is changes-requested on an open or draft request: who asked, and what they said, where the host could say. */
+  changesRequested?: ChangesRequest;
 }
 
 /** The pull-requests route's answer: which kind of host answered (its words follow it), and what it found. */
@@ -82,11 +128,26 @@ const PR_STATES: readonly string[] = ['draft', 'open', 'merged', 'closed'];
 const CHECKS: readonly string[] = ['passing', 'failing', 'running', 'none'];
 const REVIEWS: readonly string[] = ['approved', 'changes-requested', 'review-required', 'none'];
 const READINESS: readonly string[] = ['ready', 'conflicts', 'behind', 'blocked', 'unknown'];
-const TEXT_FIELDS = ['body', 'author', 'headBranch', 'baseBranch', 'checksUrl', 'headSha'] as const;
+const TEXT_FIELDS = ['body', 'author', 'headBranch', 'baseBranch', 'checksUrl', 'headSha', 'conflictsSince'] as const;
+
+const isFailedCheck = (v: unknown): v is FailedCheck => {
+  const c = v as FailedCheck | null;
+  return typeof c === 'object' && c !== null && typeof c.name === 'string' && (c.url === undefined || typeof c.url === 'string');
+};
+
+const isReviewComment = (v: unknown): v is ReviewComment => {
+  const c = v as ReviewComment | null;
+  return typeof c === 'object' && c !== null && typeof c.body === 'string' && (c.path === undefined || typeof c.path === 'string') && (c.line === undefined || isCount(c.line)) && (c.url === undefined || typeof c.url === 'string');
+};
+
+const isChangesRequest = (v: unknown): v is ChangesRequest => {
+  const c = v as ChangesRequest | null;
+  return typeof c === 'object' && c !== null && typeof c.id === 'string' && Array.isArray(c.reviewers) && c.reviewers.every((r) => typeof r === 'string') && (c.url === undefined || typeof c.url === 'string') && (c.body === undefined || typeof c.body === 'string') && Array.isArray(c.comments) && c.comments.every(isReviewComment);
+};
 
 export const isPullRequest = (v: unknown): v is PullRequest => {
   const p = v as PullRequest | null;
-  return typeof p === 'object' && p !== null && isCount(p.number) && typeof p.title === 'string' && PR_STATES.includes(p.state) && CHECKS.includes(p.checks) && REVIEWS.includes(p.review) && typeof p.url === 'string' && (p.readiness === undefined || READINESS.includes(p.readiness)) && TEXT_FIELDS.every((key) => p[key] === undefined || typeof p[key] === 'string');
+  return typeof p === 'object' && p !== null && isCount(p.number) && typeof p.title === 'string' && PR_STATES.includes(p.state) && CHECKS.includes(p.checks) && REVIEWS.includes(p.review) && typeof p.url === 'string' && (p.readiness === undefined || READINESS.includes(p.readiness)) && TEXT_FIELDS.every((key) => p[key] === undefined || typeof p[key] === 'string') && (p.failedChecks === undefined || (Array.isArray(p.failedChecks) && p.failedChecks.every(isFailedCheck))) && (p.changesRequested === undefined || isChangesRequest(p.changesRequested));
 };
 
 export const isPullRequestList = (v: unknown): v is PullRequest[] => Array.isArray(v) && v.every(isPullRequest);

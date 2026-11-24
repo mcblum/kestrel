@@ -11,6 +11,7 @@
 import { randomBytes } from 'node:crypto';
 import type { ChatMessage, InputCard } from '../../model.ts';
 import { DEFAULT_NOTIFY, NOTHING_SEEN, NOTIFY_KINDS, notificationsOf, type NotifyEvent, type NotifyKind, type NotifyNow, type NotifyPrefs, type NotifySeen } from '../../shared/notifications.ts';
+import type { PullRequestStore } from '../../pull-requests/store.ts';
 import type { ReviewRequestStore } from '../../review-requests/store.ts';
 import type { TicketStore } from '../../tickets/store.ts';
 import type { Workspace } from '../../workspace.ts';
@@ -30,7 +31,7 @@ export const SEALED_MAX = 3000;
 const TO_MAX = 20;
 
 /** The rule runs with every kind on: each phone's own choices are applied after. Banner and sound are the desk's and do not apply. */
-const EVERY_KIND: NotifyPrefs = { ...DEFAULT_NOTIFY, enabled: true, banner: true, events: { 'needs-you': true, failed: true, done: true, 'review-request': true, ticket: true } };
+const EVERY_KIND: NotifyPrefs = { ...DEFAULT_NOTIFY, enabled: true, banner: true, events: Object.fromEntries(NOTIFY_KINDS.map((kind) => [kind, true])) as Record<NotifyKind, boolean> };
 /** The server does not know where the user is looking: a phone is told whatever the window shows. */
 const AWAY = { focused: false, openSessionId: null } as const;
 
@@ -78,13 +79,15 @@ function cardOf(sessionId: string, input: InputCard): PushCard | null {
   return allow && deny ? { sessionId, requestId: input.id, allow: allow.id, deny: deny.id } : null;
 }
 
-export function pushSource(workspace: Workspace, runtime: SessionRuntime, reviewRequests: ReviewRequestStore | null, tickets: TicketStore | null): PushSource {
+export function pushSource(workspace: Workspace, runtime: SessionRuntime, reviewRequests: ReviewRequestStore | null, tickets: TicketStore | null, pullRequests: PullRequestStore | null = null): PushSource {
   return {
     async now() {
       const state = await workspace.state();
       return {
         sessions: state.sessions,
         links: state.links,
+        pullRequests: new Map(Object.entries(pullRequests?.all() ?? {})),
+        attention: await runtime.gitPrefs.attention(),
         reviewRequests: reviewRequests?.view() ?? { requests: [], unread: [] },
         tickets: tickets?.view() ?? { tickets: [], unread: [], sources: [], settings: { on: false, off: [], show: 'page' } },
       };
@@ -94,7 +97,7 @@ export function pushSource(workspace: Workspace, runtime: SessionRuntime, review
       return plainCard(sessionId, messages);
     },
     onChange(listener) {
-      const offs = [workspace.onChange(listener), reviewRequests?.onChange(listener), tickets?.onChange(listener)];
+      const offs = [workspace.onChange(listener), reviewRequests?.onChange(listener), tickets?.onChange(listener), pullRequests?.onChange(() => listener()), runtime.gitPrefs.onAttentionChange(() => listener())];
       return () => offs.forEach((off) => off?.());
     },
   };

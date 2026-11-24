@@ -1,9 +1,11 @@
-// Where Settings → Git is kept: the branch name prefix (shared/branch-prefix.ts) and whether new
-// sessions start from the latest base branch (base-refresh.ts), as one small named setting in the store, so both persistence backends keep it. Shaped like suggestions/prefs.ts: writes
+// Where Settings → Git is kept: the branch name prefix (shared/branch-prefix.ts), whether new
+// sessions start from the latest base branch (base-refresh.ts), and which reasons a session's pull
+// request needs the user for are watched and offered a card (shared/request-attention.ts), as one small named setting in the store, so both persistence backends keep it. Shaped like suggestions/prefs.ts: writes
 // run one after another, so two quick changes never lose one. Also resolves the prefix a new
 // worktree's branch gets, which never fails: anything wrong falls back to the default.
 import { memorySettings, type SettingStore } from '../suggestions/prefs.ts';
 import { customPrefixProblem, DEFAULT_PREFIX, readBranchPrefixChoice, resolvePrefix, sanitizeBranchPrefix, type BranchPrefixSetting } from '../shared/branch-prefix.ts';
+import { DEFAULT_ATTENTION_PREFS, isAttentionReason, sanitizeAttentionPrefs, type AttentionPrefs } from '../shared/request-attention.ts';
 import { githubLoginLookup, type AccountLogin } from './github-login.ts';
 import { gitlabLoginLookup } from './gitlab-login.ts';
 import { usernameLookup } from './username.ts';
@@ -45,6 +47,7 @@ function checked(raw: unknown, username: AccountLogin): BranchPrefixSetting {
 
 export class GitPrefs {
   private writes: Promise<unknown> = Promise.resolve();
+  private readonly attentionListeners = new Set<(prefs: AttentionPrefs) => void>();
   private readonly store: SettingStore;
   readonly username: () => Promise<AccountLogin>;
 
@@ -80,6 +83,43 @@ export class GitPrefs {
     }
   }
 
+  /** Pull requests that need you: which reasons are watched, and whether each one's card is offered. Never throws. */
+  async attention(): Promise<AttentionPrefs> {
+    try {
+      return sanitizeAttentionPrefs((await this.stored()).requestAttention);
+    } catch (error) {
+      console.error('[kestrel] could not read "Pull requests that need you"; using the defaults', error);
+      return DEFAULT_ATTENTION_PREFS;
+    }
+  }
+
+  /** Calls `listener` after every saved change to `attention()`; returns how to stop. */
+  onAttentionChange(listener: (prefs: AttentionPrefs) => void): () => void {
+    this.attentionListeners.add(listener);
+    return () => void this.attentionListeners.delete(listener);
+  }
+
+  /**
+   * Change one reason's choices: `{ reason, watch?, card? }`. Refuses anything else with the reason.
+   * The card's "Don't ask again" calls this too, so there is one stored choice.
+   */
+  async setAttention(raw: unknown): Promise<AttentionPrefs> {
+    const body = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
+    if (!isAttentionReason(body.reason)) throw new GitPrefsRefused('reason must be checks-failed, conflicts or changes-requested.');
+    if (body.watch !== undefined && typeof body.watch !== 'boolean') throw new GitPrefsRefused('watch must be true or false.');
+    if (body.card !== undefined && body.card !== 'ask' && body.card !== 'never') throw new GitPrefsRefused('card must be ask or never.');
+    if (body.watch === undefined && body.card === undefined) throw new GitPrefsRefused('Nothing to change: send watch or card.');
+    const reason = body.reason;
+    await this.write(async () => {
+      const now = await this.attention();
+      const changed = { ...now[reason], ...(body.watch !== undefined ? { watch: body.watch as boolean } : {}), ...(body.card !== undefined ? { card: body.card as 'ask' | 'never' } : {}) };
+      return { requestAttention: { ...now, [reason]: changed } };
+    });
+    const saved = await this.attention();
+    for (const listener of this.attentionListeners) listener(saved);
+    return saved;
+  }
+
   async view(): Promise<GitPrefsView> {
     const [branchPrefix, startFromLatest, username] = await Promise.all([this.branchPrefix(), this.startFromLatest(), this.username()]);
     return { branchPrefix, startFromLatest, username };
@@ -99,13 +139,13 @@ export class GitPrefs {
   }
 
   /** One change after another, each keeping the other settings as they are. */
-  private write(change: (username: AccountLogin) => Promise<Partial<Omit<GitPrefsView, 'username'>>>): Promise<GitPrefsView> {
+  private write(change: (username: AccountLogin) => Promise<Partial<Omit<GitPrefsView, 'username'> & { requestAttention: AttentionPrefs }>>): Promise<GitPrefsView> {
     const work = this.writes.then(async () => {
       const username = await this.username();
       const changed = await change(username);
-      const next = { branchPrefix: await this.branchPrefix(), startFromLatest: await this.startFromLatest(), ...changed };
+      const next = { branchPrefix: await this.branchPrefix(), startFromLatest: await this.startFromLatest(), requestAttention: await this.attention(), ...changed };
       await this.store.putSetting(GIT_PREFS_KEY, JSON.stringify(next));
-      return { ...next, username };
+      return { branchPrefix: next.branchPrefix, startFromLatest: next.startFromLatest, username };
     });
     this.writes = work.catch(() => undefined);
     return work;

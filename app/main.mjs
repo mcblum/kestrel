@@ -8,7 +8,7 @@
 // Otherwise the built UI is served from the app's own app://kestrel origin (paths.mjs says where
 // it is: ui/dist in a checkout, inside the app archive when packaged).
 import { vaultKey } from './vault-key.mjs';
-import { app, BrowserWindow, Menu, Notification, dialog, ipcMain, nativeTheme, net, protocol, session, shell, webContents } from 'electron';
+import { app, BrowserWindow, Menu, Notification, dialog, ipcMain, nativeTheme, net, powerMonitor, protocol, session, shell, webContents } from 'electron';
 import { randomBytes } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
 import { join, normalize, sep } from 'node:path';
@@ -18,6 +18,7 @@ import { createFolderChooser } from './folder-chooser.mjs';
 import { buildMenu, cleanAccelerators } from './menu.mjs';
 import { createFolderQueue, foldersInArgs, foldersOnly } from './open-folders.mjs';
 import { isPackaged, preloadPath, uiDist } from './paths.mjs';
+import { askServer, createQuitGuard, shellPlatform } from './quit-guard.mjs';
 import { openServerLog } from './server-log.mjs';
 import { freePort, startServer } from './server-process.mjs';
 import { resolveShellEnv } from './shell-env.mjs';
@@ -44,6 +45,59 @@ let win = null;
 let quitting = false;
 let updater = null;
 const launch = { port: 0, token: randomBytes(32).toString('hex') };
+
+// ---- quitting while agents work (quit-guard.mjs) -------------------------------------------
+// Every way the app ends asks the guard first: before-quit (Quit, its shortcut, the Dock, the
+// system at logout on a Mac), the window's close, the updater's Restart, and the system's own
+// logout and shutdown events. `quitApproved` is set once the user (or the guard, with nothing
+// working) has said yes, so the steps of one quit do not ask twice.
+let quitApproved = false;
+const platform = shellPlatform();
+const quitGuard = createQuitGuard({
+  platform,
+  ask: () => (server ? askServer({ port: launch.port, token: launch.token }) : Promise.resolve(null)),
+  show: showQuitDialog,
+});
+
+// A checkout run by `pnpm dev:app` is stopped from its terminal (Ctrl-C, `pnpm dev:restart`) with
+// SIGUSR2 (scripts/dev.mjs): a deliberate quit, so it goes ahead without asking, stopping any agent
+// at work. Only a checkout listens; Windows has no signals.
+if (!isPackaged && platform !== 'windows') {
+  process.on('SIGUSR2', () => {
+    console.log('[kestrel] quitting at the terminal’s request: any agent at work is stopped and its session shows Interrupted');
+    quitApproved = true;
+    app.quit();
+  });
+}
+
+/** The guard's dialog, in front of the window. With a time limit it closes itself, as if unanswered. */
+async function showQuitDialog(options, { timeoutMs }) {
+  if (win) showWindow();
+  const controller = timeoutMs ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  try {
+    const shown = { ...options, ...(controller ? { signal: controller.signal } : {}) };
+    const { response } = await (win ? dialog.showMessageBox(win, shown) : dialog.showMessageBox(shown));
+    return controller?.signal.aborted ? { timedOut: true } : { response };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/** Ends the app once the guard agrees: stops the server (and its agents), then exits. */
+async function endApp(purpose) {
+  if (quitting) return;
+  if (!quitApproved && !(await quitGuard.confirm(purpose))) return;
+  quitApproved = true;
+  if (quitting) return;
+  quitting = true;
+  hideWindows();
+  try {
+    await server?.stop();
+  } finally {
+    app.exit(0);
+  }
+}
 
 // ---- the browser pane ----------------------------------------------------------------------
 // A session's browser pane is a <webview> in the app window. Everything that keeps the page in it
@@ -268,7 +322,33 @@ function createWindow() {
   win.webContents.on('will-prevent-unload', (event) => {
     const leave = dialog.showMessageBoxSync(win, { type: 'question', buttons: ['Keep editing', 'Discard changes'], defaultId: 0, cancelId: 0, message: 'You have settings changes that are not saved.', detail: 'If you leave now, those changes are lost.' }) === 1;
     if (leave) event.preventDefault();
+    else quitApproved = false; // the window stays, so the quit it was closing for did not happen
   });
+  // Closing the one window quits Kestrel (window-all-closed), so it asks the quit guard first.
+  win.on('close', (event) => {
+    if (quitting || quitApproved || !server) return;
+    event.preventDefault();
+    void quitGuard.confirm('quit').then((go) => {
+      if (!go) return;
+      quitApproved = true;
+      win?.close();
+    });
+  });
+  // Windows asks each window before it logs off, restarts or shuts down: answering "not yet" holds
+  // the system on its "apps are preventing shutdown" screen (with its own Shut down anyway) while the
+  // guard asks, and the guard quits by itself after its time limit. Once the session really ends
+  // there is no stopping it: the server is told to stop at once.
+  if (platform === 'windows') {
+    win.on('query-session-end', (event) => {
+      event.preventDefault();
+      void endApp('system');
+    });
+    win.on('session-end', () => {
+      if (quitting) return;
+      quitting = true;
+      void server?.stop();
+    });
+  }
   win.on('closed', () => (win = null));
   void win.loadURL(devUrl ?? `${APP_ORIGIN}/`);
   if (process.env.KESTREL_APP_CAPTURE) win.webContents.once('did-finish-load', () => setTimeout(() => void capture(process.env.KESTREL_APP_CAPTURE), 3500));
@@ -287,11 +367,18 @@ function showChannelInAbout(channel) {
   app.setAboutPanelOptions({ applicationVersion: app.getVersion(), version: channel.beta ? 'beta channel' : 'stable channel' });
 }
 
-/** Stops the server (and the agents it runs) before quitting; the updater's restart uses it too. */
-async function stopServer() {
+/**
+ * Before the updater restarts into the new version: the quit guard asks when sessions are working,
+ * and on a yes the server (and the agents it runs) is stopped. False leaves everything running.
+ */
+async function restartForUpdate() {
+  if (quitting) return false;
+  if (!quitApproved && !(await quitGuard.confirm('update'))) return false;
+  quitApproved = true;
   quitting = true;
   hideWindows();
   await server?.stop();
+  return true;
 }
 
 /**
@@ -326,7 +413,17 @@ async function boot() {
   ipcMain.on('kestrel:app-info', (event) => {
     event.returnValue = { name: app.getName(), version: app.getVersion(), packaged: isPackaged, updateChannel: updater?.channel() ?? null };
   });
-  updater = startUpdater({ send: (state) => win?.webContents.send('kestrel:update', state), beforeRestart: stopServer, getWindow: () => win });
+  // The update's Restart asks the quit guard too: Install later leaves the download where it is.
+  updater = startUpdater({ send: (state) => win?.webContents.send('kestrel:update', state), beforeRestart: restartForUpdate, getWindow: () => win });
+  // macOS and Linux tell the app the system is shutting down or logging out. On a Mac, before-quit
+  // follows as well, and whichever asks first, the one dialog is shared with the system's time limit.
+  if (platform !== 'windows') {
+    // Electron's types give this listener no event, though its docs delay the shutdown on one.
+    powerMonitor.on('shutdown', (event) => {
+      event?.preventDefault?.();
+      void endApp('system');
+    });
+  }
   showChannelInAbout(updater.channel());
   // Settings → General → Get beta versions (app/update-channel.mjs keeps it). Answers the channel
   // now, or { error } with the reason it could not be saved.
@@ -414,11 +511,10 @@ app.whenReady().then(() => boot().catch((error) => {
 app.on('window-all-closed', () => app.quit());
 app.on('activate', () => !win && server && createWindow());
 
-// Quit stops the server, which stops the agents and flushes the store, and waits for it.
+// Quit stops the server, which stops the agents and flushes the store, and waits for it; when
+// sessions are working the quit guard asks first (quit-guard.mjs).
 app.on('before-quit', (event) => {
   if (quitting || !server) return;
-  quitting = true;
   event.preventDefault();
-  hideWindows();
-  void server.stop().finally(() => app.exit(0));
+  void endApp('quit');
 });

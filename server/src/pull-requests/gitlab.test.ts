@@ -119,6 +119,9 @@ describe('the GitLab provider', () => {
       ['glab', 'mr', 'list', '--source-branch=feat/x', '--all', '--output', 'json'],
       ['glab', 'mr', 'view', '12', '--output', 'json'],
       ['glab', 'mr', 'view', '11', '--output', 'json'],
+      // Each open one's reviewers, for a request for changes the merge status may hide.
+      ['glab', 'api', 'projects/:id/merge_requests/12/reviewers'],
+      ['glab', 'api', 'projects/:id/merge_requests/11/reviewers'],
     ]);
     expect(calls.every((c) => c.cwd === '/repo' && c.timeoutMs === 10_000)).toBe(true);
   });

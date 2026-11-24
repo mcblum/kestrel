@@ -7,6 +7,8 @@
 .kestrel { --row-request-size: 12px; --row-icon-gap: 10px; }
 .kestrel .status-dot.row-icon { position: relative; flex: none; background: transparent; box-shadow: none; overflow: visible; }
 .kestrel .status-dot.row-icon.rail-dot { position: absolute; }
+/* A request whose checks failed: a small cross off the icon's top right, outside the glyph so it never covers it. */
+.kestrel .status-dot.row-icon > svg.row-icon-alert { left: auto; top: auto; right: -9px; bottom: 4px; width: 7px; height: 7px; transform: none; stroke-width: 4; }
 .kestrel .status-dot.row-icon > svg { position: absolute; left: 50%; top: 50%; width: var(--row-request-size); height: var(--row-request-size); transform: translate(-50%, -50%); stroke-width: 2; }
 /* Two 6px boxes 10px apart: the 12px icons drawn on them sit 4px apart. */
 .kestrel .row-icons { display: inline-flex; flex: none; align-items: center; gap: var(--row-icon-gap); }

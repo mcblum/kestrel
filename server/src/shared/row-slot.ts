@@ -12,6 +12,7 @@ import type { SessionState } from '../model.ts';
 import { changedFilesText } from './commit-request.ts';
 import { primaryPullRequest, pullRequestStatus, type ChangeCounts, type PullRequestLookup } from './details.ts';
 import { hostTerms, requestNumber } from './host-terms.ts';
+import { attentionLabel, DEFAULT_ATTENTION_PREFS, requestAttention, type AttentionPrefs } from './request-attention.ts';
 import type { Sourced } from './sourced.ts';
 
 export type RequestTone = ReturnType<typeof pullRequestStatus>['tone'];
@@ -22,6 +23,8 @@ export interface RowIcon<Tone> {
   tone: Tone;
   /** "Merge request !12 · Checks running", "3 changed files · 1 uncommitted": the icon's name and tooltip. */
   label: string;
+  /** Its request needs the user (shared/request-attention.ts): drawn with a cross as well as in red, so it reads without colour. */
+  alert?: boolean;
 }
 
 export type RowSlot =
@@ -45,13 +48,17 @@ export const asksForChanges = (hasDot: boolean, session: { branch: string | null
   asksForRequest(hasDot, session.branch) && !!session.worktreePath;
 
 /** The request icon for a lookup (null when not asked), or null when there is none to show. */
-export function requestIcon(lookup: Sourced<PullRequestLookup> | null): RowIcon<RequestTone> | null {
+export function requestIcon(lookup: Sourced<PullRequestLookup> | null, attention: AttentionPrefs = DEFAULT_ATTENTION_PREFS): RowIcon<RequestTone> | null {
   if (!lookup || lookup.state !== 'ready') return null;
   const pr = primaryPullRequest(lookup.value.pullRequests);
   if (!pr || pr.state === 'closed') return null;
   const terms = hostTerms(lookup.value.host);
   const status = pullRequestStatus(pr);
-  return { tone: status.tone, label: `${terms.longTitle} ${requestNumber(terms, pr.number)} · ${status.label}` };
+  const name = `${terms.longTitle} ${requestNumber(terms, pr.number)}`;
+  // What needs the user, every reason in one label (Settings → Git says which are watched).
+  const needs = requestAttention(lookup, attention);
+  if (!needs) return { tone: status.tone, label: `${name} · ${status.label}` };
+  return { tone: 'red', label: `${name} · ${attentionLabel(needs)}`, alert: true };
 }
 
 /** The changed-files icon for a session's counts (null when not asked), or null when nothing has changed. */
@@ -63,10 +70,10 @@ export function changesIcon(counts: Sourced<ChangeCounts> | null): RowIcon<Chang
 }
 
 /** The slot's content, given whether the row has a dot and what its session's sources said (null when not asked). */
-export function rowSlot(hasDot: boolean, lookup: Sourced<PullRequestLookup> | null, counts: Sourced<ChangeCounts> | null = null): RowSlot {
+export function rowSlot(hasDot: boolean, lookup: Sourced<PullRequestLookup> | null, counts: Sourced<ChangeCounts> | null = null, attention: AttentionPrefs = DEFAULT_ATTENTION_PREFS): RowSlot {
   if (hasDot) return { kind: 'dot' };
   const changes = changesIcon(counts);
-  const request = requestIcon(lookup);
+  const request = requestIcon(lookup, attention);
   return changes || request ? { kind: 'icons', changes, request } : NOTHING;
 }
 
