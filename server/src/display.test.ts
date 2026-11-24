@@ -84,6 +84,16 @@ describe('send_file', () => {
     expect(results[2]).toMatchObject({ isError: true, text: expect.stringMatching(/No such file/) });
     expect(messages().some((m) => m.file)).toBe(false);
   });
+
+  it('stays confined though the user may open the same file to read: an agent cannot put another session’s Markdown in front of the user', async () => {
+    const theirs = join(realpathSync(mkdtempSync(join(tmpdir(), 'kestrel-other-worktree-'))), 'README.md');
+    writeFileSync(theirs, '# Theirs');
+    let result: unknown;
+    await setup(async (o) => {
+      result = await o.tools.sendFile({ path: theirs });
+    });
+    expect(result).toMatchObject({ isError: true, text: expect.stringMatching(/outside this session's folder/) });
+  });
 });
 
 describe('next_step', () => {

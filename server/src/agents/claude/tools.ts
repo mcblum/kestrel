@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { SELECTABLE_AGENTS, type Agent } from '../../model.ts';
 import { REVIEW_IS_LAST } from '../../shared/review-reply.ts';
 import { WAIT_REASON_MAX } from '../../shared/waits.ts';
+import { ARCHIVE_REASON_MAX } from '../../shared/session-archive.ts';
 import { loadsWithSession, type KestrelToolHost, type ToolResult } from '../types.ts';
 import { KESTREL_SERVER } from './map.ts';
 
@@ -111,6 +112,15 @@ export function kestrelMcpServer(host: KestrelToolHost, omit: readonly string[] 
           clear: z.boolean().optional().describe('true to stop waiting on that session.'),
         },
         (args) => guarded(() => host.waitFor(args)),
+      ),
+      tool(
+        'archive_session',
+        'Archive a Kestrel session: it leaves the user\'s sidebar and is kept, with Undo; nothing is deleted or stopped. Leave out `session` to archive THIS session, which happens when this turn ends: use it when this conversation is finished and nothing is left for the user to read here. A session you started (delegate, handoff) or one in a workstream you lead is archived at once; any other only after the user says yes on a card. A session still working or waiting on the user is not archived (the reason comes back). It never stops, deletes or restores a session.',
+        {
+          session: z.string().optional().describe('The id of the session to archive, as session_status gives it. Leave it out for this session.'),
+          reason: z.string().optional().describe(`Why, in a few words the user reads beside it (at most ${ARCHIVE_REASON_MAX} characters).`),
+        },
+        (args) => guarded(() => host.archiveSession(args)),
       ),
       tool(
         'show_widget',

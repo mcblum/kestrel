@@ -2,21 +2,15 @@
 // live channel like any message, so these only send the answer; a refusal shows in the error line.
 import type { RuleRow, RuleValue } from '@kestrel/server/tag-rules';
 import type { AnswerSource, StandingAnswer, TicketAnswer, TicketChange } from '@kestrel/server/ticket-changes';
-import { ARCHIVE_KIND } from '@kestrel/server/archive-approved';
 import type { Suggestion } from '@kestrel/server/suggestions';
-import { act, actions, appStore, call } from './store.ts';
-import { toasts } from './toasts.ts';
+import { act, call } from './store.ts';
 
 const path = (sessionId: string, suggestionId: string, action: string) => `/api/sessions/${encodeURIComponent(sessionId)}/suggestions/${encodeURIComponent(suggestionId)}/${action}`;
 
 export const suggestionActions = {
-  answer: async (sessionId: string, suggestionId: string, button: string) => {
-    const title = appStore.get().sessionsById.get(sessionId)?.title;
-    const answered = await act(() => call<{ suggestion: Suggestion }>(path(sessionId, suggestionId, 'answer'), { method: 'POST', body: JSON.stringify({ button }) }));
-    // The archive offer archived the session: said as every archive is, with Undo, which restores it the same way.
-    if (answered?.suggestion.kind === ARCHIVE_KIND && answered.suggestion.undo) toasts.show(`Archived ${title ? `“${title}”` : 'the session'}`, () => actions.archive('session', sessionId, false, false));
-    return answered;
-  },
+  // An answer that archives a session (the offer after an approval) is announced with Undo by the store,
+  // as every archive this window did not make itself is (`archivedElsewhere`).
+  answer: (sessionId: string, suggestionId: string, button: string) => act(() => call<{ suggestion: Suggestion }>(path(sessionId, suggestionId, 'answer'), { method: 'POST', body: JSON.stringify({ button }) })),
   dismiss: (sessionId: string, suggestionId: string) => act(() => call(path(sessionId, suggestionId, 'dismiss'), { method: 'POST' })),
   undo: (sessionId: string, suggestionId: string) => act(() => call(path(sessionId, suggestionId, 'undo'), { method: 'POST' })),
 };

@@ -10,12 +10,13 @@ import { afterTurn, enqueue, removeQueued, takeAll, type OutgoingPart } from '..
 import { anyRunning } from '../shared/subagents.ts';
 import { RESTORED_NOTICE } from '../shared/workstreams.ts';
 import { Refused } from '../workspace.ts';
+import { ALREADY_TAKING, type WaitingStep } from '../shared/waiting-steps.ts';
 import { reattach, restartUnstarted, type BringUpHost } from './bring-up.ts';
 import { ACTIVITY, type RuntimeHost } from './host.ts';
 import { deliverHeld, sendDuringTurn } from './mid-turn.ts';
 import { answersLabel, definedChange, isWorking, sameSettings, type Live } from './record.ts';
 
-export type TurnHost = BringUpHost & Pick<RuntimeHost, 'background' | 'sandboxAllow' | 'midTurn' | 'emitLive' | 'setQueue' | 'sessionOrThrow' | 'recordFor'>;
+export type TurnHost = BringUpHost & Pick<RuntimeHost, 'background' | 'sandboxAllow' | 'midTurn' | 'emitLive' | 'setQueue' | 'sessionOrThrow' | 'recordFor' | 'steps'>;
 
 /** What `reply` takes besides the text. */
 export interface ReplyOptions {
@@ -202,6 +203,8 @@ function rebuild(host: TurnHost, session: Session, rec: Live): void {
  * starts) sets the session's state from there.
  */
 async function answerAfterTurn(host: TurnHost, sessionId: string, rec: Live, requestId: string, label: string, own: (approved: boolean) => void, approved: boolean): Promise<void> {
+  // Written first: a restart while this is carried out finds it `taking`, and never does it again.
+  await host.steps.take(sessionId, requestId);
   rec.kestrelRequests.delete(requestId);
   rec.pendingInput.delete(requestId);
   host.apply(sessionId, rec, { type: 'resolved', requestId, label });
@@ -209,10 +212,48 @@ async function answerAfterTurn(host: TurnHost, sessionId: string, rec: Live, req
   own(approved);
 }
 
+/**
+ * One of Kestrel's own cards, raised before a restart and answered after it: nothing waits on it in
+ * memory, so its stored step is taken up (`Delegation.resumeStep`), which makes the call again with
+ * today's checks. The card closes with the choice, or with why nothing was done.
+ */
+async function answerStoredStep(host: TurnHost, sessionId: string, rec: Live, step: WaitingStep, label: string, approved: boolean): Promise<void> {
+  const { requestId } = step;
+  await host.steps.take(sessionId, requestId);
+  try {
+    const othersOpen = rec.messages.some((m) => m.input && !m.input.resolved && m.input.id !== requestId);
+    if (!othersOpen) await host.workspace.setState(sessionId, 'done', await host.delegation.doneNote(sessionId, rec.stopped === true), ACTIVITY);
+    let refusal: string | null;
+    try {
+      refusal = await host.delegation.resumeStep(sessionId, step, approved);
+    } catch (error) {
+      // It failed part way: the card says so rather than staying open with nothing behind it.
+      refusal = error instanceof Error ? error.message : String(error);
+      host.notice(sessionId, `Kestrel could not do what you approved: ${refusal}`, 'error');
+    }
+    rec.pendingInput.delete(requestId);
+    rec.keptSteps.delete(requestId);
+    host.apply(sessionId, rec, { type: 'resolved', requestId, label: refusal ? notDone(refusal) : label });
+  } finally {
+    await host.steps.remove(sessionId, requestId);
+  }
+}
+
+/** The card's closing words when the answer could not be carried out after a restart. */
+const notDone = (refusal: string): string => `Not done: ${refusal}`;
+
 /** The user answered a card: the agent (or Kestrel's own waiting tool call) gets the choice. */
 export async function answerCard(host: TurnHost, sessionId: string, requestId: string, answer: InputAnswer): Promise<void> {
-  const rec = host.records.get(sessionId);
+  // After a restart the session may not be loaded yet: its record is brought up from the store.
+  const rec = host.records.get(sessionId) ?? (await host.recordFor(await host.sessionOrThrow(sessionId))) ?? undefined;
   const waiting = rec?.kestrelRequests.get(requestId);
+  const openCard = rec?.messages.find((m) => m.input?.id === requestId && !m.input.resolved)?.input;
+  const stored = rec && !waiting && openCard?.kestrel ? await host.steps.find(sessionId, requestId) : null;
+  if (rec && stored?.status === 'waiting') {
+    const label = openCard?.options.find((o) => o.id === answer.optionId)?.label ?? answer.text ?? 'Answered';
+    return answerStoredStep(host, sessionId, rec, stored, label, answer.optionId === 'allow');
+  }
+  if (stored?.status === 'taking') throw new Refused(ALREADY_TAKING);
   if (!rec || !rec.pendingInput.has(requestId) || (!rec.handle && !waiting)) throw new Refused('Nothing is waiting for an answer there any more.');
   const card = rec.messages.find((m) => m.input?.id === requestId)?.input;
   const label = answer.answers ? answersLabel(answer.answers) : (card?.options.find((o) => o.id === answer.optionId)?.label ?? answer.text ?? 'Answered');
@@ -223,7 +264,8 @@ export async function answerCard(host: TurnHost, sessionId: string, requestId: s
   // An "Always allow" choice on a sandbox card puts the card's own offer on the list first.
   const forwarded = own ? answer : await host.sandboxAllow.answerCard(card, answer);
   if (own) {
-    // Kestrel's own card (delegate, spawn): the waiting tool call gets the choice.
+    // Kestrel's own card (delegate, spawn): the waiting tool call gets the choice, once the step is written as being carried out.
+    await host.steps.take(sessionId, requestId);
     rec.kestrelRequests.delete(requestId);
     own(answer.optionId === 'allow');
   } else rec.handle!.answer(requestId, forwarded); // not one of Kestrel's own, so there is a handle (checked above)
@@ -244,8 +286,12 @@ export async function answerCard(host: TurnHost, sessionId: string, requestId: s
 async function settleIdle(host: TurnHost, sessionId: string, rec: Live | undefined): Promise<void> {
   const session = (await host.workspace.state()).sessions.find((s) => s.id === sessionId);
   if (session?.state !== 'running' && session?.state !== 'attention') throw new Refused('This session is not running.');
+  // Kestrel's own cards kept over a restart are declined too: their steps end, and the record is brought up to close them.
+  await host.steps.clear(sessionId);
+  rec ??= (await host.recordFor(session)) ?? undefined;
   if (rec) {
     rec.stopped = true;
+    rec.keptSteps.clear();
     // Kestrel's own cards left open by the turn that ended: declined, and closed.
     for (const [requestId, resolve] of rec.kestrelRequests) {
       rec.kestrelRequests.delete(requestId);

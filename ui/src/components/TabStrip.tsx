@@ -10,6 +10,7 @@ import { tabRoute } from '../route.ts';
 import { viewTitle } from '../pages/viewTitle.ts';
 import { tabMenuRow } from '@kestrel/server/tab-menu';
 import { openRowMenu } from './sidebarMenuTarget.ts';
+import { isTypedText } from '../typed-text.ts';
 
 const TAB_MIME = 'application/x-kestrel-tab';
 
@@ -58,7 +59,7 @@ const TabButton = memo(function TabButton({ tab, index, active, pinned }: { tab:
       // A right-click opens the menu of what the tab holds, the same as its sidebar row's (shared/tab-menu.ts).
       onContextMenu={(e) => {
         const row = tabMenuRow(tab, route?.view ?? null);
-        if (!row) return;
+        if (!row || isTypedText(e.target)) return;
         e.preventDefault();
         openRowMenu(row.kind, row.id, { x: e.clientX, y: e.clientY });
       }}

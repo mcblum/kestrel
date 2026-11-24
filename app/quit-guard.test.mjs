@@ -4,15 +4,16 @@ import { test } from 'node:test';
 import { askServer, createQuitGuard, namesText, parseQuitCheck, quitDecision, quitDialog, shellPlatform, SYSTEM_ANSWER_MS, systemEnd } from './quit-guard.mjs';
 
 const s = (id, title = `Task ${id}`) => ({ id, title });
-const none = { working: [] };
+const none = { working: [], waiting: [] };
 const PLATFORMS = ['mac', 'windows', 'linux'];
 
 test('nothing working: quit at once, on every platform and for every reason', () => {
   for (const platform of PLATFORMS) for (const purpose of ['quit', 'update', 'system']) assert.deepEqual(quitDecision(none, purpose, platform), { action: 'go' });
 });
 
-test('an answer that still lists sessions waiting on the user is read for its working ones alone', () => {
-  assert.deepEqual(parseQuitCheck({ working: [], waiting: [s('a')] }), { working: [] });
+test('an older server’s answer, with no waiting sessions in it, reads as none waiting', () => {
+  assert.deepEqual(parseQuitCheck({ working: [s('a')] }), { working: [s('a')], waiting: [] });
+  assert.equal(parseQuitCheck({ working: [], waiting: 'x' }), null);
 });
 
 test('the server not answering never traps the user: quit without asking', () => {
@@ -28,15 +29,42 @@ test('some working: ask, naming one by title, and Cancel is the default and Esca
   assert.deepEqual(dialog.buttons, ['Cancel', 'Quit anyway']);
   assert.equal(dialog.defaultId, 0);
   assert.equal(dialog.cancelId, 0);
-  assert.match(dialog.detail, /Quitting stops it now: the turn is cut off/);
+  assert.match(dialog.detail, /^1 session is working and will be stopped: “Fix login”\./);
+  assert.match(dialog.detail, /The turn is cut off where it is/);
+  assert.doesNotMatch(dialog.detail, /waiting for your answer/);
   assert.match(dialog.detail, /Messages you queued are kept/);
 });
 
 test('many working: counted in the headline, the first few named, then "and N more"', () => {
   const dialog = quitDialog({ working: ['a', 'b', 'c', 'd', 'e'].map((x) => s(x)) }, 'quit');
   assert.equal(dialog.message, '5 sessions are still working. Quit Kestrel?');
-  assert.match(dialog.detail, /^Working: “Task a”, “Task b”, “Task c” and 2 more\./);
-  assert.match(dialog.detail, /stops them now/);
+  assert.match(dialog.detail, /^5 sessions are working and will be stopped: “Task a”, “Task b”, “Task c” and 2 more\./);
+});
+
+test('waiting only: one of Kestrel’s own cards open after its turn asks too, said as what a restart closes', () => {
+  const decision = quitDecision({ working: [], waiting: [s('a', 'Split the API')] }, 'quit', 'mac');
+  assert.equal(decision.action, 'ask');
+  assert.equal(decision.dialog.message, '“Split the API” is waiting for your answer. Quit Kestrel?');
+  assert.match(decision.dialog.detail, /^1 session is waiting for your answer on a card that quitting will close: “Split the API”\./);
+  assert.match(decision.dialog.detail, /Answer it first to keep what it asks/);
+  assert.doesNotMatch(decision.dialog.detail, /will be stopped/);
+  assert.equal(quitDialog({ working: [], waiting: [s('a'), s('b')] }, 'quit').message, '2 sessions are waiting for your answer. Quit Kestrel?');
+});
+
+test('working and waiting both: counted apart in the headline, and each said in its own words', () => {
+  const dialog = quitDialog({ working: [s('a', 'Fix login'), s('b', 'Docs')], waiting: [s('c', 'Split the API')] }, 'quit');
+  assert.equal(dialog.message, '2 sessions are working and 1 is waiting for your answer. Quit Kestrel?');
+  const [working, , waiting] = dialog.detail.split('\n\n');
+  assert.equal(working, '2 sessions are working and will be stopped: “Fix login” and “Docs”.');
+  assert.equal(waiting, '1 session is waiting for your answer on a card that quitting will close: “Split the API”.');
+  assert.equal(quitDialog({ working: [s('a')], waiting: [s('b'), s('c')] }, 'quit').message, '1 session is working and 2 are waiting for your answer. Quit Kestrel?');
+});
+
+test('an update does not restart on its own while one of Kestrel’s cards waits: a restart closes it', () => {
+  const dialog = quitDialog({ working: [], waiting: [s('a', 'Split the API')] }, 'update');
+  assert.equal(dialog.message, '“Split the API” is waiting for your answer. Restart to update now?');
+  assert.deepEqual(dialog.buttons, ['Install later', 'Restart anyway']);
+  assert.match(dialog.detail, /on a card that a restart will close/);
 });
 
 test('names: one, two, up to three, then a count', () => {
@@ -50,7 +78,7 @@ test('an update restart is worded as one, and the other choice is to install lat
   const dialog = quitDialog({ working: [s('a', 'Fix login')] }, 'update');
   assert.equal(dialog.message, '“Fix login” is still working. Restart to update now?');
   assert.deepEqual(dialog.buttons, ['Install later', 'Restart anyway']);
-  assert.match(dialog.detail, /^Restarting stops it now/);
+  assert.match(dialog.detail, /^1 session is working and will be stopped/);
   assert.match(dialog.detail, /installed when you next quit Kestrel/);
 });
 
@@ -77,7 +105,7 @@ test('an answer that is not one is not trusted', () => {
   assert.equal(parseQuitCheck({ working: 'x' }), null);
   assert.equal(parseQuitCheck({ working: [{ id: 1 }]}), null);
   assert.equal(parseQuitCheck(null), null);
-  assert.deepEqual(parseQuitCheck({ working: [s('a')], waiting: [], extra: 1 }), { working: [s('a')] });
+  assert.deepEqual(parseQuitCheck({ working: [s('a')], waiting: [], extra: 1 }), { working: [s('a')], waiting: [] });
 });
 
 /** A stand-in server that answers /api/quit-check the way `answer` says. */
@@ -93,7 +121,7 @@ test('asks the server with the launch token, and reads its answer', async () => 
     res.writeHead(ok ? 200 : 401, { 'Content-Type': 'application/json' }).end(JSON.stringify(ok ? { working: [s('a')] } : { error: 'no' }));
   });
   try {
-    assert.deepEqual(await askServer({ port, token: 't0k' }), { working: [s('a')] });
+    assert.deepEqual(await askServer({ port, token: 't0k' }), { working: [s('a')], waiting: [] });
     assert.equal(await askServer({ port, token: 'wrong' }), null);
   } finally {
     await close();

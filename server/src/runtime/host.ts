@@ -27,6 +27,7 @@ import type { MidTurnHost } from './mid-turn.ts';
 import type { Live } from './record.ts';
 import type { Titler } from './titling.ts';
 import type { Upkeep } from './upkeep.ts';
+import type { WaitingSteps } from './steps.ts';
 
 /** A state change the user would call activity: a turn starting or ending, the agent asking (Workspace.setState). */
 export const ACTIVITY = { activity: true } as const;
@@ -44,6 +45,8 @@ export interface RuntimeHost {
   readonly commands: Commands;
   readonly attachments: AttachmentStore;
   readonly delegation: Delegation;
+  /** Kestrel's own steps waiting on a card, stored so they survive a restart (runtime/steps.ts). */
+  readonly steps: WaitingSteps;
   readonly display: Display;
   readonly browser: BrowserTools;
   readonly titler: Titler;

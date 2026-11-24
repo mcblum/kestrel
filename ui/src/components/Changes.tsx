@@ -13,6 +13,7 @@ import { setDiffView, useDiffView, type DiffViewType } from '../diffView.ts';
 import { useChangesFocus } from '../changesFocus.ts';
 import { useDiffTokens } from '../highlight/diffTokens.ts';
 import '../styles/code-tokens.css';
+import { isTypedText } from '../typed-text.ts';
 
 /** One file of a diff, coloured by its language once its tokens are worked out (highlight/diffTokens.ts). */
 /** The diff's own key for the change that is line `line` of the file as it is now, or null when the diff does not show that line. */
@@ -104,6 +105,7 @@ export function ChangesView({ files, resetKey, empty, against, menu, focusFor }:
             onContextMenu={
               menu &&
               ((e) => {
+                if (isTypedText(e.target)) return;
                 e.preventDefault();
                 void openChangedFileMenu(e.clientX, e.clientY, f, f === file, menu, () => setIndex(i), e.currentTarget);
               })

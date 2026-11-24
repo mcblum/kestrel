@@ -6,9 +6,9 @@ import { originUrl } from './git.ts';
 import { hostTerms } from './shared/host-terms.ts';
 import { ALREADY_A_REVIEW, CONVERT_DECLINED, convertAsk, converted, noProjectFor, NOT_A_REQUEST, NOT_FIRST_MESSAGE, parseRequestRef, requestHome } from './review-requests/convert.ts';
 import { cannotRunNow, fallbackAsk, fallbackNotice, fallbackTold, modeOfRole, nextRunner, noFallbackLeft, noReviewerReason, NOT_CONNECTED, orchestrateMove, orchestrateNotice, orchestratorsOf, pickReviewer, presetForRole, presetSummary, reviewersOf, ROLE_LABEL, ROLES, runnersOf, takeoverIntro, whenUnavailable, type Author, type ModelPreset, type Role, type RoleRun, type WhoDoesWhat } from './shared/who-does-what.ts';
-import { archivedAfterHandoff, HANDOFF_ARCHIVE_DECLINED, handoffArchiveAsk, MOVE_DECLINED, moveApproved, moveAsk, movedNotice, movedQuietly, movedTold, moveFailed, notArchived, projectWorkedIn } from './shared/session-move.ts';
+import { HANDOFF_ARCHIVE_DECLINED, handedOffReason, handoffArchiveAsk, MOVE_DECLINED, moveApproved, moveAsk, movedNotice, movedQuietly, movedTold, moveFailed, projectWorkedIn } from './shared/session-move.ts';
+import { ALREADY_ARCHIVED, ARCHIVE_DECLINED, ARCHIVE_REASON_MAX, ARCHIVE_SESSION_KIND, archivedTold, archiveScope, archiveSessionAsk, NOT_STOPPED, notArchivedSelf, selfArchiveLater } from './shared/session-archive.ts';
 import { MOVE_KIND } from './suggestions/move-kind.ts';
-import { scriptFailure } from './shared/project-scripts.ts';
 import { randomUUID } from 'node:crypto';
 import { basename, isAbsolute } from 'node:path';
 import type { AgentHandle, InputRequest, KestrelToolHost, ToolResult } from './agents/types.ts';
@@ -29,10 +29,27 @@ import { parentHears, turnReports, type ReportRole } from './shared/turn-reports
 import { subtreeIds } from './tree.ts';
 import { titleFrom } from './title.ts';
 import { Refused, type Workspace } from './workspace.ts';
+import { asStep, inReplay, replaying, type Replay } from './runtime/steps.ts';
+import { isStepTool, stepNews, type StepCall, type StepTool, type WaitingStep } from './shared/waiting-steps.ts';
+
+/** How each step's tool is called again, with the arguments the agent gave it. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const STEP_CALLS: Record<StepTool, (tools: DelegationTools, args: any) => Promise<ToolResult>> = {
+  add_project: (t, a) => t.addProject(a),
+  handoff: (t, a) => t.handoff(a),
+  move_to_project: (t, a) => t.moveToProject(a),
+  start_review: (t, a) => t.startReview(a),
+  delegate: (t, a) => t.delegate(a),
+  spawn: (t, a) => t.spawn(a),
+  ask_session: (t, a) => t.askSession(a),
+};
+
+/** A step taken up after a restart that no longer asks for anything: why nothing was done. */
+const NO_LONGER_ASKS = 'This no longer asks for your approval, so nothing was done on the old answer.';
 
 export type ChildOrigin = 'handoff' | 'delegate' | 'spawn';
 /** The tools this file answers; the display tools come from `display.ts`. */
-export type DelegationTools = Pick<KestrelToolHost, 'listProjects' | 'addProject' | 'handoff' | 'moveToProject' | 'startReview' | 'delegate' | 'spawn' | 'sessionStatus' | 'askSession' | 'completeWorkstream' | 'waitFor'>;
+export type DelegationTools = Pick<KestrelToolHost, 'listProjects' | 'addProject' | 'handoff' | 'moveToProject' | 'startReview' | 'delegate' | 'spawn' | 'sessionStatus' | 'askSession' | 'completeWorkstream' | 'waitFor' | 'archiveSession'>;
 /**
  * How much of a session's last message another session is told. It was 400 characters, which cut
  * every real report short: the asker then asked for a shorter one, again and again (2026-11-18).
@@ -84,7 +101,7 @@ export class Delegation {
   /** What the user approved for a session that can only be done once its turn has ended: moving it into a project, or archiving it after a handoff. Live only. */
   /** Sessions whose agent has asked the user about moving: Kestrel does not ask them again itself. Live only. */
   private readonly moveAsked = new Set<string>();
-  private readonly afterTurn = new Map<string, { move: Target & { folder: ProjectFolder } } | { archive: string } | { replacedBy: string }>();
+  private readonly afterTurn = new Map<string, { move: Target & { folder: ProjectFolder } } | { archive: { reason: string } } | { replacedBy: string }>();
 
   /**
    * `Workspace.delegate`, and a workstream it made is given its colour (Matt, 2026-11-22;
@@ -110,27 +127,71 @@ export class Delegation {
   hostFor(callerId: string): DelegationTools {
     return {
       listProjects: async () => (await this.ws.state()).projects.map(projectInfo),
-      addProject: (a) => this.guard(callerId, 'add_project', () => this.addProject(callerId, a)),
-      handoff: (a) => this.guard(callerId, 'handoff', () => this.handoff(callerId, a)),
-      moveToProject: (a) => this.guard(callerId, 'move_to_project', () => this.moveToProject(callerId, a)),
-      startReview: (a) => this.guard(callerId, 'start_review', () => this.convertToReview(callerId, a)),
-      delegate: (a) => this.guard(callerId, 'delegate', () => this.delegate(callerId, a.tasks ?? [], { name: a.name, objective: a.objective })),
-      spawn: (a) => this.guard(callerId, 'spawn', () => this.spawn(callerId, a)),
+      addProject: (a) => this.guard(callerId, 'add_project', () => this.addProject(callerId, a), a),
+      handoff: (a) => this.guard(callerId, 'handoff', () => this.handoff(callerId, a), a),
+      moveToProject: (a) => this.guard(callerId, 'move_to_project', () => this.moveToProject(callerId, a), a),
+      startReview: (a) => this.guard(callerId, 'start_review', () => this.convertToReview(callerId, a), a),
+      delegate: (a) => this.guard(callerId, 'delegate', () => this.delegate(callerId, a.tasks ?? [], { name: a.name, objective: a.objective }), a),
+      spawn: (a) => this.guard(callerId, 'spawn', () => this.spawn(callerId, a), a),
       sessionStatus: (a) => this.guard(callerId, 'session_status', () => this.sessionStatus(callerId, a.id)),
-      askSession: (a) => this.guard(callerId, 'ask_session', () => this.askSession(callerId, a)),
+      askSession: (a) => this.guard(callerId, 'ask_session', () => this.askSession(callerId, a), a),
       completeWorkstream: () => this.guard(callerId, 'complete_workstream', () => this.completeWorkstream(callerId)),
       waitFor: (a) => this.guard(callerId, 'wait_for', () => this.waitFor(callerId, a)),
+      archiveSession: (a) => this.guard(callerId, 'archive_session', () => this.archiveSession(callerId, a)),
     };
   }
 
-  /** A refusal goes to the agent as the tool result and shows in the conversation. */
-  private async guard(callerId: string, tool: string, work: () => Promise<ToolResult>): Promise<ToolResult> {
+  /**
+   * A refusal goes to the agent as the tool result and shows in the conversation. A tool that may
+   * wait on one of Kestrel's own cards runs as a step (`args`: what the agent gave it), so the card
+   * can be taken up after a restart by making the same call again (`resumeStep`).
+   */
+  private async guard(callerId: string, tool: string, work: () => Promise<ToolResult>, args?: unknown): Promise<ToolResult> {
     try {
-      return await work();
+      return await (isStepTool(tool) ? asStep(this.rt.steps, callerId, { kind: 'tool', tool, args: args ?? {} }, work) : work());
     } catch (error) {
       if (!(error instanceof Refused)) throw error;
       this.rt.notice(callerId, `Kestrel refused ${tool}: ${error.message}`, 'error');
       return { text: error.message, isError: true };
+    }
+  }
+
+  /**
+   * One of Kestrel's own steps, answered after a restart (runtime/turns.ts `answerCard`): taken up by
+   * making the call again with today's state, so every check runs again, and its approval is given
+   * the stored answer only when it asks the same thing as the card did. The agent hears the outcome
+   * with its next turn. What was refused, or null when it was done (or declined).
+   */
+  async resumeStep(sessionId: string, step: WaitingStep, approved: boolean): Promise<string | null> {
+    const replay: Replay = { card: step.card, approved, reached: false, changed: null };
+    if (step.call.kind === 'fallback') return this.resumeFallback(sessionId, step.call, replay);
+    const caller = await this.session(sessionId);
+    if (!approved) {
+      await this.rt.queueNews(caller, stepNews(step.card, { approved: false, refusal: null, result: null }));
+      return null;
+    }
+    const tools = this.hostFor(sessionId);
+    const call = STEP_CALLS[step.call.tool];
+    const result = await replaying(sessionId, replay, () => call(tools, step.call.kind === 'tool' ? step.call.args : {}));
+    const refusal = replay.changed ?? (result.isError ? result.text : replay.reached ? null : `${NO_LONGER_ASKS} ${result.text}`);
+    await this.rt.queueNews(caller, stepNews(step.card, { approved, refusal, result: refusal ? null : result.text }));
+    return refusal;
+  }
+
+  /** A role's fallback, answered after a restart: `passOn` again, for the child as it is now. */
+  private async resumeFallback(parentId: string, call: Extract<StepCall, { kind: 'fallback' }>, replay: Replay): Promise<string | null> {
+    const state = await this.ws.state();
+    const child = state.sessions.find((s) => s.id === call.childId);
+    if (!child) return 'The session that could not go on is gone.';
+    await this.rt.recordFor(child);
+    try {
+      const passed = await replaying(parentId, replay, () => this.passOn(child, call.reason, state));
+      if (replay.changed) return replay.changed;
+      if (passed === true && replay.reached) return null;
+      return typeof passed === 'string' ? passed : NO_LONGER_ASKS.trim();
+    } catch (error) {
+      if (error instanceof Refused) return error.message;
+      throw error;
     }
   }
 
@@ -210,9 +271,10 @@ export class Delegation {
     return level !== undefined && NO_CARD_LEVELS.includes(level);
   }
 
-  private async approve(caller: Session, tool: 'delegate' | 'spawn' | 'ask_session' | 'handoff' | 'move_to_project' | 'start_review', title: string, lines: string[], allow = 'Start', always = false): Promise<boolean> {
+  private async approve(caller: Session, tool: 'delegate' | 'spawn' | 'ask_session' | 'handoff' | 'move_to_project' | 'start_review' | 'archive_session', title: string, lines: string[], allow = 'Start', always = false): Promise<boolean> {
     // `always`: a role the user set to start only after they approve asks whatever the caller's mode.
-    if (!always && this.startsWithoutCard(caller.id)) return true;
+    // A step taken up after a restart always goes through its card, to be compared with what was approved.
+    if (!always && !inReplay() && this.startsWithoutCard(caller.id)) return true;
     const request: InputRequest = {
       id: `${tool}-${randomUUID()}`,
       kind: 'approval',
@@ -275,12 +337,11 @@ export class Delegation {
       return true;
     }
     if ('archive' in pending) {
-      const outcome = await this.rt.runArchiveScript(session.id);
-      const failure = outcome && scriptFailure('archive', outcome);
-      if (failure) this.rt.notice(session.id, notArchived(failure), 'warning');
-      else {
-        this.rt.notice(session.id, archivedAfterHandoff(pending.archive), 'info');
-        await this.ws.setArchived('session', session.id, true);
+      // The one way a session is archived at the end of its own turn: `handoff` with `archive_self`, and `archive_session` for itself.
+      try {
+        await this.archiveNow(session.id, session, pending.archive.reason);
+      } catch (error) {
+        this.rt.notice(session.id, notArchivedSelf(error instanceof Error ? error.message : String(error)), 'warning');
       }
       return false;
     }
@@ -380,7 +441,7 @@ export class Delegation {
     this.noteStarted(callerId, child.id, 'handoff');
     const launched = await this.rt.launchChild(child, project, folder, summary, 'handoff', this.modelFor(callerId, caller, agent), this.modeOf(callerId));
     if (!launched.ok) return { isError: true, text: `The handoff session was created (${child.id}) but could not start: ${launched.reason}` };
-    if (a.archive_self) this.setAfterTurn(callerId, { archive: targetName(target) });
+    if (a.archive_self) this.setAfterTurn(callerId, { archive: { reason: handedOffReason(targetName(target)) } });
     return { text: `Handed off to ${targetName(target)}: session "${child.title}" (${child.id}) is now working on it in its own worktree. That session owns this work now. Stop working on it here: make no further changes for it, tell the user in one sentence where it went, and end your turn.` };
   }
 
@@ -565,6 +626,43 @@ export class Delegation {
     return { text: `Marked “${workstream.name}” complete. It stays in the user's sidebar until they archive it; nothing was moved or stopped. Tell the user the outcome in a sentence or two.` };
   }
 
+  /**
+   * archive_session: archive a session (Matt, 2026-11-24). Its own sessions without asking: itself,
+   * when its turn ends, the sessions it started, and those of a workstream it leads (`archiveScope`);
+   * any other only on the user's yes. Through the user's one archive, so its refusals hold; it never
+   * stops, deletes or restores a session.
+   */
+  private async archiveSession(callerId: string, a: { session?: string; reason?: string }): Promise<ToolResult> {
+    const caller = await this.session(callerId);
+    const reason = (a.reason ?? '').trim().slice(0, ARCHIVE_REASON_MAX);
+    const state = await this.ws.state();
+    const targetId = (a.session ?? '').trim() || callerId;
+    if (state.archived.sessions.some((s) => s.id === targetId)) throw new Refused(ALREADY_ARCHIVED);
+    const target = state.sessions.find((s) => s.id === targetId);
+    if (!target) throw new Refused(`No such session: ${targetId}. session_status lists the sessions you started.`);
+    const scope = archiveScope(callerId, targetId, state.links, state.workstreams);
+    if (scope === 'self') {
+      this.setAfterTurn(callerId, { archive: { reason } });
+      return { text: selfArchiveLater };
+    }
+    if (scope === 'ask') {
+      const ask = archiveSessionAsk(target.title, reason);
+      if (!(await this.approve(caller, 'archive_session', ask.title, [ask.detail], 'Archive', true))) return { text: ARCHIVE_DECLINED };
+    }
+    try {
+      await this.archiveNow(callerId, target, reason);
+    } catch (error) {
+      if (error instanceof Refused) throw new Refused(`${error.message} ${NOT_STOPPED}`);
+      throw error;
+    }
+    return { text: archivedTold(target.title, target.id) };
+  }
+
+  /** Archive `target` through the user's one archive, leaving the line with Undo in `whereId`'s conversation. Throws `Refused` with the archive's own reason. */
+  private async archiveNow(whereId: string, target: Pick<Session, 'id' | 'title'>, reason: string): Promise<void> {
+    await this.rt.suggestions.act(whereId, { kind: ARCHIVE_SESSION_KIND, target: target.id, title: target.title, reason });
+  }
+
   /** The mode the session that starts a child is in now; the child's own comes from it (`childPermission`). */
   private modeOf(sessionId: string): PermissionLevel | undefined {
     return this.rt.recordOf(sessionId)?.settings.permission;
@@ -652,14 +750,22 @@ export class Delegation {
       if (parent) await this.rt.queueNews(parent, `[Kestrel] ${fallbackTold(run.role, child.title, from, why, to, newId)}`);
     };
     const failed = (error: unknown) => this.tell(child, 'attention', `${FAILED}${reason}. Kestrel could not give the part to "${to.name}": ${error instanceof Error ? error.message : String(error)}`, state0);
-    if (whenUnavailable(who) === 'auto') {
+    const replay = inReplay();
+    if (whenUnavailable(who) === 'auto' && !replay) {
       await go().catch(failed);
       return true;
     }
     // Asked where the work was handed out. Not awaited: the failed session's own events must not wait on the user.
     const { title, body } = fallbackAsk(run.role, from, why, to);
     const request: InputRequest = { id: `fallback-${randomUUID()}`, kind: 'approval', tool: 'delegate', title, detail: body, options: [{ id: 'allow', label: `Use ${to.name}`, role: 'allow' }, { id: 'deny', label: 'Not now', role: 'deny' }] };
-    void this.rt.requestApproval(link.parentId, request).then((yes) => (yes ? go() : this.tell(child, 'attention', `${FAILED}${reason}. The user chose not to use "${to.name}" for it`, state0))).catch(failed);
+    // A step, so a restart before the answer keeps the card; taken up again by `resumeStep`.
+    const asked = asStep(this.rt.steps, link.parentId, { kind: 'fallback', childId: child.id, reason }, async () => {
+      if (await this.rt.requestApproval(link.parentId, request)) await go().catch(failed);
+      else await this.tell(child, 'attention', `${FAILED}${reason}. The user chose not to use "${to.name}" for it`, state0);
+    });
+    // Taken up after a restart, the answer is awaited, and a card that changed refuses (`Refused`).
+    if (replay) await asked;
+    else void asked.catch(failed);
     return true;
   }
 

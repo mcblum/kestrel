@@ -2,11 +2,13 @@
 // and each row of the group popover (PullRequestGroup.tsx): the number opens its tab in Kestrel, the
 // external icon opens it on the host, and the status part merges it (Merge now opens the
 // confirmation), opens its checks, or opens its tab (@kestrel/server/request-group `requestActions`).
-import { useState, type ReactNode } from 'react';
+// Failed checks open their own pages: one directly, several from a small menu naming each.
+import { useState, type MouseEvent, type ReactNode } from 'react';
 import { ExternalLink, GitMerge, GitPullRequest } from 'lucide-react';
 import { pullRequestStatus, type PullRequest } from '@kestrel/server/details';
 import { requestNumber, type HostTerms } from '@kestrel/server/host-terms';
-import { requestActions } from '@kestrel/server/request-group';
+import { failedChecksMenu, requestActions } from '@kestrel/server/request-group';
+import { contextMenu } from '../menuState.ts';
 import { MergeConfirmation } from './MergeConfirmation.tsx';
 
 export interface RequestPartsProps {
@@ -37,9 +39,20 @@ export function requestParts({ pr, terms, onOpen, onMerge }: RequestPartsProps):
     number: <button type="button" className="pr-number" title={`Open ${terms.short} ${number} in Kestrel`} onClick={open}><GitPullRequest aria-hidden />{number}</button>,
     external: actions.external && <a className="pr-external" href={actions.external} target="_blank" rel="noreferrer" title={`Open ${number} on ${terms.service}`} aria-label={`Open ${number} on ${terms.service}`} onClick={stop} onAuxClick={stop}><ExternalLink aria-hidden /></a>,
     status: actions.status.kind === 'merge' ? <button type="button" className="pr-status-button pr-merge-now" onClick={e => { stop(e); onMerge?.(pr, number); }} title={`Merge ${number}`}><GitMerge aria-hidden /><span className="pr-status-label">Merge now</span></button>
-      : actions.status.kind === 'checks' ? <a className="pr-status-button" href={actions.status.url} target="_blank" rel="noreferrer" title={`Open checks on ${terms.service}`} onClick={stop} onAuxClick={stop}>{label}</a>
+      : actions.status.kind === 'checks' ? <a className="pr-status-button" href={actions.status.url} target="_blank" rel="noreferrer" title={pr.checks === 'failing' && pr.failedChecks?.length === 1 ? `Open ${pr.failedChecks[0]!.name}` : `Open checks on ${terms.service}`} onClick={stop} onAuxClick={stop}>{label}</a>
+      : actions.status.kind === 'failed-checks' ? failedChecksButton(actions.status, terms, label)
       : <button type="button" className="pr-status-button" onClick={open} title={`${pr.title} · ${status.label}`}>{label}</button>,
   };
+}
+
+/** "Checks failed" when several did: a menu naming each failed check with its own page. */
+function failedChecksButton(action: Extract<ReturnType<typeof requestActions>['status'], { kind: 'failed-checks' }>, terms: HostTerms, label: ReactNode) {
+  const press = (e: MouseEvent<HTMLButtonElement>) => {
+    stop(e);
+    if (contextMenu.current()) return contextMenu.close();
+    contextMenu.openFrom(e.currentTarget, failedChecksMenu(action, terms.service), { returnFocus: e.currentTarget });
+  };
+  return <button type="button" className="pr-status-button" aria-haspopup="menu" title={`${action.checks.length} checks failed: choose one to open`} onClick={press}>{label}</button>;
 }
 
 export interface MergeState {

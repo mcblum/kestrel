@@ -4,12 +4,25 @@
 // same order. Each request, in either place, has the same separate targets: its number opens its
 // tab in Kestrel, the external icon opens it on the host, and the status part merges it (opening
 // the confirmation), opens its checks, or opens its tab, in that order of preference.
-import { pullRequestStatus, type PullRequest, type PullRequestState } from './details.ts';
+//
+// Failed checks go to each check's own page, not the host's checks page (Matt, 2026-11-24: a check
+// that Jenkins reported to GitHub is read in Jenkins): one failed check with a link opens it, several
+// open a small menu naming each with its own link. The host's checks page is the fallback for a check
+// that gave no link of its own, and what "Checks running" opens.
+import { pullRequestStatus, type FailedCheck, type PullRequest, type PullRequestState } from './details.ts';
 import { requestNumber, type HostTerms } from './host-terms.ts';
+import type { MenuItem } from './menu.ts';
 import type { RequestTone } from './row-slot.ts';
 
-/** What the status part of a request does when pressed. */
-export type StatusAction = { kind: 'merge' } | { kind: 'checks'; url: string } | { kind: 'open' };
+/**
+ * What the status part of a request does when pressed: merge, open one page (a check's own, or the
+ * host's checks page), list the failed checks to pick from, or open the request's tab.
+ */
+export type StatusAction =
+  | { kind: 'merge' }
+  | { kind: 'checks'; url: string }
+  | { kind: 'failed-checks'; checks: FailedCheck[]; checksUrl?: string }
+  | { kind: 'open' };
 
 export interface RequestActions {
   /** The host's page for the request, or null when it gave none (no external icon). */
@@ -21,6 +34,28 @@ export interface RequestActions {
 const CHECKS_LABELS: readonly string[] = ['Checks failed', 'Checks running'];
 
 /**
+ * Where the status part of a request whose checks failed or are running leads: the one failed check's
+ * own page; a list of them when more than one failed and any has a link; else the host's checks page.
+ * Null when there is nowhere to go.
+ */
+export function checksAction(pr: PullRequest): StatusAction | null {
+  const failed = pr.checks === 'failing' ? (pr.failedChecks ?? []) : [];
+  const only = failed.length === 1 ? failed[0]!.url : undefined;
+  if (only) return { kind: 'checks', url: only };
+  if (failed.length > 1 && failed.some((c) => c.url)) return { kind: 'failed-checks', checks: failed, ...(pr.checksUrl ? { checksUrl: pr.checksUrl } : {}) };
+  return pr.checksUrl ? { kind: 'checks', url: pr.checksUrl } : null;
+}
+
+/** The menu a press on "Checks failed" opens when several failed: each by name with its own page, then the host's checks page. */
+export function failedChecksMenu(action: Extract<StatusAction, { kind: 'failed-checks' }>, service: string): MenuItem[] {
+  const checks: MenuItem[] = action.checks.map((c, i) => (c.url
+    ? { id: `check-${i}`, label: c.name, action: { type: 'open-link', url: c.url }, ...(i === 0 ? { heading: 'Failed checks' } : {}) }
+    : { id: `check-${i}`, label: c.name, disabled: true, hint: `${service} gave no link for this check.`, ...(i === 0 ? { heading: 'Failed checks' } : {}) }));
+  const all: MenuItem[] = action.checksUrl ? [{ id: 'all-checks', label: `All checks on ${service}`, action: { type: 'open-link', url: action.checksUrl }, separatorBefore: true }] : [];
+  return [...checks, ...all];
+}
+
+/**
  * The targets a request offers. `canMergeHere` is whether this place can merge at all (it knows
  * the session); merging is then offered only when the status says ready (green).
  */
@@ -28,7 +63,8 @@ export function requestActions(pr: PullRequest, canMergeHere: boolean): RequestA
   const status = pullRequestStatus(pr);
   const external = pr.url ? pr.url : null;
   if (canMergeHere && status.tone === 'green') return { external, status: { kind: 'merge' } };
-  if (CHECKS_LABELS.includes(status.label) && pr.checksUrl) return { external, status: { kind: 'checks', url: pr.checksUrl } };
+  const checks = CHECKS_LABELS.includes(status.label) ? checksAction(pr) : null;
+  if (checks) return { external, status: checks };
   return { external, status: { kind: 'open' } };
 }
 

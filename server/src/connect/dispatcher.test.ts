@@ -499,6 +499,8 @@ describe('the dispatcher stays in process', () => {
     for (const file of readdirSync(here).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))) {
       const source = readFileSync(join(here, file), 'utf8');
       expect(source).not.toMatch(/from '(node:)?(http|https|net)'|from '\.\.\/(http|security|kestrel-mcp)\.ts'|from 'ws'/);
+      // What the user may open to read from anywhere on this computer is the window's alone (file-to-read.ts).
+      expect(source).not.toMatch(/file-to-read|fileToRead/);
     }
   });
 });

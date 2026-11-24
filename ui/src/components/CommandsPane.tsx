@@ -13,6 +13,7 @@ import { commandMenu } from '@kestrel/server/menu';
 import { contextMenu } from '../menuState.ts';
 import { actions, messageFor, useApp } from '../store.ts';
 import { PaneHead } from './PaneHead.tsx';
+import { isTypedText } from '../typed-text.ts';
 
 /** How often a running command's output is asked for while it is shown. */
 const POLL_MS = 1000;
@@ -157,6 +158,7 @@ function CommandRow({ sessionId, command, now, selected, onSelect }: { sessionId
       onClick={onSelect}
       // Right-click: the command's menu (Stop, Retry or Re-run; Copy command; Copy command output), from the one place menus are defined.
       onContextMenu={(event) => {
+        if (isTypedText(event.target)) return;
         event.preventDefault();
         onSelect();
         contextMenu.open(event.clientX, event.clientY, commandMenu(sessionId, command, taskCommand(command)));

@@ -28,6 +28,7 @@ import { openRowMenu } from './sidebarMenuTarget.ts';
 import { rowDotClass } from './useRowDot.ts';
 import { asksForRequest } from '@kestrel/server/row-slot';
 import { RowRequest } from './RowRequest.tsx';
+import { isTypedText } from '../typed-text.ts';
 
 const DOT_LABEL: Record<RailSession['dot'], string> = { 'needs-you': 'Needs your answer', unread: 'New since you last looked', working: 'Working', none: '' };
 
@@ -82,6 +83,7 @@ export function SidebarRail({ route, activeId, onSwitch }: { route: Route | null
   const sidebarPrefs = useTabs((v) => v.sidebar);
   const menu = useMemo(() => menuOrder(sidebarPrefs), [sidebarPrefs]);
   const onContextMenu = (event: MouseEvent) => {
+    if (isTypedText(event.target)) return;
     event.preventDefault();
     const el = (event.target as HTMLElement).closest<HTMLElement>('[data-menu-kind]');
     if (el) openRowMenu(el.dataset.menuKind, el.dataset.menuId ?? '', { x: event.clientX, y: event.clientY });

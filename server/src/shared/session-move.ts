@@ -43,8 +43,8 @@ export const handoffArchiveAsk = (where: string, title: string): { title: string
 });
 
 export const HANDOFF_ARCHIVE_DECLINED = 'The user chose not to hand the task off. Nothing was started and this session stays. Ask what they would like instead.';
-export const archivedAfterHandoff = (where: string): string => `Handed off to ${where}. This session is archived; Settings → Archived brings it back.`;
-export const notArchived = (reason: string): string => `The task was handed off, but this session was not archived: ${reason}`;
+/** Why the session archived itself after a handoff, on its line with Undo (shared/session-archive.ts `archivedLine`). */
+export const handedOffReason = (where: string): string => `the task was handed off to ${where}`;
 
 // ---- Kestrel's own offer --------------------------------------------------------------------
 

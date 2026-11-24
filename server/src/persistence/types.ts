@@ -9,6 +9,7 @@
 import type { Guest, Review } from '../shared/worktree-guests.ts';
 import type { RoleRun } from '../shared/who-does-what.ts';
 import type { StoredCommands } from '../shared/commands.ts';
+import type { WaitingStep } from '../shared/waiting-steps.ts';
 import type { Group, Link, Pin, PinKind, Project, ProjectFolder, RequestLink, Session, SessionDetail, SessionRequestLink, SessionWait, TagRow, Workstream } from '../model.ts';
 import type { PullRequestState } from '../shared/details.ts';
 import type { HostKind } from '../shared/host-terms.ts';
@@ -33,6 +34,8 @@ export type StoredDetail = Pick<SessionDetail, 'messages' | 'files' | 'agentOutp
   modelChosen?: boolean;
   /** The Commands pane: what the session's agent ran, and the end of what each printed. Absent when it ran nothing. */
   commands?: StoredCommands;
+  /** Kestrel's own steps waiting on a card in this conversation, taken up again after a restart (shared/waiting-steps.ts). Absent when there is none. */
+  steps?: readonly WaitingStep[];
 };
 
 /** What of a workstream can change in place. Its sessions are set with `setWorkstreamSessions`. */

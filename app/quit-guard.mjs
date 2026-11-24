@@ -6,15 +6,18 @@
 // own: it asks the server `GET /api/quit-check` (server/src/shared/quit-check.ts, by the same
 // status rule every view uses) each time.
 //
-//   - Nothing working: no dialog, quit as quickly as before.
+//   - Nothing working or waiting: no dialog, quit as quickly as before.
 //   - Something working: a native dialog names it (the first few titles, then "and N more"), says
 //     what quitting does to it, and offers Cancel (default, and Escape) or Quit anyway. For an
 //     update the choice is Install later or Restart anyway.
 //   - "Working" is a turn under way, by the server's rule: an agent running, or a turn paused on the
-//     agent's own card (an approval, a question, a plan), which a restart cuts off. A session whose
-//     turn is done does not block and is not named, whatever card it left: the card is there after
-//     a restart (Matt, 2026-11-24: "If the turn is done and there's a card, it'll be there when I
-//     get back").
+//     agent's own card (an approval, a question, a plan), which a restart cuts off.
+//   - "Waiting" is a session whose turn is done with one of Kestrel's own cards open that a restart
+//     would close: such cards normally have their step stored and survive a restart, so only one
+//     raised by an older Kestrel (no step stored) or one whose answer is being carried out right now
+//     counts. It asks too, said apart from the working ones (Matt, 2026-11-24: "Yes, block for now").
+//   - Any other card a finished turn left survives a restart: it does not block and is not named
+//     ("If the turn is done and there's a card, it'll be there when I get back").
 //   - The server does not answer within ASK_TIMEOUT_MS (crashed, hung): quit without asking.
 //   - The system is logging out or shutting down: ask where the system lets an app wait (macOS,
 //     Windows), and quit on our own after SYSTEM_ANSWER_MS without an answer, so a shutdown never
@@ -30,7 +33,7 @@ export const NAMES_SHOWN = 3;
 /** @typedef {'mac' | 'windows' | 'linux'} Platform */
 /** @typedef {'quit' | 'update' | 'system'} QuitPurpose */
 /** @typedef {{ id: string, title: string }} QuitSession */
-/** @typedef {{ working: QuitSession[] }} QuitCheck */
+/** @typedef {{ working: QuitSession[], waiting: QuitSession[] }} QuitCheck */
 
 /** Node's process.platform as one of the three (the server's `platformOf`, for the shell). */
 export function shellPlatform(nodePlatform = process.platform) {
@@ -58,7 +61,10 @@ const isSession = (x) => Boolean(x) && typeof x.id === 'string' && typeof x.titl
 /** The server's answer, or null when it is not one (then the shell does not trust it and quits). */
 export function parseQuitCheck(body) {
   if (!body || !Array.isArray(body.working) || !body.working.every(isSession)) return null;
-  return { working: body.working };
+  // An older server says nothing of waiting sessions: none, then.
+  const waiting = body.waiting === undefined ? [] : body.waiting;
+  if (!Array.isArray(waiting) || !waiting.every(isSession)) return null;
+  return { working: body.working, waiting };
 }
 
 /**
@@ -76,30 +82,41 @@ export async function askServer({ port, token, fetch = globalThis.fetch, timeout
 }
 
 const sessionsWord = (n) => (n === 1 ? '1 session' : `${n} sessions`);
+const isAre = (n) => (n === 1 ? 'is' : 'are');
+const titles = (sessions) => namesText(sessions.map((s) => s.title));
 
-/** The headline: one session by name, more by count. */
-function headline(working, purpose) {
-  const who = working.length === 1 ? `“${working[0].title}” is` : `${sessionsWord(working.length)} are`;
-  return purpose === 'update' ? `${who} still working. Restart to update now?` : `${who} still working. Quit Kestrel?`;
+/** The headline: one session by name, more by count; working and waiting said apart. */
+function headline({ working, waiting }, purpose) {
+  const ask = purpose === 'update' ? 'Restart to update now?' : 'Quit Kestrel?';
+  const one = working.length + waiting.length === 1 ? (working[0] ?? waiting[0]).title : null;
+  if (working.length && waiting.length) return `${sessionsWord(working.length)} ${isAre(working.length)} working and ${waiting.length} ${isAre(waiting.length)} waiting for your answer. ${ask}`;
+  if (working.length) return `${one ? `“${one}” is` : `${sessionsWord(working.length)} are`} still working. ${ask}`;
+  return `${one ? `“${one}” is` : `${sessionsWord(waiting.length)} are`} waiting for your answer. ${ask}`;
 }
 
 /**
- * The dialog for a quit, or null when nothing is working (quit without asking).
+ * The dialog for a quit, or null when nothing would be stopped or lost (quit without asking).
  * Buttons: [stay, go]; index 0 is the default and what Escape does.
  * @param {QuitCheck} check
  * @param {QuitPurpose} purpose
  */
 export function quitDialog(check, purpose) {
-  const { working } = check;
-  if (working.length === 0) return null;
-  const verb = purpose === 'update' ? 'Restarting' : 'Quitting';
+  const { working, waiting = [] } = check;
+  if (working.length === 0 && waiting.length === 0) return null;
+  const restart = purpose === 'update';
   const detail = [];
-  if (working.length > 1) detail.push(`Working: ${namesText(working.map((s) => s.title))}.`);
-  detail.push(`${verb} stops ${working.length === 1 ? 'it' : 'them'} now: the turn is cut off where it is, any approval or question it is waiting on is closed, and the session shows Interrupted. Reply in it afterwards to carry on. Messages you queued are kept, waiting for you to send them.`);
-  if (purpose === 'update') detail.push('Install later keeps the update: it is installed when you next quit Kestrel, and the update notice stays so you can restart when they are done.');
+  if (working.length > 0) {
+    detail.push(`${sessionsWord(working.length)} ${isAre(working.length)} working and will be stopped: ${titles(working)}.`);
+    detail.push(`The turn is cut off where it is, any approval or question it is waiting on is closed, and the session shows Interrupted. Reply in it afterwards to carry on. Messages you queued are kept, waiting for you to send them.`);
+  }
+  if (waiting.length > 0) {
+    detail.push(`${sessionsWord(waiting.length)} ${isAre(waiting.length)} waiting for your answer on a card that ${restart ? 'a restart' : 'quitting'} will close: ${titles(waiting)}.`);
+    detail.push(`Answer ${waiting.length === 1 ? 'it' : 'them'} first to keep what ${waiting.length === 1 ? 'it asks' : 'they ask'}. Otherwise the card closes unanswered and the session shows Interrupted; reply in it afterwards and the agent is told the card went unanswered.`);
+  }
+  if (restart) detail.push('Install later keeps the update: it is installed when you next quit Kestrel, and the update notice stays so you can restart when they are done.');
   if (purpose === 'system') detail.push(`Without an answer in ${SYSTEM_ANSWER_MS / 1000} seconds, Kestrel quits so the computer can log out or shut down.`);
-  const buttons = purpose === 'update' ? ['Install later', 'Restart anyway'] : ['Cancel', 'Quit anyway'];
-  return { type: 'warning', message: headline(working, purpose), detail: detail.join('\n\n'), buttons, defaultId: 0, cancelId: 0, noLink: true };
+  const buttons = restart ? ['Install later', 'Restart anyway'] : ['Cancel', 'Quit anyway'];
+  return { type: 'warning', message: headline({ working, waiting }, purpose), detail: detail.join('\n\n'), buttons, defaultId: 0, cancelId: 0, noLink: true };
 }
 
 /**

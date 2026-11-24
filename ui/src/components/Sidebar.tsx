@@ -46,6 +46,7 @@ import { selectsRow } from '@kestrel/server/routes';
 import { useProjectTint, useSessionTint } from '../colours.ts';
 import { actions, appStore, useApp } from '../store.ts';
 import { tabActions, useSessionOrder, useTabs } from '../tabsStore.ts';
+import { isTypedText } from '../typed-text.ts';
 
 const UNGROUPED = 'ungrouped';
 const InProject = createContext(false);
@@ -763,6 +764,7 @@ function SidebarBody({ workspace, homes, collapsed, route, activeId, onSwitch }:
   // Right-click anywhere in the sidebar: the item under the pointer decides the menu. The
   // browser's own menu is suppressed here and nowhere else.
   const onContextMenu = (event: MouseEvent) => {
+    if (isTypedText(event.target)) return;
     event.preventDefault();
     // A heading with nothing to create (PINNED) has no menu: the sidebar's own "New…" items do not belong to it.
     if ((event.target as HTMLElement).closest('[data-no-menu]')) return;

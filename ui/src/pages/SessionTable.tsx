@@ -13,6 +13,7 @@ import { openPullRequest } from '../sessionView.ts';
 import { opener, openSession, openTag } from '../route.ts';
 // Right-click: the session's own menu, the one its sidebar row and tab open (menu.ts).
 import { openRowMenu } from '../components/sidebarMenuTarget.ts';
+import { isTypedText } from '../typed-text.ts';
 
 /** Who started a session, for the line under its title: the handoff trail in one phrase. */
 export function originOf(session: SessionView, ws: Pick<WorkspaceState, 'links' | 'sessions'>): string | null {
@@ -56,7 +57,7 @@ const Row = memo(function Row({ session, projects, origin, showProject, showStat
     event.dataTransfer.effectAllowed = 'move';
   };
   return (
-    <div className={`trow${compact ? ' inbox-row' : ''}${depth > 0 ? ' nested' : ''}`} role="row" aria-level={depth > 0 ? depth + 1 : undefined} draggable onDragStart={onDragStart} onContextMenu={(event) => { event.preventDefault(); openRowMenu('session', session.id, { x: event.clientX, y: event.clientY }); }} {...opener((newTab) => openSession(session.id, newTab))}>
+    <div className={`trow${compact ? ' inbox-row' : ''}${depth > 0 ? ' nested' : ''}`} role="row" aria-level={depth > 0 ? depth + 1 : undefined} draggable onDragStart={onDragStart} onContextMenu={(event) => { if (isTypedText(event.target)) return; event.preventDefault(); openRowMenu('session', session.id, { x: event.clientX, y: event.clientY }); }} {...opener((newTab) => openSession(session.id, newTab))}>
       <span className="tcell tcell-main" style={depth > 0 ? ({ '--depth': depth } as CSSProperties) : undefined}>
         <span className="trow-title-line">
           <button type="button" className={`trow-title trow-title-button${compact ? ' inbox-title' : ''}`} title={compact ? session.title : undefined} onClick={e => { e.stopPropagation(); opener((newTab) => openSession(session.id, newTab)).onClick(e); }}>{session.title}</button>

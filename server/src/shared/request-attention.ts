@@ -199,14 +199,17 @@ export function attentionLabel(a: { reasons: readonly ReasonDetail[] }): string 
 const shortCommit = (commit: string): string => (/^[0-9a-f]{12,}$/i.test(commit) ? commit.slice(0, 8) : commit);
 
 const CHECKS_LOG_HINT: Record<HostKind, string> = {
-  github: 'Each link opens the check\'s log; from a shell, `gh pr checks <number>` lists them and `gh run view <run id> --log-failed` prints a failed run\'s log (the run id is in the link).',
-  gitlab: 'Each link opens the job\'s log; from a shell, `glab ci trace <job id>` prints it (the job id is the number at the end of the link).',
+  github: 'Each link is the page where that check reported its failure. For a GitHub Actions run, from a shell, `gh pr checks <number>` lists them and `gh run view <run id> --log-failed` prints a failed run\'s log (the run id is in the link).',
+  gitlab: 'Each link is the page where that job or status reported its failure. For a GitLab CI job, from a shell, `glab ci trace <job id>` prints its log (the job id is the number at the end of the link).',
 };
 
 const COMMENTS_HINT: Record<HostKind, string> = {
   github: 'From a shell, `gh pr view <number> --comments` shows the whole conversation.',
   gitlab: 'From a shell, `glab mr view <number> --comments` shows the whole conversation.',
 };
+
+/** A check reported by another service (Jenkins, for one) links there, and that page may need a sign-in the agent does not have. */
+const OTHER_SERVICE_HINT = 'A link to another service (a CI server such as Jenkins) may need a sign-in you do not have: if you cannot read it, say so, and work from what you can reproduce in this worktree.';
 
 /** At most this many review comments are put into one message; the rest are counted. */
 export const COMMENTS_IN_MESSAGE = 20;
@@ -234,8 +237,9 @@ export function fixMessage(a: Omit<RequestAttention, 'reasons'>, d: ReasonDetail
       ...(lines.length > 0 ? [...lines, ...all] : all),
       '',
       hint(CHECKS_LOG_HINT[a.host]),
+      OTHER_SERVICE_HINT,
       '',
-      'Read the logs of the failed checks, fix what made them fail, and push the fix to the same branch.',
+      'Find out why each check failed, from its log where you can read it, fix what made them fail, and push the fix to the same branch.',
     ].join('\n');
   }
   if (d.reason === 'conflicts') {

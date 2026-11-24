@@ -1,7 +1,9 @@
 // What a restart does to a session waiting on the user, for each agent (Matt, 2026-11-24: a session
 // whose turn is done does not hold up a quit, because "if the turn is done and there's a card, it'll
 // be there when I get back"). A turn paused on the agent's own card is cut off and the card closed;
-// a finished turn keeps every card it left, and its status.
+// a finished turn keeps every card it left, and its status. One of Kestrel's own approvals survives
+// too when its step is stored (runtime-restart-steps.test.ts); one raised with no step stored (by an
+// older Kestrel) is closed by a restart, so that one still holds a quit up.
 import { mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -91,7 +93,7 @@ describe.each(AGENTS)('a restart, for %s', (agent) => {
       await workspace.setDetail(session.id, { messages: [...stored.messages, ...FINISHED_TURN_CARDS] });
       await workspace.setState(session.id, 'attention', 'Needs you · Review findings');
       const messages = (await workspace.storedDetail(session.id))!.messages;
-      expect(quitCheck((await workspace.state()).sessions, () => messages).working).toEqual([]);
+      expect(quitCheck((await workspace.state()).sessions, () => ({ messages }))).toEqual({ working: [], waiting: [] });
     });
     expect((await workspace2.state()).sessions.find((s) => s.id === session.id)).toMatchObject({ state: 'attention', note: 'Needs you · Review findings' });
     const after = (await workspace2.storedDetail(session.id))!;
@@ -122,7 +124,7 @@ describe.each(AGENTS)('a restart, for %s', (agent) => {
       await runtime.idle(session.id);
       expect((await workspace.state()).sessions.find((s) => s.id === session.id)!.state).toBe('attention');
       const live = runtime.overlay(session.id)!.messages;
-      expect(quitCheck((await workspace.state()).sessions, () => live).working.map((s) => s.id)).toEqual([session.id]);
+      expect(quitCheck((await workspace.state()).sessions, () => ({ messages: live })).working.map((s) => s.id)).toEqual([session.id]);
 
       const { workspace2 } = await restart();
       expect((await workspace2.state()).sessions.find((s) => s.id === session.id)!.state).toBe('interrupted');
@@ -130,20 +132,38 @@ describe.each(AGENTS)('a restart, for %s', (agent) => {
     }
   });
 
-  it('closes one of Kestrel’s own cards left open after its turn (an approval for delegate, add_project, move_to_project): it does not survive', async () => {
-    const { workspace, runtime, script, restart } = await setup(agent);
-    script.turn = (emit) => emit({ type: 'done', reason: 'complete' });
+  // Every one of Kestrel's own approvals goes through `requestApproval`. Called here outside a step
+  // (as an older Kestrel raised them), no step is stored, so the card cannot survive a restart.
+  it.each(['handoff', 'delegate', 'spawn', 'ask_session', 'move_to_project', 'start_review', 'add_project', 'fallback'])(
+    'one of Kestrel’s own cards with no step stored (%s) holds a quit up as waiting, and a restart closes it',
+    async (kind) => {
+      const { workspace, runtime, restart } = await setup(agent);
+      const session = await runtime.start({ agent, projectId: null, prompt: 'go' });
+      await runtime.idle(session.id);
+      const tool = kind === 'fallback' ? 'delegate' : kind;
+      void runtime.requestApproval(session.id, { id: `${kind}-1`, kind: 'approval', tool, title: `Allow ${kind}?`, detail: 'x', options: [{ id: 'allow', label: 'Allow', role: 'allow' }] });
+      await runtime.idle(session.id);
+      expect((await workspace.state()).sessions.find((s) => s.id === session.id)!.state).toBe('attention');
+      const live = runtime.overlay(session.id)!.messages;
+      expect(live.find((m) => m.input)!.input!.kestrel).toBe(true);
+      expect(quitCheck((await workspace.state()).sessions, () => ({ messages: live }))).toEqual({ working: [], waiting: [{ id: session.id, title: session.title }] });
+
+      const { workspace2 } = await restart();
+      expect((await workspace2.state()).sessions.find((s) => s.id === session.id)!.state).toBe('interrupted');
+      expect((await workspace2.storedDetail(session.id))!.messages.find((m) => m.input)!.input!.resolved).toBe('Interrupted by restart');
+    },
+  );
+
+  it('an agent’s own card from a failed turn holds nothing up: it is not one of Kestrel’s', async () => {
+    const { workspace, runtime, script } = await setup(agent);
+    script.turn = (emit) => {
+      emit({ type: 'needs-input', request: { id: 'q1', kind: 'question', title: 'Which database?', detail: 'x', tool: 'AskUserQuestion', options: [] } } as never);
+      emit({ type: 'failed', reason: 'the model refused', kind: 'other' } as never);
+    };
     const session = await runtime.start({ agent, projectId: null, prompt: 'go' });
     await runtime.idle(session.id);
-    const asked = runtime.requestApproval(session.id, { id: 'add_project-1', kind: 'approval', tool: 'add_project', title: 'Add kite as a project?', detail: '/x', options: [{ id: 'allow', label: 'Add project', role: 'allow' }] });
-    await runtime.idle(session.id);
-    expect((await workspace.state()).sessions.find((s) => s.id === session.id)!.state).toBe('attention');
     const live = runtime.overlay(session.id)!.messages;
-    expect(quitCheck((await workspace.state()).sessions, () => live).working).toEqual([]);
-
-    const { workspace2 } = await restart();
-    void asked;
-    expect((await workspace2.state()).sessions.find((s) => s.id === session.id)!.state).toBe('interrupted');
-    expect((await workspace2.storedDetail(session.id))!.messages.find((m) => m.input)!.input!.resolved).toBe('Interrupted by restart');
+    expect(live.find((m) => m.input)!.input!.kestrel).toBeUndefined();
+    expect(quitCheck((await workspace.state()).sessions, () => ({ messages: live }))).toEqual({ working: [], waiting: [] });
   });
 });

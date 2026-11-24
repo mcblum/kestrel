@@ -1,4 +1,5 @@
 import { mergePRRoute } from './pull-requests/merge-api.ts';
+import { fileToRead, placeOf } from './file-to-read.ts';
 import { WORKSTREAM_NAME_MAX, WORKSTREAM_OBJECTIVE_MAX } from './shared/workstreams.ts';
 import { landingRoute, worktreesRoute } from './landing-api.ts';
 // HTTP and WebSocket API. Thin: checks access, validates input, calls the Workspace.
@@ -38,7 +39,7 @@ import { projectEnvRoute } from './project-env/api.ts';
 import { projectScriptsRoute } from './project-scripts/api.ts';
 import { commandsKeptRoute } from './commands-kept/api.ts';
 import { delegationLimitsRoute } from './limits-api.ts';
-import { quitCheck } from './shared/quit-check.ts';
+import { quitCheck, type Conversation } from './shared/quit-check.ts';
 import { commitSigningRoute } from './commit-signing/api.ts';
 import { crashReportsRoute } from './crash-reports/api.ts';
 import type { CrashReportSetup } from './shared/crash-reports.ts';
@@ -239,9 +240,15 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
       const state = await workspace.state();
       const sessions = [...state.sessions, ...state.archived.sessions];
       // The conversation of each session waiting on the user, to tell a paused turn from a finished one: the live copy where there is one.
-      const messages = new Map<string, readonly ChatMessage[] | undefined>();
-      for (const s of sessions) if (s.state === 'attention') messages.set(s.id, runtime?.overlay(s.id)?.messages ?? (await workspace.storedDetail(s.id))?.messages);
-      return send(req, res, 200, quitCheck(sessions, (id) => messages.get(id)));
+      // With the steps stored for Kestrel's own cards: a card whose step is stored survives a restart.
+      const conversations = new Map<string, Conversation | undefined>();
+      for (const s of sessions) {
+        if (s.state !== 'attention') continue;
+        const stored = await workspace.storedDetail(s.id);
+        const messages = runtime?.overlay(s.id)?.messages ?? stored?.messages;
+        conversations.set(s.id, messages ? { messages, steps: stored?.steps ?? [] } : undefined);
+      }
+      return send(req, res, 200, quitCheck(sessions, (id) => conversations.get(id)));
     }
 
     const connected = options.connect ? await connectRoute(parts, method, () => readJson(req), options.connect) : null;
@@ -431,11 +438,17 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
         if (stat.size > RAW_IMAGE_MAX_BYTES) return send(req, res, 413, { error: 'That image is larger than 10 MB.' });
         return sendBytes(req, res, type, readFileSync(file));
       }
-      // A Markdown or PDF file for the session's file tab (display.ts decides which files, and says why not).
-      if (runtime && method === 'GET' && parts.length === 4 && parts[3] === 'document') {
+      // A Markdown or PDF file the user opened to read in a tab of the session, from wherever it is on this
+      // computer (file-to-read.ts decides which files, and says why not), and where it is, for the tab.
+      // The window's own: the per-launch token; never a tool, never a phone.
+      if (runtime && method === 'GET' && parts.length === 4 && (parts[3] === 'document' || parts[3] === 'document-place')) {
         try {
-          const file = await runtime.display.viewableFile(parts[2]!, url.searchParams.get('path') ?? '');
-          return sendBytes(req, res, file.type, readFileSync(file.path));
+          const sessionId = parts[2]!;
+          const directory = await runtime.directoryOf(sessionId);
+          const file = fileToRead(url.searchParams.get('path') ?? '', directory);
+          if (parts[3] === 'document') return sendBytes(req, res, file.type, readFileSync(file.path));
+          const sessions = (await workspace.state()).sessions;
+          return send(req, res, 200, placeOf(file.path, sessionId, directory, sessions.map((s) => ({ id: s.id, title: s.title, path: s.worktreePath }))));
         } catch (error) {
           if (error instanceof Refused) return send(req, res, 404, { error: error.message });
           throw error;

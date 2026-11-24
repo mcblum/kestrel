@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PullRequest, PullRequestLookup } from './details.ts';
 import { changesRequestedOf, mapGhItem, githubProvider, reviewCommentsArgs, reviewsArgs } from '../pull-requests/github.ts';
-import { failedJobsOf, gitlabProvider } from '../pull-requests/gitlab.ts';
+import { failedJobsOf, failedStatusesOf, gitlabProvider } from '../pull-requests/gitlab.ts';
 import { PullRequestStore } from '../pull-requests/store.ts';
 import type { CommandRunner } from '../pull-requests/types.ts';
 import { DEFAULT_NOTIFY, NOTHING_SEEN, notificationsOf, type NotifyNow } from './notifications.ts';
@@ -64,6 +64,30 @@ describe('what GitHub tells the store', () => {
       { __typename: 'StatusContext', context: 'ci/deploy-preview', state: 'ERROR', targetUrl: 'https://ci.example.com/9' },
     ] };
     expect(mapGhItem(item)).toMatchObject({ checks: 'failing', headSha: SHA, failedChecks: [{ name: 'lint', url: 'https://github.com/o/r/actions/runs/1/job/2' }, { name: 'ci/deploy-preview', url: 'https://ci.example.com/9' }] });
+  });
+
+  it('names a failing check run and a failing status context (Jenkins) each by its own link, and one with no link by name; pending and neutral ones are not failures', () => {
+    const item = { number: 7, title: 'x', state: 'OPEN', isDraft: false, url: 'https://github.com/o/r/pull/7', headRefOid: SHA, statusCheckRollup: [
+      { __typename: 'CheckRun', name: 'lint', status: 'COMPLETED', conclusion: 'FAILURE', detailsUrl: 'https://github.com/o/r/actions/runs/1/job/2' },
+      { __typename: 'StatusContext', context: 'continuous-integration/jenkins/pr-merge', state: 'FAILURE', targetUrl: 'https://jenkins.example.com/job/r/PR-7/4/display/redirect' },
+      { __typename: 'StatusContext', context: 'license/cla', state: 'FAILURE' },
+      { __typename: 'StatusContext', context: 'security/scan', state: 'PENDING', targetUrl: 'https://scan.example.com/1' },
+      { __typename: 'CheckRun', name: 'optional-docs', status: 'COMPLETED', conclusion: 'NEUTRAL', detailsUrl: 'https://github.com/o/r/actions/runs/1/job/5' },
+      { __typename: 'CheckRun', name: 'skipped', status: 'COMPLETED', conclusion: 'SKIPPED' },
+    ] };
+    const mapped = mapGhItem(item);
+    expect(mapped.checks).toBe('failing');
+    expect(mapped.failedChecks).toEqual([
+      { name: 'lint', url: 'https://github.com/o/r/actions/runs/1/job/2' },
+      { name: 'continuous-integration/jenkins/pr-merge', url: 'https://jenkins.example.com/job/r/PR-7/4/display/redirect' },
+      { name: 'license/cla' },
+    ]);
+    // A failed status context alone fails the checks, so it counts under the once-per-commit rule.
+    const jenkinsOnly = mapGhItem({ ...item, statusCheckRollup: [item.statusCheckRollup[1], item.statusCheckRollup[4]] });
+    expect(jenkinsOnly.checks).toBe('failing');
+    expect(requestAttention(lookup([jenkinsOnly]))?.reasons[0]).toMatchObject({ reason: 'checks-failed', occurrence: SHA, checks: [{ name: 'continuous-integration/jenkins/pr-merge' }] });
+    expect(mapGhItem({ ...item, statusCheckRollup: [item.statusCheckRollup[3], item.statusCheckRollup[4]] }).checks).toBe('running');
+    expect(mapGhItem({ ...item, statusCheckRollup: [item.statusCheckRollup[4], item.statusCheckRollup[5]] }).checks).toBe('passing');
   });
 
   it('names none for passing checks or a request that is no longer open', () => {
@@ -141,6 +165,34 @@ describe('what GitLab tells the store', () => {
     const passing = runner({ [LIST]: JSON.stringify([mr]), [VIEW]: view({ status: 'success' }), ...nobody });
     expect(await gitlabProvider(passing.run).pullRequestsFor('/repo', 'feat/x')).toMatchObject({ value: [{ checks: 'passing' }] });
     expect(passing.calls.some((c) => c.includes('/pipelines/'))).toBe(false);
+  });
+
+  it('adds a status another service reported (Jenkins) with its own link, once per pipeline, leaving GitLab’s own jobs to the jobs list', async () => {
+    const STATUSES = `glab api projects/:id/repository/commits/${SHA}/statuses?per_page=100`;
+    const statuses = [
+      { name: 'rspec 1/2', status: 'failed', target_url: 'https://gl.example.com/g/r/-/jobs/901' },
+      { name: 'jenkins/pr-merge', status: 'failed', target_url: 'https://jenkins.example.com/job/r/MR-12/3/' },
+      { name: 'jenkins/lint', status: 'failed' },
+      { name: 'jenkins/optional', status: 'failed', allow_failure: true, target_url: 'https://jenkins.example.com/x' },
+      { name: 'jenkins/slow', status: 'running', target_url: 'https://jenkins.example.com/y' },
+      { name: 'jenkins/ok', status: 'success', target_url: 'https://jenkins.example.com/z' },
+    ];
+    const { run, calls } = runner({ [LIST]: JSON.stringify([mr]), [VIEW]: view({ status: 'failed', sha: SHA }), ...nobody, [JOBS]: JSON.stringify([{ name: 'rspec 1/2', web_url: 'https://gl.example.com/g/r/-/jobs/901' }]), [STATUSES]: JSON.stringify(statuses) });
+    const provider = gitlabProvider(run);
+    expect(await provider.pullRequestsFor('/repo', 'feat/x')).toMatchObject({ value: [{ failedChecks: [
+      { name: 'rspec 1/2', url: 'https://gl.example.com/g/r/-/jobs/901' },
+      { name: 'jenkins/pr-merge', url: 'https://jenkins.example.com/job/r/MR-12/3/' },
+      { name: 'jenkins/lint' },
+    ] }] });
+    await provider.pullRequestsFor('/repo', 'feat/x');
+    expect(calls.filter((c) => c === STATUSES)).toHaveLength(1);
+    // A pipeline of external statuses only (no jobs, no trigger jobs) still names them.
+    const external = runner({ [LIST]: JSON.stringify([mr]), [VIEW]: view({ status: 'failed', sha: SHA }), ...nobody, [JOBS]: '[]', [BRIDGES]: '[]', [STATUSES]: JSON.stringify(statuses.slice(1, 2)) });
+    expect(await gitlabProvider(external.run).pullRequestsFor('/repo', 'feat/x')).toMatchObject({ value: [{ failedChecks: [{ name: 'jenkins/pr-merge', url: 'https://jenkins.example.com/job/r/MR-12/3/' }] }] });
+    // When the statuses cannot be read, the jobs still stand.
+    const unread = runner({ [LIST]: JSON.stringify([mr]), [VIEW]: view({ status: 'failed', sha: SHA }), ...nobody, [JOBS]: JSON.stringify([{ name: 'rspec 1/2', web_url: 'https://gl.example.com/g/r/-/jobs/901' }]) });
+    expect(await gitlabProvider(unread.run).pullRequestsFor('/repo', 'feat/x')).toMatchObject({ value: [{ failedChecks: [{ name: 'rspec 1/2' }] }] });
+    expect(() => failedStatusesOf('{}', [])).toThrow();
   });
 
   it('keeps the request when the jobs cannot be read: no names, the pipeline’s link', async () => {
@@ -295,6 +347,17 @@ describe('the words', () => {
     expect(text).toContain('- test');
     expect(text).toContain('gh pr checks 431');
     expect(text).toMatch(/fix what made them fail/);
+  });
+
+  it('gives the agent each failed check’s own page, Jenkins too, as where the failure is rather than something it can surely read', () => {
+    const jenkins = { name: 'continuous-integration/jenkins/pr-merge', url: 'https://jenkins.example.com/job/r/PR-431/4/display/redirect' };
+    const a = requestAttention(lookup([pr({ failedChecks: [{ name: 'lint', url: 'https://github.com/o/r/actions/runs/1/job/2' }, jenkins, { name: 'license/cla' }] })]))!;
+    const text = fixMessage(a, a.reasons[0]!);
+    expect(text).toContain(`- ${jenkins.name}: ${jenkins.url}`);
+    expect(text).toContain('- license/cla\n');
+    expect(text).toMatch(/where that check reported its failure/);
+    expect(text).toMatch(/may need a sign-in you do not have/);
+    expect(text).not.toMatch(/opens the check's log/);
   });
 
   it('asks the agent to merge the target in here and resolve, never to force-push without asking', () => {

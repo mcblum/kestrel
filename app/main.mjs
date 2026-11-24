@@ -15,6 +15,7 @@ import { join, normalize, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { setAppIdentity } from './identity.mjs';
 import { createFolderChooser } from './folder-chooser.mjs';
+import { editMenuItems, editMenuTemplate, spellLanguages } from './edit-menu.mjs';
 import { buildMenu, cleanAccelerators } from './menu.mjs';
 import { createFolderQueue, foldersInArgs, foldersOnly } from './open-folders.mjs';
 import { isPackaged, preloadPath, uiDist } from './paths.mjs';
@@ -269,6 +270,31 @@ function sendCommand(command) {
   win?.webContents.send('kestrel:command', command);
 }
 
+/**
+ * The right-click menu for text (edit-menu.mjs): spelling suggestions, Add to the dictionary, and
+ * Cut, Copy, Paste and Select All. Chromium raises `context-menu` only where the page did not open a
+ * menu of its own. Only the app's own page: the browser pane's pages get none.
+ */
+function attachEditMenu(window) {
+  const contents = window.webContents;
+  contents.on('context-menu', (_event, params) => {
+    const items = editMenuItems(params);
+    if (!items) return;
+    const template = editMenuTemplate(items, {
+      replace: (word) => contents.replaceMisspelling(word),
+      learn: (word) => contents.session.addWordToSpellCheckerDictionary(word),
+    });
+    Menu.buildFromTemplate(template).popup({ window });
+  });
+}
+
+/** Which languages to check spelling in: the system's own on a Mac, else the system's preferred ones Electron has dictionaries for. */
+function setSpellLanguages() {
+  const ses = session.defaultSession;
+  const languages = spellLanguages(platform, app.getPreferredSystemLanguages(), ses.availableSpellCheckerLanguages);
+  if (languages?.length) ses.setSpellCheckerLanguages(languages);
+}
+
 function createWindow() {
   win = new BrowserWindow({
     ...loadBounds(),
@@ -284,6 +310,7 @@ function createWindow() {
     webPreferences: { preload: preloadPath, contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: true },
   });
   trackBounds(win);
+  attachEditMenu(win);
   // A browser's Back and Forward where they are not menu keys: Alt with the arrows on Windows and
   // Linux (on a Mac Option with an arrow moves the cursor by a word, and the keys are ⌘[ and ⌘]), and
   // the mouse's and keyboard's own back and forward buttons on Windows.
@@ -500,6 +527,7 @@ async function boot() {
       setTimeout(() => done({ ok: false, reason: 'no answer' }), 5000);
     });
   });
+  setSpellLanguages();
   createWindow();
 }
 

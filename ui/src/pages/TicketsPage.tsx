@@ -20,6 +20,7 @@ import { TicketStatus } from '../components/TicketStatus.tsx';
 import { TicketActionsMenu } from '../components/TicketActionsMenu.tsx';
 import { openRowMenu } from '../components/sidebarMenuTarget.ts';
 import { PageHeader } from './PageHeader.tsx';
+import { isTypedText } from '../typed-text.ts';
 
 /** The lead session working on a ticket, if one is. */
 function useLead(key: string) {
@@ -50,6 +51,7 @@ const TicketRow = memo(function TicketRow({ ticket, dismissed, underWay = false 
       className={`inbox-row${unread || news ? ' unread' : ''}`}
       // Right-click: the ticket's own menu, the one its … and its sidebar row open (menu.ts).
       onContextMenu={(event) => {
+        if (isTypedText(event.target)) return;
         event.preventDefault();
         openRowMenu('ticket', ticket.key, { x: event.clientX, y: event.clientY });
       }}
@@ -91,6 +93,7 @@ const ClosedRow = memo(function ClosedRow({ ticket }: { ticket: ClosedTicket }) 
     <li
       className="inbox-row"
       onContextMenu={(event) => {
+        if (isTypedText(event.target)) return;
         event.preventDefault();
         openRowMenu('ticket', ticket.key, { x: event.clientX, y: event.clientY });
       }}

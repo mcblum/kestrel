@@ -46,3 +46,27 @@ export function viewablePathIn(text: string): string | null {
   path = path.replace(/(:\d+){1,2}$/, '');
   return viewableKind(fileNameOf(path)) && fileNameOf(path).lastIndexOf('.') > 0 ? path : null;
 }
+
+/**
+ * Where a file the user opened to read is (server: file-to-read.ts), for its tab: in the session's own
+ * folder, in another session's worktree, or elsewhere on this computer.
+ */
+export interface FilePlace {
+  /** Its real path, symlinks followed. */
+  path: string;
+  inSessionFolder: boolean;
+  /** The session whose worktree the file is in, when that is another session. */
+  otherSession?: { id: string; title: string };
+}
+
+export const isFilePlace = (v: unknown): v is FilePlace => {
+  const p = v as FilePlace | null;
+  const other = p?.otherSession;
+  return typeof p === 'object' && p !== null && typeof p.path === 'string' && typeof p.inSessionFolder === 'boolean' && (other === undefined || (typeof other.id === 'string' && typeof other.title === 'string'));
+};
+
+/** What a file's tab says about where it is, or null when it is in the session's own folder. */
+export function placeLine(place: FilePlace): string | null {
+  if (place.inSessionFolder) return null;
+  return place.otherSession ? `In the worktree of “${place.otherSession.title}”, not this session’s folder.` : 'Outside this session’s folder.';
+}

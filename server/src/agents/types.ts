@@ -119,6 +119,8 @@ export interface InputRequest {
   questions?: CardQuestion[];
   /** For a command outside the sandbox: what its "Always allow" choices would add (sandbox-allow/). */
   sandboxOffer?: SandboxOffer;
+  /** Kestrel's own card (`requestApproval`), not the agent's: it can outlive its turn. Set by Kestrel only. */
+  kestrel?: true;
 }
 
 /**
@@ -167,6 +169,7 @@ export const KESTREL_TOOLS = [
   'ask_session',
   'complete_workstream',
   'wait_for',
+  'archive_session',
   'show_widget',
   'send_file',
   'next_step',
@@ -243,6 +246,8 @@ export interface KestrelToolHost {
   completeWorkstream(args: Record<string, never>): Promise<ToolResult>;
   /** The caller, in a workstream, waits on another session of it (shown on the workstream page) and is told when that one finishes; `clear` ends the caller's own wait on it. It does not block. */
   waitFor(args: { session?: string; reason?: string; clear?: boolean }): Promise<ToolResult>;
+  /** Archive a session: this one when its turn ends, one it started or one of a workstream it leads at once, any other on the user's yes. Never stops, deletes or restores. */
+  archiveSession(args: { session?: string; reason?: string }): Promise<ToolResult>;
   /** Draw something in the conversation: an SVG picture or a small HTML page. */
   showWidget(args: WidgetCard): Promise<ToolResult>;
   /** Put a file the agent made in front of the user. */

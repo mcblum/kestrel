@@ -4,6 +4,9 @@
 .kestrel .file-document-name { flex: none; font-weight: 600; color: var(--s-ink); }
 .kestrel .file-document-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; font-family: var(--mono); font-size: 11px; color: var(--s-muted); }
 .kestrel .file-document-actions { display: flex; gap: 2px; flex: none; }
+/* Where the file is, when it is not the session's own folder (file-to-read.ts on the server). */
+.kestrel .file-document-place { flex: none; margin: 0; padding: 6px 12px 6px 28px; border-bottom: 1px solid var(--s-line); background: var(--s-side); color: var(--s-ink); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .file-document-place-path { font-family: var(--mono); font-size: 11px; color: var(--s-muted); }
 .kestrel .file-document-note { margin: 0; padding: 28px; color: var(--s-muted); font-size: 12px; }
 .kestrel .file-document-scroll { flex: 1; min-height: 0; overflow: auto; padding: 28px; scrollbar-gutter: stable; }
 .kestrel .file-document-text { max-width: 800px; margin-inline: auto; }

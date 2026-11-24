@@ -128,7 +128,7 @@ function keepOwnCards(rec: Live): void {
 
 /** With one of Kestrel's own cards still open after its turn, the session still needs the user: said on its row. */
 async function awaitOwnCards(host: EventHost, id: string, rec: Live): Promise<void> {
-  const open = rec.messages.find((m) => m.input && !m.input.resolved && rec.kestrelRequests.has(m.input.id))?.input;
+  const open = rec.messages.find((m) => m.input && !m.input.resolved && (rec.kestrelRequests.has(m.input.id) || rec.keptSteps.has(m.input.id)))?.input;
   if (open) await host.workspace.setState(id, 'attention', `Needs you · ${open.title}`, ACTIVITY);
 }
 

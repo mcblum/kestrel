@@ -232,6 +232,8 @@ export async function loadRecord(host: Pick<RuntimeHost, 'workspace' | 'records'
   rec.guest = sanitizeGuest(stored.guest);
   rec.review = sanitizeReview(stored.review);
   rec.roleRun = sanitizeRoleRun(stored.roleRun);
+  // Kestrel's own cards kept over a restart stay open through later turns until answered.
+  rec.keptSteps = new Set((stored.steps ?? []).filter((s) => s.status === 'waiting').map((s) => s.requestId));
   rec.modelChosen = stored.modelChosen === true;
   rec.askers = [...(stored.askers ?? [])];
   rec.outsideAllowed = stored.outsideAllowed === true;

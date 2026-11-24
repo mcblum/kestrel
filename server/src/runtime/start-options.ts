@@ -12,6 +12,7 @@ import { folderName, repositoryLabel, resolveStartedFolder } from '../shared/pro
 import { enabledServers } from '../shared/setup.ts';
 import { tagCounts } from '../shared/tags.ts';
 import { turnUnderWay } from '../shared/turns.ts';
+import { CUT_OFF_STEP, cutOffNews, survives } from '../shared/waiting-steps.ts';
 import { startLinkOf } from '../tree.ts';
 import { Refused, type Workspace } from '../workspace.ts';
 import type { Live } from './record.ts';
@@ -112,7 +113,10 @@ export const askCutOffNews = (title: string, id: string): string =>
 
 /**
  * After a restart no agent process exists: running sessions are interrupted and open prompts
- * abandoned. Each agent hears what it lost with its next turn (the stored inbox).
+ * abandoned. Each agent hears what it lost with its next turn (the stored inbox). One of Kestrel's
+ * own cards from a turn that had ended, whose step is stored as waiting, stays open and is taken up
+ * when answered (runtime/turns.ts `answerStoredStep`); the session comes back as needing the user.
+ * A step found being carried out was cut off part way: its card is closed and it is never run again.
  */
 export async function interruptAfterRestart(workspace: Workspace): Promise<number> {
   const state = await workspace.state();
@@ -121,13 +125,25 @@ export async function interruptAfterRestart(workspace: Workspace): Promise<numbe
     if (s.state !== 'running' && s.state !== 'attention') continue;
     const stored = await workspace.storedDetail(s.id);
     if (!stored || stored.agentSessionId === undefined) continue; // fake data, not a real session
+    const ended = s.state === 'attention' && !turnUnderWay(stored.messages);
+    const steps = stored.steps ?? [];
+    const open = stored.messages.flatMap((m) => (m.input && !m.input.resolved ? [m.input] : []));
     // Waiting on the user with its turn done and no card a restart would close (a review's findings,
     // a failure): nothing was lost, so it stays as it was, card, note and all (Matt, 2026-11-24).
-    if (s.state === 'attention' && !turnUnderWay(stored.messages) && !stored.messages.some((m) => m.input && !m.input.resolved)) continue;
-    const messages = stored.messages.map((m) => (m.input && !m.input.resolved ? { ...m, input: { ...m.input, resolved: 'Interrupted by restart' } } : { ...m, streaming: false }));
-    const lost = stored.messages.flatMap((m) => (m.input && !m.input.resolved ? [lostRequestNews(m.input)] : []));
+    if (ended && open.length === 0) continue;
+    const kept = new Set(ended ? open.filter((i) => i.kestrel === true && survives(steps, i.id)).map((i) => i.id) : []);
+    const cutOff = new Set(open.filter((i) => i.kestrel === true && steps.some((st) => st.requestId === i.id && st.status === 'taking')).map((i) => i.id));
+    const closing = (id: string): string => (cutOff.has(id) ? CUT_OFF_STEP : 'Interrupted by restart');
+    const messages = stored.messages.map((m) => (m.input && !m.input.resolved && !kept.has(m.input.id) ? { ...m, input: { ...m.input, resolved: closing(m.input.id) } } : { ...m, streaming: false }));
+    const lost = open.flatMap((i) => (kept.has(i.id) ? [] : [cutOff.has(i.id) ? cutOffNews({ tool: i.tool ?? '', title: i.title, detail: i.detail ?? '' }) : lostRequestNews(i)]));
     const news = lost.length ? lost : s.state === 'running' ? [CUT_OFF_NEWS] : [];
-    await workspace.setDetail(s.id, { messages, ...(news.length ? { inbox: [...(stored.inbox ?? []), ...news] } : {}), askers: [] });
+    await workspace.setDetail(s.id, { messages, steps: steps.filter((st) => kept.has(st.requestId)), ...(news.length ? { inbox: [...(stored.inbox ?? []), ...news] } : {}), askers: [] });
+    // Its cards are still there to answer: it needs the user, as before the restart.
+    const first = open.find((i) => kept.has(i.id));
+    if (first) {
+      await workspace.setState(s.id, 'attention', `Needs you · ${first.title}`);
+      continue;
+    }
     // Whoever asked it for work (`ask_session`) is waiting to hear how that turn ended: it did not.
     for (const askerId of stored.askers ?? []) {
       const asker = await workspace.storedDetail(askerId);

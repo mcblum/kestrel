@@ -6,7 +6,6 @@ import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import type { AgentEvent, KestrelToolHost, ToolResult } from './agents/types.ts';
 import { resolveInside } from './files.ts';
-import { tooLargeToView, viewableKind, VIEWABLE_TYPE } from './shared/viewable-files.ts';
 import type { TranscriptAction } from './transcript.ts';
 import { Refused } from './workspace.ts';
 
@@ -81,7 +80,7 @@ export class Display {
     if (!directory) throw new Refused('This session has no folder on disk.');
     const target = isAbsolute(given) ? given : resolve(directory, given);
     if (!existsSync(target)) throw new Refused(`No such file: ${target}`);
-    const path = this.confine(target, await this.fileRoots(directory));
+    const path = this.confine(target, await this.agentFileRoots(directory));
     const stat = statSync(path);
     if (!stat.isFile()) throw new Refused(`${path} is not a file. Send one file at a time.`);
     const caption = typeof args.caption === 'string' && args.caption.trim() ? args.caption.trim().slice(0, 500) : undefined;
@@ -89,31 +88,13 @@ export class Display {
     return { text: 'Shown to the user.' };
   }
 
-  /** Where a session's files may be: its own folder, Kestrel's scratch folder, and the registered projects. */
-  private async fileRoots(directory: string): Promise<string[]> {
-    return [directory, join(this.dataDir, 'scratch'), ...(await this.host.projectPaths())];
-  }
-
   /**
-   * A Markdown or PDF file the session's file tab shows: its real path and content type. The same
-   * folders as `send_file`, so a file the agent sent can always be opened. Refused with the reason
-   * for any other kind of file, one outside those folders, or one too large to show.
+   * Where a file an agent puts in front of the user (`send_file`) may be: the session's own folder,
+   * Kestrel's scratch folder, and the registered projects. Only for what an agent calls; what the user
+   * opens to read by clicking is file-to-read.ts, which no tool reaches.
    */
-  async viewableFile(sessionId: string, given: string): Promise<{ path: string; type: string }> {
-    const kind = viewableKind(given);
-    if (!kind) throw new Refused('Kestrel shows Markdown and PDF files. Open this one in another app.');
-    const directory = await this.host.directoryOf(sessionId);
-    if (!directory || !existsSync(directory)) throw new Refused('This session has no folder on disk.');
-    const target = isAbsolute(given) ? given : resolve(directory, given);
-    if (!existsSync(target)) throw new Refused(`No such file: ${target}`);
-    const path = this.confine(target, await this.fileRoots(directory));
-    const stat = statSync(path);
-    if (!stat.isFile()) throw new Refused(`${path} is not a file.`);
-    // The real file decides, so a link named report.md cannot hand over something else.
-    if (viewableKind(path) !== kind) throw new Refused('Kestrel shows Markdown and PDF files. Open this one in another app.');
-    const tooLarge = tooLargeToView(kind, stat.size);
-    if (tooLarge) throw new Refused(tooLarge);
-    return { path, type: VIEWABLE_TYPE[kind] };
+  private async agentFileRoots(directory: string): Promise<string[]> {
+    return [directory, join(this.dataDir, 'scratch'), ...(await this.host.projectPaths())];
   }
 
   /** The real path of `target` if it is inside one of `roots`; symlinks out of them do not count. */

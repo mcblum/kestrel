@@ -39,7 +39,7 @@ function activityFor(tool: Extract<AgentEvent, { type: 'tool' }>): ChatActivity 
 }
 
 function cardFor(request: InputRequest): ChatMessage['input'] {
-  return { id: request.id, kind: request.kind, title: request.title, detail: request.detail, tool: request.tool, options: request.options, ...(request.markdown ? { markdown: true } : {}), ...(request.questions ? { questions: request.questions } : {}), ...(request.sandboxOffer ? { sandboxOffer: request.sandboxOffer } : {}) };
+  return { id: request.id, kind: request.kind, title: request.title, detail: request.detail, tool: request.tool, options: request.options, ...(request.markdown ? { markdown: true } : {}), ...(request.questions ? { questions: request.questions } : {}), ...(request.sandboxOffer ? { sandboxOffer: request.sandboxOffer } : {}), ...(request.kestrel ? { kestrel: true as const } : {}) };
 }
 
 /**

@@ -67,6 +67,27 @@ export class Suggestions {
     return this.serial(sessionId, () => this.propose(sessionId, args)).catch((error) => ({ isError: true, text: `Kestrel could not take the suggestion: ${message(error)}` }));
   }
 
+  /**
+   * Something Kestrel does at once and records as a line with Undo (a kind whose proposal presses a
+   * button straight away): the settled suggestion. Unlike `suggest`, a refusal is thrown as it is and
+   * nothing is shown, so the caller can say why in its own words.
+   */
+  act(sessionId: string, args: Record<string, unknown>): Promise<Suggestion> {
+    return this.serial(sessionId, async () => {
+      const kind = this.deps.registry.get(args.kind);
+      if ('reason' in kind) throw new Refused(kind.reason);
+      const ctx = await this.context(sessionId);
+      if (!ctx) throw new Refused('This session cannot take suggestions.');
+      const payload = Object.fromEntries(Object.entries(args).filter(([key]) => key !== 'kind'));
+      const proposal = await kind.propose(ctx, payload);
+      if (proposal.type === 'refuse') throw new Refused(proposal.reason);
+      if (proposal.type === 'skip') throw new Refused(proposal.text);
+      if (!proposal.apply) throw new Error(`Suggestion kind "${kind.kind}" does not act at once.`);
+      const suggestion: Suggestion = { id: this.newId(), sessionId, kind: kind.kind, ...proposal.draft, state: 'open', createdAt: this.now() };
+      return this.pressAndShow(ctx, kind, suggestion, proposal.apply, true);
+    });
+  }
+
   /** Tag candidates the title call proposed: the same path as the tool. What is refused is only logged. */
   async fromTitle(sessionId: string, candidates: readonly Record<string, unknown>[]): Promise<void> {
     for (const candidate of candidates) {

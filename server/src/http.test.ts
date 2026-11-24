@@ -107,10 +107,10 @@ describe('the shell\'s quit check', () => {
     expect((await fetch(`${base}/api/quit-check`)).status).toBe(401);
     const before = (await ws.state()).sessions.find((s) => s.id === 's1')!;
     await ws.setState('s1', 'done', '');
-    expect(await (await fetch(`${base}/api/quit-check`, { headers: auth })).json()).toEqual({ working: [] });
+    expect(await (await fetch(`${base}/api/quit-check`, { headers: auth })).json()).toEqual({ working: [], waiting: [] });
     await ws.setState('s1', 'running', '');
     try {
-      expect(await (await fetch(`${base}/api/quit-check`, { headers: auth })).json()).toEqual({ working: [{ id: 's1', title: 'One' }] });
+      expect(await (await fetch(`${base}/api/quit-check`, { headers: auth })).json()).toEqual({ working: [{ id: 's1', title: 'One' }], waiting: [] });
     } finally {
       await ws.setState('s1', before.state, before.note);
     }
@@ -341,10 +341,23 @@ describe('pictures', () => {
     const other = await document('notes.txt');
     expect(other.status).toBe(404);
     expect((await other.json()).error).toMatch(/Markdown and PDF/);
-    expect((await (await document('nope.md')).json()).error).toMatch(/No such file/);
-    writeFileSync(join(outsidePng, '..', 'secret.md'), 'no');
-    expect((await (await document(join(outsidePng, '..', 'secret.md'))).json()).error).toMatch(/outside this session/);
+    expect((await (await document('nope.md')).json()).error).toMatch(/There is no file at .*nope\.md/);
     expect((await fetch(`${picBase}/document?path=plan.md`)).status).toBe(401);
+  });
+
+  test('opens a Markdown file the user clicked wherever it is on this computer, and says where it is', async () => {
+    const folder = (await (await fetch(`${picBase}/files?path=`, { headers: auth })).json()).root as string;
+    writeFileSync(join(folder, 'plan.md'), '# Plan');
+    const elsewhere = join(outsidePng, '..', 'notes.md');
+    writeFileSync(elsewhere, '# Elsewhere');
+    const get = (route: string, path: string) => fetch(`${picBase}/${route}?path=${encodeURIComponent(path)}`, { headers: auth });
+
+    const read = await get('document', elsewhere);
+    expect(read.status).toBe(200);
+    expect(await read.text()).toBe('# Elsewhere');
+    expect(await (await get('document-place', elsewhere)).json()).toEqual({ path: realpathSync(elsewhere), inSessionFolder: false });
+    expect(await (await get('document-place', 'plan.md')).json()).toMatchObject({ inSessionFolder: true });
+    expect((await fetch(`${picBase}/document-place?path=plan.md`)).status).toBe(401);
   });
 
   test('passes question answers through, and rejects malformed ones', async () => {

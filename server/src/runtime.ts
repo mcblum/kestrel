@@ -73,6 +73,7 @@ import { execRunner } from './pull-requests/github.ts';
 import type { ReviewRequest } from './shared/review-requests.ts';
 import { moveKind } from './suggestions/move-kind.ts';
 import { ARCHIVE_KIND, archiveKind } from './suggestions/archive-kind.ts';
+import { archiveSessionKind } from './suggestions/archive-session-kind.ts';
 import { TICKET_KIND, ticketKind } from './suggestions/ticket-kind.ts';
 import { TICKET_WORK_KIND, ticketWorkKind } from './suggestions/ticket-work-kind.ts';
 import { REQUEST_KIND, requestKind } from './suggestions/request-kind.ts';
@@ -102,6 +103,7 @@ import { ProjectScriptsPrefs } from './project-scripts/prefs.ts';
 import { runArchive, type ScriptsHost } from './runtime/project-scripts.ts';
 import { scriptFailure, type ScriptOutcome } from './shared/project-scripts.ts';
 import { clock, isWorking, lastAgentTextOf, noteFromText, type Live } from './runtime/record.ts';
+import { inReplay, WaitingSteps } from './runtime/steps.ts';
 import { SessionWorktrees } from './runtime/session-worktrees.ts';
 import { assertPlainFolderFree, interruptAfterRestart } from './runtime/start-options.ts';
 import { WorkStopper } from './runtime/stop-work.ts';
@@ -137,6 +139,8 @@ export class SessionRuntime implements McpSessions {
   private readonly records = new Map<string, Live>();
   private readonly listeners = new Set<(sessionId: string, patch: LivePatch) => void>();
   readonly delegation: Delegation;
+  /** Kestrel's own steps waiting on a card, stored so they survive a restart (runtime/steps.ts). */
+  readonly steps: WaitingSteps;
   /** Fork a session: a copy of its conversation in a new session (fork.ts). */
   readonly forks: Forks;
   /** Sidebars about a finding (asides.ts). */
@@ -274,6 +278,7 @@ export class SessionRuntime implements McpSessions {
       settle: async (id) => workspace.setState(id, 'done', await this.delegation.doneNote(id, false)),
     });
     this.stopper = new WorkStopper(this.background, this.commands, opts.processes ?? systemProcesses);
+    this.steps = new WaitingSteps(workspace, () => this.now());
     this.delegation = new Delegation(this, workspace, dataDir);
     this.display = new Display(
       {
@@ -320,6 +325,13 @@ export class SessionRuntime implements McpSessions {
         archiveKind({
           answer: async () => (await this.reviewPrefs.current()).afterApproval,
           setAnswer: async (afterApproval) => void (await this.reviewPrefs.set({ afterApproval })),
+          archive: async (id) => {
+            const failure = await this.archiveSession(id);
+            if (failure) throw new Refused(failure.reason);
+          },
+          restore: (id) => workspace.setArchived('session', id, false),
+        }),
+        archiveSessionKind({
           archive: async (id) => {
             const failure = await this.archiveSession(id);
             if (failure) throw new Refused(failure.reason);
@@ -400,6 +412,7 @@ export class SessionRuntime implements McpSessions {
       commands: this.commands,
       attachments: this.attachments,
       delegation: this.delegation,
+      steps: this.steps,
       display: this.display,
       browser: this.browser,
       titler: this.titler,
@@ -1091,7 +1104,7 @@ export class SessionRuntime implements McpSessions {
 
   /** Run an action through the transcript and send what changed on the live channel. */
   private apply(id: string, rec: Live, action: TranscriptAction): void {
-    const { messages, changed, removed } = applyToTranscript(rec.messages, action, clock(), this.now(), new Set(rec.kestrelRequests.keys()));
+    const { messages, changed, removed } = applyToTranscript(rec.messages, action, clock(), this.now(), new Set([...rec.kestrelRequests.keys(), ...rec.keptSteps]));
     rec.messages = messages;
     const patch: LivePatch = {};
     if (changed.length) patch.messages = changed;
@@ -1256,13 +1269,21 @@ export class SessionRuntime implements McpSessions {
     if (rec) this.apply(sessionId, rec, { type: 'notice', id: `notice-${randomUUID()}`, text, level });
   }
 
-  /** Show an approval card in the caller's conversation and wait for the user's choice. */
-  requestApproval(sessionId: string, request: InputRequest): Promise<boolean> {
+  /**
+   * Show an approval card in the caller's conversation and wait for the user's choice. Raised by a
+   * call that can be made again (a Kestrel tool, a role's fallback), its step is stored first, so the
+   * card survives a restart; when that call is being made again after one, the stored answer is
+   * given instead of a card (runtime/steps.ts).
+   */
+  async requestApproval(sessionId: string, request: InputRequest): Promise<boolean> {
     const rec = this.records.get(sessionId);
-    if (!rec) return Promise.resolve(false);
+    if (!rec && !inReplay()) return false;
+    const given = await this.steps.beforeCard(sessionId, { requestId: request.id, tool: request.tool, title: request.title, detail: request.detail });
+    if (given !== null) return given;
+    if (!rec) return false;
     return new Promise((resolve) => {
       rec.kestrelRequests.set(request.id, resolve);
-      this.host.onEvent(sessionId, rec, { type: 'needs-input', request });
+      this.host.onEvent(sessionId, rec, { type: 'needs-input', request: { ...request, kestrel: true } });
     });
   }
 

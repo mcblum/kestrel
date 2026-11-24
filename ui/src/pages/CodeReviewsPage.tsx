@@ -15,6 +15,7 @@ import { openSession, openView, opener, showLocal } from '../route.ts';
 import { actions, useApp } from '../store.ts';
 import { useMinuteNow } from '../useNow.ts';
 import { PageHeader } from './PageHeader.tsx';
+import { isTypedText } from '../typed-text.ts';
 
 const ReviewRow = memo(function ReviewRow({ request, dismissed }: { request: ReviewRequest; dismissed: boolean }) {
   const project = useApp((s) => (request.projectId ? s.workspace?.projects.find((p) => p.id === request.projectId) : undefined));
@@ -35,6 +36,7 @@ const ReviewRow = memo(function ReviewRow({ request, dismissed }: { request: Rev
       className={`inbox-row${unread || news ? ' unread' : ''}`}
       // Right-click: the request's own menu, the one its sidebar row has (menu.ts).
       onContextMenu={(event) => {
+        if (isTypedText(event.target)) return;
         event.preventDefault();
         openRowMenu('review', request.key, { x: event.clientX, y: event.clientY });
       }}

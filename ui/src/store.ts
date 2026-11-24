@@ -18,6 +18,7 @@ import { sanitizeSeen, type Seen } from '@kestrel/server/unread';
 import { asReviewRequestsView, NO_REVIEW_REQUESTS, type ReviewRequestsView } from '@kestrel/server/review-requests';
 import { asTicketsView, NO_TICKETS, type TicketsView } from '@kestrel/server/tickets';
 import { counted } from '@kestrel/server/toasts';
+import { archivedElsewhere } from '@kestrel/server/session-archive';
 import { toasts } from './toasts.ts';
 import { initialTabs } from '@kestrel/server/tabs';
 import { DEFAULT_REMEMBERED } from '@kestrel/server/sticky-controls';
@@ -216,6 +217,15 @@ function shareJson<T>(prev: T | undefined, next: T): T {
 /** Same name and the same directories in the same order. */
 const sameProject = (a: Project, b: Project) => a.name === b.name && (a.defaultFolderId ?? null) === (b.defaultFolderId ?? null) && JSON.stringify(a.folders) === JSON.stringify(b.folders);
 
+/** Sessions this window asked to archive and has not yet seen archived: their toast is the click's own. */
+const archivingHere = new Set<string>();
+
+/** A session archived by something other than this window (an agent, Kestrel's own rule) says so, with Undo. */
+function announceArchivedElsewhere(prev: WorkspaceState | null, next: WorkspaceState): void {
+  for (const session of archivedElsewhere(prev, next, archivingHere)) toasts.show(`Archived “${session.title}”`, () => actions.archive('session', session.id, false, false));
+  for (const session of next.archived.sessions) archivingHere.delete(session.id);
+}
+
 function applyWorkspace(next: WorkspaceState) {
   const prev = current().workspace;
   const sessions = shareList(prev?.sessions, next.sessions, sameSession);
@@ -246,6 +256,7 @@ function applyWorkspace(next: WorkspaceState) {
     }
   }
   set({ workspace, sessionsById, details, connection: 'live', error: null });
+  announceArchivedElsewhere(prev, workspace);
 }
 
 /**
@@ -768,8 +779,10 @@ export const actions = {
     if (done && archived && announce) toasts.show(`Archived ${name ? `“${name}”` : `the ${kind}`}`, () => actions.archive(kind, id, false, false));
   },
   /** The archive request itself: true when it was stored. */
-  sendArchive: (kind: 'session' | 'project' | 'group', id: string, archived: boolean): Promise<boolean> =>
-    act(async () => {
+  sendArchive: (kind: 'session' | 'project' | 'group', id: string, archived: boolean): Promise<boolean> => {
+    const mine = kind === 'session' && archived;
+    if (mine) archivingHere.add(id);
+    return act(async () => {
       const send = (skipScript: boolean) => call('/api/archive', { method: 'POST', body: JSON.stringify({ kind, id, archived, ...(skipScript ? { skipScript } : {}) }) });
       try {
         await send(false);
@@ -782,7 +795,11 @@ export const actions = {
         await send(true);
       }
       return true;
-    }).then((done) => done === true),
+    }).then((done) => {
+      if (mine && done !== true) archivingHere.delete(id);
+      return done === true;
+    });
+  },
   /** Delete a session for good, after asking. Its worktree folder goes too, and its branch when nothing is lost with it. */
   deleteSession(session: { id: string; title: string; worktreePath: string | null }): void {
     const worktree = session.worktreePath ? `\n\nIts worktree folder is removed too, with anything in it that was never committed. Its branch is deleted only if its commits are already in the main checkout's branch; otherwise it stays in the repository.` : '';

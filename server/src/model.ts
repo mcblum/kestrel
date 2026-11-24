@@ -299,6 +299,12 @@ export interface InputCard {
   questions?: CardQuestion[];
   /** A command outside the sandbox: what its "Always allow" choices add (shared/sandbox-allow.ts). */
   sandboxOffer?: SandboxOffer;
+  /**
+   * Kestrel's own card (an approval for handoff, delegate, spawn, ask_session, move_to_project,
+   * start_review, add_project or a role's fallback preset), not the agent's. It can stay open after
+   * its turn ends, and a restart closes it (shared/quit-check.ts). Added 2026-11-24; absent from older servers.
+   */
+  kestrel?: true;
   /** Set once answered (or abandoned): what was chosen. */
   resolved?: string;
 }

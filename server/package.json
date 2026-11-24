@@ -7,6 +7,7 @@
     "./onboarding": "./src/shared/onboarding.ts",
     "./model": "./src/model.ts",
     "./archive-approved": "./src/shared/archive-approved.ts",
+    "./session-archive": "./src/shared/session-archive.ts",
     "./working-tree": "./src/shared/working-tree.ts",
     "./request-attention": "./src/shared/request-attention.ts",
     "./mid-turn": "./src/shared/mid-turn.ts",

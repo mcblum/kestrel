@@ -28,6 +28,8 @@ export interface Live {
   pendingInput: Set<string>;
   /** Approval cards raised by Kestrel itself (delegate, spawn); resolved with the user's choice. */
   kestrelRequests: Map<string, (approved: boolean) => void>;
+  /** Kestrel's own cards kept over a restart, whose stored step takes the answer (runtime/steps.ts): they stay open when a turn ends. */
+  keptSteps: Set<string>;
   /** Messages for this session from other sessions, delivered with its next turn. */
   inbox: string[];
   /** The sessions whose news waits in the inbox, or was sent as a turn of its own (a review's findings). Not stored. */
@@ -119,6 +121,7 @@ export function newRecord(stored: Partial<Live> | null, base: string | null): Li
     usage: null,
     pendingInput: new Set(),
     kestrelRequests: new Map(),
+    keptSteps: new Set(),
     inbox: [],
     newsFrom: [],
     turnNewsFrom: [],

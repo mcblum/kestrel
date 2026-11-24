@@ -3,8 +3,11 @@
 // draft one is viewed too (`glab mr view <iid> --output json`) for `head_pipeline.status`. Review and
 // readiness come from `detailed_merge_status` alone: no extra calls for approvals. When that pipeline
 // failed, its failed jobs are asked for once (`glab api …/pipelines/<id>/jobs?scope[]=failed`, then its
-// failed trigger jobs when there are none, for a child pipeline) and kept for as long as the pipeline
-// is unchanged, so a request polled every few seconds costs one call per failed pipeline. Conflicts come
+// failed trigger jobs when there are none, for a child pipeline), and so are the commit's statuses
+// (`…/repository/commits/<sha>/statuses`), for a status another service reported into the request
+// (Jenkins, for one), which the jobs list does not include and which links to that service's page. Both
+// are kept for as long as the pipeline is unchanged, so a request polled every few seconds costs two
+// calls per failed pipeline. Conflicts come
 // with the view (`has_conflicts`, `detailed_merge_status`). Whether a reviewer asked for changes is in
 // `detailed_merge_status` only while nothing else blocks the merge (a conflict or a failed pipeline
 // hides it), so each open one's reviewers are asked too (`…/merge_requests/<iid>/reviewers`), once per
@@ -199,6 +202,33 @@ export function failedJobsOf(json: string): FailedCheck[] {
 
 export const failedJobsArgs = (pipelineId: number, kind: 'jobs' | 'bridges'): string[] => ['api', `projects/:id/pipelines/${pipelineId}/${kind}?scope[]=failed&per_page=100`];
 
+/**
+ * The commit's failed statuses that are not among `known` (by name), as failed checks: a status another
+ * service reported (an external job, with its own `target_url`). A GitLab job is listed here as well, so
+ * it is left to the jobs list; one allowed to fail, or still pending, running or skipped, is not a
+ * failure. Pure.
+ */
+export function failedStatusesOf(json: string, known: readonly FailedCheck[]): FailedCheck[] {
+  const parsed: unknown = JSON.parse(json);
+  if (!Array.isArray(parsed)) throw new Error('glab did not answer with a list of commit statuses');
+  const seen = new Set(known.map((c) => c.name));
+  const out: FailedCheck[] = [];
+  for (const st of parsed) {
+    if (typeof st !== 'object' || st === null) continue;
+    const f = st as Fields;
+    if (f.status !== 'failed' || f.allow_failure === true) continue;
+    const name = (text(f.name) ?? '').trim() || 'A status';
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const url = webUrl(f.target_url);
+    out.push(url ? { name, url } : { name });
+  }
+  return out;
+}
+
+const SHA = /^[0-9a-f]{7,64}$/i;
+export const statusesArgs = (sha: string): string[] => ['api', `projects/:id/repository/commits/${sha}/statuses?per_page=100`];
+
 /** Kept per pipeline: how many pipelines' failed jobs are remembered. */
 const FAILED_JOBS_KEPT = 50;
 
@@ -208,6 +238,16 @@ const FAILED_JOBS_KEPT = 50;
  * has (none) and the pipeline's link.
  */
 function failedJobsLookup(run: CommandRunner) {
+  // The statuses another service reported; when glab cannot say, the pipeline's own jobs still stand.
+  const externalStatuses = async (cwd: string, pipeline: Fields, own: FailedCheck[]): Promise<FailedCheck[]> => {
+    const sha = text(pipeline.sha);
+    if (!sha || !SHA.test(sha)) return [];
+    try {
+      return failedStatusesOf((await run('glab', statusesArgs(sha), { cwd, timeoutMs: GLAB_TIMEOUT_MS })).stdout, own);
+    } catch {
+      return [];
+    }
+  };
   let kept: ReadonlyMap<string, FailedCheck[]> = new Map();
   return async (cwd: string, pipeline: Fields): Promise<FailedCheck[] | null> => {
     const id = pipeline.id;
@@ -218,7 +258,8 @@ function failedJobsLookup(run: CommandRunner) {
     try {
       const ask = async (kind: 'jobs' | 'bridges') => failedJobsOf((await run('glab', failedJobsArgs(id, kind), { cwd, timeoutMs: GLAB_TIMEOUT_MS })).stdout);
       const jobs = await ask('jobs');
-      const found = jobs.length > 0 ? jobs : await ask('bridges');
+      const own = jobs.length > 0 ? jobs : await ask('bridges');
+      const found = [...own, ...(await externalStatuses(cwd, pipeline, own))];
       const next = new Map(kept).set(key, found);
       kept = next.size > FAILED_JOBS_KEPT ? new Map([...next].slice(-FAILED_JOBS_KEPT)) : next;
       return found;

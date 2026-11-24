@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PullRequest } from './details.ts';
 import { hostTerms } from './host-terms.ts';
-import { groupDescription, groupLabel, groupOrder, requestActions, showsGroup, stripSegments } from './request-group.ts';
+import { checksAction, failedChecksMenu, groupDescription, groupLabel, groupOrder, requestActions, showsGroup, stripSegments } from './request-group.ts';
 
 const base: PullRequest = { number: 1, title: 'Base', state: 'open', checks: 'none', review: 'none', url: 'https://example.test/1' };
 const failing: PullRequest = { ...base, number: 12, checks: 'failing', checksUrl: 'https://example.test/12/checks' };
@@ -27,6 +27,36 @@ describe('requestActions', () => {
   it('opens the tab otherwise, and has no external link without a url', () => {
     expect(requestActions(merged, true).status).toEqual({ kind: 'open' });
     expect(requestActions({ ...merged, url: '' }, true).external).toBeNull();
+  });
+});
+
+describe('where failed checks lead: each check’s own page, the host’s checks page only as a fallback', () => {
+  const jenkins = { name: 'continuous-integration/jenkins/pr-merge', url: 'https://ci.example.test/job/app/PR-12/3/display/redirect' };
+  const actions = { name: 'lint', url: 'https://github.com/example/app/actions/runs/9/job/1' };
+  const unlinked = { name: 'license/cla' };
+
+  it('opens the one failed check’s own page (a Jenkins status, not GitHub’s checks page)', () => {
+    expect(requestActions({ ...failing, failedChecks: [jenkins] }, true).status).toEqual({ kind: 'checks', url: jenkins.url });
+  });
+  it('lists several failed checks, each with its own link, the unlinked one named but not a link, then all checks', () => {
+    const status = requestActions({ ...failing, failedChecks: [actions, jenkins, unlinked] }, true).status;
+    expect(status).toEqual({ kind: 'failed-checks', checks: [actions, jenkins, unlinked], checksUrl: failing.checksUrl });
+    if (status.kind !== 'failed-checks') throw new Error('expected a list');
+    const menu = failedChecksMenu(status, github.service);
+    expect(menu.map((m) => [m.label, m.action, m.disabled ?? false])).toEqual([
+      ['lint', { type: 'open-link', url: actions.url }, false],
+      [jenkins.name, { type: 'open-link', url: jenkins.url }, false],
+      ['license/cla', undefined, true],
+      ['All checks on GitHub', { type: 'open-link', url: failing.checksUrl }, false],
+    ]);
+    expect(menu[0]!.heading).toBe('Failed checks');
+    expect(menu[2]!.hint).toBe('GitHub gave no link for this check.');
+  });
+  it('falls back to the checks page when no failed check has a link of its own, and while checks run', () => {
+    expect(checksAction({ ...failing, failedChecks: [unlinked] })).toEqual({ kind: 'checks', url: failing.checksUrl });
+    expect(checksAction({ ...failing, failedChecks: [unlinked, { name: 'b' }] })).toEqual({ kind: 'checks', url: failing.checksUrl });
+    expect(checksAction({ ...failing, checks: 'running', failedChecks: [jenkins] })).toEqual({ kind: 'checks', url: failing.checksUrl });
+    expect(checksAction({ ...failing, checksUrl: undefined, failedChecks: [unlinked] })).toBeNull();
   });
 });
 
