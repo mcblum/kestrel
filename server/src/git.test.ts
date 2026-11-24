@@ -183,6 +183,43 @@ describe('readChanges and a path git cannot add', () => {
   });
 });
 
+describe('readChanges and the user\'s own git diff settings', () => {
+  // Each of these changes what `git diff` prints; with any of them set the list used to come back empty.
+  const settings: Array<[string, string]> = [
+    ['diff.mnemonicPrefix', 'true'],
+    ['diff.noprefix', 'true'],
+    ['diff.srcPrefix', 'x/'],
+    ['diff.dstPrefix', 'y/'],
+    ['diff.relative', 'true'],
+    ['color.diff', 'always'],
+  ];
+  it.each(settings)('lists an edited, a new and a deleted file with %s = %s', async (key, value) => {
+    const repo = makeRepo();
+    const base = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo }).toString().trim();
+    mkdirSync(join(repo, 'sub'));
+    writeFileSync(join(repo, 'sub', 'kept.txt'), 'k\n');
+    execFileSync('git', ['add', '.'], { cwd: repo });
+    execFileSync('git', ['commit', '-q', '-m', 'more'], { cwd: repo });
+    execFileSync('git', ['config', key, value], { cwd: repo });
+    writeFileSync(join(repo, 'a.txt'), 'changed\n');
+    writeFileSync(join(repo, 'new.txt'), 'n\n');
+
+    const read = await readChanges(repo, base);
+
+    expect(read.files.map((f) => `${f.status} ${f.path}`).sort()).toEqual(['A new.txt', 'A sub/kept.txt', 'M a.txt']);
+    expect(read.unlisted).toBeNull();
+    expect(read.files.every((f) => f.diff.startsWith(`diff --git a/${f.path} b/${f.path}`))).toBe(true);
+  });
+
+  it('lists a file whose name has an accent, which git would otherwise quote', async () => {
+    const repo = makeRepo();
+    const base = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo }).toString().trim();
+    writeFileSync(join(repo, 'café.txt'), 'c\n');
+
+    expect((await readChanges(repo, base)).files.map((f) => f.path)).toEqual(['café.txt']);
+  });
+});
+
 describe('splitDiff', () => {
   it('splits per file and detects the status', () => {
     const text = 'diff --git a/x b/x\nnew file mode 100644\n--- /dev/null\n+++ b/x\n@@ -0,0 +1 @@\n+a\ndiff --git a/y b/y\ndeleted file mode 100644\n--- a/y\n+++ /dev/null\n@@ -1 +0,0 @@\n-b\n';

@@ -29,7 +29,7 @@ const CONFIG = 'git config --get branch.feat/x.kestrelbase';
 const UNSET = new Error('Command failed: git config --get branch.feat/x.kestrelbase');
 const LOG = 'git log --format=%s origin/main..feat/x --';
 const STAT = 'git diff --stat origin/main...feat/x --';
-const DIFF = 'git diff --no-color --no-ext-diff origin/main...feat/x --';
+const DIFF = 'git -c core.quotePath=false diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ --no-relative origin/main...feat/x --';
 const generatedAnswers = (diff: string | Error = 'diff --git a/a.ts b/a.ts\n+one') => ({
   [REPO_VIEW]: JSON.stringify({ defaultBranchRef: { name: 'main' } }),
   [CONFIG]: UNSET,
@@ -49,7 +49,7 @@ const writer = (reply: () => Promise<string | null>, asked: string[] = [], agent
 const START = 'abc1234def5678';
 const OWN_LOG = `git log --format=%s ${START}..feat/x --`;
 const OWN_STAT = `git diff --stat ${START}..feat/x --`;
-const OWN_DIFF = `git diff --no-color --no-ext-diff ${START}..feat/x --`;
+const OWN_DIFF = `git -c core.quotePath=false diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ --no-relative ${START}..feat/x --`;
 const COUNT = `git rev-list --count origin/main..${START} --`;
 const sessionAnswers = (over: Record<string, string | Error> = {}) => ({
   [REPO_VIEW]: JSON.stringify({ defaultBranchRef: { name: 'main' } }),
@@ -121,7 +121,7 @@ describe('preparePR', () => {
       ['git', 'config', '--get', 'branch.feat/x.kestrelbase'],
       ['git', 'log', '--format=%s', 'origin/main..feat/x', '--'],
       ['git', 'diff', '--stat', 'origin/main...feat/x', '--'],
-      ['git', 'diff', '--no-color', '--no-ext-diff', 'origin/main...feat/x', '--'],
+      ['git', '-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', '--no-relative', 'origin/main...feat/x', '--'],
     ]);
     expect(out.title).toBe('x');
     expect(out.base).toBe('main');
@@ -198,7 +198,7 @@ describe('preparePR', () => {
       ['git', 'rev-list', '--count', `origin/main..${START}`, '--'],
       ['git', 'log', '--format=%s', `${START}..feat/x`, '--'],
       ['git', 'diff', '--stat', `${START}..feat/x`, '--'],
-      ['git', 'diff', '--no-color', '--no-ext-diff', `${START}..feat/x`, '--'],
+      ['git', '-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', '--no-relative', `${START}..feat/x`, '--'],
     ]);
     expect(out).toMatchObject({ title: 'Explain the setup', base: 'main', inherited: 5 });
     expect(asked[0]).toContain('<commits>\ndocs: explain the setup in the README\n</commits>');
@@ -220,7 +220,7 @@ describe('preparePR', () => {
       const { run, calls } = fakeRunner({ ...generatedAnswers(), [CONFIG]: value });
       const out = await preparePR('/repo', 'feat/x', true, { run });
       expect(out.inherited).toBe(0);
-      expect(calls.map((c) => c.args.join(' '))).toEqual(['repo view --json defaultBranchRef', 'config --get branch.feat/x.kestrelbase', 'log --format=%s origin/main..feat/x --', 'diff --stat origin/main...feat/x --', 'diff --no-color --no-ext-diff origin/main...feat/x --']);
+      expect(calls.map((c) => c.args.join(' '))).toEqual(['repo view --json defaultBranchRef', 'config --get branch.feat/x.kestrelbase', 'log --format=%s origin/main..feat/x --', 'diff --stat origin/main...feat/x --', '-c core.quotePath=false diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ --no-relative origin/main...feat/x --']);
     }
   });
 

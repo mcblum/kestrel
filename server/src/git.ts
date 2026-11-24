@@ -22,7 +22,10 @@ export async function git(cwd: string, args: string[], opts: { allowFail?: boole
   } catch (error) {
     if (opts.allowFail) return '';
     const stderr = (error as { stderr?: string }).stderr?.trim();
-    throw new Refused(`git ${args[0]} failed in ${cwd}: ${stderr || (error as Error).message}`);
+    // Named by its subcommand, past any `-c name=value` given before it.
+    let at = 0;
+    while (args[at] === '-c') at += 2;
+    throw new Refused(`git ${args[at] ?? args[0]} failed in ${cwd}: ${stderr || (error as Error).message}`);
   }
 }
 
@@ -201,6 +204,18 @@ async function recoveredBase(worktreePath: string): Promise<string | null> {
   return null;
 }
 
+/**
+ * What makes `git diff` answer the same on every computer. A user's own git settings change the
+ * text: `diff.mnemonicPrefix` writes `c/` and `w/` where `a/` and `b/` are expected, `diff.noprefix`
+ * writes no prefix at all, `diff.srcPrefix` and `diff.dstPrefix` anything, and `diff.relative` cuts
+ * the paths. `splitDiff` reads `diff --git a/… b/…`, so with any of those set it found no file and
+ * the Changes list was empty beside a count of uncommitted files (Matt's work computer, 2026-11-24).
+ * Given on the command line, these win over the settings. Use them for every diff Kestrel reads.
+ */
+export const PLAIN_DIFF: readonly string[] = ['--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/', '--no-relative'];
+/** Before `diff`: file names as they are, not escaped as octal inside quotes (an accented name would not be matched). */
+export const PLAIN_PATHS: readonly string[] = ['-c', 'core.quotePath=false'];
+
 /** Split `git diff` output into one entry per file. Pure. */
 export function splitDiff(text: string): ChangedFile[] {
   const files: ChangedFile[] = [];
@@ -260,7 +275,11 @@ export async function readChanges(worktreePath: string, base: string): Promise<C
     }
     const env = { GIT_INDEX_FILE: copy };
     const unlisted = await markNewFiles(worktreePath, env);
-    return { files: splitDiff(await git(worktreePath, ['diff', '--no-color', '--no-ext-diff', '--no-renames', base], { env })), unlisted };
+    const text = await git(worktreePath, [...PLAIN_PATHS, 'diff', ...PLAIN_DIFF, '--no-renames', base], { env });
+    const files = splitDiff(text);
+    // Never an empty list for a diff that says something: a form of output this cannot read is a problem to show, not "no changes".
+    if (files.length === 0 && /^diff --git /m.test(text)) throw new Refused(`git diff in ${worktreePath} answered in a form Kestrel could not read, so the changed files cannot be listed. Its first line was: ${text.slice(0, text.indexOf('\n') === -1 ? 200 : Math.min(200, text.indexOf('\n')))}`);
+    return { files, unlisted };
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }

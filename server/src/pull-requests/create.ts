@@ -8,6 +8,7 @@
 // runner, never a shell, so tests never push or call gh or glab.
 import type { PRMaterial } from '../agents/pr-text-request.ts';
 import type { TitleProvider } from '../agents/title-providers.ts';
+import { PLAIN_DIFF, PLAIN_PATHS } from '../git.ts';
 import type { Agent } from '../model.ts';
 import { writePRText } from './generate.ts';
 import { execRunner, githubCommands } from './github.ts';
@@ -102,7 +103,7 @@ export async function preparePR(cwd: string, branch: string, generated: boolean,
     subjects: commits.split('\n'),
     stat: await command('git', ['diff', '--stat', diffRange, '--']),
     // A diff too big to read is not a reason to give up: the subjects and the stat still say plenty.
-    diff: await command('git', ['diff', '--no-color', '--no-ext-diff', diffRange, '--']).catch(() => ''),
+    diff: await command('git', [...PLAIN_PATHS, 'diff', ...PLAIN_DIFF, diffRange, '--']).catch(() => ''),
   };
   const text = await writePRText(material, options.writers ?? [], { agent: options.agent ?? 'claude', model: options.model }, options.wait);
   return { ...text, base, draft: false, inherited };
