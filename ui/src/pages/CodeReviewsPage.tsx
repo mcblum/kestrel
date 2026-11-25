@@ -1,10 +1,11 @@
 // Reviews assigned to the user. Active review sessions are grouped above the queue. The toolbar
-// filters both groups, while bulk mark-read and dismiss apply to the matching queue only.
+// (search, who asked, project, opened, approved) filters both groups, while bulk mark-read and dismiss apply to the matching queue only.
 import { memo, useMemo, useState } from 'react';
 import { CheckCheck, RotateCcw, X } from 'lucide-react';
-import { asReviewSort, filterReviews, isFiltering, REVIEW_SORT_BY, REVIEW_SORT_LABEL, sortDirectionLabel, sortReviews, type ReviewSort, NO_REVIEW_FILTERS, placeChoices, REVIEW_WITHIN, REVIEW_WITHIN_LABEL, splitStarted, whoChoices, type ReviewFilters, type ReviewWithin } from '@kestrel/server/review-filter';
+import { asReviewSort, REVIEW_APPROVAL, REVIEW_APPROVAL_LABEL, type ReviewApproval, filterReviews, isFiltering, REVIEW_SORT_BY, REVIEW_SORT_LABEL, sortDirectionLabel, sortReviews, type ReviewSort, NO_REVIEW_FILTERS, placeChoices, REVIEW_WITHIN, REVIEW_WITHIN_LABEL, splitStarted, whoChoices, type ReviewFilters, type ReviewWithin } from '@kestrel/server/review-filter';
 import { hostTerms } from '@kestrel/server/host-terms';
 import { askedBy, openedText, repositoryName, requestNumberLabel, requestStatus, type ReviewRequest } from '@kestrel/server/review-requests';
+import { OthersSaidNote } from '../components/OthersSaid.tsx';
 import { InboxReference, InboxRowMenu, InboxSearch, InboxStartButton } from '../components/InboxList.tsx';
 import { statusText } from '../labels.ts';
 import { useRowDot } from '../components/useRowDot.ts';
@@ -60,6 +61,7 @@ const ReviewRow = memo(function ReviewRow({ request, dismissed }: { request: Rev
           <span>{project?.name || repositoryName(request.repository)}</span>
           {askedBy(request) && <span>{askedBy(request)}</span>}
           {opened && <span>Opened {opened}</span>}
+          <OthersSaidNote request={request} />
         </span>
       </button>
       <span className="inbox-status">
@@ -87,6 +89,7 @@ function Pick({ label, any, value, choices, onChange }: { label: string; any: st
   );
 }
 
+const APPROVAL_CHOICES = REVIEW_APPROVAL.filter((a) => a !== 'any').map((a) => ({ value: a, label: REVIEW_APPROVAL_LABEL[a] }));
 const WITHIN_CHOICES = REVIEW_WITHIN.filter((w) => w !== 'any').map((w) => ({ value: w, label: REVIEW_WITHIN_LABEL[w] }));
 
 function Empty({ dismissed, off }: { dismissed: boolean; off: boolean }) {
@@ -198,6 +201,7 @@ export function CodeReviewsPage({ dismissed }: { dismissed: boolean }) {
             <Pick label="Who asked" any="Anyone" value={filters.who} choices={whoChoices(everything)} onChange={(who) => setFilters({ ...filters, who })} />
             <Pick label="Project" any="Any project" value={filters.place} choices={placeChoices(everything, names)} onChange={(place) => setFilters({ ...filters, place })} />
             <Pick label="Opened" any={REVIEW_WITHIN_LABEL.any} value={filters.within === 'any' ? '' : filters.within} choices={WITHIN_CHOICES} onChange={(within) => setFilters({ ...filters, within: (within || 'any') as ReviewWithin })} />
+            <Pick label="Approved" any={REVIEW_APPROVAL_LABEL.any} value={filters.approval === 'any' ? '' : filters.approval} choices={APPROVAL_CHOICES} onChange={(approval) => setFilters({ ...filters, approval: (approval || 'any') as ReviewApproval })} />
             {everything.length > 1 && (
               <select
                 aria-label="Sort reviews"

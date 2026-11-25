@@ -1,6 +1,6 @@
 // SAMPLE review requests for the fake store (KESTREL_FAKE=1): two in registered projects and the
 // rest in repositories that are no project, so the CODE REVIEWS section and its page can be seen without
-// a host. Nothing here asks gh or glab.
+// a host. Some carry what other reviewers said: one approval, approved, and changes asked for. Nothing here asks gh or glab.
 import { reviewRequestKey, type FoundReviewRequest, type ReviewRequest } from '../shared/review-requests.ts';
 
 const HOUR_MS = 3_600_000;
@@ -9,11 +9,11 @@ const OPENED_AGO = [HOUR_MS / 3, 5 * HOUR_MS, 4 * DAY_MS, DAY_MS, 9 * DAY_MS, 2 
 
 const SAMPLES: readonly Omit<FoundReviewRequest, 'updatedAt'>[] = [
   { host: 'github', hostName: 'github.com', repository: 'sample/storefront', number: 412, title: 'Retry failed webhook deliveries with backoff', author: 'priya', requestedBy: 'devon', url: 'https://github.com/sample/storefront/pull/412', body: 'Deliveries that fail are retried up to five times, with the wait doubling each time.\n\nCloses #398.' },
-  { host: 'github', hostName: 'github.com', repository: 'sample/design-system', number: 88, title: 'Table: keep the header in view while scrolling', author: 'jonas', url: 'https://github.com/sample/design-system/pull/88' },
-  { host: 'github', hostName: 'github.com', repository: 'sample/billing-exports', number: 19, title: 'Write the nightly export as Parquet', author: 'amara', url: 'https://github.com/sample/billing-exports/pull/19', body: 'CSV stays behind a flag for one release.' },
+  { host: 'github', hostName: 'github.com', repository: 'sample/design-system', number: 88, title: 'Table: keep the header in view while scrolling', author: 'jonas', url: 'https://github.com/sample/design-system/pull/88', others: { approvedBy: ['lucia'], changesRequestedBy: [], satisfied: false } },
+  { host: 'github', hostName: 'github.com', repository: 'sample/billing-exports', number: 19, title: 'Write the nightly export as Parquet', author: 'amara', url: 'https://github.com/sample/billing-exports/pull/19', body: 'CSV stays behind a flag for one release.', others: { approvedBy: ['kim', 'noor'], changesRequestedBy: [], satisfied: true } },
   // More than the sidebar lists by default, so its "Show more" and the Code reviews page can be seen.
   { host: 'github', hostName: 'github.com', repository: 'sample/billing-exports', number: 23, title: 'Stream large exports instead of buffering them', author: 'amara', url: 'https://github.com/sample/billing-exports/pull/23' },
-  { host: 'github', hostName: 'github.com', repository: 'sample/docs-site', number: 140, title: 'Search: rank exact title matches first', author: 'lucia', url: 'https://github.com/sample/docs-site/pull/140' },
+  { host: 'github', hostName: 'github.com', repository: 'sample/docs-site', number: 140, title: 'Search: rank exact title matches first', author: 'lucia', url: 'https://github.com/sample/docs-site/pull/140', others: { approvedBy: ['kim'], changesRequestedBy: ['tomas'], satisfied: false } },
   { host: 'github', hostName: 'github.com', repository: 'sample/docs-site', number: 143, title: 'Fix broken anchors in the API reference', author: 'tomas', url: 'https://github.com/sample/docs-site/pull/143' },
   { host: 'github', hostName: 'github.com', repository: 'sample/mobile-shell', number: 57, title: 'Deep links open the right tab after a cold start', author: 'noor', url: 'https://github.com/sample/mobile-shell/pull/57' },
   { host: 'github', hostName: 'github.com', repository: 'sample/mobile-shell', number: 61, title: 'Drop the legacy push token migration', author: 'devon', url: 'https://github.com/sample/mobile-shell/pull/61' },

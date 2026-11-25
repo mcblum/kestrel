@@ -37,6 +37,9 @@ export interface TagCount {
   count: number;
 }
 
+/** Every tag in use, the most used first (of equals, alphabetical). */
+export const mostUsedTags = (sessions: readonly { tags: readonly string[] }[]): string[] => [...tagCounts(sessions)].sort((a, b) => b.count - a.count).map((t) => t.tag);
+
 /** Every tag in use with how many sessions have it, alphabetical. Sessions come oldest first. */
 export function tagCounts(sessions: readonly { tags: readonly string[] }[]): TagCount[] {
   const byKey = new Map<string, TagCount>();

@@ -73,6 +73,9 @@ function turnContext(sessionID, directory, parentID) {
   const messageID = id('msg');
   let aborted = false;
   let wake = () => undefined;
+  // User messages prompted while this turn runs (as 1.14.25: the loop takes them in at its next step).
+  const inbox = [];
+  let onInbox = () => undefined;
   const abortable = (promise) =>
     new Promise((resolve, reject) => {
       wake = () => reject(new Aborted());
@@ -127,6 +130,16 @@ function turnContext(sessionID, directory, parentID) {
       return abortable(new Promise((resolve) => waiting.set(requestID, resolve)));
     },
     hang: () => abortable(new Promise(() => undefined)),
+    takeIn(userID) {
+      inbox.push(userID);
+      onInbox();
+    },
+    /** The next user message prompted into this turn. */
+    nextMessage: () => abortable(new Promise((resolve) => (inbox.length ? resolve(inbox.shift()) : (onInbox = () => resolve(inbox.shift()))))),
+    /** A further step of the loop: its assistant message answers `parentID`, the newest user message. */
+    step(parentID) {
+      emit('message.updated', { sessionID, info: { ...info, id: id('msg'), parentID } });
+    },
     finish(tokens = { input: 1200, output: 30, reasoning: 0, cache: { read: 800, write: 0 } }, cost = 0.0042) {
       part({ type: 'step-finish', reason: 'stop', snapshot: 'fake', tokens, cost });
       emit('message.updated', { sessionID, info: { ...info, cost, tokens, finish: 'stop', time: { ...info.time, completed: Date.now() } } });
@@ -199,6 +212,13 @@ const SCENARIOS = {
     ctx.text(`picked ${JSON.stringify(answers)}`);
     ctx.finish();
   },
+  async steer(ctx) {
+    ctx.text('working');
+    const user = await ctx.nextMessage();
+    ctx.step(user);
+    ctx.text('read it');
+    ctx.finish();
+  },
   async hang(ctx) {
     ctx.text('working');
     await ctx.hang();
@@ -252,6 +272,14 @@ async function runTurn(sessionID, directory, body) {
   }
   turn = null;
   ctx.idle();
+}
+
+/** A prompt while the session is busy: a user message the running loop takes in, no turn of its own. */
+function promptInto(ctx, body) {
+  const userID = id('msg');
+  emit('message.updated', { sessionID: ctx.sessionID, info: { id: userID, role: 'user', sessionID: ctx.sessionID, agent: body.agent, time: { created: Date.now() } } });
+  emit('message.part.updated', { sessionID: ctx.sessionID, part: { id: id('prt'), messageID: userID, sessionID: ctx.sessionID, type: 'text', text: (body.parts ?? []).map((p) => p.text ?? '').join('') } });
+  ctx.takeIn(userID);
 }
 
 /** `POST /session/:id/summarize`, as 1.14.25: a compaction part, `session.compacted`, then idle; answers true once done. */
@@ -317,6 +345,7 @@ function route(method, path, body, directory) {
     const [, sessionID, action] = match;
     if (!sessions[sessionID]) return [404, { name: 'NotFoundError', data: { message: `Session not found: ${sessionID}` } }];
     if (action === 'summarize') return summarize(sessionID, directory, body);
+    if (action === 'prompt_async' && turn?.sessionID === sessionID) return void promptInto(turn, body), [204, null];
     if (action === 'prompt_async') return void runTurn(sessionID, directory, body), [204, null];
     if (action === 'command') return runTurn(sessionID, directory, { agent: body.agent, parts: [{ text: `/${body.command} ${body.arguments}` }] }).then(() => ({ info: { id: 'msg_cmd' }, parts: [] }));
     if (action === 'abort') return turn?.sessionID === sessionID && turn.abort(), true;

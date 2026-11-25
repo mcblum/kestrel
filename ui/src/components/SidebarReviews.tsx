@@ -7,7 +7,9 @@
 //     Sidebar's, through `renderSession`), with the same second line. The session has left its
 //     usual place for this one (shared/pinned-homes.ts), so nothing is drawn twice.
 //   - A pinned request, or one whose review session is pinned, is under PINNED and has no row here.
-// Every row has a status mark: a request row its own (`requestStatus`), a session row the session's.
+// Every row has a status mark: a request row its own (`requestStatus`; the grey tick once the host
+// says it has every approval it needs), a session row the session's. What other reviewers said
+// (`othersSaid`) ends the second line, grey.
 // The order is the session order chosen in Settings: most recently changed first, or the order the
 // rows were dragged into (`inSidebarOrder`). In a custom order a row dropped above or below
 // another takes that place; a pinned one dropped here is unpinned too. Not drawn while empty.
@@ -21,6 +23,7 @@ import type { ReviewRow as SessionRow } from '@kestrel/server/pinned-homes';
 import { isPinned } from '@kestrel/server/pins';
 import { inSidebarOrder, openedText, placeReview, requestNumberLabel, requestStatus, reviewRowDetail, needsALook, withinLimit, type ReviewRequest } from '@kestrel/server/review-requests';
 import { REVIEW_MIME, SESSION_MIME } from '../labels.ts';
+import { ApprovedMark, OthersSaidNote } from './OthersSaid.tsx';
 import { openView, opener, type Route } from '../route.ts';
 import { actions, appStore, useApp } from '../store.ts';
 import { useSessionOrder } from '../tabsStore.ts';
@@ -28,7 +31,7 @@ import { useMinuteNow } from '../useNow.ts';
 import { Heading, useSectionOpen } from './SidebarHeading.tsx';
 import { carries, InReviews, startDrag, useEdgeTarget } from './sidebarDrag.ts';
 
-const DOT_CLASS = { idle: 'idle', unread: 'green', 'needs-you': 'amber' } as const;
+const DOT_CLASS = { idle: 'idle', unread: 'green', 'needs-you': 'amber', approved: 'idle' } as const;
 
 /** A request with no review session yet, as a row: in CODE REVIEWS, or under PINNED when it is pinned. */
 export const ReviewRequestRow = memo(function ReviewRequestRow({ request, active }: { request: ReviewRequest; active: boolean }) {
@@ -52,10 +55,11 @@ export const ReviewRequestRow = memo(function ReviewRequestRow({ request, active
         <span className="review-title">{request.title}</span>
         <span className="review-second">
           <span className="review-detail">{detail}</span>
+          <OthersSaidNote request={request} className="review-said" />
           {opened && <span className="review-age" title={`Opened ${opened}`}>{opened}</span>}
         </span>
       </span>
-      <span className={`status-dot row-dot ${DOT_CLASS[status.tone]}`} role="img" aria-label={status.label} title={status.label} />
+      {status.tone === 'approved' ? <ApprovedMark label={status.label} /> : <span className={`status-dot row-dot ${DOT_CLASS[status.tone]}`} role="img" aria-label={status.label} title={status.label} />}
     </button>
   );
 });

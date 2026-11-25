@@ -15,6 +15,7 @@
 import type { Attachment } from './attachments.ts';
 import type { PermissionLevel } from './permissions.ts';
 import type { HoldWhy } from './mid-turn.ts';
+import type { MessageFrom } from './notes.ts';
 
 export interface QueuedChange {
   model?: string;
@@ -30,8 +31,10 @@ export interface QueuedMessage {
   change?: QueuedChange;
   /** Files attached to it, already stored with the session. A message may be files alone. */
   attachments?: readonly Attachment[];
-  /** Sent by another session (`ask_session`), not written by the user. */
+  /** Sent by another session (`ask_session`, `send_note`), not written by the user. */
   fromAgent?: true;
+  /** Which session sent it, its own words and whether it is work or a note (shared/notes.ts). Absent on the user's messages and on older stored queues. */
+  from?: MessageFrom;
   /** Why the user's message is held rather than gone to the agent (shared/mid-turn.ts). Absent on older stored queues. */
   why?: HoldWhy;
 }
@@ -62,6 +65,8 @@ function cleanChange(change: QueuedChange | undefined): QueuedChange | undefined
 export interface OutgoingPart {
   text: string;
   attachments?: readonly Attachment[];
+  /** Another session sent it: a note shows as its quiet line, not as a message of the user's. */
+  from?: MessageFrom;
 }
 
 const hasFiles = (m: { attachments?: readonly Attachment[] }) => (m.attachments?.length ?? 0) > 0;
@@ -70,7 +75,7 @@ export function enqueue(queue: SessionQueue, item: QueuedMessage): SessionQueue 
   const text = item.text.trim();
   if (!text && !hasFiles(item)) return queue;
   const change = cleanChange(item.change);
-  const queued: QueuedMessage = { id: item.id, text, ...(change ? { change } : {}), ...(hasFiles(item) ? { attachments: item.attachments } : {}), ...(item.fromAgent ? { fromAgent: true as const } : {}), ...(item.why ? { why: item.why } : {}) };
+  const queued: QueuedMessage = { id: item.id, text, ...(change ? { change } : {}), ...(hasFiles(item) ? { attachments: item.attachments } : {}), ...(item.fromAgent ? { fromAgent: true as const } : {}), ...(item.from ? { from: item.from } : {}), ...(item.why ? { why: item.why } : {}) };
   return { items: [...queue.items, queued], held: false };
 }
 
@@ -128,12 +133,12 @@ export function shouldFlush(queue: SessionQueue, end: TurnEnd): boolean {
  */
 export function takeAll(
   queue: SessionQueue,
-  now?: { text: string; change?: QueuedChange; attachments?: readonly Attachment[]; fromAgent?: boolean },
+  now?: { text: string; change?: QueuedChange; attachments?: readonly Attachment[]; fromAgent?: boolean; from?: MessageFrom },
 ): { text: string; parts: OutgoingPart[]; attachments: Attachment[]; change: QueuedChange; queue: SessionQueue; byUser: boolean } {
-  const current = now && (now.text.trim() || hasFiles(now)) ? [{ text: now.text.trim(), change: now.change, attachments: now.attachments, fromAgent: now.fromAgent }] : [];
+  const current = now && (now.text.trim() || hasFiles(now)) ? [{ text: now.text.trim(), change: now.change, attachments: now.attachments, fromAgent: now.fromAgent, from: now.from }] : [];
   const all = [...queue.items, ...current];
   const change = all.reduce<QueuedChange>((acc, m) => ({ ...acc, ...cleanChange(m.change) }), {});
-  const parts = all.map((m): OutgoingPart => (hasFiles(m) ? { text: m.text, attachments: m.attachments } : { text: m.text }));
+  const parts = all.map((m): OutgoingPart => ({ text: m.text, ...(hasFiles(m) ? { attachments: m.attachments } : {}), ...(m.from ? { from: m.from } : {}) }));
   const text = parts.map((p) => p.text).filter(Boolean).join('\n\n');
   return { text, parts, attachments: parts.flatMap((p) => p.attachments ?? []), change, queue: EMPTY_QUEUE, byUser: all.some((m) => !m.fromAgent) };
 }

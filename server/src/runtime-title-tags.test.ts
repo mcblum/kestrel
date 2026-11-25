@@ -37,6 +37,20 @@ describe('the title call proposes tags', () => {
     expect(candidates).toEqual([[{ tag: 'PROJ-482', category: 'ticket', source: 'Jira', reason: 'Named in your first message' }]]);
   });
 
+  it('the provider is given the tags in use, the most used first', async () => {
+    const workspace = new Workspace(memoryPersistence());
+    const [a, b, session] = await Promise.all(['a', 'b', 'provisional'].map((title) => workspace.addSession({ title, agent: 'claude', startedIn: null })));
+    await workspace.tagSession(a!.id, 'Billing');
+    await workspace.tagSession(a!.id, 'Argus');
+    await workspace.tagSession(b!.id, 'Argus');
+    const given: (readonly string[] | undefined)[] = [];
+    const asked: TitleProvider = { name: 'test', agent: 'claude', title: async (_prompt, tags) => (given.push(tags), 'Debug upload page hang') };
+    const titler = new Titler(workspace, [asked], async () => undefined, () => undefined);
+    titler.begin({ sessionId: session!.id, provisional: 'provisional', prompt: PROMPT, agent: 'claude' });
+    await titler.settled();
+    expect(given).toEqual([['Argus', 'Billing']]);
+  });
+
   it('a malformed tags part is ignored and never breaks the title', async () => {
     expect(await titled('Debug upload page hang\ntag: PROJ-482 | someday')).toEqual({ title: 'Debug upload page hang', candidates: [] });
   });

@@ -100,13 +100,57 @@ describe('answering a tag suggestion', () => {
     const id = await w.start();
     const s = w.suggestions(id)[0]!;
     const answered = await w.runtime.suggestions.answer(id, s.id, 'tag');
-    expect(answered).toMatchObject({ state: 'answered', answer: 'tag', line: 'Tagged PROJ-482', undo: { removeTag: true } });
+    expect(answered).toMatchObject({ state: 'answered', answer: 'tag', line: 'Tagged PROJ-482', undo: { tags: ['PROJ-482'] } });
     expect((await w.row(id)).tags).toEqual(['PROJ-482']);
     const undone = await w.runtime.suggestions.undo(id, s.id);
     expect(undone.line).toBe('Untagged PROJ-482');
     expect(undone.undo).toBeUndefined();
     expect((await w.row(id)).tags).toEqual([]);
     await expect(w.runtime.suggestions.answer(id, s.id, 'tag')).rejects.toThrow('already been answered');
+  });
+
+  it('a suggestion that is an existing tag plus extra words becomes the existing tag', async () => {
+    const w = world();
+    const other = await w.workspace.addSession({ title: 'Deploys', agent: 'claude', startedIn: null });
+    await w.workspace.tagSession(other.id, 'Argus');
+    w.setCalls([{ kind: 'tag', tag: 'Argus CLI', category: 'feature', reason: 'The work is on the Argus CLI.' }]);
+    const id = await w.start('Add a flag to the Argus CLI');
+    expect(w.suggestions(id)[0]).toMatchObject({ title: 'Tag this session Argus?', payload: { tag: 'Argus' }, picks: { of: 'tag', chosen: ['Argus'], offered: [], buttons: ['tag', 'always'] } });
+  });
+
+  it('the card offers existing tags, and Tag adds what the user chose: an existing tag in its own case, a new one as typed', async () => {
+    const w = world();
+    const other = await w.workspace.addSession({ title: 'Deploys', agent: 'claude', startedIn: null });
+    await w.workspace.tagSession(other.id, 'Argus');
+    const id = await w.start();
+    const s = w.suggestions(id)[0]!;
+    expect(s.picks).toEqual({ of: 'tag', chosen: ['PROJ-482'], offered: ['Argus'], buttons: ['tag', 'always'] });
+    const answered = await w.runtime.suggestions.answer(id, s.id, 'tag', ['argus', 'Upload  hang', 'ARGUS']);
+    expect(answered).toMatchObject({ state: 'answered', line: 'Tagged Argus, Upload hang', undo: { tags: ['Argus', 'Upload hang'] } });
+    expect((await w.row(id)).tags).toEqual(['Argus', 'Upload hang']);
+    expect((await w.runtime.suggestions.undo(id, s.id)).line).toBe('Untagged Argus, Upload hang');
+    expect((await w.row(id)).tags).toEqual([]);
+  });
+
+  it('a choice of nothing, or of what is not a tag, is refused and the card stays', async () => {
+    const w = world();
+    const id = await w.start();
+    const s = w.suggestions(id)[0]!;
+    await expect(w.runtime.suggestions.answer(id, s.id, 'tag', [])).rejects.toThrow('Choose at least one tag.');
+    await expect(w.runtime.suggestions.answer(id, s.id, 'always', ['x'.repeat(41)])).rejects.toThrow('at most 40');
+    expect(await w.runtime.suggestions.prefs.tags()).toMatchObject({ rules: {} });
+    expect(w.suggestions(id)[0]!.state).toBe('open');
+    expect((await w.row(id)).tags).toEqual([]);
+  });
+
+  it('Undo of an answer stored before the card took several tags still takes the suggested tag off', async () => {
+    const w = world();
+    const id = await w.start();
+    const s = w.suggestions(id)[0]!;
+    const answered = await w.runtime.suggestions.answer(id, s.id, 'tag');
+    w.runtime.recordOf(id)!.messages.find((m) => m.suggestion?.id === s.id)!.suggestion = { ...answered, undo: { removeTag: true } };
+    expect((await w.runtime.suggestions.undo(id, s.id)).line).toBe('Untagged PROJ-482');
+    expect((await w.row(id)).tags).toEqual([]);
   });
 
   it('Always tags and sets the rule; the next session with another id is tagged with no card', async () => {

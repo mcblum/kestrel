@@ -575,7 +575,7 @@ describe('asking a session that already exists', () => {
     const asker = await w.runtime.start({ agent: 'claude', projectId: w.a.id, prompt: 'ask four times', permission: 'auto' });
     await w.settle();
     expect(answers.slice(0, 3).every((a) => a.startsWith('Sent to'))).toBe(true);
-    expect(answers[3]).toMatch(/You have asked ".+" 3 times since the user last wrote to you, which is the limit\. Do not ask it again/);
+    expect(answers[3]).toMatch(/You have sent ".+" 3 messages since the user last wrote to you, which is the limit\. Do not send it more/);
     // The user writes to the asker: it may ask again.
     await w.runtime.reply(asker.id, 'ask once more');
     await w.settle();

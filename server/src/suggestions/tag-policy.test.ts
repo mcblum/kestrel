@@ -24,6 +24,10 @@ describe('groundTag', () => {
     expect(groundTag('proj-1', { existingTags: ['PROJ-1'], texts: [] })).toEqual({ tag: 'PROJ-1' });
   });
 
+  it('turns an existing tag plus extra words into the existing tag, even when the longer name was written', () => {
+    expect(groundTag('Argus CLI', { existingTags: ['Billing', 'Argus'], texts: ['add a flag to the Argus CLI'] })).toEqual({ tag: 'Argus' });
+  });
+
   it('accepts a tag named (any case) in the user messages, title or branch', () => {
     expect(groundTag('PROJ-482', { existingTags: [], texts: ['fix the hang for proj-482 please'] })).toEqual({ tag: 'PROJ-482' });
     expect(groundTag('PROJ-482', { existingTags: [], texts: ['', 'kestrel/proj-482-upload-hang'] })).toEqual({ tag: 'PROJ-482' });

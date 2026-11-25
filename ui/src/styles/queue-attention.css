@@ -5,6 +5,7 @@
 .kestrel .queued { display: grid; gap: 4px; margin-bottom: 8px; }
 .kestrel .queued-item { display: flex; align-items: flex-start; gap: 8px; padding: 6px 6px 6px 10px; background: var(--s-bg); border: 1px dashed var(--s-line); border-radius: 10px; font-size: 12px; }
 .kestrel .queued-tag { flex: none; margin-top: 1px; font-size: 10.5px; line-height: 18px; color: var(--s-muted); } /* a word, not a chip: it does nothing */
+.kestrel .queued-from { font-size: 10.5px; line-height: 16px; color: var(--s-muted); }
 .kestrel .queued-text { flex: 1; min-width: 0; margin: 0; padding-top: 1px; max-height: 7.5em; overflow-y: auto; white-space: pre-wrap; word-break: break-word; line-height: 1.5; color: var(--s-ink); }
 .kestrel .queued-icon { display: grid; place-items: center; flex: none; width: 22px; height: 22px; padding: 0; background: transparent; border: 0; border-radius: 6px; color: var(--s-muted); cursor: pointer; }
 .kestrel .queued-icon:hover { background: var(--s-soft); color: var(--s-ink); }

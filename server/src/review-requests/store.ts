@@ -8,6 +8,9 @@
 // for a moment must not bring three hundred dismissed requests back.
 // A waiting request the user has not opened is unread (`unread`): it is read once its page is
 // opened, a review of it is started, or it is marked read. The read keys are kept the same way.
+// How a request arrived decides whether it is new at all (arrivals.ts): one the host already calls
+// satisfied when it first arrives is read from the start.
+import { arrive, NO_ARRIVALS, type ReviewArrivals } from './arrivals.ts';
 import { NO_REVIEW_REQUESTS, orderReviewRequests, withDismissed, type ReviewRequest, type ReviewRequestsView } from '../shared/review-requests.ts';
 import type { Sourced } from '../shared/sourced.ts';
 
@@ -31,14 +34,23 @@ export interface ReviewRequestStoreOptions {
   seen?: readonly string[];
   /** Keeps the read keys when they change; failures are the caller's to log. */
   saveSeen?: (keys: readonly string[]) => void;
+  /** Which requests have been listed, and which were read because they arrived satisfied; null when never stored. */
+  arrivals?: ReviewArrivals | null;
+  /** Keeps that record when it changes; failures are the caller's to log. */
+  saveArrivals?: (arrivals: ReviewArrivals) => void;
 }
 
 export class ReviewRequestStore {
   private order: readonly string[];
   private dismissedKeys: readonly string[];
   private seenKeys: readonly string[];
+  private arrivals: ReviewArrivals;
+  /** The record was never stored: each host's first answer is only learned, so nothing unread is read by it. */
+  private readonly seedFirst: boolean;
 
   constructor(private readonly options: ReviewRequestStoreOptions = {}) {
+    this.arrivals = options.arrivals ?? NO_ARRIVALS;
+    this.seedFirst = !options.arrivals;
     this.order = options.order ?? [];
     this.dismissedKeys = options.dismissed ?? [];
     this.seenKeys = options.seen ?? [];
@@ -97,8 +109,18 @@ export class ReviewRequestStore {
   set(hostName: string, answer: Sourced<ReviewRequest[]>): void {
     if (answer.state === 'loading') return;
     const held = this.hosts.get(hostName);
+    if (answer.state === 'ready') this.arriving(answer.value, this.seedFirst && !held);
     const entry: HostEntry = answer.state === 'ready' ? { requests: answer.value, problem: null } : { requests: held?.requests ?? [], problem: answer.reason };
     this.replace(new Map(this.hosts).set(hostName, entry));
+  }
+
+  private arriving(requests: readonly ReviewRequest[], seeding: boolean): void {
+    const step = arrive(this.arrivals, this.seenKeys, requests, seeding);
+    if (step.arrivals !== this.arrivals) {
+      this.arrivals = step.arrivals;
+      this.options.saveArrivals?.(step.arrivals);
+    }
+    this.keepSeen(step.seen);
   }
 
   /** Only these hosts are still asked: what the others answered is dropped. */

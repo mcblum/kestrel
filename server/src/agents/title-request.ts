@@ -2,6 +2,8 @@
 // wrapped excerpt of the prompt, whichever model answers, and the same time limit. The reply is the
 // title, then optional tag lines (title-reply.ts reads both).
 
+import { MAX_LISTED_TAGS } from './instruction.ts';
+
 /** How long one provider may take before it is given up on (its query or process is ended). */
 export const TITLE_TIMEOUT_MS = 20_000;
 const PROMPT_CHARS = 2000;
@@ -13,11 +15,19 @@ export const TITLE_INSTRUCTION = [
   'No quotes, no trailing punctuation, no markdown. Put the title alone on the first line.',
   'Then, only if the message itself names a ticket id (like PROJ-123 or ENG-42), a release (like v2.3) or a named feature, add one line for each (at most 3), exactly in this form:',
   'tag: <the name exactly as written> | <ticket, release or feature> | <where it is tracked, like Jira or Linear, only if the message says; else leave it empty>',
+  'The user message may also list the tags already in use, inside <tags> tags. When one of them covers what the message names, even loosely, write that tag exactly as listed instead of a new, more specific one.',
   'Add no tag lines when nothing like that is named, and never invent one. Reply with nothing else.',
 ].join('\n');
 
-/** What the model is sent: the start of the prompt, wrapped so it reads as material, not orders. */
-export const titleRequest = (prompt: string): string => `<message>\n${prompt.trim().slice(0, PROMPT_CHARS)}\n</message>`;
+/**
+ * What the model is sent: the start of the prompt, wrapped so it reads as material, not orders, then
+ * the tags already in use (the most used first, as many as the standing instruction lists), which a
+ * tag line should reuse.
+ */
+export function titleRequest(prompt: string, existingTags: readonly string[] = []): string {
+  const tags = existingTags.slice(0, MAX_LISTED_TAGS);
+  return `<message>\n${prompt.trim().slice(0, PROMPT_CHARS)}\n</message>${tags.length ? `\n<tags>\n${tags.join('\n')}\n</tags>` : ''}`;
+}
 
 /** A timer that does not keep the process alive. */
 export const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms).unref());

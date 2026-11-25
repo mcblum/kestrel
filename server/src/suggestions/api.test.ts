@@ -30,6 +30,14 @@ describe('suggestion routes', () => {
     expect(await route(['suggestion-prefs', 'tags'], 'GET')).toEqual({ status: 200, body: { enabled: true, rules: [{ key: 'ticket:linear', label: 'Linear tickets', value: 'always' }] } });
   });
 
+  it('takes the tags chosen on the card with the answer, and refuses picks that are not a list of names', async () => {
+    const { runtime, id, route } = await world();
+    const s = openSuggestions(runtime.recordOf(id)!.messages)[0]!;
+    expect(await route(['sessions', id, 'suggestions', s.id, 'answer'], 'POST', { button: 'tag', picks: 'PROJ-1' })).toMatchObject({ status: 400 });
+    expect(await route(['sessions', id, 'suggestions', s.id, 'answer'], 'POST', { button: 'tag', picks: ['PROJ-1', 7] })).toMatchObject({ status: 400 });
+    expect(await route(['sessions', id, 'suggestions', s.id, 'answer'], 'POST', { button: 'tag', picks: ['PROJ-1', 'Uploads'] })).toMatchObject({ status: 200, body: { suggestion: { state: 'answered', line: 'Tagged PROJ-1, Uploads' } } });
+  });
+
   it('changes a rule or the switch, and refuses anything else', async () => {
     const { route } = await world();
     expect(await route(['suggestion-prefs', 'tags'], 'PATCH', { rule: { key: 'ticket:jira', value: 'sometimes' } })).toMatchObject({ status: 400 });

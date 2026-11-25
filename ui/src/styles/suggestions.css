@@ -41,3 +41,20 @@
 .kestrel .tag-rule-values button { padding: 3px 9px; background: none; border: 0; border-radius: 6px; font: inherit; font-size: 11px; color: var(--s-muted); cursor: pointer; }
 .kestrel .tag-rule-values button:hover { background: var(--s-soft); }
 .kestrel .tag-rule-values button[aria-pressed='true'] { background: var(--s-soft); color: var(--s-ink); font-weight: 500; }
+
+/* ---- names to choose on a card (SuggestionPicks.tsx): existing tags to click, and a field of chips ---- */
+.kestrel .suggestion-picks { display: grid; gap: 6px; margin: 4px 0 0 21px; }
+.kestrel .suggestion-offered { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+/* A tag chip that is a button: quiet until chosen, then outlined in the ink (or its tag's colour). */
+.kestrel .suggestion-pick { gap: 3px; padding: 0 8px; border: 1px solid transparent; font: inherit; font-size: 11px; cursor: pointer; opacity: .75; }
+.kestrel .suggestion-pick > span { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .suggestion-pick svg { flex: none; width: 10px; height: 10px; }
+.kestrel .suggestion-pick:hover { opacity: 1; }
+.kestrel .suggestion-pick[aria-pressed='true'] { opacity: 1; border-color: currentColor; }
+.kestrel .suggestion-pick[aria-pressed='true']:not(.tinted) { color: var(--s-ink); }
+.kestrel .suggestion-pick:disabled { opacity: .45; cursor: default; }
+.kestrel .suggestion-field { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: 26px; box-sizing: border-box; padding: 3px 6px; background: var(--s-bg); border: 1px solid var(--s-line); border-radius: 6px; cursor: text; }
+.kestrel .suggestion-field:focus-within { border-color: var(--s-muted); }
+.kestrel .suggestion-chip-name { padding: 0 2px 0 8px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .suggestion-field-input { flex: 1; min-width: 110px; height: 18px; padding: 0; background: transparent; border: 0; outline: 0; font: inherit; font-size: 11px; color: var(--s-ink); }
+.kestrel .suggestion-field-input::placeholder { color: var(--s-muted); }

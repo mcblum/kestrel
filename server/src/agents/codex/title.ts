@@ -62,7 +62,7 @@ export const codexArgs = (outFile: string, cwd: string, servers: readonly string
 ];
 
 /** What Codex is sent: it has no separate system prompt in `exec`, so the instruction leads. */
-export const codexPrompt = (prompt: string): string => `${TITLE_INSTRUCTION}\n\n${titleRequest(prompt)}`;
+export const codexPrompt = (prompt: string, existingTags: readonly string[] = []): string => `${TITLE_INSTRUCTION}\n\n${titleRequest(prompt, existingTags)}`;
 
 /** Resolves with the exit code and the end of stderr once the child closes; rejects if it cannot run. */
 function exited(child: TitleChild): Promise<{ code: number | null; stderr: string }> {
@@ -113,8 +113,8 @@ async function codexAsk(fullPrompt: string, timeoutMs: number, deps: CodexTitleD
 }
 
 /** The raw title reply for `prompt` from Codex, or null (not installed, or too slow). */
-export function codexTitle(prompt: string, deps: CodexTitleDeps = realDeps()): Promise<string | null> {
-  return codexAsk(codexPrompt(prompt), TITLE_TIMEOUT_MS, deps);
+export function codexTitle(prompt: string, deps: CodexTitleDeps = realDeps(), existingTags: readonly string[] = []): Promise<string | null> {
+  return codexAsk(codexPrompt(prompt, existingTags), TITLE_TIMEOUT_MS, deps);
 }
 
 /**

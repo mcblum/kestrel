@@ -12,6 +12,7 @@
 import { providersFor, type TitleProvider } from '../agents/title-providers.ts';
 import { sleep } from '../agents/title-request.ts';
 import type { Agent } from '../model.ts';
+import { mostUsedTags } from '../shared/tags.ts';
 import { titleIsEnough } from '../title.ts';
 import { parseTitleReply, type TitleReply } from '../title-reply.ts';
 import type { Workspace } from '../workspace.ts';
@@ -116,7 +117,7 @@ export class Titler {
   /** One provider's cleaned title and tag candidates, or null (with the reason added to `failures`). */
   private async ask(provider: TitleProvider, prompt: string, failures: string[]): Promise<(TitleReply & { title: string }) | null> {
     try {
-      const raw = await provider.title(prompt);
+      const raw = await provider.title(prompt, mostUsedTags((await this.workspace.state()).sessions));
       const reply = raw === null ? null : parseTitleReply(raw);
       if (reply?.title == null) {
         failures.push(`${provider.name}: ${raw === null ? 'no reply' : 'unusable reply'}`);

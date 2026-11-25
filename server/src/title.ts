@@ -3,9 +3,16 @@ const CLEAN_MAX = 60;
 const MAX_WORDS = 12;
 const SHORT_WORDS = 4;
 
-/** A one-line title from a prompt, summary or brief. */
+/**
+ * Ticket keys and addresses at the start of a line ("LH-140850 https://…/LH-140850. Create …"), with
+ * the brackets and separators around them: a title says what the work is, so they are skipped.
+ */
+const LEADING_REFS = /^(?:[[(]?\s*(?:[A-Z][A-Z0-9]{0,9}-\d+|(?:https?:\/\/|www\.)\S+)\s*[\])]?[\s.,;:|–—-]*)+/;
+
+/** A one-line title from a prompt, summary or brief, without a leading ticket key or address (kept when nothing else is on the line). */
 export const titleFrom = (text: string): string => {
-  const line = (text.trim().split('\n')[0] ?? '').trim();
+  const first = (text.trim().split('\n')[0] ?? '').trim();
+  const line = first.replace(LEADING_REFS, '').trim() || first;
   return line.length > TITLE_MAX ? `${line.slice(0, TITLE_MAX - 1)}…` : line;
 };
 

@@ -1,6 +1,6 @@
 // The user's messages written while the agent works (shared/mid-turn.ts has the rules and words).
 // Each goes to the agent at once through the adapter's `sendNow` (Claude: its streaming input;
-// Codex: `turn/steer`) and shows in the conversation as sent; the agent's `picked-up` marks it read.
+// Codex: `turn/steer`; OpenCode: another `promptAsync`) and shows in the conversation as sent; the agent's `picked-up` marks it read.
 // The few it cannot take then (a card waits, a settings change, a slash command, the agent refused)
 // are held in the session's queue (shared/queue.ts) with why, and tried again when a card is
 // answered, or sent as the next turn. One the agent took but never read before its run ended
@@ -55,8 +55,17 @@ async function deliver(host: MidTurnHost, sessionId: string, rec: Live, item: Qu
   const taken = await handle.sendNow(message).catch(() => false);
   if (!taken) return false;
   rec.midTurn = [...rec.midTurn, item];
-  host.apply(sessionId, rec, { type: 'user', id: item.id, text: item.text, ...(item.attachments?.length ? { attachments: item.attachments } : {}), midTurn: true });
+  if (item.from?.kind === 'note') host.apply(sessionId, rec, { type: 'note', id: item.id, from: item.from, midTurn: true });
+  else host.apply(sessionId, rec, { type: 'user', id: item.id, text: item.text, ...(item.attachments?.length ? { attachments: item.attachments } : {}), midTurn: true });
   return true;
+}
+
+/**
+ * A note from another session (shared/notes.ts) into the running turn, whatever waits on the user:
+ * it asks nothing of them and changes no setting. False when the agent cannot take it now.
+ */
+export async function deliverNote(host: MidTurnHost, sessionId: string, rec: Live, item: QueuedMessage): Promise<boolean> {
+  return canTake(rec) && deliver(host, sessionId, rec, item);
 }
 
 /**

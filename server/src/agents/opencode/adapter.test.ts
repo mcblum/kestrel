@@ -461,3 +461,33 @@ describe('OpenCode adapter, availability and models', () => {
     expect(t.requests('POST', /prompt_async$/)).toHaveLength(0);
   });
 });
+
+// A message while the agent works (0.0.18 for Claude and Codex; OpenCode since notes, 0.0.33): another
+// prompt on the busy session, taken in by OpenCode's running loop (spike/opencode-note.ts showed it).
+describe('OpenCode, a message into a running turn', () => {
+  it('goes in as another prompt, is read once a step answers it, and the turn stays one turn', async () => {
+    const t = setup('steer');
+    const handle = t.adapter.start(t.options, 'hi', t.emit);
+    await t.next('message', (e) => e.text === 'working');
+    await expect(handle.sendNow!({ id: 'k-1', text: 'A note: the port is 8443.' })).resolves.toBe(true);
+    expect(await t.next('picked-up')).toEqual({ type: 'picked-up', ids: ['k-1'] });
+    expect(await t.next('done')).toMatchObject({ type: 'done', reason: 'complete' });
+    const prompts = t.requests('POST', /prompt_async$/).map((r) => r.body.parts[0].text);
+    expect(prompts).toEqual(['hi', 'A note: the port is 8443.']);
+    expect(t.events.some((e) => e.type === 'unread')).toBe(false);
+    expect(t.events.filter(terminal)).toHaveLength(1);
+    await handle.close!();
+  });
+
+  it('is refused when no turn runs, and one never read is reported unread when the turn is stopped', async () => {
+    const t = setup('hang');
+    const handle = t.adapter.start(t.options, 'hi', t.emit);
+    await t.next('message', (e) => e.text === 'working');
+    await expect(handle.sendNow!({ id: 'k-2', text: 'too late' })).resolves.toBe(true);
+    await handle.stop();
+    expect(await t.next('unread')).toEqual({ type: 'unread', ids: ['k-2'] });
+    expect(lastTerminal(t.events)).toMatchObject({ type: 'done', reason: 'stopped' });
+    await expect(handle.sendNow!({ id: 'k-3', text: 'idle now' })).resolves.toBe(false);
+    await handle.close!();
+  });
+});

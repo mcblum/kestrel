@@ -32,6 +32,7 @@ import { hasTicketSection, ticketsOn } from '@kestrel/server/tickets';
 import { ticketLeadIn } from '../tickets.ts';
 import { ReviewRequestRow, ReviewsLink, SidebarReviews } from './SidebarReviews.tsx';
 import { openedText, requestNumberLabel, reviewingIds, reviewRowDetail, type ReviewMark } from '@kestrel/server/review-requests';
+import { OthersSaidNote } from './OthersSaid.tsx';
 import { hasReviewLink, hasReviewSection } from '@kestrel/server/review-settings';
 import { useReviewSettings } from '../reviewSettings.ts';
 import { useMinuteNow } from '../useNow.ts';
@@ -77,13 +78,20 @@ function sessionTip(session: SessionView, projects: readonly Project[], dotLabel
   ].join(' · ');
 }
 
-/** A review session's second line: its request's project (or repository), number and who asked; the number alone once the request is no longer listed. */
+/** A review session's second line: its request's project (or repository), number, who asked and what other reviewers said; the number alone once the request is no longer listed. */
 function ReviewWhere({ review, fallback, inProject }: { review: ReviewMark; fallback: string; /** Under its own project: the project is not named again. */ inProject: boolean }) {
   const request = useApp((s) => s.reviewRequests.requests.find((r) => r.key === review.key));
   const project = useApp((s) => (request?.projectId ? s.workspace?.projects.find((p) => p.id === request.projectId)?.name : undefined));
   const now = useMinuteNow();
   // With how long ago the request was opened, as its request row had.
-  return <>{request ? [reviewRowDetail(request, project, { place: !inProject }), openedText(request, now)].filter(Boolean).join(' · ') : inProject ? requestNumberLabel(review) : `${fallback} ${requestNumberLabel(review)}`}</>;
+  if (!request) return <>{inProject ? requestNumberLabel(review) : `${fallback} ${requestNumberLabel(review)}`}</>;
+  // With what other reviewers said, as its request row had.
+  return (
+    <>
+      {[reviewRowDetail(request, project, { place: !inProject }), openedText(request, now)].filter(Boolean).join(' · ')}
+      <OthersSaidNote request={request} className="review-said" />
+    </>
+  );
 }
 
 const TreeRow = memo(function TreeRow({ node, depth, activeId, rootId, groupId, parentId }: { node: TreeNode; depth: number; activeId: string | null; /** The top session of this row's tree. */ rootId: string; /** The group this row is listed in; `undefined` in a project's list, where a drop only reorders. */ groupId: string | null | undefined; /** The row this one is drawn under, if any. */ parentId?: string }) {

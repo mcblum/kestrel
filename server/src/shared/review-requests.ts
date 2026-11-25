@@ -2,6 +2,7 @@
 // (review-requests/) and pushes, and what the sidebar's CODE REVIEWS section lists. Only a request
 // made of the user by name counts, never one made of a team they are in. Pure and browser-safe.
 import { hostTerms, isHostKind, type HostKind } from './host-terms.ts';
+import { asOthersReviews, othersSaid, type OthersReviews } from './others-said.ts';
 import type { PermissionLevel } from './permissions.ts';
 import { sessionDot, type Seen } from './unread.ts';
 import { agoText } from './when.ts';
@@ -26,6 +27,8 @@ export interface FoundReviewRequest {
   body?: string;
   /** Who asked the user to review it, when the host says (review-requests/requester.ts). */
   requestedBy?: string;
+  /** What other reviewers have said (approvals, changes asked for, the host's satisfied), when the host was asked (review-requests/others.ts). */
+  others?: OthersReviews;
 }
 
 export interface ReviewRequest extends FoundReviewRequest {
@@ -120,14 +123,19 @@ export const openedText = (request: Pick<FoundReviewRequest, 'openedAt'>, now: n
 
 /** What a request row's status mark says. A row with a review session shows that session's own dot instead. */
 export interface RequestStatus {
-  /** `idle`: nothing has happened yet. `unread`: new, not looked at yet. `needs-you`: Kestrel tried to start it and could not. */
-  tone: 'idle' | 'unread' | 'needs-you';
+  /**
+   * `idle`: nothing has happened yet. `unread`: new, not looked at yet. `needs-you`: Kestrel tried
+   * to start it and could not. `approved`: the host says it has every approval it needs, drawn as
+   * the grey tick (`othersSaid`), never green.
+   */
+  tone: 'idle' | 'unread' | 'needs-you' | 'approved';
   label: string;
 }
 
-export function requestStatus(request: Pick<ReviewRequest, 'notStarted'>, unread = false): RequestStatus {
+export function requestStatus(request: Pick<ReviewRequest, 'notStarted' | 'others'>, unread = false): RequestStatus {
   if (request.notStarted) return { tone: 'needs-you', label: `Could not start on its own: ${request.notStarted}` };
-  return unread ? { tone: 'unread', label: 'New: you have not opened it yet' } : { tone: 'idle', label: 'No review started' };
+  if (unread) return { tone: 'unread', label: 'New: you have not opened it yet' };
+  return othersSaid(request).kind === 'satisfied' ? { tone: 'approved', label: 'Approved: it has every approval it needs' } : { tone: 'idle', label: 'No review started' };
 }
 
 /**
@@ -172,6 +180,15 @@ function isReviewRequest(value: unknown): value is ReviewRequest {
   );
 }
 
+/** A request with its `others` checked: a malformed one is dropped rather than losing the whole request. */
+function checkedOthers(request: ReviewRequest): ReviewRequest {
+  if (request.others === undefined) return request;
+  const others = asOthersReviews(request.others);
+  if (others) return { ...request, others };
+  const { others: _dropped, ...rest } = request;
+  return rest;
+}
+
 function isProblem(value: unknown): value is ReviewRequestProblem {
   if (typeof value !== 'object' || value === null) return false;
   const p = value as Record<string, unknown>;
@@ -183,10 +200,10 @@ export function asReviewRequestsView(raw: unknown): ReviewRequestsView {
   if (typeof raw !== 'object' || raw === null) return NO_REVIEW_REQUESTS;
   const v = raw as { requests?: unknown; problems?: unknown; dismissed?: unknown };
   if (!Array.isArray(v.requests) || !Array.isArray(v.problems)) return NO_REVIEW_REQUESTS;
-  const dismissed = Array.isArray(v.dismissed) ? v.dismissed.filter(isReviewRequest) : [];
+  const dismissed = Array.isArray(v.dismissed) ? v.dismissed.filter(isReviewRequest).map(checkedOthers) : [];
   const order = Array.isArray((raw as { order?: unknown }).order) ? ((raw as { order: unknown[] }).order.filter(isString) as string[]) : [];
   const unread = Array.isArray((raw as { unread?: unknown }).unread) ? ((raw as { unread: unknown[] }).unread.filter(isString) as string[]) : [];
-  return { requests: v.requests.filter(isReviewRequest), unread, dismissed, problems: v.problems.filter(isProblem), order };
+  return { requests: v.requests.filter(isReviewRequest).map(checkedOthers), unread, dismissed, problems: v.problems.filter(isProblem), order };
 }
 
 /**

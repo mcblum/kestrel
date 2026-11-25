@@ -3,11 +3,14 @@
 // the few it cannot take then are held here, and the strip says why (shared/mid-turn.ts). They are not
 // part of the conversation until they are sent. The server keeps them (shared/queue.ts): they go when
 // the running turn ends normally (or, held behind a card, once it is answered), and wait for
-// "Send now" after a stop or a failure. Another session's messages (`ask_session`) wait here too, for the turn to end.
+// "Send now" after a stop or a failure. Another session's messages (`ask_session`) wait here too, for the turn to end,
+// as do its notes (`send_note`) when the session is not working or could not take them mid-turn. Such a message
+// shows who sent it and the sender's own words (`from`, shared/notes.ts); the agent still gets Kestrel's framing.
 import { memo, useState } from 'react';
 import { Pencil, X } from 'lucide-react';
 import type { SessionQueue } from '@kestrel/server/model';
 import { heldHint } from '@kestrel/server/mid-turn';
+import { heldFromLabel, heldNotesHint } from '@kestrel/server/notes';
 import { actions } from '../store.ts';
 import { SentAttachments } from './attachments/SentAttachments.tsx';
 
@@ -40,11 +43,13 @@ export const QueuedMessages = memo(function QueuedMessages({ sessionId, queue, r
         <div key={m.id} className="queued-item">
           <span className="queued-tag">Held</span>
           <div className="queued-body">
-            {m.text && <p className="queued-text">{m.text}</p>}
+            {m.from && <span className="queued-from">{heldFromLabel(m.from)}</span>}
+            {(m.from?.body ?? m.text) && <p className="queued-text">{m.from?.body ?? m.text}</p>}
             {m.attachments && m.attachments.length > 0 && <SentAttachments sessionId={sessionId} attachments={m.attachments} small />}
           </div>
           {/* A message with files cannot go back to the box: its files are the session's now. Remove it instead. */}
-          {!m.attachments?.length && (
+          {/* Another session's message is not the user's to rewrite: it can only be taken back. */}
+          {!m.attachments?.length && !m.fromAgent && (
             <button type="button" className="queued-icon" aria-label="Edit this held message" title="Edit (puts it back in the message box)" onClick={() => void edit(m.id, m.text)}>
               <Pencil aria-hidden />
             </button>
@@ -55,7 +60,7 @@ export const QueuedMessages = memo(function QueuedMessages({ sessionId, queue, r
         </div>
       ))}
       <div className="queued-foot">
-        <span>{heldHint(queue.items.find((m) => !m.fromAgent)?.why, running, queue.held, queue.items.length)}</span>
+        <span>{!running && queue.items.every((m) => m.from?.kind === 'note') ? heldNotesHint(queue.items.length) : heldHint(queue.items.find((m) => !m.fromAgent)?.why, running, queue.held, queue.items.length)}</span>
         {canSendNow && (
           <button type="button" className="secondary-button queued-send" disabled={busy} onClick={() => void sendNow()}>
             {busy ? 'Sending…' : 'Send now'}

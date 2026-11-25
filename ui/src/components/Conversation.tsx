@@ -1,7 +1,9 @@
 import { openFrom } from './controls/anchor.ts';
 import { stepNote, stepsNote, stepsSummary } from '@kestrel/server/steps-summary';
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowRight, Check, CornerDownLeft, FileDiff, Info, Split, Square, Terminal, TriangleAlert, X } from 'lucide-react';
+import { ArrowRight, Check, CornerDownLeft, FileDiff, Info, MessageSquareText, Plane, Split, Square, Terminal, TriangleAlert, X } from 'lucide-react';
+import { isDisengagedLine } from '@kestrel/server/autopilot';
+import { noteLine } from '@kestrel/server/notes';
 import type { ChatActivity, ChatMessage } from '@kestrel/server/model';
 import { Markdown } from './Markdown.tsx';
 import { SentFoot } from './SentFoot.tsx';
@@ -122,10 +124,17 @@ export const Message = memo(function Message({ message, sessionId, onChoice, onR
   const source = useMemo(() => (message.id ? { sessionId, messageId: message.id } : undefined), [sessionId, message.id]);
   // Start warnings stored by earlier builds; they now go to the agent output log instead.
   if (message.notice === 'warning' && message.id?.startsWith('warning-')) return null;
+  // A note from another session (shared/notes.ts): a quiet line saying who it is from.
+  if (message.from)
+    return (
+      <div className="chat-message chat-info chat-note" role="note">
+        <MessageSquareText aria-hidden /> <span className="chat-note-from">{noteLine(message.from.title, '').trim()}</span> {message.text.slice(noteLine(message.from.title, '').length)}
+      </div>
+    );
   if (message.notice)
     return (
       <div className={`chat-message chat-error${message.notice === 'warning' ? ' chat-warning' : ''}${message.notice === 'info' ? ' chat-info' : ''}`} role={message.notice === 'info' ? 'note' : 'alert'}>
-        {message.notice === 'info' ? <Info aria-hidden /> : <TriangleAlert aria-hidden />}{' '}
+        {message.notice === 'info' ? <Info aria-hidden /> : isDisengagedLine(message.text) ? <Plane aria-hidden /> : <TriangleAlert aria-hidden />}{' '}
         {message.signIn ? (
           <div className="chat-error-body">
             {message.text}

@@ -6,6 +6,7 @@
   "exports": {
     "./onboarding": "./src/shared/onboarding.ts",
     "./model": "./src/model.ts",
+    "./others-said": "./src/shared/others-said.ts",
     "./archive-approved": "./src/shared/archive-approved.ts",
     "./session-archive": "./src/shared/session-archive.ts",
     "./working-tree": "./src/shared/working-tree.ts",
@@ -14,6 +15,7 @@
     "./brought-in-requests": "./src/shared/brought-in-requests.ts",
     "./request-family": "./src/shared/request-family.ts",
     "./mid-turn": "./src/shared/mid-turn.ts",
+    "./notes": "./src/shared/notes.ts",
     "./landing": "./src/shared/landing.ts",
     "./tabs": "./src/shared/tabs.ts",
     "./tab-menu": "./src/shared/tab-menu.ts",
@@ -42,6 +44,7 @@
     "./unread": "./src/shared/unread.ts",
     "./search": "./src/shared/search.ts",
     "./tags": "./src/shared/tags.ts",
+    "./tag-match": "./src/shared/tag-match.ts",
     "./workstreams": "./src/shared/workstreams.ts",
     "./waits": "./src/shared/waits.ts",
     "./slash-commands": "./src/shared/slash-commands.ts",

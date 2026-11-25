@@ -3,6 +3,8 @@
 import { presetForRole, presetSummary, ROLE_HELP, ROLE_LABEL, ROLES, type WhoDoesWhat } from '../shared/who-does-what.ts';
 import type { KestrelToolName } from './types.ts';
 import { defaultFolder } from '../shared/project-folders.ts';
+import { NOTE_MAX } from '../shared/notes.ts';
+import { AGENT_TITLE_MAX } from '../shared/agent-title.ts';
 
 export interface InstructionContext {
   /** How this agent spells a Kestrel tool, e.g. `mcp__kestrel__handoff` for Claude. */
@@ -45,9 +47,16 @@ function siblingsText(s: NonNullable<InstructionContext['siblings']>, t: Instruc
 /** How many existing tags the instruction lists; the rest are still accepted. */
 export const MAX_LISTED_TAGS = 30;
 
+/**
+ * How a model is told to choose among the tags in use: one wording, for the standing instruction and
+ * the title call alike. Kestrel holds it to this afterwards (shared/tag-match.ts `closestExistingTag`).
+ */
+export const existingTagsRule = (tags: readonly string[]): string =>
+  `Tags already in use: ${tags.join(', ')}. Use one of these, written exactly as listed, whenever it covers the work, even loosely: with "Argus" in use, work on the Argus CLI is tagged Argus, never a new "Argus CLI". Propose a new tag only when none of them covers the work, and then the broadest name that fits (a project or feature, not a part of one).`;
+
 function tagLine(ctx: InstructionContext): string {
   const tags = (ctx.existingTags ?? []).slice(0, MAX_LISTED_TAGS);
-  const known = tags.length ? ` Tags already in use (prefer one of these): ${tags.join(', ')}.` : '';
+  const known = tags.length ? ` ${existingTagsRule(tags)}` : '';
   return `- \`${ctx.toolName('suggest')}\`(kind, ...): offer the user an optional action; it never waits for them. When the work is clearly tied to a ticket, release or feature that is named in what the user said, the branch, or a linked pull request, call it ONCE with kind "tag" (tag, category: ticket | release | feature, source?: Jira, Linear, Monday…, reason) to suggest tagging this session.${known} Kestrel decides whether to ask the user. Do not ask the user about tags in prose, do not repeat a suggestion, and carry on with the work either way.`;
 }
 
@@ -120,8 +129,10 @@ export function standingInstruction(ctx: InstructionContext): string {
     `- \`${t('move_to_project')}\`(project, folder?, reason?): only when you have no project. This session moves into the project the work belongs in and keeps this conversation. The user is always asked first.`,
     `- \`${t('delegate')}\`(tasks, name?, objective?): work for ONE OR MORE sessions of their own, in other projects or this one, while you carry on: you stay as the orchestrator and are told when each finishes. It is how a change in another registered project gets made (above), and what to use whenever the user asks you to delegate, even to a single project, and whenever you need the result to continue or to report back. When the task needs changes in two or more projects, decide this BEFORE you start editing and call it once with one task (project + brief) per project, this one included; do not edit one project yourself and hand off the rest. When the tasks reach another project, give the work a short name and an objective: Kestrel lists you and them together for the user as a workstream. The user approves first unless this session runs in Auto or Bypass mode; you may still ask the user before calling it.`,
     `- \`${t('spawn')}\`(project, brief): an unrelated new task. Not linked to this session. The user approves first unless this session runs in Auto or Bypass mode.`,
+    `- Every session you start with \`${t('handoff')}\`, \`${t('delegate')}\` or \`${t('spawn')}\` gets a \`title\`: what that part is, in a few words, as the user reads it in the sidebar, such as "Terraform: Cognito OAuth client". Always give one. Name the part: do not repeat the ticket key or paste an address. The tasks of one \`${t('delegate')}\` call each need a different title. At most ${AGENT_TITLE_MAX} characters.`,
     `- \`${t('session_status')}\`(id?): check on the sessions you started.`,
     `- \`${t('ask_session')}\`(session, message): send work to a session that already exists, to be done in its own worktree. It is how a file in another session's worktree gets changed: you never edit one from here. You are told when that session finishes the turn. The user approves first unless this session runs in Auto or Bypass mode.`,
+    `- \`${t('send_note')}\`(session, note): tell a session of your workstream (or one you started, or the one that started you) something it needs to KNOW while it works: a decision, a name, a contract. Example: "We use the OAuth scope repo:read, not repo." It reaches that agent at its next step, inside the turn it is on, as a peer's information and not an instruction; it starts no turn and nobody reports back. Choose by what the message is, not by how urgent it is: something for the session to DO, such as "Add the --dry-run flag to cli.ts and its test", is work for \`${t('ask_session')}\`. Send a decision as soon as you make it, so the other session does not build on the wrong one. At most ${NOTE_MAX} characters.`,
     `- \`${t('complete_workstream')}\`(): when you lead a workstream (you delegated work that reached another project) and the whole task is finished, every session in it included, call it once to mark the workstream complete. Not before, and not from a session you were delegated to.`,
     `- \`${t('wait_for')}\`(session, reason, clear?): you are in a workstream and cannot go on until another session in it finishes. Record that, with a few words of reason: the user sees it, and you are told when that session finishes, with its last message. It does not block: then end your turn or carry on with what you can do; do not poll. \`clear: true\` stops your wait.`,
     `- \`${t('archive_session')}\`(session?, reason?): archive a Kestrel session; it is kept, with Undo, and nothing is stopped or deleted. Without \`session\` it is THIS session, archived when this turn ends: use it when this conversation is finished and the user has nothing left to read here, then end your turn. A session you started, or one in a workstream you lead, is archived at once; any other only on the user's yes. Never use it to stop, delete or bring back a session.`,

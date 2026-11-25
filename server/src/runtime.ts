@@ -114,7 +114,8 @@ import { SessionWorktrees } from './runtime/session-worktrees.ts';
 import { assertPlainFolderFree, interruptAfterRestart } from './runtime/start-options.ts';
 import { WorkStopper } from './runtime/stop-work.ts';
 import { Titler } from './runtime/titling.ts';
-import { answerCard, compactTurn, dropQueued, flushQueue, moveSettings, reply, sendQueued, stopTurn, type ReplyOptions } from './runtime/turns.ts';
+import { answerCard, compactTurn, dropQueued, flushQueue, moveSettings, note, reply, sendQueued, stopTurn, type ReplyOptions } from './runtime/turns.ts';
+import type { MessageFrom, NoteOutcome } from './shared/notes.ts';
 import { Upkeep } from './runtime/upkeep.ts';
 import type { RuntimeOptions } from './runtime/workdir.ts';
 import { folderContext } from './sandbox-allow/context.ts';
@@ -733,6 +734,11 @@ export class SessionRuntime implements McpSessions {
     return outcome;
   }
 
+  /** A note from another session (shared/notes.ts): into the running turn, or held; never a turn of its own. */
+  note(sessionId: string, text: string, from: MessageFrom): Promise<NoteOutcome> {
+    return note(this.host, sessionId, text, from);
+  }
+
   /**
    * A ticket the user's message names (shared/ticket-mention.ts): what to raise in the conversation,
    * and what the agent is told with the turn. Null when the message names none, or the session keeps its own.
@@ -1156,7 +1162,7 @@ export class SessionRuntime implements McpSessions {
     if (changed.length) patch.messages = changed;
     // Taken out first, then merged: a message in both lists lands at the end (a review card kept last in its turn).
     if (removed?.length) patch.removedMessages = removed;
-    if (action.type !== 'user' && action.type !== 'resolved' && action.type !== 'settled' && action.type !== 'notice' && action.type !== 'card' && action.type !== 'withdrawn') {
+    if (action.type !== 'user' && action.type !== 'resolved' && action.type !== 'settled' && action.type !== 'notice' && action.type !== 'note' && action.type !== 'card' && action.type !== 'withdrawn') {
       const line = outputLine(action);
       if (line) {
         rec.agentOutput = appendOutput(rec.agentOutput, line);

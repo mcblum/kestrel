@@ -6,7 +6,7 @@
 // list it in `suggestionKinds`. The UI needs nothing more: the card draws any kind's title, reason
 // and buttons, and the line left in the conversation is the kind's `line`.
 import type { ChatMessage, WorkspaceState } from '../model.ts';
-import type { Suggestion, SuggestionButton } from '../shared/suggestions.ts';
+import type { Suggestion, SuggestionButton, SuggestionPicks } from '../shared/suggestions.ts';
 import type { SuggestionPrefs } from './prefs.ts';
 
 /** What a kind may read and change while it decides or handles a button. */
@@ -28,6 +28,8 @@ export interface Draft {
   reason?: string;
   /** The text the action would send, whole (`Suggestion.detail`). */
   detail?: string;
+  /** Names the user may choose before answering (`Suggestion.picks`). */
+  picks?: SuggestionPicks;
   payload: Record<string, unknown>;
   buttons: SuggestionButton[];
 }
@@ -56,7 +58,8 @@ export interface SuggestionKind {
   /** Raised by Kestrel only: the `suggest` tool refuses it. */
   readonly kestrelOnly?: boolean;
   propose(ctx: KindContext, payload: Record<string, unknown>): Promise<Proposal>;
-  press(ctx: KindContext, suggestion: Suggestion, button: string): Promise<Pressed>;
+  /** `picks`: what the user chose on a card that has `picks`; absent when the answer sent none. */
+  press(ctx: KindContext, suggestion: Suggestion, button: string, picks?: readonly string[]): Promise<Pressed>;
   /** Reverses what a press did; returns the new line. Absent: the kind has no Undo. */
   undo?(ctx: KindContext, suggestion: Suggestion): Promise<string>;
 }

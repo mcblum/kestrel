@@ -1,12 +1,13 @@
 // The rules a tag suggestion passes before anyone sees it. Pure, so each rule is pinned by tests.
 //
 // 1. Grounding: the model cannot invent tags. A tag is accepted only when it is already a tag in the
-//    workspace, or its text literally appears (any case) in what the user wrote in this session, its
+//    workspace (or an existing tag plus extra words, which becomes that tag: shared/tag-match.ts), or its text literally appears (any case) in what the user wrote in this session, its
 //    title or its branch name (`texts`; linked pull requests are not read yet).
 // 2. Not annoying: never for a tag the session (or the session it came from) already has; never
 //    again for a tag already suggested in this session; one open tag suggestion at a time; at most
 //    MAX_TAG_SUGGESTIONS asked per session.
 // 3. Policy: the user's rule for this kind of tag (shared/tag-rules.ts) says ask, apply, or stay quiet.
+import { closestExistingTag } from '../shared/tag-match.ts';
 import { hasTag, parseTag, sameTag, tagKey } from '../shared/tags.ts';
 import { cleanSource, isTagCategory, kindLabel, ruleFor, type TagCategory, type TagSuggestionPrefs } from '../shared/tag-rules.ts';
 import type { Suggestion } from '../shared/suggestions.ts';
@@ -32,15 +33,18 @@ export function parseTagProposal(raw: Record<string, unknown>): TagProposal | { 
 }
 
 export interface Grounds {
-  /** Every tag in use in the workspace. */
+  /** Every tag in use in the workspace, the most used first. */
   existingTags: readonly string[];
   /** Where a new tag's text may appear: the user's messages, the title, the branch. */
   texts: readonly string[];
 }
 
-/** The tag to apply (an existing tag keeps its own case), or why it is refused. */
+/**
+ * The tag to suggest, or why it is refused. An existing tag that covers it comes first, in its own
+ * writing: the same tag, or the tag it adds words to ("Argus CLI" is Argus; shared/tag-match.ts).
+ */
 export function groundTag(tag: string, grounds: Grounds): { tag: string } | { refused: string } {
-  const existing = grounds.existingTags.find((t) => sameTag(t, tag));
+  const existing = closestExistingTag(tag, grounds.existingTags);
   if (existing) return { tag: existing };
   const needle = tagKey(tag);
   if (grounds.texts.some((text) => text.toLowerCase().includes(needle))) return { tag };

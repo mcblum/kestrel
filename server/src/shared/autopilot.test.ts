@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { ALWAYS_WARNING, autopilotLabel, autopilotStep, CHECKS_SETTLE_MS, checkAutopilotChange, DEFAULT_AUTOPILOT_PREFS, NO_PUSH_GRACE_MS, newRecord, sanitizeAutopilotPrefs, type AutopilotRecord, type StepInput } from './autopilot.ts';
+import { ALWAYS_WARNING, AUTOPILOT_DISENGAGED, CONTROLS_YOURS, isDisengagedLine, autopilotLabel, autopilotStep, CHECKS_SETTLE_MS, checkAutopilotChange, DEFAULT_AUTOPILOT_PREFS, NO_PUSH_GRACE_MS, newRecord, sanitizeAutopilotPrefs, type AutopilotRecord, type StepInput } from './autopilot.ts';
 import type { PullRequest, PullRequestLookup } from './details.ts';
 import { DEFAULT_ATTENTION_PREFS } from './request-attention.ts';
 import type { Sourced } from './sourced.ts';
@@ -81,7 +81,7 @@ describe('when it stops', () => {
     let record = start(false, 1);
     ({ record } = step(record, failing(1)));
     const { act, record: after } = step(record, failing(2, ['test']), { now: T0 + 1000 });
-    expect(act).toMatchObject({ type: 'stop', stop: { why: 'Autopilot stopped on #7 after 1 round: checks failed on #7: test', notify: true } });
+    expect(act).toMatchObject({ type: 'stop', stop: { why: 'Autopilot disengaged. #7 after 1 round: checks failed on #7: test', notify: true } });
     expect(after.stopped).toBeDefined();
     expect(step(after, failing(3)).act).toEqual({ type: 'none' });
   });
@@ -132,5 +132,13 @@ describe('the control’s words', () => {
     expect(autopilotLabel({ ...on, rounds: 1, round: { startedAt: 0, head: 'a', failed: [] } })).toBe('Autopilot · round 1 of 3');
     expect(autopilotLabel({ ...on, stopped: { at: 0, why: 'x', notify: true } })).toBe('Autopilot stopped');
     expect(autopilotLabel({ ...on, stopped: { at: 0, why: 'x', notify: false } })).toBe('Autopilot off');
+  });
+});
+
+describe('the line that says Autopilot gave a request back', () => {
+  test('is known by how it begins, and nothing else is', () => {
+    expect(isDisengagedLine(`${AUTOPILOT_DISENGAGED} #7: the agent pushed nothing in round 2. ${CONTROLS_YOURS}`)).toBe(true);
+    expect(isDisengagedLine('Autopilot merged #7.')).toBe(false);
+    expect(isDisengagedLine('Could not start the agent.')).toBe(false);
   });
 });

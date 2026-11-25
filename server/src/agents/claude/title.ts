@@ -50,8 +50,8 @@ async function ask(systemPrompt: string, prompt: string, timeoutMs: number, runQ
  * The raw title reply for `prompt`, or null if none came within the timeout. Errors are thrown for
  * the caller to log. `wait` is the timeout's clock; tests pass one.
  */
-export function claudeTitle(prompt: string, runQuery: typeof query = query, wait: Wait = sleep): Promise<string | null> {
-  return ask(TITLE_INSTRUCTION, titleRequest(prompt), TITLE_TIMEOUT_MS, runQuery, wait, TITLE_MODEL);
+export function claudeTitle(prompt: string, runQuery: typeof query = query, wait: Wait = sleep, existingTags: readonly string[] = []): Promise<string | null> {
+  return ask(TITLE_INSTRUCTION, titleRequest(prompt, existingTags), TITLE_TIMEOUT_MS, runQuery, wait, TITLE_MODEL);
 }
 
 /**

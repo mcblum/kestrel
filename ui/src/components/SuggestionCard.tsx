@@ -4,10 +4,15 @@
 // "not now". Newer ones wait behind it ("+1"). Nothing here takes focus: the message box keeps it.
 // Once answered or dismissed, the card goes and one quiet line stays where it was raised, with Undo
 // where the kind offers it. Any kind is drawn the same way: the server owns titles, buttons and lines.
+// A card with `picks` (a tag card) also draws the names to choose (SuggestionPicks.tsx) and sends what
+// is chosen with the buttons that take it.
 import { memo, useMemo, useState } from 'react';
 import { Lightbulb, X } from 'lucide-react';
 import type { ChatMessage } from '@kestrel/server/model';
 import { orderedButtons, shownSuggestion, type Suggestion } from '@kestrel/server/suggestions';
+import { withTyped } from '@kestrel/server/tag-match';
+import { useKnownTags } from './SessionTags.tsx';
+import { SuggestionPicks } from './SuggestionPicks.tsx';
 import { openSession } from '../route.ts';
 import { Markdown } from './Markdown.tsx';
 import { suggestionActions } from '../suggestionsApi.ts';
@@ -16,6 +21,16 @@ function Card({ sessionId, suggestion, waiting }: { sessionId: string; suggestio
   const [busy, setBusy] = useState(false);
   // Each button's checkbox, by button id: as the server set it until the user changes it.
   const [ticked, setTicked] = useState<Record<string, boolean>>({});
+  // What is chosen on a card with names to choose, and the text not yet made a chip: a draft, sent with the answer.
+  const picks = suggestion.picks;
+  const known = useKnownTags();
+  // `untouched` until the user changes the choice in any way (a chip, a typed name, a removal).
+  const [choice, setChoice] = useState<{ chosen: readonly string[]; untouched: boolean }>({ chosen: picks?.chosen ?? [], untouched: true });
+  const chosen = choice.chosen;
+  const setChosen = (next: readonly string[]) => setChoice((was) => (next === was.chosen ? was : { chosen: next, untouched: false }));
+  const [typing, setTyping] = useState('');
+  /** What a button that takes the choice sends: the chips, and what was typed without Enter. */
+  const picked = (button: string): readonly string[] | undefined => (picks?.buttons.includes(button) ? withTyped(chosen, typing, known) : undefined);
   const run = async (work: () => Promise<unknown>) => {
     setBusy(true);
     await work();
@@ -42,15 +57,17 @@ function Card({ sessionId, suggestion, waiting }: { sessionId: string; suggestio
           <Markdown text={suggestion.detail} sessionId={sessionId} />
         </div>
       )}
+      {picks && <SuggestionPicks picks={picks} known={known} chosen={chosen} untouched={choice.untouched} typing={typing} disabled={busy} onChosen={setChosen} onTyping={setTyping} />}
       <div className="suggestion-buttons">
         {orderedButtons(suggestion.buttons)
           .filter((b) => !b.folded)
           .map((b) => {
             const on = b.toggle ? (ticked[b.id] ?? b.toggle.checked) : false;
             const sends = b.toggle && on ? b.toggle.id : b.id;
+            const picksSent = picked(sends);
             return (
               <span key={b.id} className="suggestion-button-group">
-                <button type="button" className={b.primary ? 'suggestion-primary' : 'suggestion-quiet'} disabled={busy} onClick={() => void run(() => suggestionActions.answer(sessionId, suggestion.id, sends))}>
+                <button type="button" className={b.primary ? 'suggestion-primary' : 'suggestion-quiet'} disabled={busy || picksSent?.length === 0} title={picksSent?.length === 0 ? 'Choose a tag first' : undefined} onClick={() => void run(() => suggestionActions.answer(sessionId, suggestion.id, sends, picksSent))}>
                   {b.label}
                 </button>
                 {b.toggle && (

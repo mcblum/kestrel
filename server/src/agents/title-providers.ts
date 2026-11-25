@@ -15,7 +15,8 @@ export interface TitleProvider {
   /** The agent it belongs with: asked first for that agent's sessions. */
   readonly agent: Agent;
   /** The raw reply (the runtime cleans it); null when it has none or is not installed; may throw. */
-  title(prompt: string): Promise<string | null>;
+  /** `existingTags`: the tags in use, the most used first, for the reply's tag lines to reuse. */
+  title(prompt: string, existingTags?: readonly string[]): Promise<string | null>;
   /**
    * The raw reply to a pull request text request (pr-text-request.ts); null or a throw as for
    * `title`. `model` is the session's model when this provider is the session's agent; absent means
@@ -31,8 +32,8 @@ export function titleProviders(mode: TitleMode): TitleProvider[] {
   if (mode === 'scripted') return [{ name: 'scripted', agent: 'claude', title: scriptedTitle }];
   if (mode === 'none') return [];
   return [
-    { name: 'claude', agent: 'claude', title: (prompt) => claudeTitle(prompt), pullRequestText: (request, model) => claudePullRequestText(request, model) },
-    { name: 'codex', agent: 'codex', title: (prompt) => codexTitle(prompt), pullRequestText: (request, model) => codexPullRequestText(request, model) },
+    { name: 'claude', agent: 'claude', title: (prompt, tags) => claudeTitle(prompt, undefined, undefined, tags), pullRequestText: (request, model) => claudePullRequestText(request, model) },
+    { name: 'codex', agent: 'codex', title: (prompt, tags) => codexTitle(prompt, undefined, tags), pullRequestText: (request, model) => codexPullRequestText(request, model) },
   ];
 }
 

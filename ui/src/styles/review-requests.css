@@ -211,3 +211,16 @@
 .kestrel .review-round-fold:hover { color: var(--s-ink); }
 .kestrel .review-round-fold svg { width: 12px; height: 12px; }
 .kestrel .review-round-line > .review-reply { margin-top: 6px; }
+
+/* What other reviewers said (`othersSaid`, OthersSaid.tsx): a tick and plain words in the muted grey
+   of the line it ends, never a status colour. On a request row whose host says it is approved, the
+   tick also stands in for the quiet ring as its status mark. */
+.kestrel .others-said { display: inline-flex; align-items: center; gap: 3px; color: var(--s-muted); white-space: nowrap; }
+.kestrel .others-said-tick { width: 11px; height: 11px; flex: none; stroke-width: 2.25; }
+.kestrel .studio-sidebar .review-said { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 10.5px; line-height: 1.3; color: var(--s-muted); white-space: nowrap; }
+.kestrel .studio-sidebar .review-said::before { content: '· '; }
+.kestrel .studio-sidebar .review-said .others-said-tick { width: 10px; height: 10px; margin-right: 2px; vertical-align: -1px; stroke-width: 2.25; }
+.kestrel .approved-mark { display: inline-flex; align-items: center; justify-content: center; width: 12px; height: 12px; color: var(--s-muted); }
+.kestrel .approved-mark svg { width: 12px; height: 12px; stroke-width: 2.25; }
+.kestrel .review-page-said { margin-top: 8px; font-size: 12px; }
+.kestrel .review-page-said .others-said-tick { width: 12px; height: 12px; }

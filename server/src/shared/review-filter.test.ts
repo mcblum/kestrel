@@ -14,6 +14,21 @@ const rows = [
 ];
 const numbers = (filters: Partial<ReviewFilters>) => filterReviews(rows, { ...NO_REVIEW_FILTERS, ...filters }, names, now).map((r) => r.number);
 
+describe('filtering by what other reviewers said', () => {
+  const said = (approvedBy: string[], changesRequestedBy: string[], satisfied: boolean) => ({ others: { approvedBy, changesRequestedBy, satisfied } });
+  const reviewed = [request(1, said(['dana'], [], true)), request(2, said(['dana'], [], false)), request(3, said([], ['kim'], false)), request(4), request(5, said([], [], false))];
+  const shown = (approval: ReviewFilters['approval']) => filterReviews(reviewed, { ...NO_REVIEW_FILTERS, approval }, names, now).map((r) => r.number);
+
+  it('by the one rule othersSaid sorts them by', () => {
+    expect(shown('any')).toEqual([1, 2, 3, 4, 5]);
+    expect(shown('satisfied')).toEqual([1]);
+    expect(shown('approved')).toEqual([2]);
+    expect(shown('changes')).toEqual([3]);
+    expect(shown('none')).toEqual([4, 5]);
+    expect(isFiltering({ ...NO_REVIEW_FILTERS, approval: 'satisfied' })).toBe(true);
+  });
+});
+
 describe('filtering the Code reviews page', () => {
   it('shows everything until a filter is set', () => {
     expect(numbers({})).toEqual([1, 2, 3, 4]);

@@ -1,5 +1,7 @@
-// The Code reviews page's filters: who asked, which project, how recently it was opened, and a
+// The Code reviews page's filters: who asked, which project, how recently it was opened, what other
+// reviewers said (Approved, `othersSaid`), and a
 // forgiving text search over what a row shows; and the order its rows are listed in. Pure and browser-safe; `now` is passed in.
+import { othersSaid, type OthersSaid } from './others-said.ts';
 import { askedBy, repositoryName, requestNumberLabel, type ReviewRequest } from './review-requests.ts';
 
 /** How recently: opened within the last hour, day, week or month; `any` is no limit. */
@@ -12,20 +14,32 @@ export const REVIEW_WITHIN_LABEL: Record<ReviewWithin, string> = { any: 'Any tim
 const HOUR_MS = 3_600_000;
 const WITHIN_MS: Record<Exclude<ReviewWithin, 'any'>, number> = { hour: HOUR_MS, day: 24 * HOUR_MS, week: 7 * 24 * HOUR_MS, month: 30 * 24 * HOUR_MS };
 
+/**
+ * What other reviewers said, as `othersSaid` sorts it: the host says approved (`satisfied`), some
+ * approved but not enough yet (`approved`), changes asked for (`changes`), nobody said anything
+ * (`none`); `any` is no limit.
+ */
+export type ReviewApproval = 'any' | OthersSaid['kind'];
+
+export const REVIEW_APPROVAL: readonly ReviewApproval[] = ['any', 'satisfied', 'approved', 'changes', 'none'];
+
+export const REVIEW_APPROVAL_LABEL: Record<ReviewApproval, string> = { any: 'Any approvals', satisfied: 'Approved', approved: 'Some approvals', changes: 'Changes requested', none: 'No other reviews' };
+
 export interface ReviewFilters {
   /** Who asked for the review (`askedBy`); empty for anyone. */
   who: string;
   /** The place a request is in (`placeOf`): a project's name, or a repository's; empty for any. */
   place: string;
   within: ReviewWithin;
+  approval: ReviewApproval;
   text: string;
 }
 
-export const NO_REVIEW_FILTERS: ReviewFilters = { who: '', place: '', within: 'any', text: '' };
+export const NO_REVIEW_FILTERS: ReviewFilters = { who: '', place: '', within: 'any', approval: 'any', text: '' };
 
-export const isFiltering = (f: ReviewFilters): boolean => f.who !== '' || f.place !== '' || f.within !== 'any' || f.text.trim() !== '';
+export const isFiltering = (f: ReviewFilters): boolean => f.who !== '' || f.place !== '' || f.within !== 'any' || f.approval !== 'any' || f.text.trim() !== '';
 
-type Listed = Pick<ReviewRequest, 'host' | 'number' | 'repository' | 'title' | 'author' | 'requestedBy' | 'projectId' | 'openedAt' | 'updatedAt'>;
+type Listed = Pick<ReviewRequest, 'host' | 'number' | 'repository' | 'title' | 'author' | 'requestedBy' | 'projectId' | 'openedAt' | 'updatedAt' | 'others'>;
 
 /** A project's name by its id; undefined when it is not registered. */
 export type ProjectNames = (projectId: string) => string | undefined;
@@ -79,6 +93,7 @@ export function filterReviews<T extends Listed>(requests: readonly T[], filters:
       (filters.who === '' || askedBy(r) === filters.who) &&
       (filters.place === '' || placeOf(r, names) === filters.place) &&
       (since === null || openedAtOf(r) >= since) &&
+      (filters.approval === 'any' || othersSaid(r).kind === filters.approval) &&
       (filters.text.trim() === '' || matchesText(searchText(r, names), filters.text)),
   );
 }

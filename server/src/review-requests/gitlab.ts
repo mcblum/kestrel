@@ -9,6 +9,7 @@ import type { CommandRunner } from '../pull-requests/types.ts';
 import type { FoundReviewRequest } from '../shared/review-requests.ts';
 import { ready, unavailable, type Sourced } from '../shared/sourced.ts';
 import { REVIEW_REQUEST_LIMIT } from './github.ts';
+import { gitlabFindOthers, withOthers } from './others.ts';
 import { gitlabFindRequester, withRequesters } from './requester.ts';
 
 export const gitlabUserArgs = (host: string): string[] => ['api', 'user', '--hostname', host];
@@ -72,6 +73,7 @@ export function gitlabReviewRequests(run: CommandRunner = execRunner, cwd: strin
   // Who the user is on each server: asked once and kept, as the sign-in is (glab.ts).
   let usernames: ReadonlyMap<string, string> = new Map();
   const requesters = withRequesters(gitlabFindRequester((host) => usernames.get(host), run, cwd));
+  const others = withOthers(gitlabFindOthers((host) => usernames.get(host), run, cwd));
   return async (host) => {
     try {
       let username = usernames.get(host);
@@ -80,7 +82,7 @@ export function gitlabReviewRequests(run: CommandRunner = execRunner, cwd: strin
         usernames = new Map(usernames).set(host, username);
       }
       const { stdout } = await run('glab', gitlabReviewArgs(host, username), { cwd, timeoutMs: GLAB_TIMEOUT_MS });
-      return ready(await requesters(mapGitlabList(stdout, host)));
+      return ready(await others(await requesters(mapGitlabList(stdout, host))));
     } catch (error) {
       return unavailable(glabFailureReason(error, host));
     }

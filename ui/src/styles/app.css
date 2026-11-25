@@ -337,6 +337,8 @@ body { background: light-dark(#fafbf9, #171a19); }
 .kestrel .lineage-text small { color: var(--s-muted); font-size: 10px; }
 .kestrel .chat-info { border-color: var(--s-line); color: var(--s-muted); font-size: 11px; background: transparent; }
 .kestrel .chat-info svg { color: var(--s-accent); }
+.kestrel .chat-note { white-space: pre-wrap; word-break: break-word; }
+.kestrel .chat-note-from { color: var(--s-ink); }
 .kestrel .move-summary { min-height: 220px; width: 100%; }
 
 /* ---- pages: compact headers, one table, queue (design doc 2026-11-13, "Page hierarchy") ------ */

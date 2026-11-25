@@ -7,13 +7,14 @@ import type { ContextUsage } from '../../shared/context-usage.ts';
 import type { PermissionLevel } from '../../shared/permissions.ts';
 import type { ElementLookup } from '../claude/describe.ts';
 import { setTimeout as delay } from 'node:timers/promises';
-import type { AgentAttachment, AgentEvent, AgentHandle, InputAnswer, InputOption, StartOptions } from '../types.ts';
+import type { AgentAttachment, AgentEvent, AgentHandle, InputAnswer, InputOption, MidTurnMessage, StartOptions } from '../types.ts';
 import { AskDesk } from './asks.ts';
 import { call, clientFor, type OpencodeClient } from './client.ts';
 import { isolationEnv, processConfig } from './config.ts';
 import { commandCalled, promptParts, slashCommands } from './input.ts';
 import { writeInstruction, type InstructionFile } from './instruction.ts';
 import { OpencodeMapper } from './map.ts';
+import { OpencodeMidTurn } from './mid-turn.ts';
 import { splitModel } from './models.ts';
 import { opencodePolicy, sessionRules } from './policy.ts';
 import { OpencodeUnavailable, type ExitInfo, type Launch, type OpencodeServer } from './process.ts';
@@ -70,6 +71,10 @@ export class OpencodeHandle implements AgentHandle {
   private gaveUp: string | null = null;
   private planSettle: ((answer: InputAnswer | null) => void) | null = null;
   private readonly desk: AskDesk;
+  /** Messages sent into the running turn (`sendNow`) and whether the model read them. */
+  private readonly midTurn = new OpencodeMidTurn();
+  /** The running turn is a prompt OpenCode can take more messages into (not a command or a compaction). */
+  private steerable = false;
 
   constructor(
     sessionId: string | null,
@@ -104,6 +109,29 @@ export class OpencodeHandle implements AgentHandle {
       if (token === this.turnToken) this.running = false;
       this.emit(terminal);
     });
+  }
+
+  /**
+   * A message while the agent works: another `promptAsync` on the busy session, which OpenCode's running
+   * loop takes in at its next step (mid-turn.ts). Refused (Kestrel holds the message) when no prompt
+   * turn is running, before OpenCode has the turn's own prompt, for a command or a compaction, and
+   * when OpenCode answers with an error.
+   */
+  async sendNow(message: MidTurnMessage): Promise<boolean> {
+    const client = this.server?.client;
+    if (!this.running || this.stopping || this.closed || !client || !this.sessionId || !this.steerable || !this.waiter || !this.midTurn.promptSeen) return false;
+    const policy = opencodePolicy(this.opts.permission);
+    const model = this.opts.model ? splitModel(this.opts.model) : null;
+    const variant = this.opts.effort ? { variant: this.opts.effort } : {};
+    this.midTurn.sent(message.id);
+    try {
+      await call('take the message', client.session.promptAsync({ sessionID: this.sessionId, agent: policy.agent, parts: promptParts(message.text, message.attachments), ...(model ? { model } : {}), ...variant }));
+      return true;
+    } catch (error) {
+      this.midTurn.dropped(message.id);
+      this.deps.log(`OpenCode did not take a message on its turn, so Kestrel holds it: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    }
   }
 
   answer(requestId: string, answer: InputAnswer): void {
@@ -193,6 +221,7 @@ export class OpencodeHandle implements AgentHandle {
     const mapper = this.mapper!;
     await this.applyRules(client);
     mapper.beginTurn();
+    this.midTurn.beginTurn();
     this.gaveUp = null;
     const done = new Promise<void>((resolve, reject) => (this.waiter = { resolve, reject }));
     done.catch(() => undefined);
@@ -200,6 +229,7 @@ export class OpencodeHandle implements AgentHandle {
     const model = this.opts.model ? splitModel(this.opts.model) : null;
     const variant = this.opts.effort ? { variant: this.opts.effort } : {};
     const command = commandCalled(text, this.commands);
+    this.steerable = !command;
     if (command) {
       // Runs until the turn ends; its answer is not needed, only a refusal.
       void call('run the command', client.session.command({ sessionID, command: command.command, arguments: command.arguments, agent: policy.agent, ...(this.opts.model ? { model: this.opts.model } : {}), ...variant })).catch((error: Error) => this.waiter?.reject(error));
@@ -207,7 +237,14 @@ export class OpencodeHandle implements AgentHandle {
       await call('take the message', client.session.promptAsync({ sessionID, agent: policy.agent, parts: promptParts(text, attachments), ...(model ? { model } : {}), ...variant }));
     }
     if (this.stopping) await client.session.abort({ sessionID }).catch(() => undefined);
-    await done;
+    try {
+      await done;
+    } finally {
+      this.steerable = false;
+      // What went in and was never read (the turn was stopped or failed first): Kestrel holds it again.
+      const unread = this.midTurn.unread();
+      if (unread.length) this.emit({ type: 'unread', ids: unread });
+    }
     const outcome: TurnOutcome = { error: mapper.lastError, text: mapper.lastText, costUsd: mapper.usage.costUsd };
     await this.reportContext(mapper);
     return outcome;
@@ -322,13 +359,27 @@ export class OpencodeHandle implements AgentHandle {
     if (event.type === 'permission.asked' && mapper.belongs(sessionID)) return this.desk.onPermission(p);
     if (event.type === 'question.asked' && mapper.belongs(sessionID)) return this.desk.onQuestion(p);
     if (event.type === 'session.status' && sessionID === mapper.sessionID) this.checkRetry(p);
+    // Only the conversation's own messages: a subagent's session has user messages of its own.
+    if (event.type === 'message.updated' && sessionID === mapper.sessionID) {
+      const read = this.midTurn.see(event);
+      if (read.length) this.emit({ type: 'picked-up', ids: read });
+    }
     if (event.type === 'session.idle' && sessionID === mapper.sessionID) {
+      // A message sent as the loop was ending starts another run of it: the turn goes on until that one ends.
+      if (this.midTurn.waiting && !this.stopping && (await this.busyAgain(sessionID))) return;
       const waiter = this.waiter;
       this.waiter = null;
       return waiter?.resolve();
     }
     if (sessionID && !mapper.belongs(sessionID) && !event.type?.toString().startsWith('session.')) return;
     for (const out of mapper.map(event)) this.emit(out);
+  }
+
+  /** Whether OpenCode says the session is working again (a message sent mid-turn started another run). */
+  private async busyAgain(sessionID: string): Promise<boolean> {
+    const answer = await this.server?.client.session.status().catch(() => null);
+    const status = isObj(answer?.data) ? answer.data[sessionID] : null;
+    return isObj(status) && (status.type === 'busy' || status.type === 'retry');
   }
 
   /** A retry hours away (a used-up free tier) is not waited for: the turn ends with OpenCode's reason. */

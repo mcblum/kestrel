@@ -6,6 +6,8 @@ import { createSdkMcpServer, tool as sdkTool } from '@anthropic-ai/claude-agent-
 import { z } from 'zod';
 import { SELECTABLE_AGENTS, type Agent } from '../../model.ts';
 import { REVIEW_IS_LAST } from '../../shared/review-reply.ts';
+import { NOTE_MAX } from '../../shared/notes.ts';
+import { AGENT_TITLE_MAX } from '../../shared/agent-title.ts';
 import { WAIT_REASON_MAX } from '../../shared/waits.ts';
 import { ARCHIVE_REASON_MAX } from '../../shared/session-archive.ts';
 import { loadsWithSession, type KestrelToolHost, type ToolResult } from '../types.ts';
@@ -17,6 +19,10 @@ const tool: typeof sdkTool = (name, description, schema, handler) => sdkTool(nam
 
 const roleField = z.enum(ROLES as unknown as [Role, ...Role[]]).optional().describe('The kind of work, when the user has chosen an agent for it (see "Who does what" in your instructions): design, build or review. Kestrel then picks the agent and model; leave `agent` out.');
 const agentField = z.enum(SELECTABLE_AGENTS as [Agent, ...Agent[]]).optional().describe("Which agent runs it. Defaults to the agent you are.");
+const titleField = z
+  .string()
+  .optional()
+  .describe(`Always give one: what this part is, in a few words, as the user reads it in the sidebar, e.g. "Terraform: Cognito OAuth client". Name the part; do not repeat the ticket key or paste an address. At most ${AGENT_TITLE_MAX} characters. Tasks of one call need different titles.`);
 const project = z.string().describe('A registered project: its name or the path of one of its directories. See list_projects; add a folder that is not there with add_project first.');
 const folder = z.string().optional().describe("For a project with several directories: which one, by name or path. Defaults to the project's default directory (or the one whose path you gave as project).");
 
@@ -56,8 +62,8 @@ export function kestrelMcpServer(host: KestrelToolHost, omit: readonly string[] 
       ),
       tool(
         'handoff',
-        'The whole task MOVES to another project (or another directory of your project) and you are finished with it: the new session takes it over and you will not hear back. Use it only when the user asks you to hand the task over or move it, or when this conversation as a whole belongs there and nothing is left to tell the user here. For a change the user asked you for that sits in another registered project, use delegate instead, so you can report back. Kestrel starts the session there (in its own worktree) with your summary as its first message, and links it to you. Write a self-contained summary: the goal, what you found, what is left. After it succeeds, stop working on this task.',
-        { project, folder, summary: z.string().describe('Everything the new session needs; it sees nothing else of this conversation.'), agent: agentField, archive_self: z.boolean().optional().describe('true when this session is in the wrong project altogether and has nothing left to do here: the user is asked whether to hand the task off and archive this session, and on a yes it is archived when this turn ends.') },
+        'The whole task MOVES to another project (or another directory of your project) and you are finished with it: the new session takes it over and you will not hear back. Use it only when the user asks you to hand the task over or move it, or when this conversation as a whole belongs there and nothing is left to tell the user here. For a change the user asked you for that sits in another registered project, use delegate instead, so you can report back. Kestrel starts the session there (in its own worktree) with your summary as its first message, and links it to you. Write a self-contained summary: the goal, what you found, what is left, and give the new session a title of a few words. After it succeeds, stop working on this task.',
+        { project, folder, summary: z.string().describe('Everything the new session needs; it sees nothing else of this conversation.'), title: titleField, agent: agentField, archive_self: z.boolean().optional().describe('true when this session is in the wrong project altogether and has nothing left to do here: the user is asked whether to hand the task off and archive this session, and on a yes it is archived when this turn ends.') },
         (args) => guarded(() => host.handoff(args)),
       ),
       tool(
@@ -68,9 +74,9 @@ export function kestrelMcpServer(host: KestrelToolHost, omit: readonly string[] 
       ),
       tool(
         'delegate',
-        'You need work done in ONE OR MORE sessions of their own, in other projects or your own, and you carry on afterwards. Kestrel starts one new session per task (each in its own worktree), and you stay as the orchestrator: you will be told when each finishes. It is how a change to a file in another registered project gets made, even a small one: you do not edit another project from here. Also use it whenever the user asks you to delegate, even to a single project, and whenever you need the result to continue or report back. A file in no registered project you edit yourself instead. When the tasks reach a project other than yours, Kestrel also makes a workstream that lists you and them in one place for the user; give it a name and an objective. Needs the user\'s approval. At most 5 tasks.',
+        'You need work done in ONE OR MORE sessions of their own, in other projects or your own, and you carry on afterwards. Kestrel starts one new session per task (each in its own worktree), and you stay as the orchestrator: you will be told when each finishes. It is how a change to a file in another registered project gets made, even a small one: you do not edit another project from here. Also use it whenever the user asks you to delegate, even to a single project, and whenever you need the result to continue or report back. A file in no registered project you edit yourself instead. When the tasks reach a project other than yours, Kestrel also makes a workstream that lists you and them in one place for the user; give it a name and an objective. Give every task a short title naming its part (the user tells the sessions apart by it in the sidebar), each different. Needs the user\'s approval. At most 5 tasks.',
         {
-          tasks: z.array(z.object({ project, folder, brief: z.string().describe('A self-contained brief for that project.'), agent: agentField, role: roleField })).describe('One entry per session to start: usually one per project.'),
+          tasks: z.array(z.object({ project, folder, title: titleField, brief: z.string().describe('A self-contained brief for that project.'), agent: agentField, role: roleField })).describe('One entry per session to start: usually one per project.'),
           name: z.string().optional().describe('A short name for the whole piece of work, two to four words, from what the user asked for (e.g. "Invoice export"). The user can change it.'),
           objective: z.string().optional().describe('One or two sentences: what the work as a whole is meant to achieve.'),
         },
@@ -78,8 +84,8 @@ export function kestrelMcpServer(host: KestrelToolHost, omit: readonly string[] 
       ),
       tool(
         'spawn',
-        'Start an UNRELATED new session in a project: a separate task, not part of your own work. It is not linked to you. Needs the user\'s approval.',
-        { project, folder, brief: z.string().describe('A self-contained brief.'), agent: agentField, role: roleField },
+        'Start an UNRELATED new session in a project: a separate task, not part of your own work. It is not linked to you. Give it a short title naming the task. Needs the user\'s approval.',
+        { project, folder, title: titleField, brief: z.string().describe('A self-contained brief.'), agent: agentField, role: roleField },
         (args) => guarded(() => host.spawn(args)),
       ),
       tool(
@@ -90,12 +96,21 @@ export function kestrelMcpServer(host: KestrelToolHost, omit: readonly string[] 
       ),
       tool(
         'ask_session',
-        'Send work to a session that ALREADY EXISTS, to be done in ITS worktree: use it when a file you need changed is in another session\'s worktree (Kestrel refuses that edit and names the session). Its agent gets your message as its next turn, or after the turn it is on. You are told when it finishes that turn. Do not use it to start new work in a project: that is delegate. Needs the user\'s approval.',
+        'Send WORK to a session that ALREADY EXISTS, to be done in ITS worktree: use it when a file you need changed is in another session\'s worktree (Kestrel refuses that edit and names the session). Its agent gets your message as its next turn, or after the turn it is on. You are told when it finishes that turn. Example: "Add the --dry-run flag to cli.ts and its test." Something it only needs to KNOW (a decision, a name) is a note: send_note. Do not use it to start new work in a project: that is delegate. Needs the user\'s approval.',
         {
           session: z.string().describe('The id of the session to ask, as given in the refusal or by session_status.'),
           message: z.string().describe('Exactly what to change and why. It sees nothing else of this conversation.'),
         },
         (args) => guarded(() => host.askSession(args)),
+      ),
+      tool(
+        'send_note',
+        `Send a NOTE to another session of your workstream (or one you started, or the one that started you): something it needs to KNOW while it works, such as a decision, a name or a contract. It reaches that session's agent at its next step, inside the turn it is on, as information from you, not as an instruction; it starts no turn, and nobody reports back. Example: "We use the OAuth scope repo:read, not repo." Something for it to DO is work: ask_session. At most ${NOTE_MAX} characters. No approval needed.`,
+        {
+          session: z.string().describe('The id of the session to tell (from session_status or the workstream).'),
+          note: z.string().describe(`What it needs to know, self-contained: it sees nothing else of this conversation. At most ${NOTE_MAX} characters.`),
+        },
+        (args) => guarded(() => host.sendNote(args)),
       ),
       tool(
         'complete_workstream',

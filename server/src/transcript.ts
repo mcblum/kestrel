@@ -6,6 +6,7 @@ import type { AgentEvent, InputRequest } from './agents/types.ts';
 import type { Attachment, ChatActivity, ChatMessage, FileCard, NextStep, StartedSession, TodoItem, WidgetCard } from './model.ts';
 import type { Suggestion } from './shared/suggestions.ts';
 import { endTurn, markForkPoint } from './shared/turns.ts';
+import { noteLine, type MessageFrom } from './shared/notes.ts';
 
 export type TranscriptAction =
   | AgentEvent
@@ -20,7 +21,12 @@ export type TranscriptAction =
   /** Something to show as its own card: a widget, a file, a next step, pictures, an optional action. */
   | { type: 'card'; id: string; widget?: WidgetCard; file?: FileCard; next?: NextStep; review?: ReviewReply; roundFindings?: RoundFindings; reviewEnd?: ReviewEnd; started?: StartedSession; images?: string[]; suggestion?: Suggestion; at?: number }
   /** A line from Kestrel itself (a refusal, a message from another session). `startsTurn`: the agent was woken with it. */
-  | { type: 'notice'; id: string; text: string; level: 'info' | 'warning' | 'error'; startsTurn?: boolean };
+  | { type: 'notice'; id: string; text: string; level: 'info' | 'warning' | 'error'; startsTurn?: boolean }
+  /**
+   * A note from another session (shared/notes.ts), shown as a quiet line "From <title>: …". `midTurn`:
+   * it went into the running turn; otherwise it went with the turn that is starting.
+   */
+  | { type: 'note'; id: string; from: MessageFrom; midTurn?: boolean };
 
 export interface Applied {
   messages: ChatMessage[];
@@ -179,6 +185,10 @@ function applyAction(messages: readonly ChatMessage[], action: TranscriptAction,
       const at = before?.at ?? action.at;
       const message: ChatMessage = { id: action.id, author: 'agent', time: before ? before.time : time, text: '', ...(at !== undefined ? { at } : {}), ...(action.widget ? { widget: action.widget } : {}), ...(action.file ? { file: action.file } : {}), ...(action.next ? { next: action.next } : {}), ...(action.review ? { review: action.review } : {}), ...(action.roundFindings ? { roundFindings: action.roundFindings } : {}), ...(action.reviewEnd ? { reviewEnd: action.reviewEnd } : {}), ...(action.started ? { started: action.started } : {}), ...(action.images ? { images: action.images } : {}), ...(action.suggestion ? { suggestion: action.suggestion } : {}) };
       return { messages: index >= 0 ? replaceAt(messages, index, message) : [...messages, message], changed: [message] };
+    }
+    case 'note': {
+      const message: ChatMessage = { id: action.id, author: 'agent', time, text: noteLine(action.from.title, action.from.body), notice: 'info', from: { sessionId: action.from.sessionId, title: action.from.title }, ...(action.midTurn ? { midTurn: 'sent' as const } : sent) };
+      return { messages: [...messages, message], changed: [message] };
     }
     case 'notice': {
       const message: ChatMessage = { id: action.id, author: 'agent', time, text: action.text, notice: action.level, ...(action.startsTurn ? sent : {}) };

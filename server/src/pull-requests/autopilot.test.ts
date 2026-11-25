@@ -227,9 +227,9 @@ describe('notifications', () => {
     const first = requestNotifyEvents(null, [s(on)], new Map(), DEFAULT_ATTENTION_PREFS, DEFAULT_NOTIFY, AWAY);
     const quiet = requestNotifyEvents({ ...first.seen, answered: new Set(['s1']) }, [s(on)], failing, DEFAULT_ATTENTION_PREFS, DEFAULT_NOTIFY, AWAY);
     expect(quiet.events).toEqual([]);
-    const stopped = { ...on, stopped: { at: 5, why: 'Autopilot stopped on #7 after 3 rounds', notify: true } };
+    const stopped = { ...on, stopped: { at: 5, why: 'Autopilot disengaged. #7 after 3 rounds', notify: true } };
     const told = requestNotifyEvents(quiet.seen, [s(stopped)], failing, DEFAULT_ATTENTION_PREFS, DEFAULT_NOTIFY, AWAY);
-    expect(told.events).toEqual([{ kind: 'pull-request', sessionId: 's1', title: 'Polish', body: 'Autopilot stopped on #7 after 3 rounds' }]);
+    expect(told.events).toEqual([{ kind: 'pull-request', sessionId: 's1', title: 'Polish', body: 'Autopilot disengaged. #7 after 3 rounds' }]);
     expect(requestNotifyEvents(told.seen, [s(stopped)], failing, DEFAULT_ATTENTION_PREFS, DEFAULT_NOTIFY, AWAY).events).toEqual([]);
   });
 });

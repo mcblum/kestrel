@@ -423,6 +423,8 @@ export interface ChatMessage {
    * start a turn (shared/turns.ts). Absent on a message that started one, and from older servers.
    */
   midTurn?: MidTurnState;
+  /** A note from another session (shared/notes.ts): which one. Its text is the whole line, "From <title>: …". Absent from older servers. */
+  from?: { sessionId: string; title: string };
 }
 
 export interface ChangedFile {

@@ -4,7 +4,7 @@
 // message to the session's own agent as a turn (the same message the "needs you" cards' buttons send), a
 // merge is the Merge dialog's merge, a stop says why in the session. It reads only the store's held answers.
 import type { SessionView } from '../model.ts';
-import { autopilotStep, autopilotText, isOn, isWanted, newRecord, offeredRequest, type AutopilotAct, type AutopilotPrefs, type AutopilotRecord } from '../shared/autopilot.ts';
+import { AUTOPILOT_DISENGAGED, CONTROLS_YOURS, autopilotStep, autopilotText, isOn, isWanted, newRecord, offeredRequest, type AutopilotAct, type AutopilotPrefs, type AutopilotRecord } from '../shared/autopilot.ts';
 import type { PullRequest, PullRequestLookup } from '../shared/details.ts';
 import { isIdle, type AttentionPrefs } from '../shared/request-attention.ts';
 import type { Sourced } from '../shared/sourced.ts';
@@ -208,7 +208,7 @@ export class Autopilot {
     if (act.type === 'green') return this.deps.notice(session.id, `Autopilot: ${act.line}. Merge it yourself, or tick Merge when green.`, 'info');
     if (act.type === 'stop') {
       this.on.delete(session.id);
-      if (act.stop.notify) this.deps.notice(session.id, `${act.stop.why}. It is yours again.`, 'warning');
+      if (act.stop.notify) this.deps.notice(session.id, `${act.stop.why}. ${CONTROLS_YOURS}`, 'warning');
       return;
     }
     const key = `${session.id}\n${act.pr.headSha ?? act.pr.number}`;
@@ -219,11 +219,11 @@ export class Autopilot {
       this.deps.notice(session.id, `Autopilot merged #${act.pr.number}.`, 'info');
     } catch (error) {
       this.merging.delete(key);
-      const why = `Autopilot could not merge #${act.pr.number}: ${error instanceof Error ? error.message : String(error)}`;
+      const why = `${AUTOPILOT_DISENGAGED} It could not merge #${act.pr.number}: ${error instanceof Error ? error.message : String(error)}`;
       const { round: _round, ...rest } = record;
       await this.deps.save(session.id, { ...rest, stopped: { at: this.now(), why, notify: true } });
       this.on.delete(session.id);
-      this.deps.notice(session.id, `${why}. It is yours again.`, 'warning');
+      this.deps.notice(session.id, `${why}. ${CONTROLS_YOURS}`, 'warning');
     }
   }
 }

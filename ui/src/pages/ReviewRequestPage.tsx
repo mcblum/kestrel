@@ -7,6 +7,7 @@ import { ExternalLink, Eye, FolderPlus, RotateCcw, X } from 'lucide-react';
 import { hostTerms } from '@kestrel/server/host-terms';
 import { openedText, requestNumberLabel } from '@kestrel/server/review-requests';
 import { Markdown } from '../components/Markdown.tsx';
+import { OthersSaidNote } from '../components/OthersSaid.tsx';
 import { openCreateProject } from '../projectNav.ts';
 import { startRequestedReview } from '../review.ts';
 import { openSession, openView, opener } from '../route.ts';
@@ -74,6 +75,7 @@ export function ReviewRequestPage({ id }: { id: string }) {
             {dismissed ? <RotateCcw aria-hidden /> : <X aria-hidden />} {dismissed ? 'Restore' : 'Dismiss'}
           </button>
         </div>
+        <OthersSaidNote request={request} className="others-said review-page-said" />
         {project && !reviewId && <p className="detail-action-note">Starts a review session in {project.name}.</p>}
         {dismissed && <p className="review-dismissed-note">Automatic review skips dismissed requests. Use Restore to bring this request back to Waiting.</p>}
       </div>

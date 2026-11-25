@@ -97,11 +97,12 @@ export class Suggestions {
   }
 
   /** The user pressed one of the card's buttons. */
-  answer(sessionId: string, suggestionId: string, button: string): Promise<Suggestion> {
+  answer(sessionId: string, suggestionId: string, button: string, picks?: readonly string[]): Promise<Suggestion> {
     return this.serial(sessionId, async () => {
       const { ctx, suggestion, kind } = await this.open(sessionId, suggestionId);
       if (!suggestion.buttons.some((b) => b.id === button)) throw new Refused('That suggestion has no such button.');
-      return this.pressAndShow(ctx, kind, suggestion, button, false);
+      if (picks && !suggestion.picks) throw new Refused('That suggestion has nothing to choose from.');
+      return this.pressAndShow(ctx, kind, suggestion, button, false, undefined, picks);
     });
   }
 
@@ -159,10 +160,10 @@ export class Suggestions {
     return { text: `Done without asking, by the user's standing rule: ${done.line}. Carry on with the work.` };
   }
 
-  private async pressAndShow(ctx: KindContext, kind: SuggestionKind, suggestion: Suggestion, button: string, auto: boolean, force?: 'dismissed'): Promise<Suggestion> {
+  private async pressAndShow(ctx: KindContext, kind: SuggestionKind, suggestion: Suggestion, button: string, auto: boolean, force?: 'dismissed', picks?: readonly string[]): Promise<Suggestion> {
     let pressed: Pressed;
     try {
-      pressed = await kind.press(ctx, suggestion, button);
+      pressed = await kind.press(ctx, suggestion, button, picks);
     } catch (error) {
       if (error instanceof Refused) throw error;
       // The kind can no longer do it (the session was archived, say): the card goes, and the user is told.

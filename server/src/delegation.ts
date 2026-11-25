@@ -25,9 +25,11 @@ import type { PermissionLevel } from './shared/permissions.ts';
 import { matchProject, type Match } from './shared/projects.ts';
 import { ALREADY_COMPLETE, completeRefusal, isComplete, isOpenWork, workstreamNotice, workstreamOf } from './shared/workstreams.ts';
 import { checkWait, waitsOnTarget } from './shared/waits.ts';
+import { mayNote, noteRefusal, noteSent, noteText } from './shared/notes.ts';
 import { parentHears, turnReports, type ReportRole } from './shared/turn-reports.ts';
 import { subtreeIds } from './tree.ts';
 import { titleFrom } from './title.ts';
+import { checkAgentTitle, checkAgentTitles } from './shared/agent-title.ts';
 import { Refused, type Workspace } from './workspace.ts';
 import { asStep, inReplay, replaying, type Replay } from './runtime/steps.ts';
 import { isStepTool, stepNews, type StepCall, type StepTool, type WaitingStep } from './shared/waiting-steps.ts';
@@ -49,7 +51,7 @@ const NO_LONGER_ASKS = 'This no longer asks for your approval, so nothing was do
 
 export type ChildOrigin = 'handoff' | 'delegate' | 'spawn';
 /** The tools this file answers; the display tools come from `display.ts`. */
-export type DelegationTools = Pick<KestrelToolHost, 'listProjects' | 'addProject' | 'handoff' | 'moveToProject' | 'startReview' | 'delegate' | 'spawn' | 'sessionStatus' | 'askSession' | 'completeWorkstream' | 'waitFor' | 'archiveSession'>;
+export type DelegationTools = Pick<KestrelToolHost, 'listProjects' | 'addProject' | 'handoff' | 'moveToProject' | 'startReview' | 'delegate' | 'spawn' | 'sessionStatus' | 'askSession' | 'sendNote' | 'completeWorkstream' | 'waitFor' | 'archiveSession'>;
 /**
  * How much of a session's last message another session is told. It was 400 characters, which cut
  * every real report short: the asker then asked for a shorter one, again and again (2026-11-18).
@@ -71,7 +73,7 @@ const NO_CARD_LEVELS: readonly PermissionLevel[] = ['auto', 'bypass'];
 const SUMMARY_ASK = (project: string) =>
   `Matt wants to move this work to the project "${project}". Reply with ONLY a self-contained summary for the agent that will continue there: the goal, what you found or did so far, and what is left. No preamble, no tool calls.`;
 
-type Brief = { project: string; folder?: string; brief: string; agent?: string; /** design, build or review: the agent and model the user chose for that kind of work (shared/who-does-what.ts). */ role?: string };
+type Brief = { project: string; folder?: string; brief: string; agent?: string; /** What the part is, as the user reads it in the sidebar (shared/agent-title.ts); the brief titles it when absent. */ title?: string; /** design, build or review: the agent and model the user chose for that kind of work (shared/who-does-what.ts). */ role?: string };
 /** What a task runs on: the agent, and the model, effort and fast mode when a role's preset names them. */
 type Runner = { agent: Agent; preset: ModelPreset | null; role: Role | null; /** The user set this role to start only after they approve. */ ask: boolean; /** The role's first choice, when it cannot run and the work goes to a later one. */ passed?: ModelPreset | null; /** The role's presets tried so far, the one used last. */ tried?: string[] };
 /** A task that runs in its caller's worktree, as its guest (shared/worktree-guests.ts). */
@@ -83,6 +85,13 @@ const targetName = ({ project, folder }: Target) => (folder && project.folders.l
 
 /** What list_projects tells an agent about a project. */
 const projectInfo = (p: Project) => ({ name: p.name, path: projectPath(p), isGit: defaultFolder(p)?.isGit ?? false, folders: p.folders.map((f) => ({ name: folderName(f), path: f.path, isGit: f.isGit })) });
+
+/** The title an agent gave a session it starts, checked (shared/agent-title.ts); null when it gave none. Refused with the reason. */
+function titleGiven(given: string | undefined): string | null {
+  const checked = checkAgentTitle(given);
+  if ('refusal' in checked) throw new Refused(checked.refusal);
+  return checked.title;
+}
 
 /** What the approval card says runs a task: the agent, and the role's preset when there is one. */
 const runnerText = (r: Runner): string => (r.preset && r.role ? `${ROLE_LABEL[r.role]}: ${r.preset.name} (${presetSummary(r.preset)})${r.passed ? `, because "${r.passed.name}" ${NOT_CONNECTED}` : ''}` : r.agent);
@@ -135,6 +144,7 @@ export class Delegation {
       spawn: (a) => this.guard(callerId, 'spawn', () => this.spawn(callerId, a), a),
       sessionStatus: (a) => this.guard(callerId, 'session_status', () => this.sessionStatus(callerId, a.id)),
       askSession: (a) => this.guard(callerId, 'ask_session', () => this.askSession(callerId, a), a),
+      sendNote: (a) => this.guard(callerId, 'send_note', () => this.sendNote(callerId, a)),
       completeWorkstream: () => this.guard(callerId, 'complete_workstream', () => this.completeWorkstream(callerId)),
       waitFor: (a) => this.guard(callerId, 'wait_for', () => this.waitFor(callerId, a)),
       archiveSession: (a) => this.guard(callerId, 'archive_session', () => this.archiveSession(callerId, a)),
@@ -421,8 +431,9 @@ export class Delegation {
     return { text: converted(review.title, review.id) };
   }
 
-  private async handoff(callerId: string, a: { project: string; folder?: string; summary: string; agent?: string; archive_self?: boolean }): Promise<ToolResult> {
+  private async handoff(callerId: string, a: { project: string; folder?: string; summary: string; agent?: string; archive_self?: boolean; title?: string }): Promise<ToolResult> {
     const caller = await this.session(callerId);
+    const named = titleGiven(a.title);
     const agent = this.agentFor(caller, a.agent);
     const target = await this.targetFor(a.project, a.folder);
     const { project, folder } = target;
@@ -437,7 +448,7 @@ export class Delegation {
       const ask = handoffArchiveAsk(targetName(target), caller.title);
       if (!(await this.approve(caller, 'handoff', ask.title, [ask.detail], 'Hand off and archive', true))) return { text: HANDOFF_ARCHIVE_DECLINED };
     }
-    const child = await this.ws.handoff(callerId, { projectId: project.id, folderId: folder?.id ?? null, summary, agent, title: titleFrom(summary), markParentDone: false });
+    const child = await this.ws.handoff(callerId, { projectId: project.id, folderId: folder?.id ?? null, summary, agent, title: named ?? titleFrom(summary), markParentDone: false });
     this.noteStarted(callerId, child.id, 'handoff');
     const launched = await this.rt.launchChild(child, project, folder, summary, 'handoff', this.modelFor(callerId, caller, agent), this.modeOf(callerId));
     if (!launched.ok) return { isError: true, text: `The handoff session was created (${child.id}) but could not start: ${launched.reason}` };
@@ -450,6 +461,8 @@ export class Delegation {
     if (tasks.length === 0) throw new Refused(limitMessage.noTasks());
     const limits = await this.ws.limits.current();
     if (tasks.length > limits.maxChildrenPerDelegate) throw new Refused(limitMessage.tooManyTasks(limits, tasks.length));
+    const checked = checkAgentTitles(tasks.map((t) => t.title));
+    if ('refusal' in checked) throw new Refused(checked.refusal);
     const resolved = await this.resolveTasks(caller, tasks);
     // A review of the work in this worktree is the user's to start: it goes to the one question
     // (suggestions/review-kind.ts), and never starts beside it.
@@ -457,11 +470,11 @@ export class Delegation {
     if (ownReview && resolved.length > 1) throw new Refused('A review of this session\'s work is asked for on its own: call delegate again with only that task, after the others.');
     if (ownReview) return this.rt.reviewAsked(ownReview.hosted!.host.id);
     await this.ws.checkLimits(callerId, tasks.length, { depth: true });
-    const lines = resolved.map((t) => `• ${targetName(t)} · ${runnerText(t)}${t.hosted ? ' · in this session\'s worktree' : ''}\n  ${t.brief}`);
+    const lines = resolved.map((t, i) => `• ${checked.titles[i] ? `${checked.titles[i]} · ` : ''}${targetName(t)} · ${runnerText(t)}${t.hosted ? ' · in this session\'s worktree' : ''}\n  ${t.brief}`);
     if (!(await this.approve(caller, 'delegate', `Start ${resolved.length} session${resolved.length === 1 ? '' : 's'}`, lines, 'Start', resolved.some((t) => t.ask)))) {
       return { text: 'The user declined. Nothing was started. Ask what they would like instead, or do the part that belongs here yourself.' };
     }
-    const { children, workstream, created } = await this.delegateIn(callerId, resolved.map((t) => ({ projectId: t.project.id, folderId: t.folder?.id ?? null, brief: t.brief, agent: t.agent, title: titleFrom(t.brief), ...(t.hosted ? { hostId: t.hosted.guest.hostId } : {}) })), named);
+    const { children, workstream, created } = await this.delegateIn(callerId, resolved.map((t, i) => ({ projectId: t.project.id, folderId: t.folder?.id ?? null, brief: t.brief, agent: t.agent, title: checked.titles[i] ?? titleFrom(t.brief), ...(t.hosted ? { hostId: t.hosted.guest.hostId } : {}) })), named);
     // The user sees, where they are, that the work now has one place to follow it. Nothing moved.
     if (workstream) this.rt.notice(callerId, workstreamNotice(workstream.name, created, children.map((c, i) => `${targetName(resolved[i]!)} · ${c.title}`)), 'info');
     for (const child of children) this.noteStarted(callerId, child.id, 'delegate');
@@ -474,10 +487,11 @@ export class Delegation {
 
   private async spawn(callerId: string, a: Brief): Promise<ToolResult> {
     const caller = await this.session(callerId);
+    const named = titleGiven(a.title);
     const [task] = await this.resolveTasks(caller, [a]);
     await this.ws.checkLimits(callerId, 1, { depth: false });
-    if (!(await this.approve(caller, 'spawn', 'Start a new session', [`• ${targetName(task!)} · ${runnerText(task!)}\n  ${task!.brief}`]))) return { text: 'The user declined. Nothing was started.' };
-    const child = await this.ws.spawn(callerId, { projectId: task!.project.id, folderId: task!.folder?.id ?? null, title: titleFrom(task!.brief), agent: task!.agent });
+    if (!(await this.approve(caller, 'spawn', 'Start a new session', [`• ${named ? `${named} · ` : ''}${targetName(task!)} · ${runnerText(task!)}\n  ${task!.brief}`]))) return { text: 'The user declined. Nothing was started.' };
+    const child = await this.ws.spawn(callerId, { projectId: task!.project.id, folderId: task!.folder?.id ?? null, title: named ?? titleFrom(task!.brief), agent: task!.agent });
     this.noteStarted(callerId, child.id, 'spawn');
     const launched = await this.rt.launchChild(child, task!.project, task!.folder, task!.brief, 'spawn', this.modelOf(callerId, caller, task!), this.modeOf(callerId), speedOf(task!), undefined, roleRunOf(task!, task!.brief));
     if (!launched.ok) return { isError: true, text: `The session was created (${child.id}) but could not start: ${launched.reason}` };
@@ -497,17 +511,45 @@ export class Delegation {
     if (!target) throw new Refused(`No such session: ${a.session}. Use the id from the refusal that named it, or from session_status.`);
     if (target.id === callerId) throw new Refused('That is this session. Make the change yourself.');
     if (target.worktreeDiscarded) throw new Refused(`The worktree of "${target.title}" was removed, so it can do no more work. Delegate to its project instead.`);
-    // Two agents must not keep each other busy: after a few asks the user decides what happens next.
-    const pair = `${callerId}>${target.id}`;
-    const asks = this.askCount.get(pair) ?? 0;
-    if (asks >= ASKS_PER_USER_MESSAGE) throw new Refused(`You have asked "${target.title}" ${asks} times since the user last wrote to you, which is the limit. Do not ask it again. Tell the user what you have and what you still need from that session; they can open it or reply to you.`);
+    const { pair, asks } = this.asksOf(callerId, target);
     if (!(await this.approve(caller, 'ask_session', `Ask “${target.title}” to do this`, [message], 'Send'))) return { text: 'The user declined. Nothing was sent. Ask what they would like instead.' };
     const text = `[Kestrel] The session "${caller.title}" (${callerId}) asks you to do this in your worktree, since only you change it:\n\n${message}`;
-    const outcome = await this.rt.reply(target.id, text, {}, { fromAgent: true });
+    const outcome = await this.rt.reply(target.id, text, {}, { fromAgent: true, from: { sessionId: callerId, title: caller.title, body: message, kind: 'work' } });
     this.askCount.set(pair, asks + 1);
     // Kept with the target session (runtime, `addAsker`), so the caller still hears after a restart.
     await this.rt.addAsker(target, callerId);
     return { text: `Sent to "${target.title}" (${target.id})${outcome === 'queued' ? '; it is busy and gets the message when its turn ends' : ''}. It makes the change in its own worktree. You will be told when it finishes that turn; do not make the change yourself.` };
+  }
+
+  /**
+   * Two agents must not keep each other busy: after a few asks (work and notes alike) the user decides
+   * what happens next. The pair's key and how many it has used; refused at the limit.
+   */
+  private asksOf(callerId: string, target: Session): { pair: string; asks: number } {
+    const pair = `${callerId}>${target.id}`;
+    const asks = this.askCount.get(pair) ?? 0;
+    if (asks >= ASKS_PER_USER_MESSAGE) throw new Refused(`You have sent "${target.title}" ${asks} messages since the user last wrote to you, which is the limit. Do not send it more. Tell the user what you have and what you still need from that session; they can open it or reply to you.`);
+    return { pair, asks };
+  }
+
+  /**
+   * A note for another session (shared/notes.ts): information it needs while it works. Only between
+   * sessions of one workstream, or a session and one it started by a link. No card: it changes no
+   * file and starts no turn. It goes into the receiver's running turn, or waits for its next one.
+   */
+  private async sendNote(callerId: string, a: { session: string; note: string }): Promise<ToolResult> {
+    const caller = await this.session(callerId);
+    const body = (a.note ?? '').trim();
+    const state = await this.ws.state();
+    const target = state.sessions.find((s) => s.id === a.session);
+    if (!target) throw new Refused(`No such session: ${a.session}. Use an id from session_status or from the workstream.`);
+    if (target.id === callerId) throw new Refused('That is this session. There is no one to tell.');
+    const refusal = noteRefusal(body, mayNote(state, callerId, target.id), target.title);
+    if (refusal) throw new Refused(refusal);
+    const { pair, asks } = this.asksOf(callerId, target);
+    const outcome = await this.rt.note(target.id, noteText(caller.title, callerId, body), { sessionId: callerId, title: caller.title, body, kind: 'note' });
+    this.askCount.set(pair, asks + 1);
+    return { text: noteSent(outcome, target.title, target.id) };
   }
 
   /** Register a folder the agent found on disk, once the user says yes. */

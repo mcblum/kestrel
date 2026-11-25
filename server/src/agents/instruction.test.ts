@@ -32,3 +32,16 @@ describe('where a change is made', () => {
     expect(text).toMatch(/A change to a file or two in a folder that is not registered you make yourself/);
   });
 });
+
+describe('suggesting a tag', () => {
+  it('lists the tags in use and tells the agent to reuse one whenever it covers the work', () => {
+    const text = standingInstruction({ ...base, existingTags: ['Argus', 'PROJ-482'] });
+    expect(text).toContain('Tags already in use: Argus, PROJ-482.');
+    expect(text).toMatch(/Use one of these, written exactly as listed, whenever it covers the work, even loosely/);
+    expect(text).toMatch(/Propose a new tag only when none of them covers the work/);
+  });
+
+  it('says nothing about tags in use when there are none', () => {
+    expect(standingInstruction(base)).not.toContain('Tags already in use');
+  });
+});

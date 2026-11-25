@@ -26,6 +26,23 @@ export interface SuggestionButton {
   folded?: boolean;
 }
 
+/**
+ * Names the user may choose on the card before pressing a button (a tag card's tags): the ones
+ * offered to click, the ones chosen to begin with, and the buttons that take the choice. The window
+ * draws them as chips with a field to type more into, and sends what is chosen with the answer
+ * (`picks`); an answer without any, as a phone sends, takes `chosen`.
+ */
+export interface SuggestionPicks {
+  /** What the names are. */
+  of: 'tag';
+  /** Chosen when the card appears: what the model suggested. */
+  chosen: string[];
+  /** Others to choose with one click. */
+  offered: string[];
+  /** The ids of the buttons that act on the choice; the others ignore it. */
+  buttons: string[];
+}
+
 export interface Suggestion {
   id: string;
   sessionId: string;
@@ -39,6 +56,8 @@ export interface Suggestion {
    * title so the user reads what they are allowing before they allow it. Absent from older servers.
    */
   detail?: string;
+  /** Names to choose from before answering; absent from most kinds and from older servers. */
+  picks?: SuggestionPicks;
   /** What the model proposed, as the kind validated it. */
   payload: Record<string, unknown>;
   buttons: SuggestionButton[];
@@ -82,6 +101,11 @@ export function orderedButtons(buttons: readonly SuggestionButton[]): Suggestion
 }
 
 const ID = /^[\w-]{1,100}$/;
+const MAX_PICKS = 20;
+const PICK_MAX = 200;
+
+/** The `picks` of an answer as a request may send them: a short list of short texts. What each may be is the kind's to say. */
+export const isPicks = (value: unknown): value is string[] => Array.isArray(value) && value.length <= MAX_PICKS && value.every((v) => typeof v === 'string' && v.length <= PICK_MAX);
 
 /** A suggestion or button id from a request: short, no separators. */
 export const isSuggestionId = (value: unknown): value is string => typeof value === 'string' && ID.test(value);

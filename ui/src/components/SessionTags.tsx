@@ -12,7 +12,7 @@ import { actions, useApp } from '../store.ts';
 const NO_TAGS: readonly string[] = [];
 
 /** Every tag in use, for the suggestions; the same array until the set of tags changes. */
-function useKnownTags(): readonly string[] {
+export function useKnownTags(): readonly string[] {
   const sessions = useApp((s) => s.workspace?.sessions);
   return useMemo(() => (sessions ? tagCounts(sessions).map((t) => t.tag) : NO_TAGS), [sessions]);
 }

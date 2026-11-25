@@ -13,7 +13,8 @@ import { Refused } from '../workspace.ts';
 import { ALREADY_TAKING, type WaitingStep } from '../shared/waiting-steps.ts';
 import { reattach, restartUnstarted, type BringUpHost } from './bring-up.ts';
 import { ACTIVITY, type RuntimeHost } from './host.ts';
-import { deliverHeld, sendDuringTurn } from './mid-turn.ts';
+import { deliverHeld, deliverNote, sendDuringTurn } from './mid-turn.ts';
+import type { MessageFrom, NoteOutcome } from '../shared/notes.ts';
 import { answersLabel, definedChange, isWorking, sameSettings, type Live } from './record.ts';
 
 export type TurnHost = BringUpHost & Pick<RuntimeHost, 'background' | 'sandboxAllow' | 'midTurn' | 'emitLive' | 'setQueue' | 'sessionOrThrow' | 'recordFor' | 'steps'>;
@@ -24,6 +25,8 @@ export interface ReplyOptions {
   draft?: DraftRefs | null;
   /** Sent by another session (`ask_session`), not typed by the user. */
   fromAgent?: boolean;
+  /** Which session sent it, and its own words (shared/notes.ts), kept with it while it is held. */
+  from?: MessageFrom;
   /** Sent by Autopilot as a round (pull-requests/autopilot.ts): not the user taking over. */
   autopilot?: boolean;
 }
@@ -58,17 +61,35 @@ export async function reply(host: TurnHost, sessionId: string, text: string, cha
     const attachments = host.attachments.claim(sessionId, opts.draft);
     // The user's own words go into the running turn; another session's wait for it to end.
     if (typedByUser) return sendDuringTurn(host.midTurn, sessionId, rec, { text: trimmed, change, changesSettings: !sameSettings({ ...rec.settings, ...definedChange(change) }, rec.settings), attachments });
-    host.setQueue(sessionId, rec, enqueue(rec.queue, { id: `queued-${randomUUID()}`, text: trimmed, change, attachments, fromAgent: true }));
+    host.setQueue(sessionId, rec, enqueue(rec.queue, { id: `queued-${randomUUID()}`, text: trimmed, change, attachments, fromAgent: true, ...(opts.from ? { from: opts.from } : {}) }));
     return 'queued';
   }
   if (opts.notice) {
     await sendTurn(host, session, rec, [{ text: trimmed }], {}, true);
     return 'sent';
   }
-  const all = takeAll(rec.queue, { text: trimmed, change, attachments: host.attachments.claim(sessionId, opts.draft), fromAgent: opts.fromAgent });
+  const all = takeAll(rec.queue, { text: trimmed, change, attachments: host.attachments.claim(sessionId, opts.draft), fromAgent: opts.fromAgent, from: opts.from });
   await sendTurn(host, session, rec, all.parts, all.change, false, all.byUser);
   host.setQueue(sessionId, rec, all.queue);
   return 'sent';
+}
+
+/**
+ * A note from another session (shared/notes.ts; `text` is what the model gets). Into the running turn
+ * when the agent can take it ('delivered'); held for that turn's end when it cannot ('turn-end'); held
+ * for the next turn, whenever it comes, when the session is not working ('next-turn'). Never starts a turn.
+ */
+export async function note(host: TurnHost, sessionId: string, text: string, from: MessageFrom): Promise<NoteOutcome> {
+  const { rec } = await liveSession(host, sessionId);
+  const item = { id: `note-${randomUUID()}`, text, fromAgent: true as const, from };
+  if (isWorking(rec)) {
+    if (await deliverNote(host.midTurn, sessionId, rec, item)) return 'delivered';
+    host.setQueue(sessionId, rec, enqueue(rec.queue, item));
+    return 'turn-end';
+  }
+  // Waiting is all it does: a queue held after a stop stays held.
+  host.setQueue(sessionId, rec, { ...enqueue(rec.queue, item), held: rec.queue.held });
+  return 'next-turn';
 }
 
 /** Send what is queued now, as one turn: "Send now" after a stop, a failure or a restart. */
@@ -156,7 +177,11 @@ export async function compactTurn(host: TurnHost, sessionId: string): Promise<vo
 /** Messages that waited in the queue show as written, one bubble each; the agent gets one turn. */
 function showUserParts(host: TurnHost, sessionId: string, rec: Live, parts: OutgoingPart[]): void {
   const ids = parts.map(() => `user-${randomUUID()}`);
-  parts.forEach((part, i) => host.apply(sessionId, rec, { type: 'user', id: ids[i]!, ...part }));
+  parts.forEach((part, i) => {
+    const { from, ...shown } = part;
+    if (from?.kind === 'note') host.apply(sessionId, rec, { type: 'note', id: ids[i]!, from });
+    else host.apply(sessionId, rec, { type: 'user', id: ids[i]!, ...shown });
+  });
   // Helpers still working move down under the user's new message; a finished list stays where it was.
   if (anyRunning(rec.subagents)) {
     rec.subagentsAfter = ids[0]!;

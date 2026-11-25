@@ -3,6 +3,7 @@
 // copy, kept with the app's settings; a project's Settings tab shows the same list from its side.
 // Pure and browser-safe.
 import type { PermissionLevel } from './permissions.ts';
+import { isSatisfied } from './others-said.ts';
 import { isReviewPermission, REVIEW_PERMISSION, type ReviewRequest } from './review-requests.ts';
 import { isAfterApproval, type AfterApproval } from './archive-approved.ts';
 
@@ -169,16 +170,20 @@ interface ReviewingSession {
 
 /**
  * The requests to start a review of now: in a chosen project, with no review session yet, and not
- * already tried (`tried`: a start that was refused is not asked again). Oldest first, so a request
- * does not wait behind newer ones, and only as many as leave MAX_REVIEWS_AT_ONCE at work.
+ * already tried (`tried`: a start that was refused is not asked again), and not one the host says
+ * has every approval it needs (Matt, 2026-11-25: "if approvals are satisfied we would not want to
+ * start a review automatically"). That one stays listed and can be started by hand; it is due again
+ * as soon as it stops being satisfied, so it is not a refusal and nothing is noted. One approval
+ * that does not satisfy the host holds nothing back. Oldest first, so a request does not wait
+ * behind newer ones, and only as many as leave MAX_REVIEWS_AT_ONCE at work.
  */
-export function reviewsToStart<T extends Pick<ReviewRequest, 'key' | 'projectId' | 'updatedAt'>>(settings: ReviewAutomation, requests: readonly T[], sessions: readonly ReviewingSession[], tried: ReadonlySet<string>): T[] {
+export function reviewsToStart<T extends Pick<ReviewRequest, 'key' | 'projectId' | 'updatedAt' | 'others'>>(settings: ReviewAutomation, requests: readonly T[], sessions: readonly ReviewingSession[], tried: ReadonlySet<string>): T[] {
   if (!isAutomatic(settings.mode)) return [];
   const reviewed = new Set(sessions.flatMap((s) => (s.review ? [s.review.key] : [])));
   const atWork = sessions.filter((s) => s.review && s.state === 'running').length;
   const free = Math.max(0, MAX_REVIEWS_AT_ONCE - atWork);
   return requests
-    .filter((r) => startsOnItsOwn(settings, r.projectId) && !reviewed.has(r.key) && !tried.has(r.key))
+    .filter((r) => startsOnItsOwn(settings, r.projectId) && !reviewed.has(r.key) && !tried.has(r.key) && !isSatisfied(r))
     .sort((a, b) => a.updatedAt - b.updatedAt || a.key.localeCompare(b.key))
     .slice(0, free);
 }

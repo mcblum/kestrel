@@ -17,6 +17,7 @@ import { syncPullRequests } from './pull-request-sync.ts';
 import { originUrl } from './git.ts';
 import { sharedGlabSignIn } from './pull-requests/glab.ts';
 import { sampleReviewCount, sampleReviewRequests, sampleUnreadCount, storyReviewRequests } from './review-requests/fake.ts';
+import { asReviewArrivals } from './review-requests/arrivals.ts';
 import { githubReviewRequests } from './review-requests/github.ts';
 import { gitlabReviewRequests } from './review-requests/gitlab.ts';
 import { ReviewRequestStore } from './review-requests/store.ts';
@@ -133,7 +134,12 @@ const storedDismissed = await db.getSetting(REVIEW_DISMISSED_KEY).then((raw) => 
 // And the ones they have looked at: a waiting request not among them is new.
 const REVIEW_SEEN_KEY = 'review-seen';
 const storedSeen = await db.getSetting(REVIEW_SEEN_KEY).then((raw) => (raw ? asDismissedKeys(JSON.parse(raw)) : [])).catch(() => []);
+// And which requests have been listed, and which were read because they arrived already approved.
+const REVIEW_ARRIVALS_KEY = 'review-arrivals';
+const storedArrivals = await db.getSetting(REVIEW_ARRIVALS_KEY).then((raw) => (raw ? asReviewArrivals(JSON.parse(raw)) : null)).catch(() => null);
 const reviewRequests = new ReviewRequestStore({
+  arrivals: storedArrivals,
+  saveArrivals: (arrivals) => void db.putSetting(REVIEW_ARRIVALS_KEY, JSON.stringify(arrivals)).catch((error: unknown) => console.error('[kestrel] could not store the listed reviews', error)),
   seen: storedSeen,
   saveSeen: (keys) => void db.putSetting(REVIEW_SEEN_KEY, JSON.stringify(keys)).catch((error: unknown) => console.error('[kestrel] could not store the read reviews', error)),
   dismissed: storedDismissed,

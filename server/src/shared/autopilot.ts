@@ -204,6 +204,15 @@ export function roundMessage(a: Omit<RequestAttention, 'reasons'>, reasons: read
 }
 
 /**
+ * How every line that tells the user Autopilot gave a request back begins. The conversation draws such a line
+ * with the plane, not the warning sign (`isDisengagedLine`).
+ */
+export const AUTOPILOT_DISENGAGED = 'Autopilot disengaged.';
+/** The last sentence of such a line in the conversation. */
+export const CONTROLS_YOURS = 'The controls are yours again.';
+export const isDisengagedLine = (text: string): boolean => text.startsWith(AUTOPILOT_DISENGAGED);
+
+/**
  * What Autopilot does now for one session, and its record after. Pure. Called after every change of the
  * session, its request or the choices, and on a timer for the time limits.
  */
@@ -222,12 +231,12 @@ export function autopilotStep(input: StepInput): Step {
 
   const round = record.round;
   if (round) {
-    if (now - round.startedAt > record.roundMinutes * 60_000) return stopped(record, now, `Autopilot stopped on ${where}: round ${record.rounds} went over its time limit of ${minutesText(record.roundMinutes)}`);
+    if (now - round.startedAt > record.roundMinutes * 60_000) return stopped(record, now, `${AUTOPILOT_DISENGAGED} ${where}: round ${record.rounds} went over its time limit of ${minutesText(record.roundMinutes)}`);
     if (!input.idle) return { record, act: NONE };
-    if (input.failed) return stopped(record, now, `Autopilot stopped on ${where}: the agent's turn in round ${record.rounds} failed or was stopped`);
+    if (input.failed) return stopped(record, now, `${AUTOPILOT_DISENGAGED} ${where}: the agent's turn in round ${record.rounds} failed or was stopped`);
     const idleSince = round.idleSince ?? now;
     if (head === round.head) {
-      if (now - idleSince >= NO_PUSH_GRACE_MS) return stopped(record, now, `Autopilot stopped on ${where}: the agent pushed nothing in round ${record.rounds}`);
+      if (now - idleSince >= NO_PUSH_GRACE_MS) return stopped(record, now, `${AUTOPILOT_DISENGAGED} ${where}: the agent pushed nothing in round ${record.rounds}`);
       return { record: { ...record, round: { ...round, idleSince } }, act: NONE };
     }
     // Pushed: the round lasts until the checks on what it pushed have reported, under the same time limit.
@@ -236,7 +245,7 @@ export function autopilotStep(input: StepInput): Step {
     const { round: _done, ...rest } = record;
     record = { ...rest, lastFailed: round.failed };
   } else if (moved && input.foreignPush) {
-    return stopped(record, now, `Autopilot stopped on ${where}: someone else pushed to it, so it is yours again`);
+    return stopped(record, now, `${AUTOPILOT_DISENGAGED} ${where}: someone else pushed to it`);
   }
 
   if (!input.idle) return { record, act: NONE };
@@ -248,13 +257,13 @@ export function autopilotStep(input: StepInput): Step {
   if (holds.length > 0) {
     // A conflict that outlived a round is the same occurrence: the round did not resolve it.
     const unresolved = holds.find((d) => d.reason === 'conflicts' && record.handled.includes(occurrenceKey(d)));
-    if (unresolved) return stopped(record, now, `Autopilot stopped on ${where}: the merge conflicts are still there after round ${record.rounds}`);
+    if (unresolved) return stopped(record, now, `${AUTOPILOT_DISENGAGED} ${where}: the merge conflicts are still there after round ${record.rounds}`);
     const fresh = holds.filter((d) => !record.handled.includes(occurrenceKey(d)));
     // A review asking still, after its round: waiting on the reviewer, not on the agent.
     if (fresh.length === 0) return { record, act: NONE };
     const failedNow = failedNames(pr);
-    if (fresh.some((d) => d.reason === 'checks-failed') && sameList(failedNow, record.lastFailed ?? [])) return stopped(record, now, `Autopilot stopped on ${where}: the same checks failed again after round ${record.rounds} (${failedNow.join(', ')})`);
-    if (record.rounds >= record.maxRounds) return stopped(record, now, `Autopilot stopped on ${where} after ${record.rounds} ${record.rounds === 1 ? 'round' : 'rounds'}: ${attentionLine({ host: attention!.host, number: pr.number, reasons: fresh }).replace(/^./, (c) => c.toLowerCase())}`);
+    if (fresh.some((d) => d.reason === 'checks-failed') && sameList(failedNow, record.lastFailed ?? [])) return stopped(record, now, `${AUTOPILOT_DISENGAGED} ${where}: the same checks failed again after round ${record.rounds} (${failedNow.join(', ')})`);
+    if (record.rounds >= record.maxRounds) return stopped(record, now, `${AUTOPILOT_DISENGAGED} ${where} after ${record.rounds} ${record.rounds === 1 ? 'round' : 'rounds'}: ${attentionLine({ host: attention!.host, number: pr.number, reasons: fresh }).replace(/^./, (c) => c.toLowerCase())}`);
     const n = record.rounds + 1;
     const { reasons: _all, ...request } = attention!;
     return {

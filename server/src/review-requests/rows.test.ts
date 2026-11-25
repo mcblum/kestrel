@@ -68,6 +68,24 @@ describe('what a review row says', () => {
     expect(requestStatus({})).toEqual({ tone: 'idle', label: 'No review started' });
     expect(requestStatus({ notStarted: 'No agent is connected.' })).toMatchObject({ tone: 'needs-you', label: expect.stringContaining('No agent is connected.') });
   });
+
+  it('becomes the tick once the host says it is approved, unless it is new or could not start', () => {
+    const satisfied = { others: { approvedBy: ['dana'], changesRequestedBy: [], satisfied: true } };
+    expect(requestStatus(satisfied).tone).toBe('approved');
+    expect(requestStatus(satisfied, true).tone).toBe('unread');
+    expect(requestStatus({ ...satisfied, notStarted: 'No agent is connected.' }).tone).toBe('needs-you');
+    expect(requestStatus({ others: { approvedBy: ['dana'], changesRequestedBy: [], satisfied: false } }).tone).toBe('idle');
+    expect(requestStatus({ others: { approvedBy: ['dana'], changesRequestedBy: ['kim'], satisfied: true } }).tone).toBe('idle');
+  });
+
+  it('keeps what others said through a push, and drops only a malformed part of it', () => {
+    const base = { key: 'k', host: 'github', hostName: 'github.com', repository: 'a/b', number: 1, title: 't', author: 'a', url: '', updatedAt: 1, projectId: null };
+    const others = { approvedBy: ['dana'], changesRequestedBy: [], satisfied: true };
+    const view = asReviewRequestsView({ requests: [{ ...base, others }, { ...base, key: 'j', others: { approvedBy: 'x' } }], problems: [] });
+    expect(view.requests[0]?.others).toEqual(others);
+    expect(view.requests[1]).toBeDefined();
+    expect(view.requests[1]?.others).toBeUndefined();
+  });
 });
 
 describe('the order of the rows', () => {

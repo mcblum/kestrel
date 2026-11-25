@@ -94,6 +94,20 @@ describe('which reviews are due', () => {
   it('starts nothing unless the user chose it', () => {
     expect(reviewsToStart(DEFAULT_REVIEW_SETTINGS, [request(1)], [], NONE)).toEqual([]);
   });
+
+  it('holds back a request the host says has every approval it needs, and nothing else', () => {
+    const satisfied = { ...request(1), others: { approvedBy: ['dana', 'lee'], changesRequestedBy: [], satisfied: true } };
+    const oneApproval = { ...request(2), others: { approvedBy: ['dana'], changesRequestedBy: [], satisfied: false } };
+    expect(reviewsToStart(START, [satisfied, oneApproval], [], NONE).map((r) => r.number)).toEqual([2]);
+    for (const mode of ['start', 'reply'] as const) expect(reviewsToStart({ mode, projects: 'all' }, [satisfied], [], NONE)).toEqual([]);
+  });
+
+  it('is due again once it stops being satisfied: holding back is not a refusal', () => {
+    const satisfied = { ...request(1), others: { approvedBy: ['dana'], changesRequestedBy: [], satisfied: true } };
+    expect(reviewsToStart(START, [satisfied], [], NONE)).toEqual([]);
+    const dismissedApproval = { ...satisfied, others: { approvedBy: [], changesRequestedBy: [], satisfied: false } };
+    expect(reviewsToStart(START, [dismissedApproval], [], NONE).map((r) => r.number)).toEqual([1]);
+  });
 });
 
 describe('ReviewPrefs', () => {

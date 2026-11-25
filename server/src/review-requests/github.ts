@@ -8,6 +8,7 @@ import { execRunner, ghFailureReason, GH_TIMEOUT_MS } from '../pull-requests/git
 import type { CommandRunner } from '../pull-requests/types.ts';
 import type { FoundReviewRequest } from '../shared/review-requests.ts';
 import { ready, unavailable, type Sourced } from '../shared/sourced.ts';
+import { githubFindOthers, withOthers } from './others.ts';
 import { githubFindRequester, withRequesters } from './requester.ts';
 
 export const GITHUB_HOST = 'github.com';
@@ -57,10 +58,11 @@ export type ReviewRequestLookup = () => Promise<Sourced<FoundReviewRequest[]>>;
 
 export function githubReviewRequests(run: CommandRunner = execRunner, cwd: string = homedir()): ReviewRequestLookup {
   const requesters = withRequesters(githubFindRequester(run, cwd));
+  const others = withOthers(githubFindOthers(run, cwd));
   return async () => {
     try {
       const { stdout } = await run('gh', githubReviewArgs(), { cwd, timeoutMs: GH_TIMEOUT_MS });
-      return ready(await requesters(mapGithubSearch(stdout)));
+      return ready(await others(await requesters(mapGithubSearch(stdout))));
     } catch (error) {
       return unavailable(ghFailureReason(error));
     }

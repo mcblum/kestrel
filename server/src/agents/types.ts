@@ -170,6 +170,7 @@ export const KESTREL_TOOLS = [
   'spawn',
   'session_status',
   'ask_session',
+  'send_note',
   'complete_workstream',
   'wait_for',
   'archive_session',
@@ -232,17 +233,19 @@ export interface KestrelToolHost {
   /** Register a folder the agent found on disk as a project, after the user approves. */
   addProject(args: { path: string; name?: string }): Promise<ToolResult>;
   /** The caller is finished with this work and all of it belongs in another project: start a linked session there and stop here. It does not report back. */
-  handoff(args: { project: string; folder?: string; summary: string; agent?: string; archive_self?: boolean }): Promise<ToolResult>;
+  handoff(args: { project: string; folder?: string; summary: string; agent?: string; archive_self?: boolean; title?: string }): Promise<ToolResult>;
   /** A session with no project moves itself into one, keeping its conversation, after the user approves. */
   moveToProject(args: { project: string; folder?: string; reason?: string }): Promise<ToolResult>;
   /** `start_review`: the user's first message asked for a review of a pull request; offer to make this a review session. */
   startReview(args: { pull_request: string }): Promise<ToolResult>;
   /** Work for one or more sessions of their own, which report back: one child session each; the caller stays as the orchestrator. `name` and `objective` describe the workstream a split across projects makes. */
-  delegate(args: { tasks: { project: string; folder?: string; brief: string; agent?: string; role?: string }[]; name?: string; objective?: string }): Promise<ToolResult>;
+  delegate(args: { tasks: { project: string; folder?: string; brief: string; agent?: string; role?: string; title?: string }[]; name?: string; objective?: string }): Promise<ToolResult>;
   /** An unrelated new task in a project. No link. */
-  spawn(args: { project: string; folder?: string; brief: string; agent?: string; role?: string }): Promise<ToolResult>;
+  spawn(args: { project: string; folder?: string; brief: string; agent?: string; role?: string; title?: string }): Promise<ToolResult>;
   /** Send work to a session that already exists (the one whose worktree needs the change); the caller is told when it finishes its turn. */
   askSession(args: { session: string; message: string }): Promise<ToolResult>;
+  /** A note for a session of the same workstream, or one linked to this one: information for the turn it is on (shared/notes.ts). */
+  sendNote(args: { session: string; note: string }): Promise<ToolResult>;
   /** State of the caller's own sessions (or one of them). */
   sessionStatus(args: { id?: string }): Promise<ToolResult>;
   /** The lead of a workstream says the whole task is finished: the workstream is marked complete. Nothing is archived, moved or stopped. */

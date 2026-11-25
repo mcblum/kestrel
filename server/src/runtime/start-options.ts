@@ -12,7 +12,7 @@ import type { DiscoveredServer } from '../shared/setup.ts';
 import type { ChildOrigin } from '../delegation.ts';
 import type { Project, ProjectFolder, Session, SessionSettings } from '../model.ts';
 import { folderName, repositoryLabel, resolveStartedFolder } from '../shared/project-folders.ts';
-import { tagCounts } from '../shared/tags.ts';
+import { mostUsedTags } from '../shared/tags.ts';
 import { turnUnderWay } from '../shared/turns.ts';
 import { CUT_OFF_STEP, cutOffNews, survives } from '../shared/waiting-steps.ts';
 import { startLinkOf } from '../tree.ts';
@@ -82,7 +82,7 @@ export async function agentStartOptions(workspace: Workspace, req: StartRequestP
       origin: origin ?? link?.kind,
       ...(req.who ? { who: req.who } : {}),
       // Most used first: the instruction lists only the first few.
-      existingTags: [...tagCounts(state.sessions)].sort((a, b) => b.count - a.count).map((t) => t.tag),
+      existingTags: mostUsedTags(state.sessions),
       ...(project && siblings.length ? { siblings: { project: project.name, folders: siblings.map((f) => ({ name: folderName(f), path: f.path })) } } : {}),
     }),
   };

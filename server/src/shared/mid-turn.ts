@@ -6,7 +6,8 @@
 // Only messages the user types go in mid-turn. What another session sends (`ask_session`, news of a
 // child) still waits for the turn to end: it is an instruction from another agent, and folding it into
 // a turn the agent is in the middle of could confuse both; the user's own words are the ones worth
-// interrupting for.
+// interrupting for. The one exception is a note from another session (`send_note`, shared/notes.ts):
+// information, not work, which goes in mid-turn by the same means.
 
 /** Why a message the user wrote is held instead of going to the agent at once. */
 export type HoldWhy =
