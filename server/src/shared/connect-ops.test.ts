@@ -146,12 +146,17 @@ describe('session.start: a new session from a blank page (A8, Matt 2026-11-24)',
 
   it('takes a project, a preset or an agent, Manual or Auto, and the message with its photos', () => {
     expect(checkRequest({ op: 'session.start', args: { projectId: 'p1', folderId: 'f1', presetId: 'fast', mode: 'auto', text: 'go' } })).toEqual({ ok: true, value: { op: 'session.start', args: { projectId: 'p1', folderId: 'f1', presetId: 'fast', mode: 'auto', text: 'go' } } });
+    expect(checkRequest({ op: 'session.start', args: { agent: 'opencode', model: 'anthropic/claude-x', text: 'go' } })).toMatchObject({ ok: true, value: { args: { agent: 'opencode', model: 'anthropic/claude-x' } } });
+    expect(checkRequest({ op: 'session.start', args: { agent: 'claude', model: '', text: 'go' } })).toMatchObject({ ok: true, value: { args: { model: '' } } });
     expect(checkRequest({ op: 'session.start', args: { agent: 'codex', text: '', draftId: 'd1', attachments: ['a1'] } })).toMatchObject({ ok: true, value: { args: { agent: 'codex', text: '', draftId: 'd1', attachments: ['a1'] } } });
   });
 
   it.each([
     [{ text: 'go', mode: 'bypass' }, BYPASS_FROM_ELSEWHERE],
     [{ text: 'go', presetId: 'p', agent: 'claude' }, 'Give a preset or an agent, not both.'],
+    [{ text: 'go', presetId: 'p', model: 'm' }, 'Give a preset or an agent, not both.'],
+    [{ text: 'go', model: 'm' }, 'Say which agent the model is for.'],
+    [{ text: 'go', agent: 'claude', model: 7 }, 'model must be a model id of at most 300 characters.'],
     [{ text: 'go', agent: 'gpt' }, 'agent must be one of: claude, codex, opencode.'],
     [{ text: 'go', mode: 'plan' }, 'mode must be one of: ask, auto.'],
     [{ text: ' ' }, 'text must be non-empty text of at most 20000 characters.'],

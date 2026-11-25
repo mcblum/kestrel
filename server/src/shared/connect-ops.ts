@@ -92,7 +92,7 @@ export interface ConnectOpArgs {
    * picks the machine by which desk it sends this to. A preset or an agent, else the New session box's choices
    * here; the mode Manual (`ask`) or Auto, else the box's, never Bypass.
    */
-  'session.start': { projectId?: string; folderId?: string; presetId?: string; agent?: Agent; mode?: 'ask' | 'auto'; text: string; draftId?: string; attachments?: string[] };
+  'session.start': { projectId?: string; folderId?: string; presetId?: string; agent?: Agent; model?: string; mode?: 'ask' | 'auto'; text: string; draftId?: string; attachments?: string[] };
   /** What `session.start` may pick from here: this computer's switch, its agents and presets, and what its New session box starts with. */
   'session.startChoices': Record<string, never>;
   'media.read': { sessionId: string; name: string };
@@ -155,6 +155,9 @@ const recordKeys = (a: Args, field: string): Checked<string[]> => {
   const v = a[field];
   return Array.isArray(v) && v.length >= 1 && v.length <= KEYS_MAX && v.every((k) => typeof k === 'string' && k.length > 0 && k.length <= RECORD_KEY_MAX) ? { ok: true, value: v as string[] } : fail(`${field} must be a list of 1 to ${KEYS_MAX} keys.`);
 };
+/** A model id as an agent's list has it ('' is the agent's own default; OpenCode's are `provider/model`). Which ones exist is the desk's to check. */
+const MODEL_ID_MAX = 300;
+const modelId = (a: Args, field: string): Checked<string> => (typeof a[field] === 'string' && (a[field] as string).length <= MODEL_ID_MAX && !/[\u0000-\u001f]/.test(a[field] as string) ? { ok: true, value: a[field] as string } : fail(`${field} must be a model id of at most ${MODEL_ID_MAX} characters.`));
 const oneOf = <T extends string>(names: readonly T[]) => (a: Args, field: string): Checked<T> => (names.includes(a[field] as T) ? { ok: true, value: a[field] as T } : fail(`${field} must be one of: ${names.join(', ')}.`));
 const ids = (max: number) => (a: Args, field: string): Checked<string[]> => {
   const v = a[field];
@@ -253,16 +256,18 @@ export const CONNECT_OPS: { readonly [K in ConnectOp]: OpSpec } = {
   // Matt, 2026-11-24: "add the ability for the phone to start a new session on any worker" (A8, stage 6).
   'session.start': {
     mapsTo: 'POST /api/sessions (A8: this computer\'s switch, never Bypass)',
-    fields: ['projectId', 'folderId', 'presetId', 'agent', 'mode', 'text', 'draftId', 'attachments'],
+    fields: ['projectId', 'folderId', 'presetId', 'agent', 'model', 'mode', 'text', 'draftId', 'attachments'],
     check: (a) => {
       if (a.mode === 'bypass') return fail(BYPASS_FROM_ELSEWHERE);
-      if (a.presetId !== undefined && a.agent !== undefined) return fail('Give a preset or an agent, not both.');
+      if (a.presetId !== undefined && (a.agent !== undefined || a.model !== undefined)) return fail('Give a preset or an agent, not both.');
+      if (a.model !== undefined && a.agent === undefined) return fail('Say which agent the model is for.');
       const f = files(a);
       return all({
         projectId: optional(a, 'projectId', id),
         folderId: optional(a, 'folderId', id),
         presetId: optional(a, 'presetId', id),
         agent: optional(a, 'agent', oneOf(SELECTABLE_AGENTS)),
+        model: optional(a, 'model', modelId),
         mode: optional(a, 'mode', oneOf(['ask', 'auto'] as const)),
         text: text(MESSAGE_MAX, f.ok && f.value.attachments !== undefined)(a, 'text'),
         ...spread(f),

@@ -7,8 +7,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { AgentAdapter, InputAnswer, InputRequest, KestrelToolHost } from '../agents/types.ts';
-import { SELECTABLE_AGENTS, type Agent, type ChatMessage, type Project, type Session } from '../model.ts';
+import type { AgentAdapter, InputAnswer, ModelOption, InputRequest, KestrelToolHost } from '../agents/types.ts';
+import { AGENT_LABEL, SELECTABLE_AGENTS, type Agent, type ChatMessage, type Project, type Session } from '../model.ts';
 import { memoryPersistence } from '../persistence/memory.ts';
 import { createProject } from '../project-store.ts';
 import { ReviewReplies } from '../review-requests/reply.ts';
@@ -30,7 +30,7 @@ import { TicketStore } from '../tickets/store.ts';
 import { syncTickets } from '../tickets/sync.ts';
 import type { TicketSource } from '../tickets/source.ts';
 import { remoteStartsOff } from '../remote-starts/prefs.ts';
-import { noSuchPreset } from '../remote-starts/session-start.ts';
+import { MODEL_WITHOUT_AGENT, noSuchPreset, notAModel } from '../remote-starts/session-start.ts';
 import { connectLists, PULL_REQUESTS_LOOK_MS } from './lists.ts';
 import { PullRequestStore } from '../pull-requests/store.ts';
 import { DEFAULT_ATTENTION_PREFS } from '../shared/request-attention.ts';
@@ -901,6 +901,68 @@ describe.each(SELECTABLE_AGENTS)('a new session from a blank page on a phone, on
     await until(() => d.fakes[agent].starts.length > 0, 'the session starts');
     expect(d.fakes[agent].starts[0]!.options.permission).not.toBe('bypass');
     await d.settle();
+  });
+});
+
+describe.each(SELECTABLE_AGENTS)('a provider and a model by name on a phone, on %s (Matt, 2026-11-25)', (agent) => {
+  const listed: ModelOption[] = [
+    { id: '', label: 'Default', description: 'Use the default model (currently Wren 3)', resolves: 'wren-3' },
+    { id: 'wren-3', label: 'Wren 3', resolves: 'wren-3', efforts: ['low', 'high'], fast: true },
+    { id: 'wren-2', label: 'Wren 2' },
+    { id: 'kite-1', label: 'Kite 1', efforts: ['low'] },
+  ];
+  const remembered = (model: string) => JSON.stringify({ remembered: { agent, projectId: null, byAgent: { [agent]: { model, effort: 'high', fast: true, permission: 'auto' } } } });
+  const withModels = async () => {
+    const d = await desk();
+    d.runtime.models = async (a) => ({ models: a === agent ? listed : [{ id: '', label: 'Default' }], fromSdk: true });
+    return d;
+  };
+
+  it('lists each connected provider with the desk\'s own menu rows, and the box\'s model as the default', async () => {
+    const d = await withModels();
+    await d.workspace.setUiState(remembered('wren-2'));
+    const { providers, missing } = await d.ok('session.startChoices');
+    expect(missing).toEqual([]);
+    expect(providers.map((p: { agent: Agent }) => p.agent)).toEqual([...SELECTABLE_AGENTS]);
+    expect(providers.find((p: { agent: Agent }) => p.agent === agent)).toEqual({
+      agent,
+      name: AGENT_LABEL[agent],
+      models: [
+        { id: 'wren-3', name: 'Wren 3' },
+        { id: 'kite-1', name: 'Kite 1' },
+        { id: 'wren-2', name: 'Wren 2', more: true },
+      ],
+      default: 'wren-2',
+    });
+  });
+
+  it('starts on the model picked, with the box\'s effort and fast mode fitted to it', async () => {
+    const d = await withModels();
+    await d.workspace.setUiState(remembered('wren-3'));
+    await d.ok('session.start', { projectId: d.project.id, agent, model: 'kite-1', text: 'go' });
+    await until(() => d.fakes[agent].starts.length > 0, 'the session starts');
+    const { options } = d.fakes[agent].starts[0]!;
+    expect(options.model).toBe('kite-1');
+    expect(options.effort ?? '').toBe('');
+    expect(options.permission).toBe('auto');
+    await d.settle();
+  });
+
+  it('refuses a model the agent does not offer here, and an agent that cannot start', async () => {
+    const d = await withModels();
+    expect(await d.ask('session.start', { projectId: d.project.id, agent, model: 'nope-9', text: 'go' })).toEqual({ ok: false, reason: notAModel('nope-9', agent, 'your Mac') });
+    d.runtime.agentAvailability = async () => ({ available: SELECTABLE_AGENTS.filter((a) => a !== agent), notes: { [agent]: `${AGENT_LABEL[agent]} is not signed in.` }, signIn: [] });
+    const { providers, missing } = await d.ok('session.startChoices');
+    expect(providers.map((p: { agent: Agent }) => p.agent)).not.toContain(agent);
+    expect(missing).toEqual([{ agent, name: AGENT_LABEL[agent], reason: `${AGENT_LABEL[agent]} is not signed in.` }]);
+    expect(await d.ask('session.start', { projectId: d.project.id, agent, model: 'wren-3', text: 'go' })).toEqual({ ok: false, reason: `${AGENT_LABEL[agent]} is not signed in.` });
+    expect((await d.workspace.state()).sessions).toEqual([]);
+  });
+
+  it('refuses a model without its agent, and a preset with one', async () => {
+    const d = await withModels();
+    expect(await d.ask('session.start', { projectId: d.project.id, model: 'wren-3', text: 'go' })).toEqual({ ok: false, reason: MODEL_WITHOUT_AGENT });
+    expect(await d.ask('session.start', { projectId: d.project.id, presetId: 'quick', agent, model: 'wren-3', text: 'go' })).toEqual({ ok: false, reason: 'Give a preset or an agent, not both.' });
   });
 });
 

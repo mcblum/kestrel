@@ -126,6 +126,32 @@ describe('where the count is drawn', () => {
   });
 });
 
+describe('how a request line is laid out in the card', () => {
+  // Every card line is a menu item, and app.css stretches every span in a menu item (`flex: 1`). The
+  // request icon is a span: if that rule wins, the icon takes half the line and pushes its words to the
+  // right, cut off after the number (0.0.32-beta.5, on real data with long titles). Specificity decides,
+  // so the icon's own `flex: none` must outrank every rule that stretches a menu item's spans.
+  const css = (name: string) => readFileSync(new URL(`../../../ui/src/styles/${name}`, import.meta.url), 'utf8');
+  const rules = (text: string) => [...text.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selectors, body]) => ({ selectors: selectors!.split(',').map((s) => s.trim()), body: body! }));
+  /** Ids, then classes, attributes and pseudo-classes, then elements: enough for the selectors here. */
+  const specificity = (selector: string) => {
+    const ids = (selector.match(/#[\w-]+/g) ?? []).length;
+    const classes = (selector.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) ?? []).length;
+    const elements = (selector.replace(/\[[^\]]+\]|[.#:][\w-]+/g, ' ').match(/[a-z][\w-]*/gi) ?? []).length;
+    return ids * 10_000 + classes * 100 + elements;
+  };
+  const all = ['app.css', 'sidebar-rows.css'].flatMap((name) => rules(css(name)));
+  const flexOf = (body: string) => /(?:^|;)\s*flex\s*:\s*([^;]+)/.exec(body)?.[1]?.trim();
+
+  it('keeps the icon its own size, at the line’s start, whatever stretches a menu item’s spans', () => {
+    const stretching = all.flatMap((r) => r.selectors.filter((s) => /\.menu-item\b.*\bspan$/.test(s) && flexOf(r.body) && flexOf(r.body) !== 'none'));
+    expect(stretching).toContain('.kestrel .menu-item span');
+    const icon = all.flatMap((r) => r.selectors.filter((s) => /\.card-pr-icon$/.test(s) && flexOf(r.body) === 'none'));
+    const strongest = Math.max(...icon.map(specificity));
+    for (const s of stretching) expect(strongest, `${s} outranks the request icon's flex: none`).toBeGreaterThan(specificity(s));
+  });
+});
+
 describe('what a phone reads', () => {
   it('carries the same roll-up, worked out on the desk, and while the desk is away only for sessions it holds', async () => {
     const { pullRequestsAnswer, heldPullRequests } = await import('./connect-lists.ts');

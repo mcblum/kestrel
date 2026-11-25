@@ -117,6 +117,21 @@ function rowFor(models: readonly ModelOption[], id: string): ModelOption | undef
   return same ?? rowsOf(models).find((m) => m.id === '') ?? option;
 }
 
+/** The menu's rows in its order: the current models, then those under "More models" (`more`). For a list shown elsewhere (a phone's New session). */
+export function menuRows(models: readonly ModelOption[]): { option: ModelOption; more: boolean }[] {
+  const { current, more } = splitModels(models);
+  return [...current.map((option) => ({ option, more: false })), ...more.map((option) => ({ option, more: true }))];
+}
+
+/** The id of the menu row a model id is ticked as; undefined when no row stands for it (not listed). */
+export function rowIdFor(models: readonly ModelOption[], id: string): string | undefined {
+  const rows = rowsOf(models);
+  const row = rowFor(models, id);
+  if (row && rows.some((r) => r.id === row.id)) return row.id;
+  const resolves = row?.resolves ?? id;
+  return rows.find((r) => r.resolves !== undefined && r.resolves === resolves)?.id;
+}
+
 /** What the row under the message box says for a model. */
 export function modelLabel(models: readonly ModelOption[], id: string): string {
   return rowFor(models, id)?.label ?? (id || 'Default');

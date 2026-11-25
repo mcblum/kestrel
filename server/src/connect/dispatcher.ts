@@ -18,7 +18,7 @@ import type { Workspace } from '../workspace.ts';
 import { connectLists, type ConnectLists, type ListKind } from './lists.ts';
 import { deskLeadChoices } from '../remote-starts/choices.ts';
 import { remoteStartsOff } from '../remote-starts/prefs.ts';
-import { remoteStartChoices, remoteStartRun } from '../remote-starts/session-start.ts';
+import { remoteStartChoices, remoteStartRun, type AgentModels } from '../remote-starts/session-start.ts';
 import { startRequestedReview } from '../review-requests/start-requested.ts';
 import type { ReviewRequestStore } from '../review-requests/store.ts';
 import { ticketsRoute, type TicketsApi } from '../tickets/api.ts';
@@ -386,7 +386,20 @@ export class ConnectDispatcher {
   private async startChoices() {
     const { allowed } = await this.deps.runtime.remoteStarts.prefs();
     const { presets } = await this.deps.runtime.whoDoesWhat.current();
-    return remoteStartChoices(this.deps.here, allowed, remoteStartsOff(this.deps.here), presets, await this.deps.workspace.getUiState());
+    return remoteStartChoices(this.deps.here, allowed, remoteStartsOff(this.deps.here), presets, await this.deps.workspace.getUiState(), await this.agentModels());
+  }
+
+  /** Each agent here: whether it can start now, as the New session box judges it, and the one model list kept for it. */
+  private async agentModels(): Promise<AgentModels[]> {
+    const { runtime } = this.deps;
+    const { available, notes } = await runtime.agentAvailability();
+    return Promise.all(
+      runtime.availableAgents().map(async (agent): Promise<AgentModels> => {
+        if (!available.includes(agent)) return { agent, available: false, models: [], ...(notes[agent] ? { reason: notes[agent] } : {}) };
+        const { models } = await runtime.models(agent).catch(() => ({ models: [] }));
+        return { agent, available: true, models };
+      }),
+    );
   }
 
   /**
@@ -394,10 +407,13 @@ export class ConnectDispatcher {
    * with the user's typed message, so a ticket it names is taken up. Only while this computer's switch
    * allows it, and never in Bypass. The project and folder are checked by the runtime, as the box's are.
    */
-  private async startSession({ projectId, folderId, presetId, agent, mode, text, draftId, attachments }: ConnectOpArgs['session.start']) {
+  private async startSession({ projectId, folderId, presetId, agent, model, mode, text, draftId, attachments }: ConnectOpArgs['session.start']) {
     await this.mayStart();
     const { presets } = await this.deps.runtime.whoDoesWhat.current();
-    const run = remoteStartRun({ ...(presetId !== undefined ? { presetId } : {}), ...(agent !== undefined ? { agent } : {}), ...(mode !== undefined ? { mode } : {}) }, presets, await this.deps.workspace.getUiState(), this.deps.here);
+    // The agents' lists are asked for only when a model is named: a start without one is checked as before.
+    const agents = model !== undefined ? await this.agentModels() : [];
+    const pick = { ...(presetId !== undefined ? { presetId } : {}), ...(agent !== undefined ? { agent } : {}), ...(model !== undefined ? { model } : {}), ...(mode !== undefined ? { mode } : {}) };
+    const run = remoteStartRun(pick, presets, await this.deps.workspace.getUiState(), this.deps.here, agents);
     const session = await this.deps.runtime.start({ ...run, projectId: projectId ?? null, folderId: folderId ?? null, prompt: text, draft: draftRefs({ draftId, attachments }), byUser: true });
     return { sessionId: session.id };
   }

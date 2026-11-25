@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ModelOption } from '../agents/types.ts';
-import { defaultName, effortLabel, family, fitToModel, modelLabel, modelMenu, pickFromMenu, shownEffort, splitModels, modelNotListed } from './model-choice.ts';
+import { defaultName, effortLabel, family, fitToModel, modelLabel, modelMenu, pickFromMenu, shownEffort, splitModels, modelNotListed, menuRows, rowIdFor } from './model-choice.ts';
 
 const ALL = ['low', 'medium', 'high', 'xhigh', 'max'];
 // Shaped like what Claude's SDK 0.3.322 returned (agents/claude/models.ts maps it).
@@ -180,5 +180,28 @@ describe('a saved model the agent does not list', () => {
   it('is not said of a listed model, by its id or by the model an entry stands for', () => {
     expect(modelNotListed(models, true, 'gpt-6.2-sol')).toBe(false);
     expect(modelNotListed(models, true, 'gpt-6.1-sol')).toBe(false);
+  });
+});
+
+describe('the menu rows for another device (a phone\'s New session)', () => {
+  const models: ModelOption[] = [
+    { id: '', label: 'Default', description: 'Use the default model (currently Wren 3)', resolves: 'wren-3' },
+    { id: 'wren', label: 'Wren', resolves: 'wren-3' },
+    { id: 'wren-3', label: 'Wren 3', resolves: 'wren-3' },
+    { id: 'wren-2', label: 'Wren 2' },
+  ];
+
+  it('lists the current models, then those under More models', () => {
+    expect(menuRows(models).map((r) => [r.option.id, r.more])).toEqual([
+      ['wren', false],
+      ['wren-2', true],
+    ]);
+  });
+
+  it('finds the row a model is ticked as: the default and an alias name the row that stands for it', () => {
+    expect(rowIdFor(models, '')).toBe('wren');
+    expect(rowIdFor(models, 'wren-3')).toBe('wren');
+    expect(rowIdFor(models, 'wren-2')).toBe('wren-2');
+    expect(rowIdFor(models, 'gone')).toBeUndefined();
   });
 });

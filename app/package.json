@@ -1,7 +1,7 @@
 {
   "name": "@kestrel/app",
   "private": true,
-  "version": "0.0.32-beta.5",
+  "version": "0.0.32-beta.6",
   "type": "module",
   "main": "main.mjs",
   "scripts": {

@@ -95,7 +95,9 @@ const SAMPLE: Readonly<Record<string, readonly PullRequest[]>> = {
   // sessions' (one ready, one with failed checks); the third has none.
   'feat/usage-pricing': [{ number: 439, title: 'Usage-based pricing: meter usage per account', state: 'open', checks: 'passing', review: 'review-required', url: 'https://github.com/example/platform/pull/439' }],
   'feat/usage-plan-picker': [{ number: 440, title: 'Plan picker for usage-based pricing', state: 'open', checks: 'passing', review: 'approved', readiness: 'ready', url: 'https://github.com/example/bellbird/pull/440' }],
-  'docs/usage-pricing-page': [{ number: 441, title: 'Pricing page for usage-based plans', state: 'open', checks: 'failing', review: 'review-required', readiness: 'blocked', url: 'https://github.com/example/docs/pull/441', headSha: '5b2e8d1f7a3c9e04b6d2f8a1c7e3b9d05f4a2c6e', failedChecks: [{ name: 'continuous-integration/jenkins/pr-merge', url: 'https://ci.example.com/job/docs/PR-441/1/display/redirect' }] }],
+  // A five-digit number and a long title, as a busy repository has: a card or menu that lists it must
+  // keep its icon at the line's start and cut the words at the edge (the hover card once did not).
+  'docs/usage-pricing-page': [{ number: 14417, title: 'Pricing page for usage-based plans: rewrite the comparison table and the FAQ for metered billing', state: 'open', checks: 'failing', review: 'review-required', readiness: 'blocked', url: 'https://github.com/example/docs/pull/14417', headSha: '5b2e8d1f7a3c9e04b6d2f8a1c7e3b9d05f4a2c6e', failedChecks: [{ name: 'continuous-integration/jenkins/pr-merge', url: 'https://ci.example.com/job/docs/PR-14417/1/display/redirect' }] }],
   'feat/billing-schema': [{ number: 388, title: 'Billing v2: add the billing tables', state: 'merged', checks: 'passing', review: 'approved', url: 'https://github.com/example/platform/pull/388' }],
 };
 
@@ -118,7 +120,7 @@ export const SAMPLE_EARLIER_LINKS: readonly NewRequestLink[] = EARLIER_BRANCHES.
 export const SAMPLE_SHARED_SESSION = 'queue';
 export const SAMPLE_SHARED_LINKS: readonly NewRequestLink[] = sampleLinksOn('feat/billing-backfill');
 
-/** The first number a made-up pull request gets; above every number in SAMPLE. */
+/** The first number a made-up pull request gets; above every number of the sample repository in SAMPLE. */
 const FIRST_MADE_UP_NUMBER = 501;
 const SAMPLE_REPOSITORY_URL = 'https://github.com/example/sample';
 /** The default branch the sample pre-fill offers. */

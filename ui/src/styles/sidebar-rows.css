@@ -70,8 +70,10 @@
 .kestrel .hover-card .card-line.card-tone > svg { color: inherit; }
 .kestrel .hover-card .card-line.card-tone > span { color: var(--s-ink); }
 /* A request in a card (CardRequests.tsx): its icon in the request's status colour, with the row mark's
-   cross when it needs the user; its words stay in the card's ink. */
-.kestrel .card-pr-icon { position: relative; display: inline-grid; place-items: center; flex: none; width: 13px; height: 13px; }
+   cross when it needs the user; its words stay in the card's ink. Inside a menu item (every card line is
+   one) it must outrank `.menu-item span { flex: 1 }` (app.css), or the icon takes half the line and pushes
+   its words to the right: hence the second selector. */
+.kestrel .card-pr-icon, .kestrel .menu-item .card-pr-icon { position: relative; display: inline-grid; place-items: center; flex: none; width: 13px; height: 13px; }
 .kestrel .card-pr-icon > svg { width: 13px; height: 13px; color: inherit; }
 .kestrel .card-pr-icon > svg.row-icon-alert { position: absolute; right: -4px; bottom: -3px; width: 7px; height: 7px; stroke-width: 4; background: var(--s-paper); border-radius: 50%; }
 /* The requests of the sessions it brought in, as its children: indented, each joined by the sidebar's
