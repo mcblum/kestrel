@@ -1,7 +1,7 @@
 // Open tabs and the composer's last choices. The server keeps them (not localStorage), so the
 // Electron window and a browser tab agree. Everything pure lives in @kestrel/server/tabs.
 import { guardLeave } from './unsaved.ts';
-import { DEFAULT_CONTROLS, withScope, activate, placement, activateNth, becomeSession, closeTab, isLastOverview, moveTab, openTarget, prune, replaceSession, retargetActive, sanitize, setControls, type Controls, type OpenTarget, type Preselect, type Tab, type TabsState } from '@kestrel/server/tabs';
+import { DEFAULT_CONTROLS, withScope, activate, openBeside, placement, activateNth, becomeSession, closeTab, isLastOverview, moveTab, openTarget, prune, replaceSession, retargetActive, sanitize, setControls, type Controls, type OpenTarget, type Preselect, type Tab, type TabsState } from '@kestrel/server/tabs';
 import { rememberPick, rememberPreset, rememberSent, startControls, startFromOf, storedRemembered, withFixed, withStartFrom, type Remembered, type StartFrom, type StickyPick } from '@kestrel/server/sticky-controls';
 import { clampChangesListHeight } from '@kestrel/server/changes-split';
 import { clampContextWidth, clampPaneWidth, clampSimWidth, clampWidth, place, placeMenuItem, placeProject, placeTag, placeWorkstream, sanitizeSidebar, toggleCollapsed, toggleHidden, type SidebarPrefs } from '@kestrel/server/sidebar';
@@ -212,6 +212,8 @@ export const tabActions = {
   open(target: Extract<OpenTarget, { kind: 'session' | 'page' }>, newTab = false): void {
     guardLeave(() => show(target, newTab));
   },
+  /** A page in a new tab just after the one in front, which keeps its place; brought to the front only when `focus` (What's new after an update). */
+  openBeside: (path: string, focus: boolean) => apply(openBeside(tabsView().state, path, newId(), { focus })),
   /** Another local tab of the page in front (a project's Sessions or Settings): same workspace tab. */
   showInPlace: (path: string) => guardLeave(() => apply(retargetActive(tabsView().state, path))),
   /**

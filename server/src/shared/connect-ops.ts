@@ -5,6 +5,7 @@
 // design change, not a code change. Pure: no Node, so a client written from this file can share it.
 import { ANSWER_MAX, FINDING_ACTIONS, type FindingAction } from './findings.ts';
 import { REVIEW_END_ACTIONS, type ReviewEndAction } from './round-findings.ts';
+import { isPicks } from './suggestions.ts';
 import type { PageAsk } from './transcript-page.ts';
 import { SELECTABLE_AGENTS, type Agent } from '../model.ts';
 
@@ -100,7 +101,8 @@ export interface ConnectOpArgs {
   /** Checked by ReviewReplies.post, as the desk's are: the same edits and the same refusals. */
   'review.post': { sessionId: string; cardId: string; verdict?: unknown; summary?: unknown; findings?: unknown; withoutComment?: unknown };
   /** A suggestion card in the conversation (a tag, a ticket change, a move, a review offer): one of its buttons, its x, or Undo on the line it left. */
-  'suggestion.answer': { sessionId: string; suggestionId: string; button: string };
+  /** `picks`: what was chosen on a card that offers names to choose (`Suggestion.picks`: a tag card's tags). Left out, the card's own choice is taken. */
+  'suggestion.answer': { sessionId: string; suggestionId: string; button: string; picks?: string[] };
   'suggestion.dismiss': { sessionId: string; suggestionId: string };
   'suggestion.undo': { sessionId: string; suggestionId: string };
   /** Autopilot for the session's pull request: on, off, or Merge when green (docs/designs/pr-autopilot.md). */
@@ -196,6 +198,8 @@ function answers(a: Args): Checked<Record<string, string> | undefined> {
 }
 
 /** Runs field checks in order; the first failure is the answer. */
+const picks = (a: Args, field: string): Checked<string[]> => (isPicks(a[field]) ? { ok: true, value: a[field] } : fail(`${field} must be a short list of names.`));
+
 function all(checks: Record<string, Checked<unknown>>): Checked<Args> {
   const out: Args = {};
   for (const [field, c] of Object.entries(checks)) {
@@ -289,8 +293,9 @@ export const CONNECT_OPS: { readonly [K in ConnectOp]: OpSpec } = {
   // every kind alike; a kind's own refusals (Kestrel-only, nothing to undo) are the phone's too.
   'suggestion.answer': {
     mapsTo: 'POST /api/sessions/:id/suggestions/:sid/answer',
-    fields: ['sessionId', 'suggestionId', 'button'],
-    check: (a) => all({ sessionId: id(a, 'sessionId'), suggestionId: id(a, 'suggestionId'), button: id(a, 'button') }),
+    fields: ['sessionId', 'suggestionId', 'button', 'picks'],
+    // Only the shape is checked here, as the route does (`isPicks`): what each name may be is the kind's to say, for the desk and a phone alike.
+    check: (a) => all({ sessionId: id(a, 'sessionId'), suggestionId: id(a, 'suggestionId'), button: id(a, 'button'), picks: optional(a, 'picks', picks) }),
   },
   'suggestion.dismiss': { mapsTo: 'POST /api/sessions/:id/suggestions/:sid/dismiss', fields: ['sessionId', 'suggestionId'], check: (a) => all({ sessionId: id(a, 'sessionId'), suggestionId: id(a, 'suggestionId') }) },
   'suggestion.undo': { mapsTo: 'POST /api/sessions/:id/suggestions/:sid/undo', fields: ['sessionId', 'suggestionId'], check: (a) => all({ sessionId: id(a, 'sessionId'), suggestionId: id(a, 'suggestionId') }) },

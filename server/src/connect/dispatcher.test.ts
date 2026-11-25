@@ -343,6 +343,32 @@ describe.each(SELECTABLE_AGENTS)('a suggestion card answered from a phone, for a
     expect(await d.ask('suggestion.undo', { sessionId, suggestionId: card.id })).toEqual({ ok: false, reason: 'There is nothing to undo there.' });
   });
 
+  it('takes the tags chosen on a tag card with the answer, as the desk does: an existing tag in its own writing, a new one as typed, Undo for all', async () => {
+    const d = await desk();
+    const other = await d.workspace.addSession({ title: 'Deploys', agent, startedIn: null });
+    await d.workspace.tagSession(other.id, 'Argus');
+    const { sessionId, card } = await suggested(d);
+    expect(card.picks).toEqual({ of: 'tag', chosen: ['PROJ-482'], offered: ['Argus'], buttons: ['tag', 'always'] });
+    const tagsOf = async () => (await d.workspace.state()).sessions.find((s) => s.id === sessionId)!.tags;
+    // What the desk refuses, a phone is refused, with the reason; the card stays.
+    expect(await d.ask('suggestion.answer', { sessionId, suggestionId: card.id, button: 'tag', picks: [] })).toEqual({ ok: false, reason: 'Choose at least one tag.' });
+    expect(await d.ask('suggestion.answer', { sessionId, suggestionId: card.id, button: 'tag', picks: 'Argus' as never })).toEqual({ ok: false, reason: 'picks must be a short list of names.' });
+    expect(await d.ask('suggestion.answer', { sessionId, suggestionId: card.id, button: 'tag', picks: Array.from({ length: 9 }, (_, i) => `t${i}`) })).toEqual({ ok: false, reason: 'At most 8 tags at a time.' });
+    expect(await tagsOf()).toEqual([]);
+    const answered = await d.ok('suggestion.answer', { sessionId, suggestionId: card.id, button: 'tag', picks: ['argus', 'Upload  hang'] });
+    expect(answered.suggestion).toMatchObject({ state: 'answered', line: 'Tagged Argus, Upload hang' });
+    expect(await tagsOf()).toEqual(['Argus', 'Upload hang']);
+    expect((await d.ok('suggestion.undo', { sessionId, suggestionId: card.id })).suggestion.line).toBe('Untagged Argus, Upload hang');
+    expect(await tagsOf()).toEqual([]);
+  });
+
+  it('refuses picks for a button or a card that takes none', async () => {
+    const d = await desk();
+    const { sessionId, card } = await suggested(d);
+    expect(await d.ask('suggestion.answer', { sessionId, suggestionId: card.id, button: 'never', picks: ['Argus'] })).toEqual({ ok: false, reason: 'That button does not take a choice.' });
+    expect(openSuggestions(d.runtime.recordOf(sessionId)!.messages)).toHaveLength(1);
+  });
+
   it('dismisses with the x, and refuses a card or session that is not there', async () => {
     const d = await desk();
     const { sessionId, card } = await suggested(d);

@@ -36,7 +36,10 @@ export function menuTemplate(send, { devTools, checkForUpdates, accelerators = {
     label: appName,
     submenu: [{ role: 'about', label: `About ${appName}` }, update, { type: 'separator' }, { role: 'services' }, { type: 'separator' }, { role: 'hide', label: `Hide ${appName}` }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit', label: `Quit ${appName}` }],
   };
-  const helpMenu = { role: 'help', label: 'Help', submenu: [update, { type: 'separator' }, { role: 'about', label: `About ${appName}` }] };
+  // What's New opens the release notes page (ui WhatsNewPage) as the page's own command would.
+  const whatsNew = { label: 'What’s New', click: cmd('whats-new') };
+  // A Mac keeps About and Check for Updates in the app menu; its Help menu has What's New alone.
+  const helpMenu = { role: 'help', label: 'Help', submenu: mac ? [whatsNew] : [whatsNew, { type: 'separator' }, update, { type: 'separator' }, { role: 'about', label: `About ${appName}` }] };
   return [
     ...(mac ? [appMenu] : []),
     {
@@ -62,6 +65,6 @@ export function menuTemplate(send, { devTools, checkForUpdates, accelerators = {
       submenu: [item('Toggle Sidebar', 'toggle-sidebar'), { type: 'separator' }, item('Back', 'back'), item('Forward', 'forward'), { type: 'separator' }, { role: 'reload' }, { role: 'forceReload' }, ...(devTools ? [{ role: 'toggleDevTools' }] : []), { type: 'separator' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { type: 'separator' }, { role: 'togglefullscreen' }],
     },
     { role: 'windowMenu' },
-    ...(mac ? [] : [helpMenu]),
+    helpMenu,
   ];
 }

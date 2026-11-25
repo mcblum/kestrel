@@ -15,6 +15,7 @@ import { normalizeProject } from '@kestrel/server/project-folders';
 import { isPullRequestLookup, type PullRequestLookup } from '@kestrel/server/details';
 import { asSourced, type Sourced } from '@kestrel/server/sourced';
 import { sanitizeSeen, type Seen } from '@kestrel/server/unread';
+import type { WhatsNewView } from '@kestrel/server/whats-new';
 import { asReviewRequestsView, NO_REVIEW_REQUESTS, type ReviewRequestsView } from '@kestrel/server/review-requests';
 import { asTicketsView, NO_TICKETS, type TicketsView } from '@kestrel/server/tickets';
 import { counted } from '@kestrel/server/toasts';
@@ -113,6 +114,8 @@ export interface AppState {
   resources: ReadonlyMap<string, Sourced<unknown>>;
   /** When each session was last looked at, as the server pushes it (server/src/seen.ts); null until the first push. */
   seen: Seen | null;
+  /** What's new, as the server pushes it (server/src/whats-new/store.ts): the releases with notes, the switch, notes due to open; null until the first push. */
+  whatsNew: WhatsNewView | null;
   /** Open tabs, the composer's last choices and the sidebar's layout, kept on the server (tabsStore.ts owns the writes). */
   tabs: TabsView;
   /** The simulators, each one's screen and state, each session's chosen device and each device's latest problem (simulatorStore.ts owns the writes). */
@@ -150,7 +153,7 @@ async function refreshLaunch(): Promise<boolean> {
   }
 }
 
-const initialState: AppState = { connection: launch ? 'connecting' : 'no-server', live: new Map(), renaming: null, tagging: null, openedFromReference: null, workspace: null, sessionsById: new Map(), details: new Map(), pullRequests: new Map(), reviewRequests: NO_REVIEW_REQUESTS, tickets: NO_TICKETS, seen: null, pullRequestsVersion: 0, resources: new Map(), tabs: { loaded: false, state: initialTabs(), remembered: DEFAULT_REMEMBERED, sidebar: EMPTY_SIDEBAR }, simulator: { devices: { loaded: false, devices: [], unavailable: null }, infos: new Map(), chosen: new Map(), errors: new Map() }, signIn: {}, connect: null, updateChannel: window.kestrelShell?.app?.updateChannel ?? null, error: null };
+const initialState: AppState = { connection: launch ? 'connecting' : 'no-server', live: new Map(), renaming: null, tagging: null, openedFromReference: null, workspace: null, sessionsById: new Map(), details: new Map(), pullRequests: new Map(), reviewRequests: NO_REVIEW_REQUESTS, tickets: NO_TICKETS, seen: null, whatsNew: null, pullRequestsVersion: 0, resources: new Map(), tabs: { loaded: false, state: initialTabs(), remembered: DEFAULT_REMEMBERED, sidebar: EMPTY_SIDEBAR }, simulator: { devices: { loaded: false, devices: [], unavailable: null }, infos: new Map(), chosen: new Map(), errors: new Map() }, signIn: {}, connect: null, updateChannel: window.kestrelShell?.app?.updateChannel ?? null, error: null };
 
 /** The one store (Zustand). Everything the app knows about the server lives here, once. */
 const appStoreApi = createStore<AppState>()(() => initialState);
@@ -538,6 +541,7 @@ function connect() {
     else if (message.type === 'review-requests') applyReviewRequests(message.view);
     else if (message.type === 'tickets') applyTickets(message.view);
     else if (message.type === 'seen') applySeen(message.seen);
+    else if (message.type === 'whats-new') set({ whatsNew: message.view as WhatsNewView });
     else handlerFor(message.type)?.message(message);
   };
   socket.onopen = () => {

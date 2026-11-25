@@ -1,5 +1,6 @@
 // Settings, in the main canvas: a list of sections on the left, the chosen one on the right. App-wide
 // only: a project's own settings are on its page's Settings tab. Nothing opens in a panel from the side.
+import type { SettingsSection } from '@kestrel/server/routes';
 import { useEffect } from 'react';
 import { TicketsSettings } from '../components/TicketsSetting.tsx';
 import { SaveBar } from '../components/SaveBar.tsx';
@@ -32,6 +33,7 @@ import { DelegationLimitsSetting } from '../components/DelegationLimitsSetting.t
 import { CommitSigningSetting } from '../components/CommitSigningSetting.tsx';
 import { CrashReportsSetting } from '../components/CrashReportsSetting.tsx';
 import { UpdateChannelSetting } from '../components/UpdateChannelSetting.tsx';
+import { WhatsNewSetting } from '../components/WhatsNewSetting.tsx';
 import { KestrelConnectSetting } from '../components/KestrelConnectSetting.tsx';
 import { ConnectRecoveryPage } from '../components/ConnectRecoveryPage.tsx';
 import { SetupThisComputerPage } from '../components/SetupThisComputerPage.tsx';
@@ -73,6 +75,7 @@ function General() {
       <SetupSetting />
       <CrashReportsSetting />
       <UpdateChannelSetting />
+      <WhatsNewSetting />
     </>
   );
 }
@@ -143,14 +146,34 @@ function Connections() {
 }
 
 /** Sections that were renamed: an old link or an open tab still lands on the right one. */
+/** Every section's name and icon. A Record over SETTINGS_SECTIONS (shared/routes.ts), so the list release notes may link to and this page cannot differ. */
+const SECTION_NAV: Record<SettingsSection, { label: string; icon: React.ReactNode }> = {
+  'general': { label: 'General', icon: <SlidersHorizontal aria-hidden /> },
+  'appearance': { label: 'Appearance', icon: <Palette aria-hidden /> },
+  'colours': { label: 'Colours', icon: <SwatchBook aria-hidden /> },
+  'notifications': { label: 'Notifications', icon: <Bell aria-hidden /> },
+  'shortcuts': { label: 'Keyboard shortcuts', icon: <Keyboard aria-hidden /> },
+  'presets': { label: 'Models & roles', icon: <Layers aria-hidden /> },
+  'workflow': { label: 'Workflow', icon: <Workflow2 aria-hidden /> },
+  'agent-setup': { label: 'Agent setup', icon: <Bot aria-hidden /> },
+  'environment': { label: 'Environment', icon: <TerminalSquare aria-hidden /> },
+  'permissions': { label: 'Permissions', icon: <Shield aria-hidden /> },
+  'git': { label: 'Git', icon: <GitBranch aria-hidden /> },
+  'code-reviews': { label: 'Code reviews', icon: <Eye aria-hidden /> },
+  'tickets': { label: 'Tickets', icon: <Ticket aria-hidden /> },
+  'connections': { label: 'Connections', icon: <Plug aria-hidden /> },
+  'worktrees': { label: 'Storage', icon: <FolderGit2 aria-hidden /> },
+  'archived': { label: 'Archived', icon: <Archive aria-hidden /> },
+};
+
 const RENAMED: Record<string, string> = { 'tag-suggestions': 'workflow' };
 
 export function SettingsPage({ section: asked = 'general' }: { section?: string }) {
   const section = RENAMED[asked] ?? asked;
-  const item = (id: string, label: string, icon: React.ReactNode) => (
+  const item = (id: SettingsSection) => (
     <button key={id} className={`side-link${section.split('/')[0] === id ? ' active' : ''}`} aria-current={section.split('/')[0] === id ? 'page' : undefined} {...opener((newTab) => openView({ kind: 'settings', section: id }, newTab))}>
-      {icon}
-      <span className="link-label">{label}</span>
+      {SECTION_NAV[id].icon}
+      <span className="link-label">{SECTION_NAV[id].label}</span>
     </button>
   );
   return (
@@ -158,24 +181,24 @@ export function SettingsPage({ section: asked = 'general' }: { section?: string 
       <nav className="settings-nav" aria-label="Settings sections">
         <div className="settings-nav-title">Settings</div>
         <div className="settings-nav-group">Personal</div>
-        {item('general', 'General', <SlidersHorizontal aria-hidden />)}
-        {item('appearance', 'Appearance', <Palette aria-hidden />)}
-        {item('colours', 'Colours', <SwatchBook aria-hidden />)}
-        {item('notifications', 'Notifications', <Bell aria-hidden />)}
-        {item('shortcuts', 'Keyboard shortcuts', <Keyboard aria-hidden />)}
+        {item('general')}
+        {item('appearance')}
+        {item('colours')}
+        {item('notifications')}
+        {item('shortcuts')}
         <div className="settings-nav-group">Agents</div>
-        {item('presets', 'Models & roles', <Layers aria-hidden />)}
-        {item('workflow', 'Workflow', <Workflow2 aria-hidden />)}
-        {item('agent-setup', 'Agent setup', <Bot aria-hidden />)}
-        {item('environment', 'Environment', <TerminalSquare aria-hidden />)}
-        {item('permissions', 'Permissions', <Shield aria-hidden />)}
+        {item('presets')}
+        {item('workflow')}
+        {item('agent-setup')}
+        {item('environment')}
+        {item('permissions')}
         <div className="settings-nav-group">Workspace</div>
-        {item('git', 'Git', <GitBranch aria-hidden />)}
-        {item('code-reviews', 'Code reviews', <Eye aria-hidden />)}
-        {item('tickets', 'Tickets', <Ticket aria-hidden />)}
-        {item('connections', 'Connections', <Plug aria-hidden />)}
-        {item('worktrees', 'Storage', <FolderGit2 aria-hidden />)}
-        {item('archived', 'Archived', <Archive aria-hidden />)}
+        {item('git')}
+        {item('code-reviews')}
+        {item('tickets')}
+        {item('connections')}
+        {item('worktrees')}
+        {item('archived')}
       </nav>
       <div className="settings-main">
       <div className={`settings-body settings-${section.replaceAll('/', '-')}`} key={section}>

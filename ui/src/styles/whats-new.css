@@ -1,0 +1,73 @@
+/* What's new (pages/WhatsNewPage.tsx, WhatsNewLayout.tsx). The page reads as a short document in a narrow
+   column. Grey chrome, with one named exception (Matt, 2026-11-25; design doc, "What's new"): the
+   spotlight's label, illustration and surface take the palette's muted blue, and nothing else does. The
+   blue says nothing about state; buttons, links and focus stay the app's own. */
+.kestrel .whats-new-page { container-type: inline-size; gap: 22px; }
+
+/* A plain release: ordinary Markdown in comfortable type. */
+.kestrel .whats-new-notes { font-size: 14.5px; line-height: 1.6; user-select: text; -webkit-user-select: text; }
+.kestrel .whats-new-notes h2 { margin: 24px 0 6px; font-size: 16px; font-weight: 600; }
+.kestrel .whats-new-notes h3 { margin: 18px 0 4px; font-size: 14.5px; font-weight: 600; }
+.kestrel .whats-new-notes > :first-child { margin-top: 0; }
+.kestrel .whats-new-picture { display: block; max-width: 100%; margin: 10px 0; border: 1px solid var(--s-line); border-radius: 8px; }
+
+/* A structured release. */
+.kestrel .whats-new-structured { display: grid; gap: 28px; user-select: text; -webkit-user-select: text; }
+.kestrel .whats-new-structured .prose { font-size: 14.5px; line-height: 1.6; }
+.kestrel .whats-new-structured .prose > :first-child { margin-top: 0; }
+.kestrel .whats-new-structured .prose > :last-child { margin-bottom: 0; }
+
+.kestrel .whats-new-spotlight {
+  --whats-new-surface: color-mix(in srgb, var(--palette-blue) 8%, var(--s-paper));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+  align-items: center;
+  padding: 24px;
+  border-radius: 12px;
+  background: var(--whats-new-surface);
+  border: 1px solid color-mix(in srgb, var(--palette-blue) 28%, var(--s-line));
+}
+/* With no picture the text takes the whole card. */
+.kestrel .whats-new-spotlight.with-picture { grid-template-columns: minmax(0, 1fr) auto; }
+.kestrel .whats-new-spotlight-text { display: grid; gap: 10px; justify-items: start; min-width: 0; }
+.kestrel .whats-new-spotlight-label { margin: 0; font-size: 12.5px; font-weight: 600; color: var(--palette-blue); letter-spacing: 0.01em; }
+.kestrel .whats-new-spotlight h2 { margin: 0; font-size: 21px; line-height: 1.25; font-weight: 600; text-wrap: balance; }
+.kestrel .whats-new-spotlight .primary-button { margin-top: 6px; text-decoration: none; }
+.kestrel .whats-new-spotlight-picture .whats-new-picture { max-width: 220px; margin: 0; }
+
+/* A drawing from the notes (WhatsNewPictures.tsx), inline so it draws in the page's colours. In the
+   spotlight it is blue; its `surface` shapes take the card's own background. */
+.kestrel .whats-new-drawing { margin: 0; display: grid; justify-items: center; gap: 8px; }
+.kestrel .whats-new-drawing-art { display: flex; }
+.kestrel .whats-new-drawing-art svg { display: block; width: auto; max-width: 100%; height: auto; } /* its own width and height, not the app's icon size */
+.kestrel .whats-new-drawing figcaption { font-size: 12px; color: var(--s-muted); }
+.kestrel .whats-new-drawing .surface { fill: var(--s-bg); }
+.kestrel .whats-new-spotlight .whats-new-drawing, .kestrel .whats-new-spotlight .whats-new-drawing figcaption { color: var(--palette-blue); }
+.kestrel .whats-new-spotlight .whats-new-drawing .surface { fill: var(--whats-new-surface); }
+@container (max-width: 560px) {
+  .kestrel .whats-new-spotlight.with-picture { grid-template-columns: minmax(0, 1fr); }
+  .kestrel .whats-new-spotlight { padding: 20px; }
+  .kestrel .whats-new-spotlight-picture { display: none; }
+}
+
+.kestrel .whats-new-section > h2, .kestrel .whats-new-more > summary { margin: 0 0 4px; font-size: 16px; font-weight: 600; }
+.kestrel .whats-new-entries { margin: 0; padding: 0; list-style: none; display: grid; column-gap: 32px; }
+.kestrel .whats-new-entries.two-up { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@container (max-width: 620px) { .kestrel .whats-new-entries.two-up { grid-template-columns: minmax(0, 1fr); } }
+.kestrel .whats-new-entry { display: flex; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--s-line); min-width: 0; }
+.kestrel .whats-new-entry-icon { flex: none; width: 18px; height: 18px; margin-top: 2px; color: var(--s-muted); opacity: 0.75; }
+.kestrel .whats-new-entry-text { display: grid; gap: 4px; align-content: start; min-width: 0; }
+.kestrel .whats-new-entry h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.kestrel .whats-new-entry-action { font-size: 13.5px; }
+.kestrel .whats-new-entry-action p { margin: 0; }
+
+.kestrel .whats-new-more > summary { cursor: default; list-style-position: inside; padding: 4px 0; border-radius: 4px; }
+.kestrel .whats-new-more > summary::marker { color: var(--s-muted); }
+.kestrel .whats-new-more[open] > summary { margin-bottom: 4px; }
+
+.kestrel .whats-new-earlier { padding-top: 16px; border-top: 1px solid var(--s-line); }
+.kestrel .whats-new-earlier h2 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.kestrel .whats-new-earlier ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.kestrel .whats-new-earlier .link-button { font-size: 13px; padding: 0; text-align: left; }
+.kestrel .whats-new-earlier .link-button:hover { text-decoration: underline; }

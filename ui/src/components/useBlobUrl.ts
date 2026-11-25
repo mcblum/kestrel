@@ -7,9 +7,10 @@ import { fetchBlob } from '../store.ts';
 /**
  * `media`: a file under the session's media folder, by name. `raw`: a path inside the session folder.
  * `attachment`: a file the user attached to a message, by its id. `local`: an object URL the page
- * already has (a picture attached in the composer, not sent yet), shown as it is.
+ * already has (a picture attached in the composer, not sent yet), shown as it is. `notes`: a picture
+ * of the release notes (What's new), by name, for no session.
  */
-export type BlobKind = 'media' | 'raw' | 'attachment' | 'local';
+export type BlobKind = 'media' | 'raw' | 'attachment' | 'local' | 'notes';
 
 export interface BlobState {
   url: string | null;
@@ -25,6 +26,7 @@ export interface PictureRef {
 }
 
 function pathFor(sessionId: string, kind: BlobKind, name: string): string {
+  if (kind === 'notes') return `/api/whats-new/images/${encodeURIComponent(name)}`;
   const session = `/api/sessions/${encodeURIComponent(sessionId)}`;
   if (kind === 'attachment') return `${session}/attachments/${encodeURIComponent(name)}`;
   return kind === 'media' ? `${session}/media/${encodeURIComponent(name)}` : `${session}/raw?path=${encodeURIComponent(name)}`;

@@ -33,7 +33,7 @@ export function serverLaunch() {
   return { kind: 'source', dir: join(here, '..', 'server'), entry: 'src/index.ts' };
 }
 
-/** Binaries the packaged app ships, by the variable the server reads them from. Empty from a checkout. */
+/** Binaries (and the release notes) the packaged app ships, by the variable the server reads them from. Empty from a checkout. */
 export function bundledBinaries() {
   if (!isPackaged) return {};
   const bin = join(process.resourcesPath, 'bin');
@@ -42,5 +42,8 @@ export function bundledBinaries() {
   const sim = join(bin, 'kestrel-sim');
   if (existsSync(claude)) found.KESTREL_CLAUDE_EXECUTABLE = claude;
   if (existsSync(sim)) found.KESTREL_SIM_HELPER = sim;
+  // The release notes for What's new, staged beside the server (stage.mjs). A checkout's server reads the repository's.
+  const notes = join(process.resourcesPath, 'server', 'whats-new');
+  if (existsSync(notes)) found.KESTREL_WHATS_NEW_DIR = notes;
   return found;
 }

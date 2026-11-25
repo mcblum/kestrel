@@ -135,6 +135,20 @@ export function openTarget(s: TabsState, target: OpenTarget, newId: string, opti
   return { tabs: [...s.tabs, tabFor(newId, target)], activeId: newId };
 }
 
+/**
+ * A page opened beside the tab in front, without taking its place: a new tab just after it, brought
+ * to the front only when `focus` (What's new after an update, a link clicked on What's new). Already
+ * open in a tab: that tab is brought to the front when `focus`, and nothing else changes.
+ */
+export function openBeside(s: TabsState, path: string, newId: string, options: { focus: boolean }): TabsState {
+  const open = s.tabs.find((t) => t.kind === 'page' && t.path === path);
+  if (open) return options.focus ? activate(s, open.id) : s;
+  if (s.tabs.length >= MAX_TABS) return s;
+  const at = s.tabs.findIndex((t) => t.id === s.activeId);
+  const tabs = [...s.tabs.slice(0, at + 1), { id: newId, kind: 'page' as const, path }, ...s.tabs.slice(at + 1)];
+  return { tabs, activeId: options.focus ? newId : s.activeId };
+}
+
 export function setControls(s: TabsState, id: string, controls: Controls): TabsState {
   return { ...s, tabs: s.tabs.map((t) => (t.id === id && t.kind === 'new' ? { ...t, controls } : t)) };
 }

@@ -16,6 +16,7 @@ import { MovePage } from './MovePage.tsx';
 import { CreateProjectPage } from './CreateProjectPage.tsx';
 import { CodePage } from './CodePage.tsx';
 import { SettingsPage } from './SettingsPage.tsx';
+import { WhatsNewPage } from './WhatsNewPage.tsx';
 import { viewTitle } from './viewTitle.ts';
 
 export function WorkspacePage({ view }: { view: View }) {
@@ -27,6 +28,7 @@ export function WorkspacePage({ view }: { view: View }) {
   if (view.kind === 'settings') return <SettingsPage section={view.section} />;
   if (view.kind === 'move') return <MovePage key={`${view.sessionId}:${view.projectId}:${view.groupId ?? ''}`} sessionId={view.sessionId} projectId={view.projectId} groupId={view.groupId} />;
   if (view.kind === 'new-project') return <CreateProjectPage from={view.from} />;
+  if (view.kind === 'whats-new') return <WhatsNewPage key={view.release ?? ''} release={view.release} />;
   if (view.kind === 'code') return <CodePage key={`${view.sessionId}:${view.messageId}:${view.at}`} view={view} />;
   if (view.kind === 'code-reviews') return <CodeReviewsPage dismissed={view.filter === 'dismissed'} />;
   if (view.kind === 'review-request') return <ReviewRequestPage key={view.id} id={view.id} />;

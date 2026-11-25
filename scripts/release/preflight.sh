@@ -23,6 +23,11 @@ CHANNEL="$(node "$ROOT/scripts/release/version.mjs" channel "$VERSION")" || fail
 echo "==> Preflight for Kestrel $VERSION ($CHANNEL)"
 [ "$(uname -s)-$(uname -m)" = "Darwin-arm64" ] || fail "release builds are made on an Apple Silicon Mac"
 
+# The release's notes, before anything is built: a release has whats-new/<version>.md, which is both
+# the app's What's new page and the release's notes on the host (release-notes.mjs). A beta may have none.
+said="$(node "$ROOT/scripts/release/release-notes.mjs" check "$VERSION" 2>&1)" || fail "${said#!! }"
+echo "    notes: $said"
+
 # Tracked files only: untracked scratch folders never reach the bundle.
 if [ "$ALLOW_DIRTY" != 1 ] && [ -n "$(git -C "$ROOT" status --porcelain --untracked-files=no)" ]; then
   git -C "$ROOT" status --short --untracked-files=no >&2

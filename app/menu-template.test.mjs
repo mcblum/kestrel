@@ -8,7 +8,7 @@ const roles = (menu) => menu.submenu.map((item) => item.role).filter(Boolean);
 
 test('a Mac gets the app menu first, with Quit and Check for Updates in it', () => {
   const template = build('darwin');
-  assert.deepEqual(labels(template), ['Kestrel', 'File', 'editMenu', 'Tab', 'View', 'windowMenu']);
+  assert.deepEqual(labels(template), ['Kestrel', 'File', 'editMenu', 'Tab', 'View', 'windowMenu', 'Help']);
   assert.ok(roles(template[0]).includes('quit'));
   assert.ok(template[0].submenu.some((item) => item.label === 'Check for Updates…'));
   assert.ok(!roles(template[1]).includes('quit'));
@@ -40,3 +40,13 @@ test('Back and Forward are in the View menu with a browser’s keys', () => {
   assert.equal(view.find((item) => item.label === 'Back').accelerator, 'CmdOrCtrl+[');
   assert.equal(view.find((item) => item.label === 'Forward').accelerator, 'CmdOrCtrl+]');
 });
+
+for (const platform of ['darwin', 'win32', 'linux']) {
+  test(`${platform}: Help has What’s New, which sends the page its command`, () => {
+    const sent = [];
+    const help = menuTemplate((c) => sent.push(c), { devTools: false, checkForUpdates: () => undefined, platform }).at(-1);
+    assert.equal(help.label, 'Help');
+    help.submenu.find((item) => item.label === 'What’s New').click();
+    assert.deepEqual(sent, ['whats-new']);
+  });
+}

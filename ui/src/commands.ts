@@ -64,7 +64,7 @@ async function forkAndOpen(sessionId: string, turn: string | undefined, newTab: 
   focusSessionComposer(fork.id);
 }
 
-export type Command = 'new-session' | 'new-tab' | 'close-tab' | 'switch' | 'next-tab' | 'prev-tab' | 'toggle-sidebar' | 'back' | 'forward' | `tab:${number}`;
+export type Command = 'new-session' | 'new-tab' | 'close-tab' | 'switch' | 'next-tab' | 'prev-tab' | 'toggle-sidebar' | 'back' | 'forward' | 'whats-new' | `tab:${number}`;
 
 /** Opened by the shell (Electron menu) or by a key press; App provides the switcher. */
 let openSwitcher: () => void = () => undefined;
@@ -96,6 +96,7 @@ export function runCommand(command: Command | string): void {
   else if (command === 'toggle-sidebar') toggleSidebarOrFloat();
   else if (command === 'back') goBack();
   else if (command === 'forward') goForward();
+  else if (command === 'whats-new') openView({ kind: 'whats-new' });
   else if (command.startsWith('tab:')) tabActions.activateNth(Number(command.slice(4)));
 }
 

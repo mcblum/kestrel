@@ -8,6 +8,12 @@ export type ProjectTab = 'sessions' | 'settings';
 export const PROJECT_SECTIONS = ['general', 'folders', 'git', 'actions', 'scripts', 'environment', 'agent-setup'] as const;
 export type ProjectSection = (typeof PROJECT_SECTIONS)[number];
 
+/** Settings' sections, in the order of its list (ui SettingsPage draws its list from this). */
+export const SETTINGS_SECTIONS = ['general', 'appearance', 'colours', 'notifications', 'shortcuts', 'presets', 'workflow', 'agent-setup', 'environment', 'permissions', 'git', 'code-reviews', 'tickets', 'connections', 'worktrees', 'archived'] as const;
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
+/** Pages under a Settings section that have an address of their own (an MCP server's page is by name, `agent-setup/mcp/<name>`). */
+export const SETTINGS_PAGES = ['connections/recovery', 'connections/setup', 'agent-setup/mcp/new'] as const;
+
 export type View =
   | { kind: 'overview' }
   | { kind: 'attention' }
@@ -34,6 +40,8 @@ export type View =
   | { kind: 'ticket'; id: string }
   /** Create project; `from: 'folder'` is its second way in, several projects from one parent folder. */
   | { kind: 'new-project'; from?: 'folder' }
+  /** What's new: this copy's release, or an earlier one by its number. */
+  | { kind: 'whats-new'; release?: string }
   /** One code block of a conversation, whole: the message it is in and where its fence starts (shared/code-ref.ts). */
   | { kind: 'code'; sessionId: string; messageId: string; at: number };
 
@@ -78,6 +86,7 @@ export function parseViewPath(path: string): View {
   if (a === 'settings') return id ? { kind: 'settings', section: id } : { kind: 'settings' };
   if (a === 'move' && id && c) return { kind: 'move', sessionId: id, projectId: decodeURIComponent(c), ...(d ? { groupId: decodeURIComponent(d) } : {}) };
   if (a === 'code' && id && c && /^\d+$/.test(d ?? '')) return { kind: 'code', sessionId: id, messageId: decodeURIComponent(c), at: Number(d) };
+  if (a === 'whats-new') return b && /^\d+\.\d+\.\d+$/.test(b) ? { kind: 'whats-new', release: b } : { kind: 'whats-new' };
   if (a === 'new-project') return b === 'folder' ? { kind: 'new-project', from: 'folder' } : { kind: 'new-project' };
   if (a === 'pull-requests') return pullRequestsView(isRequestFilter(b) ? b : undefined);
   if (a === 'code-reviews') return b === 'dismissed' ? { kind: 'code-reviews', filter: 'dismissed' } : { kind: 'code-reviews' };
@@ -95,6 +104,7 @@ export function viewPath(view: View): string {
   if (view.kind === 'code') return `#/code/${encodeURIComponent(view.sessionId)}/${encodeURIComponent(view.messageId)}/${view.at}`;
   if ((view.kind === 'all' || view.kind === 'code-reviews' || view.kind === 'tickets') && view.filter) return `#/${view.kind}/${view.filter}`;
   if (view.kind === 'pull-requests') return view.filter ? `#/pull-requests/${view.filter}` : '#/pull-requests';
+  if (view.kind === 'whats-new' && view.release) return `#/whats-new/${view.release}`;
   if (view.kind === 'new-project' && view.from) return `#/new-project/${view.from}`;
   return view.kind === 'overview' ? '#/' : `#/${view.kind}`;
 }
@@ -110,6 +120,7 @@ export function containerOf(view: View): View {
   if (view.kind === 'code-reviews') return { kind: 'code-reviews' };
   if (view.kind === 'tickets') return { kind: 'tickets' };
   if (view.kind === 'new-project') return { kind: 'new-project' };
+  if (view.kind === 'whats-new') return { kind: 'whats-new' };
   return view.kind === 'project' ? { kind: 'project', id: view.id } : view;
 }
 
@@ -123,3 +134,19 @@ export function selectsRow(open: View | null, row: View): boolean {
   if (page.kind !== row.kind) return false;
   return !('id' in row) || ('id' in page && page.id === row.id);
 }
+
+/**
+ * Whether a path is a page of the app that is the same for everyone: what a release note may link to
+ * (`[Open Settings → Git](#/settings/git)`). Pages of one person's own things (a project, a session, a
+ * tag) are not; nor is anything the app does not have, which it would show as the Overview.
+ */
+export function isAppPage(path: string): boolean {
+  if (path === OVERVIEW_PATH_ROUTE) return true;
+  const view = parseViewPath(path);
+  if (view.kind === 'overview' || viewPath(view) !== path) return false;
+  if ('id' in view || view.kind === 'move' || view.kind === 'code') return false;
+  if (view.kind === 'settings') return view.section === undefined || (SETTINGS_SECTIONS as readonly string[]).includes(view.section) || (SETTINGS_PAGES as readonly string[]).includes(view.section);
+  return true;
+}
+const OVERVIEW_PATH_ROUTE = '#/';
+

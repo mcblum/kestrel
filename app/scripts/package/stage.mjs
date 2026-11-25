@@ -5,6 +5,7 @@
 //   dist/stage/resources/   the app's resources folder (Contents/Resources on a Mac), outside the archive:
 //     server/index.mjs        the server, built to one JavaScript file (build-server.mjs)
 //     server/node_modules/node-pty   its one native dependency (N-API, no rebuild needed for Electron)
+//     server/whats-new/       the release notes (the repository's whats-new/), for the What's new page
 //     bin/claude[.exe]        the Claude Code binary the Agent SDK runs (its own, Anthropic-signed)
 //     bin/kestrel-sim         the simulator helper (build:simhelper), in a Mac build only
 //
@@ -94,6 +95,9 @@ async function stageServer() {
   await buildServer({ entry: join(serverDir, 'src', 'index.ts'), outfile: join(out, 'index.mjs') });
   // The server bundle is an ES module however its folder is named.
   writeFileSync(join(out, 'package.json'), '{ "type": "module", "private": true }\n');
+  // What's new: the release notes, read by the server from beside itself (the shell names the folder
+  // in KESTREL_WHATS_NEW_DIR), so the page works offline.
+  cpSync(join(root, 'whats-new'), join(out, 'whats-new'), { recursive: true });
   const pty = packageDir(serverDir, 'node-pty');
   const ptyOut = join(out, 'node_modules', 'node-pty');
   cpSync(join(pty, 'package.json'), join(ptyOut, 'package.json'));

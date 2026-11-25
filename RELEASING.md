@@ -39,7 +39,7 @@ job says "Nothing to release" and passes).
 | `release-notify` | k3s (Linux) | by itself, after the checks | posts to Slack that a release is waiting, tagging Matt, with a link straight to the `release` job |
 | `release` | the Mac runner (`macos`) | **by hand** | builds, signs and notarizes the Mac app and publishes it (`scripts/release/ci-release.sh`) |
 
-So: bump `version` in `app/package.json` in a merge request, merge it, wait for the Slack message
+So: write or finish `whats-new/<version>.md` (below, "Release notes"), bump `version` in `app/package.json` in a merge request, merge it, wait for the Slack message
 (`scripts/release/notify-slack.sh`; the same shape as configuration-management's Cloudflare review
 message), follow its "Start the release" link and press play. A Slack outage, or no webhook set,
 never holds a release up: the job says where the button is and passes. One release runs at a time
@@ -109,6 +109,72 @@ locally to see what a merge would publish.
 Merge requests are fast-forward only and need a passing pipeline. Nobody pushes to `main`
 directly.
 
+## Release notes
+
+One source: `whats-new/<release>.md` in this repository (`whats-new/0.0.32.md`). The same file is the
+app's What's new page, which opens by itself the first time an updated copy starts, and the release's
+notes on the host. It is public, like the rest of the tree.
+
+- **Shape** (Matt, 2026-11-25: "A headline for the feature, a brief description, and then a link to
+  where to enable / configure / use it"). The first line is the title, `# Kestrel 0.0.32`. Then, for the
+  page's spotlight layout:
+
+  ```
+  ## Kestrel Connect                      the headline feature's name (optional)
+  ### See your sessions from any computer.
+  One or two sentences.
+  [Open Connections](#/settings/connections)
+  ![End-to-end encrypted](images/connect-devices.svg)   optional; the alt text is its caption
+  ## Also in this release
+  ### MCP servers                         one ### per entry: headline, a sentence or two, a link
+  ## More changes                         optional; folded on the page
+  ```
+
+  Every entry (and the spotlight) is at most `NOTES_ENTRY_MAX`, 200 characters, not counting its link or
+  picture, with at most one link into the app, on a line of its own. No lists, no headings inside an
+  entry, no commit lists, no names of private systems. A file with none of these headings is drawn as
+  plain Markdown, each `##` section then read as one entry; one that has some of them but not the whole
+  sequence fails the test, which says what is missing. A test over every notes file
+  (`server/src/whats-new/whats-new.test.ts`, `notesFormatProblems` in `shared/whats-new-layout.ts`) fails
+  and names the entry that breaks this. A picture is `![what it shows](images/<name>.png)` from
+  `whats-new/images/`; the host's notes leave every picture out, captions included, and keep the headings.
+- **The spotlight's illustration and caption.** They come from the release, not the app:
+  1. Draw the illustration as an SVG and save it as `whats-new/images/<name>.svg` (0.0.32's is
+     `connect-devices.svg`). Draw in `stroke="currentColor"` or `fill="currentColor"`, not fixed colours:
+     the page draws it in the spotlight's blue and follows light and dark. Give the `<svg>` a `viewBox`
+     and the `width` and `height` it should be drawn at (around 180 × 50). A shape that should hide what
+     is behind it (a backing circle under a lock) gets `class="surface"` and takes the card's colour.
+  2. Use plain shapes only: `path`, `circle`, `ellipse`, `rect`, `line`, `polyline`, `polygon`, `g`
+     (with `transform`), `title`. Anything else (text, gradients, `use`, embedded images, styles, links,
+     scripts) is left out when it is drawn; a file that is not one plain `<svg>` is not shown at all. A
+     test checks every SVG in `whats-new/images/` reads as a plain drawing.
+  3. In the spotlight section, after its link, put the picture line with the caption as its alt text:
+     `![End-to-end encrypted](images/<name>.svg)`. A photo or screenshot works the same way with a
+     `.png` or `.jpg`. Without a picture line the text takes the whole card.
+  4. Look at it: `#/whats-new/<release>` in a checkout, light and dark. The drawing shows beside the text
+     when the pane is wide and is hidden when it is narrow.
+- **Links into the app.** A section can end with a link to where the feature lives:
+  `[Open Settings → Git](#/settings/git)`, `[Open Code reviews](#/code-reviews)`. On the What's new page
+  a click, and the spotlight's button, opens it in a new tab beside the notes (or the tab already
+  showing it), so the notes stay open. The host's notes drop a line or sentence that is only such a link and keep a link inside
+  a sentence as its words. A test fails when a notes file links to a page the app does not have.
+- **Through a cycle.** Start the file with the first beta and add to it as features land. A beta
+  (`0.0.32-beta.3`) shows its release's file; each time the file changes, copies on the beta channel
+  show it again after they update. A beta with no file publishes as before and shows nothing.
+- **A release must have it.** `preflight.sh` (the first step of `make-release.sh`, so of the `release`
+  job) refuses a release whose file is missing or has no title line, before anything is built:
+
+  ```
+  !! preflight: Kestrel 0.0.33 has no release notes: write whats-new/0.0.33.md (…) and commit it before releasing
+  ```
+
+  `publish.sh` asks again, then makes the GitLab Release's description from the file: the text under
+  the title, pictures left out, then the download lines. `scripts/release/release-notes.mjs check|body
+  <version>` is the one reader; it uses the app's own rules (`server/src/shared/whats-new.ts`).
+- **Trying it.** The page is `#/whats-new` in a checkout too. A checkout never opens it by itself;
+  `KESTREL_WHATS_NEW_AS_INSTALLED=1` on the server makes it behave as an installed copy would. The real
+  path is an installed beta updating to the next beta whose notes changed (design doc, "What's new").
+
 ## Version
 
 One source: `version` in `app/package.json`. It goes into the bundle (`CFBundleShortVersionString`),
@@ -129,7 +195,7 @@ job as a release; only the version string differs.
 |---|---|---|
 | Is due when newer than | `latest-mac.yml` | both `latest-mac.yml` and `beta-mac.yml` (a beta never follows its release) |
 | Uploaded to the package registry | zip, blockmap, DMG | the same, as package version `0.0.32-beta.1` |
-| GitLab Release, permanent `Kestrel.dmg` link, release notes | made, and moved to it | **none**: they stay on the last release |
+| GitLab Release, permanent `Kestrel.dmg` link, release notes | made, and moved to it; the notes are `whats-new/<v>.md`, required | **none**: they stay on the last release; `whats-new/<release>.md` is shown in the app if it is there |
 | Feeds committed | `latest-mac.yml`, and the same text as `beta-mac.yml` unless that already serves a newer beta | `beta-mac.yml` only |
 | Who gets it | every copy | copies with Get beta versions on |
 | Printed at the end | the feeds and the permanent download | the beta feed and the beta DMG's own address in the registry |
@@ -304,4 +370,4 @@ app with no arguments, which would land a test copy on the real profile).
 - Code signing for Windows; a `.deb` for Linux.
 - Opening the version-bump merge request (Shrike's `release:cut`), and a release with no new commit.
 - A CI image with wine already in it, so `package-windows` does not install it on every run.
-- Tagging the source repo, release notes, and the edge outage-cache group for the releases project.
+- Tagging the source repo, and the edge outage-cache group for the releases project.

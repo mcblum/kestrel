@@ -31,6 +31,8 @@ import { actions, useApp } from './store.ts';
 import { prefetchCapabilities } from './components/controls/useCapabilities.ts';
 import { useAgentStatus } from './components/useAgents.ts';
 import { activeTab, tabActions, useTabs } from './tabsStore.ts';
+// Opens What's new after an update, once the restored tabs are known (whatsNew.ts).
+import './whatsNew.ts';
 
 export function App() {
   const connection = useApp((s) => s.connection);

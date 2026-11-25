@@ -27,6 +27,8 @@ export function viewTitle(page: View, ws: (Pick<WorkspaceState, 'projects' | 'gr
       return 'Move to project';
     case 'new-project':
       return 'Create project';
+    case 'whats-new':
+      return 'What’s new';
     case 'code': {
       // Several can be open at once: each says whose conversation its code is from.
       const from = ws?.sessions?.find((s) => s.id === view.sessionId)?.title;

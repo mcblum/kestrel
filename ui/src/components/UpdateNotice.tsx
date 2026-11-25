@@ -5,7 +5,9 @@
 // next launch; the update is also installed when Kestrel quits. With the sidebar hidden the same
 // toast floats at the window's bottom-left, lifted above the message box when they would meet.
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { RefreshCw, X } from 'lucide-react';
+import { RefreshCw, Sparkles, X } from 'lucide-react';
+import { releaseOf } from '@kestrel/server/whats-new';
+import { openView } from '../route.ts';
 import type { UpdateState } from '../store.ts';
 import { useApp } from '../store.ts';
 import { useTabs } from '../tabsStore.ts';
@@ -45,6 +47,9 @@ export function UpdateNotice({ floating = false }: { floating?: boolean }) {
   const update = useUpdateState();
   const working = useApp((s) => s.workspace?.sessions.filter((v) => v.state === 'running').length ?? 0);
   const dismissed = useDismissed();
+  // The notes of the release being installed, when this copy already carries them (a beta of the same release).
+  const notesRelease = update?.version ? releaseOf(update.version) : null;
+  const hasNotes = useApp((s) => notesRelease !== null && (s.whatsNew?.releases.some((r) => r.release === notesRelease) ?? false));
   const [restarting, setRestarting] = useState(false);
   const host = useRef<HTMLDivElement>(null);
   const shown = update?.status === 'ready' && !!update.version && dismissed !== update.version;
@@ -67,6 +72,11 @@ export function UpdateNotice({ floating = false }: { floating?: boolean }) {
           <span className="update-detail">{waiting ? waitingText(working) : ready}</span>
         </span>
       </button>
+      {hasNotes && (
+        <button type="button" className="update-dismiss" aria-label="What’s new" title={`What’s new in Kestrel ${notesRelease}`} onClick={() => openView({ kind: 'whats-new', release: notesRelease! })}>
+          <Sparkles aria-hidden />
+        </button>
+      )}
       <button type="button" className="update-dismiss" aria-label="Not now" title="Not now: it installs when you quit" onClick={() => dismiss(update.version!)}>
         <X aria-hidden />
       </button>

@@ -45,6 +45,9 @@ import { delegationLimitsRoute } from './limits-api.ts';
 import { quitCheck, type Conversation } from './shared/quit-check.ts';
 import { commitSigningRoute } from './commit-signing/api.ts';
 import { crashReportsRoute } from './crash-reports/api.ts';
+import { whatsNewRoute } from './whats-new/api.ts';
+import type { NotesSource } from './whats-new/notes.ts';
+import type { WhatsNew } from './whats-new/store.ts';
 import type { CrashReportSetup } from './shared/crash-reports.ts';
 import { sandboxAllowRoute } from './sandbox-allow/api.ts';
 import { projectRoute } from './project-api.ts';
@@ -175,6 +178,8 @@ export interface KestrelServerOptions {
   connect?: KestrelConnect;
   /** How this copy reports its own failures, or null when it never does (shared/crash-reports.ts). Default: never. */
   crashReporting?: CrashReportSetup | null;
+  /** What's new: the notes this copy carries and the record of what was shown, pushed to every window (whats-new/). */
+  whatsNew?: { store: WhatsNew; notes: NotesSource };
   /** Who may write a generated pull request's text: the title providers (index.ts). Default: none. */
   writers?: readonly TitleProvider[];
   /** How files are opened and shown in the file manager (file-open-api.ts); tests pass a stand-in runner. Default: this computer's own way (openers.ts). */
@@ -326,6 +331,9 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
     // Settings → General: reporting Kestrel's own failures (crash-reports/api.ts).
     const crashReports = runtime ? await crashReportsRoute(parts, method, () => readJson(req), runtime.crashReports, options.crashReporting ?? null) : null;
     if (crashReports) return send(req, res, crashReports.status, crashReports.body);
+    // What's new: the notes by release, their pictures, the switch, and "shown" (whats-new/api.ts).
+    const whatsNew = options.whatsNew ? await whatsNewRoute(parts, method, () => readJson(req), options.whatsNew.store, options.whatsNew.notes) : null;
+    if (whatsNew) return 'bytes' in whatsNew ? sendBytes(req, res, whatsNew.type, whatsNew.bytes) : send(req, res, whatsNew.status, whatsNew.body);
     // Settings → Workflow: the delegation limits (limits-api.ts).
     const limits = await delegationLimitsRoute(parts, method, () => readJson(req), workspace.limits);
     if (limits) return send(req, res, limits.status, limits.body);
@@ -837,6 +845,13 @@ async function files(req: IncomingMessage, res: ServerResponse, runtime: Session
     if (options.tickets && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'tickets', view: options.tickets.store.view() }));
     if (options.connect && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'connect-state', view: options.connect.view() }));
     workspace.seen.view().then((seen) => ws.readyState === ws.OPEN && ws.send(JSON.stringify({ type: 'seen', seen })), (error) => console.error('[kestrel] could not send what was seen', error));
+    options.whatsNew?.store.view().then((view) => ws.readyState === ws.OPEN && ws.send(JSON.stringify({ type: 'whats-new', view })), (error) => console.error('[kestrel] could not send what is new', error));
+  });
+
+  // What's new, whole, whenever it changes: notes shown, or the switch.
+  const unsubscribeWhatsNew = options.whatsNew?.store.onChange((view) => {
+    const json = JSON.stringify({ type: 'whats-new', view });
+    for (const ws of sockets.clients) if (ws.readyState === ws.OPEN) ws.send(json);
   });
 
   // What was looked at, whole, whenever it changes: from this window, another, or a phone.
@@ -924,6 +939,7 @@ async function files(req: IncomingMessage, res: ServerResponse, runtime: Session
         unsubscribe();
         unsubscribePullRequests();
         unsubscribeSeen();
+        unsubscribeWhatsNew?.();
         unsubscribeReviewRequests?.();
         unsubscribeTickets?.();
         unsubscribeConnect?.();

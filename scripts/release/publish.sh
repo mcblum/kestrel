@@ -11,7 +11,9 @@
 #   3. upload  zip, zip blockmap and DMG to the generic package registry, package `kestrel`,
 #              version <v> (replacing that version's files if they are already there)
 #   4. release GitLab Release v<v> with asset links; the DMG link's filepath is /Kestrel.dmg so
-#              …/-/releases/permalink/latest/downloads/Kestrel.dmg is the download
+#              …/-/releases/permalink/latest/downloads/Kestrel.dmg is the download. Its notes are
+#              whats-new/<v>.md, the app's own What's new page (release-notes.mjs); a release
+#              without that file stops before anything is sent
 #   5. feed    latest-mac.yml, with absolute URLs into the package registry, committed to `main`
 #              (last, so the feed never names a file that is not there yet)
 #   6. verify  fetch the public feed and HEAD every URL in it, the blockmap and the permalink
@@ -104,6 +106,15 @@ done <<< "$OTHERS"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
+
+# The release's notes on the host are whats-new/<version>.md, the same file the app shows (release-notes.mjs).
+# Read before anything is sent, so a release without them stops here.
+NOTES_BODY=""
+if [ "$CHANNEL" = stable ]; then
+  said="$(node "$ROOT/scripts/release/release-notes.mjs" check "$VERSION" 2>&1)" || fail "${said#!! }"
+  node "$ROOT/scripts/release/release-notes.mjs" body "$VERSION" > "$WORK/notes.md" || fail "could not read the notes of $VERSION"
+  NOTES_BODY="$WORK/notes.md"
+fi
 
 # ---- 1. checks ------------------------------------------------------------------------------
 step "Check Kestrel $VERSION ($CHANNEL): notarized, stapled, nothing private inside"
@@ -224,15 +235,15 @@ if curl -fsS -o /dev/null -H @"$HEADER" "$PUBLIC/api/v4/projects/$PROJECT_ID/rel
   api_send DELETE "/projects/$PROJECT_ID/releases/v$VERSION" >/dev/null
 fi
 printf '%s' "$OTHERS" > "$WORK/others"
-python3 - "$VERSION" "$REGISTRY" "$ZIP" "$DMG" "$WORK/others" > "$WORK/release.json" <<'PY'
+python3 - "$VERSION" "$REGISTRY" "$ZIP" "$DMG" "$WORK/others" "$NOTES_BODY" > "$WORK/release.json" <<'PY'
 import json, sys
-v, registry, zip_name, dmg, others = sys.argv[1:6]
+v, registry, zip_name, dmg, others, notes = sys.argv[1:7]
 links = [
     {"name": "Kestrel.dmg", "url": registry + dmg, "filepath": "/Kestrel.dmg", "link_type": "package"},
     {"name": zip_name, "url": registry + zip_name, "filepath": f"/{zip_name}", "link_type": "package"},
 ]
-text = [f"Kestrel {v}.",
-        "**Mac** (Apple Silicon, macOS 12 or later): download Kestrel.dmg, open it, and drag Kestrel to Applications. Signed with Developer ID and notarized."]
+text = [open(notes).read().strip(), "## Download"] if notes else [f"Kestrel {v}."]
+text += ["**Mac** (Apple Silicon, macOS 12 or later): download Kestrel.dmg, open it, and drag Kestrel to Applications. Signed with Developer ID and notarized."]
 for line in open(others).read().splitlines():
     platform, arch, _feed, artifact, permalink = line.split()
     links.append({"name": permalink, "url": registry + artifact, "filepath": f"/{permalink}", "link_type": "package"})

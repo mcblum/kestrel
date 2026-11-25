@@ -102,6 +102,7 @@ export class Suggestions {
       const { ctx, suggestion, kind } = await this.open(sessionId, suggestionId);
       if (!suggestion.buttons.some((b) => b.id === button)) throw new Refused('That suggestion has no such button.');
       if (picks && !suggestion.picks) throw new Refused('That suggestion has nothing to choose from.');
+      if (picks && !suggestion.picks!.buttons.includes(button)) throw new Refused('That button does not take a choice.');
       return this.pressAndShow(ctx, kind, suggestion, button, false, undefined, picks);
     });
   }

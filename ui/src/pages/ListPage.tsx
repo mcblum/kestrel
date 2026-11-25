@@ -29,7 +29,7 @@ import { projectTabOf } from '@kestrel/server/routes';
 
 const sessionCount = (n: number) => `${n} session${n === 1 ? '' : 's'}`;
 
-export function ListPage({ view, workspace }: { view: Exclude<View, { kind: 'overview' } | { kind: 'attention' } | { kind: 'pull-requests' } | { kind: 'settings' } | { kind: 'move' } | { kind: 'new-project' } | { kind: 'code' } | { kind: 'workstream' } | { kind: 'review-request' } | { kind: 'code-reviews' } | { kind: 'tickets' } | { kind: 'ticket' }>; workspace: WorkspaceState }) {
+export function ListPage({ view, workspace }: { view: Exclude<View, { kind: 'overview' } | { kind: 'attention' } | { kind: 'pull-requests' } | { kind: 'settings' } | { kind: 'move' } | { kind: 'new-project' } | { kind: 'code' } | { kind: 'workstream' } | { kind: 'review-request' } | { kind: 'code-reviews' } | { kind: 'tickets' } | { kind: 'ticket' } | { kind: 'whats-new' }>; workspace: WorkspaceState }) {
   const [filters, setFilters] = useState<Filters>(() => view.kind === 'all' && view.filter ? { ...NO_FILTERS, status: view.filter } : NO_FILTERS);
   const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
   const inScope = useMemo(() => workspace.sessions.filter((s) => inView(s, view)), [workspace.sessions, view]);

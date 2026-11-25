@@ -184,7 +184,7 @@ export class ConnectDispatcher {
       case 'review.post':
         return this.postReview(request.args);
       case 'suggestion.answer':
-        return this.suggestion(request.args.sessionId, (s) => s.answer(request.args.sessionId, request.args.suggestionId, request.args.button));
+        return this.suggestion(request.args.sessionId, (s) => s.answer(request.args.sessionId, request.args.suggestionId, request.args.button, request.args.picks));
       case 'suggestion.dismiss':
         return this.suggestion(request.args.sessionId, (s) => s.dismiss(request.args.sessionId, request.args.suggestionId));
       case 'suggestion.undo':

@@ -1,5 +1,8 @@
 // Kestrel server entry point.
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { notesSource } from './whats-new/notes.ts';
+import { WhatsNew } from './whats-new/store.ts';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { reviewingComments } from './review-requests/reviewing.ts';
 import { join } from 'node:path';
 import { claudeAdapter } from './agents/claude/index.ts';
@@ -153,7 +156,7 @@ let reviewSettings = await reviewPrefs.current();
 // Kestrel's own failures are reported from the installed app only, never with fake data, and only
 // while Settings → General → Crash reports is on (crash-reports/). KESTREL_CRASH_DSN is a test
 // address; KESTREL_TEST_CRASH_REPORT=1 sends one report at launch to check the path.
-const crashReporting = fake ? null : crashReportSetup({ packaged: process.env.KESTREL_PACKAGED === '1', version: process.env.KESTREL_APP_VERSION ?? '', dsnOverride: process.env.KESTREL_CRASH_DSN });
+const crashReporting = fake ? null : crashReportSetup({ packaged: process.env.KESTREL_PACKAGED === '1', version: process.env.KESTREL_APP_VERSION || checkoutVersion(), dsnOverride: process.env.KESTREL_CRASH_DSN });
 if (crashReporting) {
   await runtime.crashReports.prefs();
   try {
@@ -220,7 +223,21 @@ runtime.useTickets(
 const ticketsApi = { store: tickets, sync: ticketSync, work: ticketWork, jira, linear, sources: () => sourcesOfTickets.status() };
 // Kestrel Connect (connect/link/): signed in and switched on in Settings, it links to the relay.
 const connect = await startConnect({ dataDir, settings: db, fake, workspace, runtime, reviewRequests, tickets, ticketsApi, pullRequests: details.store, vaultKey });
-const app = createKestrelServer(workspace, { token, allowedOrigins: uiOrigins, port }, runtime, { details: { sources: details, sample: fake }, writers: titles, reviewRequests, tickets: ticketsApi, crashReporting, connect });
+// What's new: the notes shipped with this copy (the repository's whats-new/ from a checkout; the shell
+// names the installed app's copy), and the record of what was shown. Only the installed app opens
+// them by itself; KESTREL_WHATS_NEW_AS_INSTALLED=1 lets a checkout behave as one, to try it.
+/** A checkout's version, from app/package.json, so the dev page knows its release too. */
+function checkoutVersion(): string {
+  try {
+    return String(JSON.parse(readFileSync(new URL('../../app/package.json', import.meta.url), 'utf8')).version ?? '');
+  } catch {
+    return '';
+  }
+}
+const whatsNewNotes = notesSource(process.env.KESTREL_WHATS_NEW_DIR || fileURLToPath(new URL('../../whats-new', import.meta.url)));
+const whatsNew = { notes: whatsNewNotes, store: new WhatsNew({ settings: db, notes: whatsNewNotes, version: process.env.KESTREL_APP_VERSION || checkoutVersion(), packaged: process.env.KESTREL_PACKAGED === '1' || process.env.KESTREL_WHATS_NEW_AS_INSTALLED === '1' }) };
+await whatsNew.store.view().catch((error: unknown) => console.error('[kestrel] could not read what is new', error));
+const app = createKestrelServer(workspace, { token, allowedOrigins: uiOrigins, port }, runtime, { details: { sources: details, sample: fake }, writers: titles, reviewRequests, tickets: ticketsApi, crashReporting, connect, whatsNew });
 watchedNow = () => app.watched();
 checkTickets = () => void ticketSync.check();
 await app.listen();
