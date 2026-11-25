@@ -121,6 +121,16 @@
 .kestrel .studio-sidebar .workstream-label .workstream-first { display: flex; align-items: center; gap: 2px; min-width: 0; }
 .kestrel .studio-sidebar .workstream-label .workstream-first > .tree-main { flex: 0 1 auto; min-width: 0; }
 .kestrel .studio-sidebar .workstream-label .workstream-first > .fold-toggle { flex: none; display: inline-flex; margin-left: 4px; }
+/* Its end, as a project row's (sidebar-rows.css): the ↗ and … show on hover or keyboard focus in place
+   of the marks (Matt, 2026-11-24). Here they are centred on both lines, and the marks (the dots, the lead's
+   own request and the brought-in count) sit in one box at least as wide as the two buttons, so the title
+   keeps its width in both states. The marks go transparent, not hidden, so their names stay with a screen
+   reader while the buttons show. */
+.kestrel .studio-sidebar .workstream-block > .fold-row > .row-more { top: 50%; transform: translateY(-50%); }
+.kestrel .studio-sidebar .workstream-marks { display: inline-flex; flex: none; align-items: center; justify-content: flex-end; gap: inherit; margin-left: auto; min-width: calc(2 * var(--slot) + 2px); }
+.kestrel .studio-sidebar .workstream-marks > * { margin-left: 0; }
+.kestrel .studio-sidebar .workstream-block > .fold-row:is(:hover, :has(> :focus-visible)) > .side-link .workstream-marks { opacity: 0; }
+.kestrel .studio-sidebar .workstream-block > .fold-row:is(:hover, :has(> :focus-visible)) > .side-link .workstream-marks .row-dot { visibility: visible; }
 /* The lead open from its other row: the title brightens; no bar at the far left (Matt, 2026-11-22). */
 .kestrel .studio-sidebar .workstream-block .workstream-link.open-elsewhere:not(.drop-before)::before { content: none; }
 .kestrel .studio-sidebar .workstream-link.open-elsewhere .tree-main { color: var(--s-ink); }

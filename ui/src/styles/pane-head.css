@@ -39,3 +39,19 @@
 /* A labelled choice in Settings (the default Open in app). */
 .kestrel .settings-choice { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--s-ink); }
 .kestrel .settings-choice select { font: inherit; font-size: 12px; padding: 3px 6px; border: 1px solid var(--s-line); border-radius: 5px; background: var(--s-paper); color: var(--s-ink); }
+
+/* ---- the Changes pane: its own lines fixed on top, then the file list and the diff, each scrolling on
+   its own, with a bar between them (ChangesSplit.tsx, changes-split.ts) ------------------------------ */
+.kestrel .changes-pane { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.kestrel .changes-pane > :not(.changes-split) { flex: none; }
+.kestrel .changes-split { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.kestrel .changes-list-region { flex: none; overflow-y: auto; overscroll-behavior: contain; }
+.kestrel .changes-split .file-list { border-bottom: 0; }
+.kestrel .changes-split-bar { position: relative; flex: none; height: 1px; background: var(--s-line); cursor: row-resize; touch-action: none; z-index: 20; transition: background .12s; }
+/* The grab area: 7px tall, kept clear of the column's own resize edge at the left. */
+.kestrel .changes-split-bar::before { content: ''; position: absolute; left: 6px; right: 0; top: -3px; bottom: -3px; }
+.kestrel .changes-split-bar:hover, .kestrel .changes-split-bar:active, .kestrel .changes-split-bar:focus-visible { background: var(--s-muted); }
+.kestrel .changes-split-bar:focus-visible { outline: 0; }
+.kestrel .changes-diff-region { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.kestrel .changes-diff-region > .diff-header { flex: none; }
+.kestrel .changes-diff-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }

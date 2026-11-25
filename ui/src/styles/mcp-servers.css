@@ -1,0 +1,20 @@
+/* Kestrel's own MCP servers: the list in Settings → Agent setup and a project's tab, and a server's page. Grey chrome only. */
+.kestrel .mcp-server-row { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 9px 4px; border: 0; border-bottom: 1px solid var(--s-line); background: none; color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.kestrel .mcp-server-row:hover { background: var(--s-soft); }
+.kestrel .mcp-server-row > svg { width: 14px; height: 14px; margin-top: 2px; flex: none; color: var(--s-muted); }
+.kestrel .mcp-server-text { display: grid; gap: 2px; min-width: 0; }
+.kestrel .mcp-server-text strong { font-size: 12px; font-weight: 500; color: var(--s-ink); }
+.kestrel .mcp-server-text small { font-size: 11px; line-height: 1.45; color: var(--s-muted); overflow-wrap: anywhere; }
+.kestrel .mcp-servers-actions { display: flex; gap: 8px; margin: 12px 0 4px; }
+.kestrel .mcp-servers .setup-heading:first-of-type { margin-top: 10px; }
+.kestrel .mcp-back { margin-bottom: 14px; }
+.kestrel .mcp-values { display: grid; gap: 8px; }
+.kestrel .mcp-value-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(160px, 2fr) auto auto auto; align-items: center; gap: 8px; }
+.kestrel .mcp-value-secret { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--s-muted); white-space: nowrap; }
+.kestrel .mcp-value-secret input { margin: 0; accent-color: var(--s-ink); }
+.kestrel .mcp-tools { margin: 6px 0 0; padding-left: 18px; font-size: 12px; color: var(--s-ink); }
+.kestrel .mcp-tools li { margin: 3px 0; }
+.kestrel .mcp-tools small { color: var(--s-muted); }
+.kestrel .mcp-test-error { margin: 8px 0 0; padding: 8px 10px; border: 1px solid var(--s-line); border-radius: 6px; font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--s-red); max-height: 260px; overflow: auto; }
+.kestrel .mcp-remove-heading { margin: 22px 0 8px; font-size: 13px; font-weight: 600; color: var(--s-ink); }
+@media (max-width: 640px) { .kestrel .mcp-value-row { grid-template-columns: 1fr 1fr; } }

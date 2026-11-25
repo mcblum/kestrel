@@ -124,6 +124,16 @@ export class HeldApi {
     return list(obj(await this.call('GET', `/held/records?below=${generation}&limit=${limit}`)).records).flatMap((r) => asRecord(r) ?? []);
   }
 
+  /** Records by id, with their bodies (at most 100 at a time); an id the service does not hold is left out. */
+  async readRecords(ids: readonly string[]): Promise<HeldRecord[]> {
+    const out: HeldRecord[] = [];
+    for (let i = 0; i < ids.length; i += 100) {
+      const answer = obj(await this.call('POST', '/held/records/read', { ids: ids.slice(i, i + 100) }));
+      out.push(...list(answer.records).flatMap((r) => asRecord(r) ?? []));
+    }
+    return out;
+  }
+
   async deleteRecord(id: string): Promise<void> {
     await this.call('DELETE', `/held/records/${q(id)}`);
   }

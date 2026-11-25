@@ -67,6 +67,18 @@ export const connectActions = {
     put(view);
     return view !== undefined && view !== null;
   },
+  /** Names this computer ('' is its host name); true when it was stored. */
+  setName: async (name: string) => {
+    const view = await act(() => call<ConnectView>(`${CONNECT_PATH}/name`, { method: 'PATCH', body: JSON.stringify({ name }) }));
+    put(view);
+    return view !== undefined && view !== null;
+  },
+  /** Renames a device of the account (a label only); true when the service took it. */
+  renameDevice: async (id: string, name: string) => {
+    const view = await act(() => call<ConnectView>(`${CONNECT_PATH}/devices/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ name }) }));
+    put(view);
+    return view !== undefined && view !== null;
+  },
   /** Ends a device's access at once, removes it from the account and changes the account key. It cannot be undone, so it asks first. */
   removeDevice: async (id: string, name: string) => {
     if (!window.confirm(`Remove ${name} from your Kestrel Connect account? It can no longer reach this computer, and your account key and recovery key are replaced so it cannot read what is held from now on. To use it again, let it in again.`)) return;

@@ -80,6 +80,22 @@ const SAMPLE: Readonly<Record<string, readonly PullRequest[]>> = {
   'feat/billing-v2': [{ number: 421, title: 'Billing v2: switch reads behind the flag', state: 'open', checks: 'passing', review: 'approved', readiness: 'ready', url: 'https://github.com/example/platform/pull/421' }],
   // Shared with "Background job retries", which is working: its failed checks are held until the turn ends.
   'feat/billing-backfill': [{ number: 406, title: 'Billing v2: backfill existing accounts', state: 'open', checks: 'failing', review: 'review-required', readiness: 'blocked', url: 'https://github.com/example/platform/pull/406', headSha: '9d41c7e2a0b85f63e1d47a2c9b0e8f5d6a3c1b74', failedChecks: [{ name: 'migrate-check', url: 'https://github.com/example/platform/actions/runs/8790/job/24177' }] }],
+  // The "Checkout latency" workstream: each of the three sessions its lead brought in has a request, so
+  // the lead (which has none of its own) shows "3 PRs" in its header, on the workstream's row and on its
+  // page (shared/brought-in-requests.ts). The pricing cache's checks failed.
+  'kestrel/pricing-cache': [{ number: 433, title: 'Cache the pricing lookup per request', state: 'open', checks: 'failing', review: 'review-required', readiness: 'blocked', url: 'https://github.com/example/platform/pull/433', headSha: '7c2e91b04d5af3e8c16b9d20a4f7e85c3b0d1a69', failedChecks: [{ name: 'continuous-integration/jenkins/pr-merge', url: 'https://ci.example.com/job/platform/PR-433/2/display/redirect' }] }],
+  'kestrel/cart-debounce': [{ number: 434, title: 'Debounce cart recalculation', state: 'open', checks: 'running', review: 'review-required', url: 'https://github.com/example/bellbird/pull/434' }],
+  'kestrel/pricing-cache-header': [{ number: 435, title: 'Document the pricing cache header', state: 'draft', checks: 'passing', review: 'none', url: 'https://github.com/example/docs/pull/435' }],
+  // Delegated by "Billing migration" inside its own project: shown under its pill as "1 PR".
+  'feat/billing-reports': [{ number: 436, title: 'Billing v2: usage reports', state: 'open', checks: 'passing', review: 'approved', readiness: 'ready', url: 'https://github.com/example/platform/pull/436' }],
+  // Two more parts "Billing migration" delegated, in the demo only (seed-demo.ts): three requests under its pill.
+  'feat/billing-invoices': [{ number: 437, title: 'Billing v2: invoice export', state: 'open', checks: 'failing', review: 'review-required', readiness: 'blocked', url: 'https://github.com/example/platform/pull/437', headSha: '3f8a1c6e9b2d4075a1e8c3b6d9f2047e5a1c8b3d', failedChecks: [{ name: 'continuous-integration/jenkins/pr-merge', url: 'https://ci.example.com/job/platform/PR-437/1/display/redirect' }] }],
+  'feat/billing-proration': [{ number: 438, title: 'Billing v2: proration', state: 'open', checks: 'running', review: 'review-required', url: 'https://github.com/example/platform/pull/438' }],
+  // The "Usage-based pricing" workstream, in the demo only: the lead's own request, and two of its three
+  // sessions' (one ready, one with failed checks); the third has none.
+  'feat/usage-pricing': [{ number: 439, title: 'Usage-based pricing: meter usage per account', state: 'open', checks: 'passing', review: 'review-required', url: 'https://github.com/example/platform/pull/439' }],
+  'feat/usage-plan-picker': [{ number: 440, title: 'Plan picker for usage-based pricing', state: 'open', checks: 'passing', review: 'approved', readiness: 'ready', url: 'https://github.com/example/bellbird/pull/440' }],
+  'docs/usage-pricing-page': [{ number: 441, title: 'Pricing page for usage-based plans', state: 'open', checks: 'failing', review: 'review-required', readiness: 'blocked', url: 'https://github.com/example/docs/pull/441', headSha: '5b2e8d1f7a3c9e04b6d2f8a1c7e3b9d05f4a2c6e', failedChecks: [{ name: 'continuous-integration/jenkins/pr-merge', url: 'https://ci.example.com/job/docs/PR-441/1/display/redirect' }] }],
   'feat/billing-schema': [{ number: 388, title: 'Billing v2: add the billing tables', state: 'merged', checks: 'passing', review: 'approved', url: 'https://github.com/example/platform/pull/388' }],
 };
 

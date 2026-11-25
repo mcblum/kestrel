@@ -1,4 +1,5 @@
 // The in-memory record of one live session, and the small pure helpers around it.
+import type { McpServerState } from '../shared/mcp-servers.ts';
 import type { Guest, Review } from '../shared/worktree-guests.ts';
 import type { RoleRun } from '../shared/who-does-what.ts';
 import type { SlashCommand } from '../shared/slash-commands.ts';
@@ -19,6 +20,8 @@ export interface Live {
   agentOutput: string;
   kestrelTools: SessionDetail['kestrelTools'];
   kestrelMissing: string[];
+  /** Kestrel's own MCP servers as the agent reported them at its last start. */
+  mcpServers: McpServerState[];
   agentSessionId: string | null;
   handle: AgentHandle | null;
   base: string | null;
@@ -114,6 +117,7 @@ export function newRecord(stored: Partial<Live> | null, base: string | null): Li
     agentOutput: '',
     kestrelTools: 'unknown',
     kestrelMissing: [],
+    mcpServers: [],
     agentSessionId: null,
     handle: null,
     base,

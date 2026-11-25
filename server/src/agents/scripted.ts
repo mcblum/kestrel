@@ -345,10 +345,12 @@ export function gotAttachments(files: readonly AgentAttachment[]): string {
 /** The scripted title: no model, "Scripted: " and the prompt's first three words, so the rename can be seen. */
 export const scriptedTitle = async (prompt: string): Promise<string> => `Scripted: ${prompt.trim().split(/\s+/).slice(0, 3).join(' ')}`;
 
+// SAMPLE: the demo's stand-in models (`pnpm demo`, or KESTREL_FAKE with KESTREL_SCRIPTED_AGENT): named so
+// nobody takes them for a real choice. A real copy never has this adapter (index.ts `scripted`).
 export function scriptedAdapter(): AgentAdapter {
   return {
     agent: 'claude',
-    models: async () => ({ models: [{ id: '', label: 'Default' }, { id: 'scripted-big', label: 'Scripted (big)' }], fromSdk: false }),
+    models: async () => ({ models: [{ id: '', label: 'Sample model' }, { id: 'scripted-big', label: 'Sample model (big)' }], fromSdk: false }),
     // SAMPLE: so the new-session box has a list to offer on "/" without a real agent.
     slashCommands: async () => [...SAMPLE_SLASH_COMMANDS],
     start(options, prompt, emit, attachments) {

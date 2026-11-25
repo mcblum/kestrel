@@ -19,6 +19,10 @@ export interface PullRequestDraft {
   body: string;
   base: string;
   draft: boolean;
+  /** Autopilot for the new request (pr-autopilot.md): absent until the user changes it, so Settings → Git → Autopilot decides. */
+  autopilotOn?: boolean;
+  /** Its "Merge it when it is green", likewise. */
+  autopilotMerge?: boolean;
 }
 
 /** Where the New PR form is: asking the server for its pre-fill, being edited, or being created. */

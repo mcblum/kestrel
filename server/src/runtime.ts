@@ -19,6 +19,7 @@
 // (handoff, delegate, spawn), `display.ts` (widgets, files, next steps and pictures shown in the
 // conversation), `suggestions/` (optional actions the agent drops in), `browser-tools.ts` (the browser
 // pane, driven through the window that shows it) and `sim-tools.ts` (the iOS Simulator, driven by the server itself).
+import type { McpServerStore } from './mcp-servers/store.ts';
 import { finishedProposal, pullRequestProposals } from './tickets/moments.ts';
 import { sameTag } from './shared/tags.ts';
 import { commentOnPR } from './pull-requests/create.ts';
@@ -63,7 +64,7 @@ import { editVerdict, optionsFor, startOptions } from './runtime/agent-options.t
 import { BackgroundWork } from './runtime/background.ts';
 import { launchChild, loadRecord, startSession, type StartRequest } from './runtime/bring-up.ts';
 import { githubByNumber, gitlabByNumber } from './pull-requests/by-number.ts';
-import { git, originUrl } from './git.ts';
+import { commitIsHere, git, originUrl } from './git.ts';
 import { startReview, type StartReviewOptions } from './review-requests/start.ts';
 import type { ReviewingComments } from './review-requests/reviewing.ts';
 import { ReviewReplies } from './review-requests/reply.ts';
@@ -78,6 +79,11 @@ import { TICKET_KIND, ticketKind } from './suggestions/ticket-kind.ts';
 import { TICKET_WORK_KIND, ticketWorkKind } from './suggestions/ticket-work-kind.ts';
 import { REQUEST_KIND, requestKind } from './suggestions/request-kind.ts';
 import { AttentionWatch } from './pull-requests/attention-watch.ts';
+import { Autopilot } from './pull-requests/autopilot.ts';
+import { mergeWhenGreen } from './pull-requests/merge-api.ts';
+import type { AutopilotChoice } from './pull-requests/create-api.ts';
+import { AUTOPILOT_KIND, autopilotKind } from './suggestions/autopilot-kind.ts';
+import { isWanted } from './shared/autopilot.ts';
 import type { PullRequestStore } from './pull-requests/store.ts';
 import { requestAttention } from './shared/request-attention.ts';
 import { ticketMention } from './shared/ticket-mention.ts';
@@ -155,6 +161,8 @@ export class SessionRuntime implements McpSessions {
   /** The PR store, once handed over (`watchRequestAttention`): what the failed-checks card reads. */
   private requestStore: PullRequestStore | null = null;
   private attentionWatch: AttentionWatch | null = null;
+  /** Autopilot for sessions' pull requests (pull-requests/autopilot.ts); made with the PR store. */
+  autopilot: Autopilot | null = null;
   /** Adds a comment to a pull request (pull-requests/create.ts `commentOnPR`); tests pass their own. */
   private readonly requestComment: NonNullable<RuntimeOptions['requestComment']>;
   /** Settings → Git: the branch name prefix new worktrees get (git-settings/prefs.ts). */
@@ -169,6 +177,7 @@ export class SessionRuntime implements McpSessions {
   readonly projectScripts: ScriptsHost;
   /** Variables, .env files and files copied into new worktrees (project-env/prefs.ts). */
   readonly projectEnv: ProjectEnvPrefs;
+  readonly mcpServers: McpServerStore | null;
   /** Each project's saved actions (saved-actions/prefs.ts); run from a Terminal pane (terminal-socket.ts). */
   readonly savedActions: SavedActionsPrefs;
   /** Each project's base branch and remote (git-defaults/prefs.ts). */
@@ -347,6 +356,15 @@ export class SessionRuntime implements McpSessions {
           prefs: () => this.gitPrefs.attention(),
           stopOffering: (reason) => this.gitPrefs.setAttention({ reason, card: 'never' }),
         }),
+        autopilotKind({
+          prefs: () => this.gitPrefs.autopilot(),
+          turnOn: (id, merge, number) => this.autopilotOrThrow().turnOn(id, merge, number),
+          stopOffering: () => this.gitPrefs.setAutopilot({ offer: false }),
+          asks: async (id) => {
+            const session = (await this.workspace.state()).sessions.find((s) => s.id === id);
+            return session ? (await this.recordFor(session))?.settings.permission === 'ask' : false;
+          },
+        }),
         ticketWorkKind({
           attach: (id, key, from) => this.ticketTaken(id, key, from),
           detach: (id, key) => this.tickets.detach(id, key),
@@ -355,7 +373,11 @@ export class SessionRuntime implements McpSessions {
       ],
     });
     this.stopReviewOffer = workspace.onRequestLinked((id, link) => {
-      this.offerReview(id, link);
+      const fromForm = this.formRequests.has(id);
+      const formChoice = this.formRequests.get(id) ?? null;
+      this.formRequests.delete(id);
+      this.offerReview(id, link, fromForm);
+      void this.offerAutopilot(id, link, fromForm, formChoice).catch((error: unknown) => console.error('[kestrel] could not offer Autopilot', error));
       void this.proposeTicketPullRequest(id, link).catch((error: unknown) => console.error('[kestrel] could not propose the ticket’s review', error));
     });
     this.gitPrefs = new GitPrefs(opts.git);
@@ -364,6 +386,7 @@ export class SessionRuntime implements McpSessions {
     this.remoteStarts = new RemoteStarts(opts.remoteStarts);
     this.startBase = new StartBase(opts.startBase);
     this.projectEnv = new ProjectEnvPrefs(opts.projectEnv);
+    this.mcpServers = opts.mcpServers ?? null;
     this.savedActions = new SavedActionsPrefs(opts.savedActions);
     this.gitDefaults = new GitDefaultsPrefs(opts.gitDefaults);
     this.notifications = new NotifyPrefsStore(opts.notifications);
@@ -422,6 +445,7 @@ export class SessionRuntime implements McpSessions {
       startBase: this.startBase,
       projectScripts: this.projectScripts,
       projectEnv: this.projectEnv,
+      mcpServers: this.mcpServers,
       whoDoesWhat: this.whoDoesWhat,
       gitDefaults: this.gitDefaults,
       sandboxAllow: this.sandboxAllow,
@@ -560,7 +584,7 @@ export class SessionRuntime implements McpSessions {
     // A session with no agent behind it can still show sample background work. The live state the
     // window builds from this stands in for the stored conversation, so that goes along too.
     if (!(await this.recordFor(session))) return backgroundTasks.length > 0 ? { ...(await this.storedSnapshot(sessionId, backgroundTasks)), commands: this.commands.list(sessionId) } : null;
-    const { messages, files, agentOutput, kestrelTools, kestrelMissing, settings, queue } = this.overlay(sessionId)!;
+    const { messages, files, agentOutput, kestrelTools, kestrelMissing, mcpServers, settings, queue } = this.overlay(sessionId)!;
     const rec = this.records.get(sessionId)!;
     // A session with no command list yet (it last ran before Kestrel kept one, or the list was empty)
     // is asked for one now, without a turn, so "/" works as soon as it is opened.
@@ -568,7 +592,7 @@ export class SessionRuntime implements McpSessions {
     // Opening a session looks at its worktree again: files changed outside a turn (in the terminal,
     // or before a base was recovered for a branch made inside the worktree) show without waiting for one.
     this.upkeep.scheduleRefresh(sessionId, rec);
-    return { messages, files, filesProblem: rec.filesProblem, agentOutput, kestrelTools, kestrelMissing, settings, queue, subagents: rec.subagents, subagentsAfter: rec.subagentsAfter, backgroundTasks, commands: this.commands.list(sessionId), slashCommands: rec.slashCommands };
+    return { messages, files, filesProblem: rec.filesProblem, agentOutput, kestrelTools, kestrelMissing, mcpServers, settings, queue, subagents: rec.subagents, subagentsAfter: rec.subagentsAfter, backgroundTasks, commands: this.commands.list(sessionId), slashCommands: rec.slashCommands };
   }
 
   /** What is stored for a session with no agent behind it, with its (sample) background work. */
@@ -578,13 +602,13 @@ export class SessionRuntime implements McpSessions {
     const { files, agentOutput, kestrelTools } = stored;
     // Sample messages have no ids; a window that watches twice must replace them, not add them again.
     const messages = stored.messages.map((m, i) => (m.id === undefined ? { ...m, id: `stored-${i}` } : m));
-    return { messages, files, agentOutput, kestrelTools, kestrelMissing: stored.kestrelMissing ?? [], backgroundTasks };
+    return { messages, files, agentOutput, kestrelTools, kestrelMissing: stored.kestrelMissing ?? [], ...(stored.mcpServers ? { mcpServers: stored.mcpServers } : {}), backgroundTasks };
   }
 
   /** The in-memory state of a live session, if it has one; newer than what is stored. */
-  overlay(sessionId: string): Pick<SessionDetail, 'messages' | 'files' | 'agentOutput' | 'kestrelTools' | 'kestrelMissing' | 'agentSessionId' | 'settings' | 'queue' | 'usage'> | null {
+  overlay(sessionId: string): Pick<SessionDetail, 'messages' | 'files' | 'agentOutput' | 'kestrelTools' | 'kestrelMissing' | 'mcpServers' | 'agentSessionId' | 'settings' | 'queue' | 'usage'> | null {
     const rec = this.records.get(sessionId);
-    return rec ? { messages: rec.messages, files: rec.files, agentOutput: rec.agentOutput, kestrelTools: rec.kestrelTools, kestrelMissing: rec.kestrelMissing, agentSessionId: rec.agentSessionId, settings: rec.settings, queue: rec.queue, ...(rec.usage ? { usage: rec.usage } : {}) } : null;
+    return rec ? { messages: rec.messages, files: rec.files, agentOutput: rec.agentOutput, kestrelTools: rec.kestrelTools, kestrelMissing: rec.kestrelMissing, mcpServers: rec.mcpServers, agentSessionId: rec.agentSessionId, settings: rec.settings, queue: rec.queue, ...(rec.usage ? { usage: rec.usage } : {}) } : null;
   }
 
   /** Resolves when every queued side effect for the session has run. For tests and shutdown. */
@@ -691,6 +715,8 @@ export class SessionRuntime implements McpSessions {
    */
   async reply(sessionId: string, text: string, change: Partial<SessionSettings> = {}, opts: ReplyOptions = {}): Promise<'sent' | 'delivered' | 'queued'> {
     if (opts.notice || opts.fromAgent) return reply(this.host, sessionId, text, change, opts);
+    // The user's own message makes the session theirs again (docs/designs/pr-autopilot.md).
+    if (!opts.autopilot) await this.autopilot?.userSpoke(sessionId);
     const mention = await this.ticketMentioned(sessionId, text).catch(() => null);
     // The ticket goes to the agent with the turn this message starts (or the next one, when it joins a running turn).
     const session = mention?.context ? (await this.workspace.state()).sessions.find((s) => s.id === sessionId) : undefined;
@@ -842,7 +868,8 @@ export class SessionRuntime implements McpSessions {
   }
 
   /** Stop a running turn, or abandon a start still under way (runtime/turns.ts). */
-  stop(sessionId: string): Promise<void> {
+  async stop(sessionId: string): Promise<void> {
+    await this.autopilot?.userSpoke(sessionId);
     return stopTurn(this.host, sessionId);
   }
 
@@ -977,7 +1004,7 @@ export class SessionRuntime implements McpSessions {
    * and Settings → Git (pull-requests/attention-watch.ts).
    * Called once, by the server, with the one store.
    */
-  watchRequestAttention(store: PullRequestStore): AttentionWatch {
+  watchRequestAttention(store: PullRequestStore, sample = false): AttentionWatch {
     this.requestStore = store;
     this.attentionWatch?.stop();
     this.attentionWatch = new AttentionWatch({
@@ -990,12 +1017,31 @@ export class SessionRuntime implements McpSessions {
       },
       raise: (id, card) => this.suggestions.suggest(id, { kind: REQUEST_KIND, ...card }),
       withdraw: (id, line) => this.suggestions.settle(id, REQUEST_KIND, (payload) => line(payload) !== null, (payload) => line(payload) ?? ''),
+      autopilotOn: (id) => this.autopilot?.isOn(id) ?? false,
+    });
+    this.autopilot?.stop();
+    this.autopilot = new Autopilot({
+      sessions: async () => (await this.workspace.state()).sessions,
+      lookup: (id) => store.peek(id),
+      attention: () => this.gitPrefs.attention(),
+      prefs: () => this.gitPrefs.autopilot(),
+      save: (id, record) => this.workspace.setAutopilot(id, record),
+      send: (id, text) => this.reply(id, text, {}, { autopilot: true }),
+      // Sample requests are made up: a merge of one could reach a real repository's request of the same number.
+      merge: (id, pr) => (sample ? Promise.reject(new Error('merging is unavailable for sample pull requests')) : mergeWhenGreen(this.workspace, store, id, pr.number)),
+      notice: (id, text, level) => this.notice(id, text, level),
+      madeHere: (session, sha) => commitIsHere(session.worktreePath, sha),
+      onChange: (listener) => {
+        const offs = [this.workspace.onChange(listener), store.onChange(() => listener())];
+        return () => offs.forEach((off) => off());
+      },
     });
     return this.attentionWatch;
   }
 
   async shutdown(): Promise<void> {
     this.attentionWatch?.stop();
+    this.autopilot?.stop();
     this.stopKeepAwake();
     this.stopReviewOffer();
     this.stopMergeCleanup();
@@ -1148,19 +1194,52 @@ export class SessionRuntime implements McpSessions {
     return `${link.host === 'gitlab' ? '!' : '#'}${link.number}`;
   }
 
-  /** Sessions whose pull request the Create form just made: the user was asked about a review there. */
-  private readonly formRequests = new Set<string>();
+  /** Sessions whose pull request the Create form just made: the user was asked about a review and Autopilot there, and what they said of Autopilot. */
+  private readonly formRequests = new Map<string, AutopilotChoice | null>();
 
   /** The Create pull request form made a request for this session (pull-requests/create-api.ts). */
-  noteFormRequest(sessionId: string): void {
-    this.formRequests.add(sessionId);
+  noteFormRequest(sessionId: string, autopilot: AutopilotChoice | null = null): void {
+    this.formRequests.set(sessionId, autopilot);
   }
 
   /** A request was linked to a session: when its agent opened it, the user is offered a review (suggestions/review-kind.ts). */
-  private offerReview(sessionId: string, link: RequestLink): void {
-    if (this.formRequests.delete(sessionId)) return;
+  private offerReview(sessionId: string, link: RequestLink, fromForm: boolean): void {
+    if (fromForm) return;
     if (link.state !== 'open' && link.state !== 'draft') return;
     void this.suggestions.suggest(sessionId, { kind: REVIEW_KIND });
+  }
+
+  /**
+   * A request was linked to a session: Autopilot is offered on a card (suggestions/autopilot-kind.ts),
+   * or turned on at once where the user chose Always in Settings → Git → Autopilot. Not when the Create
+   * pull request form already asked, nor for a guest (its host owns the request).
+   */
+  private async offerAutopilot(sessionId: string, link: RequestLink, fromForm: boolean, formChoice: AutopilotChoice | null): Promise<void> {
+    if (link.state !== 'open' && link.state !== 'draft') return;
+    const session = (await this.workspace.state()).sessions.find((s) => s.id === sessionId);
+    if (!session || session.hostId || session.review) return;
+    // The form's answer stands: it was shown the session's own choice to begin with.
+    if (formChoice) {
+      if (formChoice.on) await this.autopilotOrThrow().turnOn(sessionId, formChoice.merge, link.number);
+      else await this.autopilot?.turnOff(sessionId);
+      return;
+    }
+    // Turned on beforehand (Session Details, the pill): it starts here, and nothing is asked.
+    if (isWanted(session.autopilot)) {
+      if (session.autopilot.waiting) await this.autopilotOrThrow().turnOn(sessionId, session.autopilot.merge, link.number);
+      return;
+    }
+    const prefs = await this.gitPrefs.autopilot();
+    if (prefs.always) {
+      await this.autopilotOrThrow().turnOn(sessionId, prefs.merge, link.number);
+      return;
+    }
+    if (prefs.offer && !fromForm) await this.suggestions.suggest(sessionId, { kind: AUTOPILOT_KIND, host: link.host, number: link.number });
+  }
+
+  private autopilotOrThrow(): Autopilot {
+    if (!this.autopilot) throw new Refused('Autopilot is not running yet: Kestrel has not started watching pull requests.');
+    return this.autopilot;
   }
 
   /** Review sessions whose approval was posted while they were on a turn or waiting on the user, by the request's name: the archive offer comes when the turn ends. */

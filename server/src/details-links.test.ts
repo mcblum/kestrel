@@ -115,7 +115,7 @@ describe('the sample data', () => {
     expect(statusOf(named('Draft release notes'))).toBe('done');
     // The host's request, which its guest opened in its worktree, is the host's to review; the guest is Done.
     expect(statusOf(named('Restyle the sign-in inputs'))).toBe('done');
-    expect(sessions.filter((s) => statusOf(s) === 'review').map((s) => s.title).sort()).toEqual(['Fix partial writes in the search index', 'Polish the sign-in form']);
+    expect(sessions.filter((s) => statusOf(s) === 'review').map((s) => s.title).sort()).toEqual(['Billing v2: usage reports', 'Fix partial writes in the search index', 'Polish the sign-in form']);
   });
 
   it('gives "Billing migration" its current request and two from earlier branches', async () => {

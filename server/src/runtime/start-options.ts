@@ -6,10 +6,12 @@ import { kestrelToolName } from '../agents/claude/map.ts';
 import { standingInstruction, type InstructionContext } from '../agents/instruction.ts';
 import type { InputRequest, StartOptions } from '../agents/types.ts';
 import { userMcpServers } from '../claude-config.ts';
+import { sessionServers } from '../mcp-servers/session.ts';
+import type { McpServerStore } from '../mcp-servers/store.ts';
+import type { DiscoveredServer } from '../shared/setup.ts';
 import type { ChildOrigin } from '../delegation.ts';
 import type { Project, ProjectFolder, Session, SessionSettings } from '../model.ts';
 import { folderName, repositoryLabel, resolveStartedFolder } from '../shared/project-folders.ts';
-import { enabledServers } from '../shared/setup.ts';
 import { tagCounts } from '../shared/tags.ts';
 import { turnUnderWay } from '../shared/turns.ts';
 import { CUT_OFF_STEP, cutOffNews, survives } from '../shared/waiting-steps.ts';
@@ -33,6 +35,10 @@ export interface StartRequestParts {
   who?: WhoDoesWhat;
   /** The session's attachments folder (attachments/store.ts): always readable. */
   attachmentsDir?: string;
+  /** Kestrel's own list of MCP servers (mcp-servers/); absent: only the servers found in the agents' files. */
+  mcpServers?: McpServerStore | null;
+  /** Reads the servers in the agents' own files; tests pass a stand-in. */
+  discover?: (projectPath: string | null) => DiscoveredServer[];
 }
 
 /** Options for an agent: where it works, what it may do, and the tools and instruction Kestrel gives it. */
@@ -47,10 +53,13 @@ export async function agentStartOptions(workspace: Workspace, req: StartRequestP
   const workspaceKind: InstructionContext['workspace'] = readOnly ? { kind: 'read-only', noProject: folder === null } : folder === null ? { kind: 'scratch' } : branch ? { kind: 'worktree', branch } : { kind: 'folder' };
   // A session another session started (handoff or delegate) is confined and told so. A fork is not.
   const link = startLinkOf(sessionId, state.links);
-  // The user's own Claude Code setup: their instructions and skills, and the MCP servers they
-  // switched on, from the project's own setup or the defaults. A session with no project uses the defaults.
+  // The user's own Claude Code setup: their instructions and skills, from the project's own setup or
+  // the defaults. A session with no project uses the defaults. Its MCP servers, Kestrel's and those
+  // found in the agents' files, follow mcp-servers/session.ts: a child gets its starter's, a review of
+  // somebody else's pull request the default set.
   const { setup: chosen } = await workspace.projectSetup(project?.id ?? null);
-  const setup = { loadSettings: chosen.loadSettings, inProject: folder !== null, mcpServers: enabledServers(chosen, userMcpServers(folder?.path ?? null)) };
+  const servers = await sessionServers(workspace, req.mcpServers ?? null, sessionId, { project, folder }, req.discover ?? userMcpServers);
+  const setup = { loadSettings: chosen.loadSettings, inProject: folder !== null, mcpServers: servers.mcpServers, ...(servers.handed.length ? { kestrelServers: servers.handed } : {}) };
   return {
     directory,
     setup,

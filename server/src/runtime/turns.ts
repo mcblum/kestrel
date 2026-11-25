@@ -24,6 +24,8 @@ export interface ReplyOptions {
   draft?: DraftRefs | null;
   /** Sent by another session (`ask_session`), not typed by the user. */
   fromAgent?: boolean;
+  /** Sent by Autopilot as a round (pull-requests/autopilot.ts): not the user taking over. */
+  autopilot?: boolean;
 }
 
 /** The session and its live record, refused with the reason when it has no agent behind it. */

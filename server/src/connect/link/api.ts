@@ -14,11 +14,15 @@
 //   POST   /api/connect/requests/:id/code { code }  200 ConnectView: the code shown on the device; right lets it in | 400 | 409
 //   POST   /api/connect/requests/:id/refuse    200 ConnectView: Not me | 409
 //   POST   /api/connect/requests/:id/dismiss   200 ConnectView: the second code was typed; stop showing it | 409
+//   PATCH  /api/connect/name  { name }    200 ConnectView: this computer's name ('' is its host name); kept here, sent to the service when it can be | 400 | 409
+//   PATCH  /api/connect/devices/:id { name }  200 ConnectView: renames a device of the account (a label only) | 400 | 409
 //   DELETE /api/connect/devices/:id            200 ConnectView: that device's access ends at once, it leaves the account, the key rotates | 409
 //   PATCH  /api/connect/held  { keptOff?, attachments? }  200 ConnectView: what is no longer held is deleted | 400 | 409
 //   GET    /api/connect/recovery               200 { words }: from this computer, which holds the key | 409
 //   POST   /api/connect/recovery  { words }    200 ConnectView: this computer is let in with the words | 409
 //   POST   /api/connect/recovery/put-away      200 ConnectView: the new words were written down
+//   GET    /api/connect/setup                  200 SetupList: Set up this computer, built from every computer's set-up record | 409
+//   POST   /api/connect/setup/record           204: Connections was opened; this computer's set-up record is written again if it changed
 import { Refused } from '../../refused.ts';
 import type { KestrelConnect } from './connect.ts';
 
@@ -54,6 +58,14 @@ export async function connectRoute(parts: readonly string[], method: string, rea
       if (typeof body.code !== 'string') return { status: 400, body: { error: 'code must be the six digits shown on the other device.' } };
       return { status: 200, body: await connect.typeCode(id, body.code) };
     }
+    if (parts[2] === 'setup') {
+      if (parts.length === 3 && method === 'GET') return { status: 200, body: await connect.setupList() };
+      if (parts.length === 4 && parts[3] === 'record' && method === 'POST') {
+        connect.setupRefresh();
+        return { status: 204 };
+      }
+      return null;
+    }
     if (parts.length > 4) return null;
     if (parts.length !== 3 && parts[2] !== 'devices') return null;
     if (parts[2] === 'held' && method === 'PATCH') {
@@ -74,6 +86,13 @@ export async function connectRoute(parts: readonly string[], method: string, rea
       return { status: 204 };
     }
     if (parts[2] === 'sign-out' && method === 'POST' && parts.length === 3) return { status: 200, body: await connect.signOut() };
+    if ((parts[2] === 'name' && parts.length === 3) || (parts[2] === 'devices' && parts.length === 4)) {
+      if (method === 'PATCH') {
+        const body = await readBody();
+        if (typeof body.name !== 'string') return { status: 400, body: { error: 'name must be text.' } };
+        return { status: 200, body: parts[2] === 'name' ? await connect.setComputerName(body.name) : await connect.renameDevice(parts[3] as string, body.name) };
+      }
+    }
     if (parts[2] === 'devices' && parts.length === 4 && method === 'DELETE') return { status: 200, body: await connect.removeDevice(parts[3] as string) };
     return null;
   } catch (error) {

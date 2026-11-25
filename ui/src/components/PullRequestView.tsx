@@ -19,6 +19,11 @@ export interface PullRequestSummaryProps {
   /** The session, where merging is possible. */
   sessionId?: string;
   onRefresh?: () => void;
+  /** The smaller size of either pill (the requests of the sessions a session brought in). */
+  compact?: boolean;
+  /** For a group whose requests are other sessions': the session each belongs to, named in its row. */
+  sessionOf?: (pr: PullRequest) => string | undefined;
+  popoverLabel?: string;
 }
 
 /** One request: one pill. More than one: the group pill with its popover (PullRequestGroup.tsx). */
@@ -29,16 +34,17 @@ export function PullRequestSummary(props: PullRequestSummaryProps) {
 }
 
 /** Separate internal navigation, external navigation, and status/action targets. */
-function SinglePullRequest({ value, onOpen, sessionId, onRefresh }: PullRequestSummaryProps) {
+function SinglePullRequest({ value, onOpen, sessionId, onRefresh, compact = false, sessionOf }: PullRequestSummaryProps) {
   const merge = useMergeConfirmation(sessionId, onRefresh);
   const pr = value.state === 'ready' ? primaryPullRequest(value.value.pullRequests) : undefined;
   if (!pr) return merge.confirmation;
   const parts = requestParts({ pr, terms: hostTerms(lookupHost(value)), onOpen, onMerge: merge.onMerge });
   return <>
-    <span className={`pr-summary pr-tone-${pullRequestStatus(pr).tone}`}>{parts.number}{parts.external}{parts.status}</span>
+    <span className={`pr-summary pr-tone-${pullRequestStatus(pr).tone}${compact ? ' compact' : ''}`} title={sessionOf?.(pr)}>{parts.number}{parts.external}{parts.status}</span>
     {merge.confirmation}
   </>;
 }
+
 
 const CHECKS = { passing: 'Passing', failing: 'Failed', running: 'Running', none: 'No checks reported' };
 const REVIEWS = { approved: 'Approved', 'changes-requested': 'Changes requested', 'review-required': 'Review required', none: 'No review reported' };

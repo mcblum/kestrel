@@ -1,0 +1,41 @@
+/* The open requests of the sessions a session brought in (BroughtInRequests.tsx): the sidebar's
+   icon-and-number mark. The pill on the workstream's page is the request pill at its compact size
+   (pull-request.css, pull-request-group.css). */
+
+/* The sidebar's mark: the request icon and how many, in a small grey pill; the request mark's red and its
+   cross when one needs the user (pr-tone-red on the face, so no row rule overrides it). */
+.kestrel .brought-in-mark { display: inline-flex; flex: none; align-items: center; padding: 0 4px 1px 3px; font-size: 9.5px; line-height: 13px; color: var(--s-label, var(--s-muted)); border: 1px solid var(--s-line); border-radius: 4px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.kestrel .brought-in-face { display: inline-flex; align-items: center; gap: 3px; }
+.kestrel .brought-in-icon { position: relative; display: inline-grid; place-items: center; width: 10px; height: 10px; }
+.kestrel .brought-in-icon > svg { width: 10px; height: 10px; }
+.kestrel .brought-in-icon > .brought-in-alert { position: absolute; right: -4px; bottom: -3px; width: 7px; height: 7px; stroke-width: 3.5; background: var(--s-bg); border-radius: 50%; }
+
+/* The family chip in a session's header (FamilyChip.tsx): the workstream chip's shape, neutral, one line
+   of at most 280px. The name gives way first; the counts stay whole. Its caret sits one gap after them. */
+.kestrel .family-chip { gap: 5px; padding: 0 8px; border: 0; cursor: pointer; font: inherit; font-size: 11px; max-width: 280px; min-width: 0; }
+.kestrel .family-chip svg { width: 11px; height: 11px; flex: none; color: var(--s-muted); }
+.kestrel .family-chip-name { flex: 0 1 auto; min-width: 4ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .family-chip-count { flex: none; color: var(--s-muted); white-space: nowrap; }
+.kestrel .family-chip-caret::after { content: '▾'; font-size: 9px; color: var(--s-muted); }
+.kestrel .family-chip:hover, .kestrel .family-chip[aria-expanded='true'] { background: color-mix(in srgb, var(--s-muted) 22%, transparent); }
+.kestrel .session-head .bar-line-where > .family-chip-host { flex: 0 1 auto; min-width: 0; display: flex; }
+
+/* Its menu: the app's menu surface at one width, as tall as the family. Each row is two lines (the session's
+   name, then its request or its working state). The lead first, then the rest one level under it, each joined
+   by the sidebar's elbow to the line of the name above. The row of this session has the selected look. */
+.kestrel .family-menu { position: fixed; z-index: 40; width: 360px; max-width: calc(100vw - 32px); max-height: 60vh; overflow-y: auto; }
+.kestrel .family-row { --family-row: 40px; --family-name-mid: 11px; display: flex; align-items: center; border-radius: 5px; }
+.kestrel .family-row .menu-item { display: grid; flex: 1; min-width: 0; height: var(--family-row); padding-block: 4px; gap: 1px; align-content: center; }
+.kestrel .family-row.current { background: var(--s-soft); }
+.kestrel .family-row.child .menu-item { padding-left: 27px; }
+.kestrel .family-row.child::before { content: ''; position: absolute; left: 14px; top: calc(var(--family-name-mid) - var(--family-row)); width: 8px; height: var(--family-row); border-left: 1px solid var(--elbow-line); border-bottom: 1px solid var(--elbow-line); border-bottom-left-radius: 4px; pointer-events: none; }
+.kestrel .family-row .family-row-name { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.kestrel .family-row .family-row-title { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .family-row .family-row-tag { flex: none; }
+.kestrel .family-row .family-row-state { display: flex; align-items: center; gap: 5px; min-width: 0; color: var(--s-muted); font-size: 11px; white-space: nowrap; }
+.kestrel .family-row .family-row-state > span:not(.card-pr-icon) { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.kestrel .family-row .card-pr-icon { flex: none; width: 12px; height: 12px; }
+.kestrel .family-row .card-pr-icon > svg:not(.row-icon-alert) { width: 12px; height: 12px; }
+.kestrel .family-row-link { display: grid; place-items: center; flex: none; width: 24px; height: 24px; margin-right: 4px; border-radius: 5px; color: var(--s-muted); }
+.kestrel .family-row-link:hover, .kestrel .family-row-link:focus-visible { background: color-mix(in srgb, var(--s-muted) 22%, transparent); color: var(--s-ink); outline: 0; }
+.kestrel .family-row-link svg { width: 12px; height: 12px; }

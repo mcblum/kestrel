@@ -197,6 +197,12 @@ export async function seedFakeWorkspace(ws: Workspace, paths: Readonly<Record<st
   );
   // Requests it opened on branches it was on before: still listed with the one on its branch now (fake.ts).
   await ws.recordRequests(SAMPLE_LINKED_SESSION, SAMPLE_EARLIER_LINKS);
+  // It delegated one part inside its own project, so no workstream: the child's request shows as "1 PR"
+  // under Billing migration's own pill (shared/brought-in-requests.ts).
+  const { children: [reports] } = await ws.delegate('billing', [{ projectId: 'platform', brief: 'Billing v2: usage reports' }]);
+  await ws.attachWorktree(reports!.id, { path: wt('platform', 'billing-reports'), branch: 'feat/billing-reports' });
+  await ws.setLandedIn(reports!.id, 'platform');
+  await ws.setState(reports!.id, 'done', '1 file changed · Tests passed');
   await add(
     { id: 'shortcuts', title: 'Keyboard shortcuts', agent: 'codex', project: 'bellbird', state: 'done', note: '12 files changed · Tests passed', branch: 'feat/shortcuts' },
     {

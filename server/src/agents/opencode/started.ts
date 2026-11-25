@@ -7,6 +7,7 @@ import { KESTREL_TOOLS, type AgentEvent, type StartOptions } from '../types.ts';
 import type { OpencodeClient } from './client.ts';
 import { KESTREL_SERVER } from './config.ts';
 import { configuredModel } from './models.ts';
+import { serverStates, type AgentServerReport, type HandedServer, type McpServerState } from '../../shared/mcp-servers.ts';
 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -31,12 +32,27 @@ export function toolsStatus(status: unknown, expected: string[]): Pick<Extract<A
   return { kestrelTools: 'missing', missing: expected, detail: detail ? `${why} ${detail}` : why };
 }
 
+/** OpenCode's word for a server's state (`mcp.status`), as Kestrel's. */
+const OPENCODE_STATE: Record<string, AgentServerReport['state']> = { connected: 'connected', failed: 'failed', disabled: 'failed', needs_auth: 'needs-sign-in', needs_client_registration: 'needs-sign-in' };
+
+/** Kestrel's own servers in an OpenCode session, from OpenCode's `mcp.status`. Pure. */
+export function opencodeServerStates(status: unknown, handed: readonly HandedServer[]): McpServerState[] {
+  const reports = new Map<string, AgentServerReport>();
+  for (const [name, s] of Object.entries(isObj(status) ? status : {})) {
+    if (!isObj(s)) continue;
+    const reason = str(s.error) || (s.status === 'disabled' ? 'OpenCode has it switched off.' : '');
+    reports.set(name, { state: OPENCODE_STATE[str(s.status)] ?? 'unknown', ...(reason ? { reason } : {}) });
+  }
+  return serverStates(handed, 'opencode', reports);
+}
+
 export async function startedEvent(client: OpencodeClient, sessionID: string, opts: StartOptions): Promise<AgentEvent> {
   const expected = expectedTools(opts);
   const config = opts.model ? null : await client.config.get().then((r) => r.data, () => null);
   const model = opts.model || configuredModel(config) || '';
-  const base = { type: 'started' as const, agentSessionId: sessionID, model };
+  const handed = opts.setup?.kestrelServers;
+  const status = opts.kestrelMcp || handed?.length ? await client.mcp.status().then((r) => r.data, () => null) : null;
+  const base = { type: 'started' as const, agentSessionId: sessionID, model, ...(handed?.length ? { mcpServers: opencodeServerStates(status, handed) } : {}) };
   if (!opts.kestrelMcp) return { ...base, kestrelTools: 'missing', missing: expected, detail: 'Kestrel did not give this session its tools.' };
-  const status = await client.mcp.status().then((r) => r.data, () => null);
   return { ...base, ...toolsStatus(status, expected) };
 }

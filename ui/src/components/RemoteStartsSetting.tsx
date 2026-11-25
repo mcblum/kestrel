@@ -29,7 +29,7 @@ function RemoteStartsControls() {
 
 const HELP = (
   <p className="settings-help">
-    A phone signed in to your Kestrel Connect account can start a review of a pull request or start work on a ticket here, as the buttons on this computer do. The session runs on {thisComputer()}, in the mode those buttons would use, and never in
+    A phone in your Kestrel Connect account can start a session here: a new one in a project, with an agent or preset and Manual or Auto, or a review of a pull request or work on a ticket, as the buttons on this computer do. The session runs on {thisComputer()}, and never in
     Bypass: a Bypass choice starts in Auto instead. Turn this off to refuse starts from other devices; they can still read, reply and answer.
   </p>
 );

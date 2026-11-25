@@ -179,6 +179,8 @@
 .kestrel .connect-device-list li { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-paper); }
 .kestrel .connect-device-icon { width: 20px; height: 20px; flex: none; color: var(--s-label); }
 .kestrel .connect-device-detail { display: grid; gap: 3px; min-width: 0; flex: 1; }
+.kestrel .connect-name { display: grid; gap: 6px; }
+.kestrel .connect-name input, .kestrel .connect-device-detail input { max-width: 32ch; }
 .kestrel .connect-device-name { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
 .kestrel .connect-join { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-paper); }
 .kestrel .connect-join p { margin: 0; }
@@ -208,3 +210,5 @@
 .kestrel .attention-setting { display: flex; flex-direction: column; }
 .kestrel .attention-card-switch { padding-left: 24px; }
 .kestrel .attention-card-switch:has(input:disabled) { color: var(--s-muted); }
+.kestrel .autopilot-setting-choice { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--s-ink); }
+.kestrel .autopilot-setting-choice select { width: auto; }

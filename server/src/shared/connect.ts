@@ -105,8 +105,14 @@ export interface ConnectView {
   account: ConnectAccount;
   link: ConnectLink;
   storage: ConnectStorage;
-  /** This computer's name, as other devices on the account see it. */
+  /** This computer's name, as other devices on the account see it: the one the user gave, or the host name. */
   computerName: string;
+  /** The host name, used when no name is given (the field's placeholder). */
+  hostName: string;
+  /** The name the user gave this computer, or null for the host name. */
+  givenName: string | null;
+  /** Why the service has not taken this computer's name yet (it is sent again when the link is next up), or null. */
+  nameProblem: string | null;
   /** Why Connect cannot be used in this copy at all (sample data), or null. */
   unavailable: string | null;
   /** The account's devices (empty while not connected). */
@@ -137,4 +143,21 @@ export function linkText(link: ConnectLink): string {
 export function keptOffWith(keptOff: readonly string[], projectId: string, off: boolean): string[] {
   const rest = keptOff.filter((p) => p !== projectId);
   return off ? [...rest, projectId] : rest;
+}
+
+/** The longest name a device may have: the service's own limit. */
+export const DEVICE_NAME_MAX = 64;
+
+/**
+ * A device's name as typed, made into the name it is given (kestrel-connect.md, "A device's name is the
+ * user's to give"): trimmed, runs of white space made one space; null when nothing is left. A name is a
+ * label only, never identity. Throws an `Error` with the reason for one that cannot be a name.
+ */
+export function deviceNameOf(text: string): string | null {
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/.test(text)) throw new Error('A device name cannot hold control characters.');
+  const name = text.replace(/\s+/g, ' ').trim();
+  if (!name) return null;
+  if ([...name].length > DEVICE_NAME_MAX) throw new Error(`A device name is at most ${DEVICE_NAME_MAX} characters.`);
+  return name;
 }

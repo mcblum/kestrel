@@ -105,7 +105,7 @@ export function SessionWorkspace({ id }: { id: string }) {
   const lastStored = useRef(stored);
   if (stored) lastStored.current = stored;
   const shown = stored ?? lastStored.current;
-  const detail = useMemo(() => (shown && live ? { ...shown, messages: live.messages, files: live.files, agentOutput: live.agentOutput, kestrelTools: live.kestrelTools, kestrelMissing: live.kestrelMissing } : shown), [shown, live]);
+  const detail = useMemo(() => (shown && live ? { ...shown, messages: live.messages, files: live.files, agentOutput: live.agentOutput, kestrelTools: live.kestrelTools, kestrelMissing: live.kestrelMissing, ...(live.mcpServers.length ? { mcpServers: live.mcpServers } : {}) } : shown), [shown, live]);
   // The Details sources are asked again whenever the session or its changes do; the git one feeds the top line too.
   const refreshKey = detailsRefreshKey(session?.updatedAt ?? 0, detail?.files ?? []);
   const git = useGitStatus(id, refreshKey);

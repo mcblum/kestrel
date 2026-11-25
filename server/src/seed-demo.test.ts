@@ -37,7 +37,9 @@ describe('the demo workspace', () => {
     expect(state.groups.some((g) => !g.projectId)).toBe(true);
     expect(state.archived.sessions.map((s) => s.id)).toContain('old-spike');
     expect(new Set(state.sessions.flatMap((s) => s.tags))).toEqual(new Set(['perf', 'PROJ-482', 'v2.3']));
-    expect(state.workstreams.map((w) => w.status).sort()).toEqual(['active', 'complete']);
+    expect(state.workstreams.map((w) => w.status).sort()).toEqual(['active', 'active', 'complete']);
+    // The common case: the lead's own request, and two of its three sessions' under it.
+    expect(state.workstreams.find((w) => w.name === 'Usage-based pricing')?.sessionIds).toHaveLength(4);
     expect(state.waits).toHaveLength(1);
     expect(new Set(state.links.map((l) => l.kind))).toEqual(new Set(['delegate', 'handoff']));
     expect(new Set(state.sessions.map((s) => s.agent))).toEqual(new Set(['claude', 'codex', 'opencode']));

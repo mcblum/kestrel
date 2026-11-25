@@ -13,6 +13,7 @@ import { revealSidebar, toggleSidebarOrFloat } from './sidebarRail.ts';
 import { markCopied } from './copied.ts';
 import { focusAtEnd } from './components/messageInputDom.ts';
 import { setupOpenNow } from './onboarding/data.ts';
+import { setSessionAutopilot } from './autopilotPrefs.ts';
 
 /**
  * Show the New session screen. A plain call shows it in the tab in front (or focuses the unsent one
@@ -172,6 +173,9 @@ export async function runMenuAction(action: MenuAction, newTab = false): Promise
     }
     case 'mark-unread':
       tabActions.setUnread(action.sessionId, action.unread);
+      return;
+    case 'set-autopilot':
+      await setSessionAutopilot(action.sessionId, { on: action.on, ...(action.merge === undefined ? {} : { merge: action.merge }) });
       return;
     case 'reveal':
       await actions.reveal(action.path);

@@ -14,6 +14,7 @@ import { labelOfModel, useModels } from '../ComposerControls.tsx';
 import { SessionTags } from '../SessionTags.tsx';
 import { useInWorkstream, WorkstreamChip } from '../WorkstreamChip.tsx';
 import { Facts, Row, Section, SourcedValue } from './Rows.tsx';
+import { AutopilotRow } from './AutopilotRow.tsx';
 
 const FULL_DATE: Intl.DateTimeFormatOptions = { dateStyle: 'full', timeStyle: 'short' };
 
@@ -59,6 +60,7 @@ export function SessionSection({ session, group, controls, pending, usage }: Pro
         <Row label="Tags">
           <SessionTags sessionId={session.id} tags={session.tags} />
         </Row>
+        <AutopilotRow session={session} />
         <Row label="Cost" group>
           {notRecorded(usage) ? <span className="details-quiet">Not recorded</span> : <SourcedValue value={usage}>{(u) => costText(u)}</SourcedValue>}
         </Row>

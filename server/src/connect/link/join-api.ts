@@ -55,6 +55,11 @@ export class JoinApi {
     await this.call('PUT', '/devices/keys', keys);
   }
 
+  /** Renames a device of the account (`PATCH /devices/:id`): a label only. */
+  async rename(deviceId: string, name: string): Promise<void> {
+    await this.call('PATCH', `/devices/${encodeURIComponent(deviceId)}`, { name });
+  }
+
   async devices(): Promise<ServiceDevice[]> {
     const answer = obj(await this.call('GET', '/devices'));
     const list = Array.isArray(answer.devices) ? answer.devices : [];

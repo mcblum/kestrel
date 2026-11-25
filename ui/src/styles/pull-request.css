@@ -9,6 +9,12 @@
 .kestrel .pr-number + .pr-status-button { border-left: 1px solid color-mix(in srgb, currentColor 24%, transparent); }
 .kestrel .pr-status-button { display: inline-flex; align-items: center; gap: 6px; background: none; color: inherit; padding: 4px 10px; box-sizing: border-box; font: inherit; white-space: nowrap; min-width: 0; }
 .kestrel .pr-number:hover, .kestrel .pr-status-button:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
+/* The smaller size of the single pill, as the group pill's `compact` (pull-request-group.css, --pr-compact-pad). */
+.kestrel .pr-summary.compact { font-size: 10px; line-height: var(--pr-compact-line); }
+.kestrel .pr-summary.compact :is(.pr-number, .pr-external, .pr-status-button) { padding-top: var(--pr-compact-pad); padding-bottom: calc(var(--pr-compact-pad) + 1px); }
+.kestrel .pr-summary.compact :is(.pr-number, .pr-external) { padding-inline: 5px; }
+.kestrel .pr-summary.compact .pr-status-button { padding-inline: 7px; }
+.kestrel .pr-summary.compact svg { width: 10px; height: 10px; }
 .kestrel .session-content { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .kestrel .session-content > .conversation { flex: 1; min-height: 0; border: 0; }
 .kestrel .session-content > .conversation[hidden] { display: none; }
@@ -171,3 +177,4 @@
 .kestrel .pr-form-review { display: grid; gap: 6px; }
 .kestrel .pr-form-review select { max-width: 320px; }
 .kestrel .pr-form-review .quiet-button { justify-self: start; }
+.kestrel .pr-form-check-under { margin-left: 24px; }

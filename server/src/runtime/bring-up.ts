@@ -223,7 +223,7 @@ export async function loadRecord(host: Pick<RuntimeHost, 'workspace' | 'records'
   const stored = await host.workspace.storedDetail(session.id);
   if (!stored || stored.agentSessionId === undefined) return null;
   const base = session.worktreePath && session.branch ? await baseOf(session.worktreePath, session.branch) : null;
-  const rec = newRecord({ messages: stored.messages, files: stored.files, agentOutput: stored.agentOutput, kestrelTools: stored.kestrelTools, kestrelMissing: stored.kestrelMissing ?? [], agentSessionId: stored.agentSessionId, settings: stored.settings ?? { model: '', permission: session.startedIn ? DEFAULT_PERMISSION : 'readonly' }, usage: readUsage(stored.usage),
+  const rec = newRecord({ messages: stored.messages, files: stored.files, agentOutput: stored.agentOutput, kestrelTools: stored.kestrelTools, kestrelMissing: stored.kestrelMissing ?? [], mcpServers: stored.mcpServers ?? [], agentSessionId: stored.agentSessionId, settings: stored.settings ?? { model: '', permission: session.startedIn ? DEFAULT_PERMISSION : 'readonly' }, usage: readUsage(stored.usage),
     // Queued before the server last stopped: the turn they waited for is gone, so they wait for the user.
     queue: afterTurn(stored.queue ?? EMPTY_QUEUE, 'stopped') }, base);
   // News that was waiting for its next turn when the server last stopped still is.

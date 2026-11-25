@@ -6,6 +6,7 @@
 import { memorySettings, type SettingStore } from '../suggestions/prefs.ts';
 import { customPrefixProblem, DEFAULT_PREFIX, readBranchPrefixChoice, resolvePrefix, sanitizeBranchPrefix, type BranchPrefixSetting } from '../shared/branch-prefix.ts';
 import { DEFAULT_ATTENTION_PREFS, isAttentionReason, sanitizeAttentionPrefs, type AttentionPrefs } from '../shared/request-attention.ts';
+import { checkAutopilotChange, DEFAULT_AUTOPILOT_PREFS, sanitizeAutopilotPrefs, type AutopilotPrefs } from '../shared/autopilot.ts';
 import { githubLoginLookup, type AccountLogin } from './github-login.ts';
 import { gitlabLoginLookup } from './gitlab-login.ts';
 import { usernameLookup } from './username.ts';
@@ -120,6 +121,24 @@ export class GitPrefs {
     return saved;
   }
 
+  /** Settings → Git → Autopilot (shared/autopilot.ts). Never throws: on any failure, the defaults. */
+  async autopilot(): Promise<AutopilotPrefs> {
+    try {
+      return sanitizeAutopilotPrefs((await this.stored()).autopilot);
+    } catch (error) {
+      console.error('[kestrel] could not read the Autopilot settings; using the defaults', error);
+      return DEFAULT_AUTOPILOT_PREFS;
+    }
+  }
+
+  /** Change Autopilot's settings; "Always turn it on" only with `confirmed: true` (its warning was shown). Refuses with the reason. */
+  async setAutopilot(raw: unknown): Promise<AutopilotPrefs> {
+    const checked = checkAutopilotChange(raw);
+    if (!checked.ok) throw new GitPrefsRefused(checked.reason);
+    await this.write(async () => ({ autopilot: { ...(await this.autopilot()), ...checked.change } }));
+    return this.autopilot();
+  }
+
   async view(): Promise<GitPrefsView> {
     const [branchPrefix, startFromLatest, username] = await Promise.all([this.branchPrefix(), this.startFromLatest(), this.username()]);
     return { branchPrefix, startFromLatest, username };
@@ -139,11 +158,11 @@ export class GitPrefs {
   }
 
   /** One change after another, each keeping the other settings as they are. */
-  private write(change: (username: AccountLogin) => Promise<Partial<Omit<GitPrefsView, 'username'> & { requestAttention: AttentionPrefs }>>): Promise<GitPrefsView> {
+  private write(change: (username: AccountLogin) => Promise<Partial<Omit<GitPrefsView, 'username'> & { requestAttention: AttentionPrefs; autopilot: AutopilotPrefs }>>): Promise<GitPrefsView> {
     const work = this.writes.then(async () => {
       const username = await this.username();
       const changed = await change(username);
-      const next = { branchPrefix: await this.branchPrefix(), startFromLatest: await this.startFromLatest(), requestAttention: await this.attention(), ...changed };
+      const next = { branchPrefix: await this.branchPrefix(), startFromLatest: await this.startFromLatest(), requestAttention: await this.attention(), autopilot: await this.autopilot(), ...changed };
       await this.store.putSetting(GIT_PREFS_KEY, JSON.stringify(next));
       return { branchPrefix: next.branchPrefix, startFromLatest: next.startFromLatest, username };
     });

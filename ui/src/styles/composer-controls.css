@@ -85,3 +85,7 @@
 /* Compact, under the numbers (kestrel-connect.md, "The context window, and Compact"). */
 .kestrel .ctx-actions { margin-top: 8px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .kestrel .ctx-why { font-size: 11px; color: var(--s-muted); }
+/* Autopilot: text only. Grey while off; on, the git colour (--s-git-blue, the token for version control:
+   commits, the next-step card), gently. Its words say the state; the colour only says it belongs to the request. */
+.kestrel .ctl-autopilot .ctl-autopilot-on { color: color-mix(in srgb, var(--s-git-blue) 85%, var(--s-label)); }
+.kestrel .ctl-autopilot .ctl-autopilot-on:hover { color: var(--s-git-blue); }

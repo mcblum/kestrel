@@ -198,6 +198,20 @@ export class FakeHeldService {
   withdrawn: string[] = [];
   /** Makes every call fail as if the service could not be reached. */
   down = false;
+  /** The service takes renames (`PATCH /devices/:id`); false is a service from before that route. */
+  renames = true;
+
+  /** What the service does with `PATCH /devices/:id`: the name only, for any device of the account, then tells the others. */
+  private rename(from: string, id: string, name: unknown): unknown {
+    if (!this.renames) this.refuse(404, 'not-found', 'Cannot PATCH /api/v1/devices.');
+    const device = this.devices.get(id);
+    if (!device) this.refuse(404, 'unknown-device', 'No device on your account has that id. It may have been removed already.');
+    const text = typeof name === 'string' ? name.trim() : '';
+    if (!text || text.length > 64 || /\p{Cc}/u.test(text)) this.refuse(400, 'bad-request', 'A device needs a name of at most 64 characters.');
+    device.name = text;
+    this.notices.push({ to: [...this.devices.keys()].filter((d) => d !== from), message: { service: 'devices-changed' } });
+    return { device };
+  }
 
   addDevice(id: string, name: string, kind: 'desktop' | 'phone', keys: PublicIdentity | null = null): void {
     this.devices.set(id, { id, name, kind, keys });
@@ -259,6 +273,7 @@ export class FakeHeldService {
     const parts = (route ?? '').split('/').filter(Boolean).map(decodeURIComponent);
     const id = parts[2];
     const key = parts[0] === 'held' && id && id !== 'inbox' && id !== 'read' ? `${method} /held/${parts[1]}/:id` : parts[0] === 'join' && parts[1] ? `${method} /join/:id` : `${method} /${parts.join('/')}`;
+    if (method === 'PATCH' && parts[0] === 'devices' && parts.length === 2) return this.rename(deviceId, parts[1] as string, b.name);
     switch (key) {
       case 'GET /devices':
         return { devices: [...this.devices.values()] };
@@ -359,6 +374,10 @@ export class FakeHeldService {
       case 'GET /held/records': {
         const below = Number(params.get('below'));
         return { records: [...this.records.values()].filter((r) => r.generation < below).slice(0, Number(params.get('limit') ?? 100)) };
+      }
+      case 'POST /held/records/read': {
+        const ids = b.ids as string[];
+        return { records: ids.flatMap((i) => (this.records.has(i) ? [this.records.get(i)] : [])), missing: ids.filter((i) => !this.records.has(i)) };
       }
       case 'DELETE /held/records/:id':
         if (!this.records.delete(parts[2] as string)) this.refuse(404, 'unknown-record', 'No such record.');

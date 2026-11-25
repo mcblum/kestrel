@@ -5,6 +5,8 @@
 // click on the pill pins it until Escape, a press outside, or a second click. Enter or Space opens
 // and pins it and moves focus in; Escape closes it and returns focus to the pill. While a Merge
 // now confirmation is open the popover stays. Kept inside the window by usePopupPlacement.
+// `compact` is the pill's smaller size (pull-request-group.css), used for the requests of the sessions a
+// session brought in (BroughtInRequests.tsx); `sessionOf` then names each request's session in its row.
 import { useEffect, useId, useMemo, useRef, useState, type FocusEvent, type MouseEvent } from 'react';
 import { ChevronDown, GitPullRequest } from 'lucide-react';
 import { pullRequestStatus, type PullRequest } from '@kestrel/server/details';
@@ -29,17 +31,26 @@ interface Props {
   onOpen: (pr: PullRequest) => void;
   sessionId?: string;
   onRefresh?: () => void;
+  /** The smaller size of the pill. */
+  compact?: boolean;
+  /** The session a request belongs to, named in its row, where the requests are not all this session's. */
+  sessionOf?: (pr: PullRequest) => string | undefined;
+  /** What the popover is called; "Pull requests for this session" unless given. */
+  popoverLabel?: string;
 }
 
 const stop = (e: { stopPropagation: () => void }) => e.stopPropagation();
 
 /** One request in the popover: its number, title and status, each target separate. */
-function GroupRow({ pr, terms, onOpen, onMerge }: { pr: PullRequest; terms: HostTerms; onOpen: (pr: PullRequest) => void; onMerge?: (pr: PullRequest, label: string) => void }) {
+function GroupRow({ pr, terms, onOpen, onMerge, session }: { pr: PullRequest; terms: HostTerms; onOpen: (pr: PullRequest) => void; onMerge?: (pr: PullRequest, label: string) => void; session?: string }) {
   const parts = requestParts({ pr, terms, onOpen, onMerge });
   return (
     <li className="pr-group-row">
       {parts.number}
-      <span className="pr-group-title" title={pr.title}>{pr.title}</span>
+      <span className="pr-group-title" title={session ? `${pr.title} · ${session}` : pr.title}>
+        {pr.title}
+        {session && <span className="pr-group-session">{session}</span>}
+      </span>
       {parts.external}
       <span className={`pr-group-status pr-tone-${pullRequestStatus(pr).tone}`}>{parts.status}</span>
     </li>
@@ -61,7 +72,7 @@ function usePopoverMode() {
   };
 }
 
-export function PullRequestGroup({ pullRequests, terms, onOpen, sessionId, onRefresh }: Props) {
+export function PullRequestGroup({ pullRequests, terms, onOpen, sessionId, onRefresh, compact = false, sessionOf, popoverLabel }: Props) {
   const popover = usePopoverMode();
   const { mode, setMode } = popover;
   const merge = useMergeConfirmation(sessionId, onRefresh);
@@ -121,18 +132,18 @@ export function PullRequestGroup({ pullRequests, terms, onOpen, sessionId, onRef
 
   return (
     <span ref={wrap} className="pr-group" onMouseEnter={popover.hoverIn} onMouseLeave={popover.hoverOut} onBlur={onBlur} onClick={stop} onAuxClick={stop}>
-      <button ref={pill} type="button" className="pr-group-pill" aria-haspopup="dialog" aria-expanded={isOpen} aria-controls={isOpen ? popId : undefined} aria-label={description} title={description} onClick={onPillClick}>
+      <button ref={pill} type="button" className={`pr-group-pill${compact ? ' compact' : ''}`} aria-haspopup="dialog" aria-expanded={isOpen} aria-controls={isOpen ? popId : undefined} aria-label={description} title={description} onClick={onPillClick}>
         <GitPullRequest aria-hidden />
         {groupLabel(terms, pullRequests.length)}
         <ChevronDown aria-hidden className="pr-group-chevron" />
         <span className="pr-group-strip" aria-hidden>
-          {segments.map((s) => <span key={s.number} className={`pr-tone-${s.tone}`} />)}
+          {segments.map((s, i) => <span key={`${i}:${s.number}`} className={`pr-tone-${s.tone}`} />)}
         </span>
       </button>
       {isOpen && (
-        <div ref={box} id={popId} className="pr-group-popover" role="dialog" aria-label={`${terms.longTitle}s for this session`}>
+        <div ref={box} id={popId} className="pr-group-popover" role="dialog" aria-label={popoverLabel ?? `${terms.longTitle}s for this session`}>
           <ul className="pr-group-list">
-            {ordered.map((pr) => <GroupRow key={pr.number} pr={pr} terms={terms} onOpen={openRequest} onMerge={onMerge} />)}
+            {ordered.map((pr, i) => <GroupRow key={`${i}:${pr.number}`} pr={pr} terms={terms} onOpen={openRequest} onMerge={onMerge} session={sessionOf?.(pr)} />)}
           </ul>
         </div>
       )}

@@ -3,10 +3,12 @@
 // link's state. Everything shown is the server's `ConnectView`, read from the store's `connect`
 // slice (connectStore.ts); nothing here keeps a copy.
 import { useState } from 'react';
-import { ExternalLink, LogIn, LogOut, Monitor, Smartphone } from 'lucide-react';
-import { linkText, type ConnectDevice, type ConnectJoinRequest, type ConnectView } from '@kestrel/server/connect';
+import { ExternalLink, ListChecks, LogIn, LogOut, Monitor, Smartphone } from 'lucide-react';
+import { DEVICE_NAME_MAX, deviceNameOf, linkText, type ConnectDevice, type ConnectJoinRequest, type ConnectView } from '@kestrel/server/connect';
 import { connectActions, useConnect } from '../connectStore.ts';
 import { thisComputer } from '../platform.ts';
+import { opener, openView } from '../route.ts';
+import { useDraft } from '../unsaved.ts';
 import { SettingSection } from './SettingHelp.tsx';
 import { ConnectHeldSetting, ConnectPushSetting } from './ConnectHeldSetting.tsx';
 
@@ -40,6 +42,32 @@ function Account({ view }: { view: ConnectView }) {
       <button type="button" className="secondary-button small" onClick={() => void connectActions.signIn()}>
         <LogIn aria-hidden /> Sign in
       </button>
+    </div>
+  );
+}
+
+const openSetup = opener((newTab) => openView({ kind: 'settings', section: 'connections/setup' }, newTab));
+
+/** Whether another computer of the account could have a set-up record to build this one's list from. */
+const canSetUp = (view: ConnectView) => view.link.state === 'connected' && view.keys.state === 'ready' && view.devices.some((d) => !d.here && d.kind === 'desktop' && d.inAccount);
+
+/** Right after this computer was let in (onboarding.md 7, step 2): the offer to build its set-up list. */
+function SetupOffer({ view }: { view: ConnectView }) {
+  const [later, setLater] = useState(false);
+  const others = view.devices.filter((d) => !d.here && d.kind === 'desktop' && d.inAccount).map((d) => d.name);
+  if (later || others.length === 0) return null;
+  return (
+    <div className="connect-setup-offer">
+      <p className="connect-join-title">Set up {thisComputer()} from your other machines?</p>
+      <p className="settings-help">Kestrel lists what {others.join(' and ')} {others.length === 1 ? 'has' : 'have'} that {thisComputer()} does not: agents, git, tools, projects, MCP servers and agent settings. No password, token or key is copied; each one is signed in to or entered here.</p>
+      <div className="connect-join-actions">
+        <button type="button" className="primary-button small" {...openSetup}>
+          <ListChecks aria-hidden /> Build the list
+        </button>
+        <button type="button" className="secondary-button small" onClick={() => setLater(true)}>
+          Not now
+        </button>
+      </div>
     </div>
   );
 }
@@ -86,7 +114,13 @@ function ThisComputerJoining({ view }: { view: ConnectView }) {
       </button>
     </div>
   );
-  if (joining?.state === 'in') return <p className="settings-help" role="status">{joining.by} let {name} into your account.</p>;
+  if (joining?.state === 'in')
+    return (
+      <>
+        <p className="settings-help" role="status">{joining.by} let {name} into your account.</p>
+        {canSetUp(view) && <SetupOffer view={view} />}
+      </>
+    );
   if (joining?.state === 'confirm') return <SecondCode by={joining.by} problem={joining.problem} name={name} />;
   if (joining?.state === 'code')
     return (
@@ -176,6 +210,66 @@ function JoinRequest({ request }: { request: ConnectJoinRequest }) {
   );
 }
 
+const NAME_FIELD = 'connect-computer-name';
+
+/** Why typed text cannot be a device's name, or null. */
+function nameProblem(text: string, required: boolean): string | null {
+  try {
+    return deviceNameOf(text) === null && required ? 'A device needs a name.' : null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+const sameName = (text: string, name: string | null): boolean => {
+  try {
+    return deviceNameOf(text) === name;
+  } catch {
+    return false;
+  }
+};
+
+/** This computer's name: a draft saved by the screen's Save bar; empty is the host name. Needs no account. */
+function ComputerName({ view }: { view: ConnectView }) {
+  const [text, setText] = useState<string | null>(null);
+  const shown = text ?? view.givenName ?? '';
+  const changed = text !== null && !sameName(text, view.givenName);
+  const save = async () => {
+    const saved = await connectActions.setName(shown);
+    if (saved) setText(null);
+    return saved;
+  };
+  const anchor = useDraft({ what: "This computer's name", changed, problem: nameProblem(shown, false), save, discard: () => setText(null) });
+  return (
+    <div className="connect-name">
+      <label className="settings-help" htmlFor={NAME_FIELD}>
+        Name
+      </label>
+      <input id={NAME_FIELD} className="form-control" maxLength={DEVICE_NAME_MAX} placeholder={view.hostName} value={shown} onChange={(e) => setText(e.target.value)} />
+      <span ref={anchor} className="draft-anchor" />
+      <p className="settings-help">What your phone and your other computers call this one. Left empty, it is {view.hostName}.</p>
+      {view.nameProblem && <p className="settings-help" role="alert">{view.nameProblem}</p>}
+    </div>
+  );
+}
+
+/** Another device's new name, typed in its row: a draft saved by the screen's Save bar. */
+function RenameDevice({ device, done }: { device: ConnectDevice; done: () => void }) {
+  const [text, setText] = useState(device.name);
+  const save = async () => {
+    const saved = await connectActions.renameDevice(device.id, text);
+    if (saved) done();
+    return saved;
+  };
+  const anchor = useDraft({ what: `The name of ${device.name}`, changed: !sameName(text, device.name), problem: nameProblem(text, true), save, discard: done });
+  return (
+    <>
+      <input className="form-control" aria-label={`New name for ${device.name}`} maxLength={DEVICE_NAME_MAX} value={text} onChange={(e) => setText(e.target.value)} autoFocus />
+      <span ref={anchor} className="draft-anchor" />
+    </>
+  );
+}
+
 function deviceLine(device: ConnectDevice): string {
   if (device.here) return device.inAccount ? 'This computer' : 'This computer, not in your account yet';
   if (!device.inAccount) return 'Not let in';
@@ -184,6 +278,7 @@ function deviceLine(device: ConnectDevice): string {
 
 function Devices({ view }: { view: ConnectView }) {
   const connected = view.link.state === 'connected';
+  const [renamingId, setRenamingId] = useState<string | null>(null);
   return (
     <div className="connect-devices">
       <ThisComputerJoining view={view} />
@@ -201,10 +296,19 @@ function Devices({ view }: { view: ConnectView }) {
         <ul className="connect-device-list">
           {view.devices.map((device) => {
             const Icon = device.kind === 'phone' ? Smartphone : Monitor;
+            const renaming = renamingId === device.id;
             return (
               <li key={device.id}>
                 <Icon className="connect-device-icon" aria-hidden />
-                <div className="connect-device-detail"><span className="connect-device-name">{device.name}</span><span className="settings-help">{deviceLine(device)}</span></div>
+                <div className="connect-device-detail">
+                  {renaming ? <RenameDevice device={device} done={() => setRenamingId(null)} /> : <span className="connect-device-name">{device.name}</span>}
+                  <span className="settings-help">{deviceLine(device)}</span>
+                </div>
+                {!renaming && (
+                  <button type="button" className="secondary-button small" aria-label={`Rename ${device.name}`} onClick={() => (device.here ? document.getElementById(NAME_FIELD)?.focus() : setRenamingId(device.id))}>
+                    Rename
+                  </button>
+                )}
                 {!device.here && (
                   <button type="button" className="secondary-button small" aria-label={`Remove ${device.name}`} onClick={() => void connectActions.removeDevice(device.id, device.name)}>
                     Remove
@@ -216,6 +320,13 @@ function Devices({ view }: { view: ConnectView }) {
         </ul>
       )}
       {connected && view.keys.state === 'ready' && <p className="settings-help">To add your phone or another computer, sign in to Kestrel Connect there. It asks to join, and its request shows here.</p>}
+      {canSetUp(view) && view.joining?.state !== 'in' && (
+        <div>
+          <button type="button" className="secondary-button small" {...openSetup}>
+            <ListChecks aria-hidden /> Set up {thisComputer()}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -228,6 +339,7 @@ function Controls() {
   return (
     <>
       <Account view={view} />
+      <ComputerName view={view} />
       <label className="tag-rule-switch">
         <input type="checkbox" checked={view.enabled} onChange={(e) => void connectActions.setEnabled(e.target.checked)} />
         Connect {view.computerName} to Kestrel Connect

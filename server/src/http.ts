@@ -1,4 +1,5 @@
 import { mergePRRoute } from './pull-requests/merge-api.ts';
+import { autopilotRoute } from './pull-requests/autopilot-api.ts';
 import { fileToRead, placeOf } from './file-to-read.ts';
 import { WORKSTREAM_NAME_MAX, WORKSTREAM_OBJECTIVE_MAX } from './shared/workstreams.ts';
 import { landingRoute, worktreesRoute } from './landing-api.ts';
@@ -36,6 +37,8 @@ import { AUTOMATIC } from './shared/git-defaults.ts';
 import { savedActionsRoute } from './saved-actions/api.ts';
 import { resolveAction, type PreviewWait } from './saved-actions/run.ts';
 import { projectEnvRoute } from './project-env/api.ts';
+import { mcpServersRoute } from './mcp-servers/api.ts';
+import type { ProbeResult } from './mcp-servers/probe.ts';
 import { projectScriptsRoute } from './project-scripts/api.ts';
 import { commandsKeptRoute } from './commands-kept/api.ts';
 import { delegationLimitsRoute } from './limits-api.ts';
@@ -69,6 +72,7 @@ import { isSimMessage, simSocket } from './sim-socket.ts';
 import { userMcpServers } from './claude-config.ts';
 import { isArchiveKind } from './shared/archive.ts';
 import { publicInfo } from './shared/setup.ts';
+import { switchableServers } from './shared/mcp-servers.ts';
 import { sanitizeSidebar } from './shared/sidebar.ts';
 import { checkPage } from './shared/connect-ops.ts';
 import { pageRefusal, transcriptPage } from './shared/transcript-page.ts';
@@ -174,6 +178,8 @@ export interface KestrelServerOptions {
   /** Who may write a generated pull request's text: the title providers (index.ts). Default: none. */
   writers?: readonly TitleProvider[];
   /** How files are opened and shown in the file manager (file-open-api.ts); tests pass a stand-in runner. Default: this computer's own way (openers.ts). */
+  /** Settings' Test for an MCP server (mcp-servers/probe.ts); tests pass a stand-in. Default: the real one. */
+  mcpProbe?: (config: Record<string, unknown>) => Promise<ProbeResult>;
   fileOpen?: Partial<Pick<FileOpenDeps, 'run' | 'editors' | 'canOpen' | 'folderApps' | 'folderAppIcons' | 'platform' | 'launch'>>;
 }
 
@@ -210,7 +216,7 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
   // The state is serialized once per change and the same string goes to every reader.
   let stateJson: Promise<string> | null = null;
   const detailsConfig = options.details ?? { sources: detailsSources(false), sample: false };
-  const createPRRoute = createPRRoutes({ samples: detailsConfig.sample ? (detailsConfig.sources.samples ?? samplePullRequests()) : null, writers: options.writers ?? [], gitDefaults: async (projectId) => (runtime ? runtime.gitDefaults.of(projectId) : AUTOMATIC), onCreated: (sessionId) => runtime?.noteFormRequest(sessionId) });
+  const createPRRoute = createPRRoutes({ samples: detailsConfig.sample ? (detailsConfig.sources.samples ?? samplePullRequests()) : null, writers: options.writers ?? [], gitDefaults: async (projectId) => (runtime ? runtime.gitDefaults.of(projectId) : AUTOMATIC), onCreated: (sessionId, autopilot) => runtime?.noteFormRequest(sessionId, autopilot) });
   // Found once: which apps are installed does not change while Kestrel runs.
   let found: Openers | null = null;
   const openers = (): Openers => (found ??= openersFor(options.fileOpen?.platform ?? hostPlatform()));
@@ -296,6 +302,9 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
     // Variables, .env files and files copied into new worktrees (project-env/api.ts).
     const projectEnv = runtime ? await projectEnvRoute(parts, method, () => readJson(req), workspace, runtime.projectEnv) : null;
     if (projectEnv) return send(req, res, projectEnv.status, projectEnv.body);
+    // Kestrel's own list of MCP servers: add, change, remove, Test (mcp-servers/api.ts). No answer carries a secret value.
+    const mcp = runtime ? await mcpServersRoute(parts, method, () => readJson(req), runtime.mcpServers ? { store: runtime.mcpServers, ...(options.mcpProbe ? { probe: options.mcpProbe } : {}) } : undefined) : null;
+    if (mcp) return send(req, res, mcp.status, mcp.status === 204 ? undefined : mcp.body);
     // Settings → Workflow: how many commands each session keeps (commands-kept/api.ts).
     const commandsKept = runtime ? await commandsKeptRoute(parts, method, () => readJson(req), runtime.commandsKept) : null;
     if (commandsKept) return send(req, res, commandsKept.status, commandsKept.body);
@@ -329,6 +338,8 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
     // The New PR form: its pre-fill, and creating the pull request (pull-requests/create-api.ts).
     const mergedPR = await mergePRRoute(parts, method, () => readJson(req), workspace, detailsConfig.sample, detailsConfig.sources.store);
     if (mergedPR) return send(req, res, mergedPR.status, mergedPR.body);
+    const autopilotAnswer = await autopilotRoute(parts, method, () => readJson(req), runtime?.autopilot ?? null);
+    if (autopilotAnswer) return send(req, res, autopilotAnswer.status, autopilotAnswer.body);
     // Merging a session's worktree locally, or discarding it (landing-api.ts).
     const worktrees = await worktreesRoute(parts, method, url.searchParams.get('refresh') === '1', () => readJson(req), runtime ?? null);
     if (worktrees) return send(req, res, worktrees.status, worktrees.body);
@@ -594,12 +605,12 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
         const body = await readJson(req);
         await workspace.setProjectSetup(project.id, body.inherits === true ? null : body);
       }
-      if (method === 'GET' || method === 'PUT') return send(req, res, 200, { ...(await workspace.projectSetup(project.id)), servers: userMcpServers(projectPath(project)).map(publicInfo) });
+      if (method === 'GET' || method === 'PUT') return send(req, res, 200, { ...(await workspace.projectSetup(project.id)), servers: switchableServers(userMcpServers(projectPath(project)).map(publicInfo), (await runtime?.mcpServers?.defs()) ?? []) });
     }
     // The defaults every project starts from.
     if (parts[1] === 'setup' && parts.length === 2) {
       if (method === 'PUT') await workspace.setDefaultSetup(await readJson(req));
-      if (method === 'GET' || method === 'PUT') return send(req, res, 200, { setup: await workspace.defaultSetup(), inherits: false, servers: userMcpServers(null).map(publicInfo) });
+      if (method === 'GET' || method === 'PUT') return send(req, res, 200, { setup: await workspace.defaultSetup(), inherits: false, servers: switchableServers(userMcpServers(null).map(publicInfo), (await runtime?.mcpServers?.defs()) ?? []) });
     }
     if (parts[1] === 'projects' && method === 'PATCH' && parts.length === 3) {
       await workspace.renameProject(parts[2]!, str((await readJson(req)).name, 'name', 80));

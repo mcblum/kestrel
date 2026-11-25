@@ -16,6 +16,14 @@ export interface SuggestionButton {
   label: string;
   /** Drawn as the main choice; the others are quieter. */
   primary?: boolean;
+  /**
+   * A checkbox drawn beside this button (Autopilot's "Merge it when it is green"): ticked, pressing the
+   * button sends `id`, another button of the same card, instead. A window draws it; a phone, which shows
+   * every button, offers that one as it is.
+   */
+  toggle?: { id: string; label: string; checked: boolean };
+  /** Not drawn as a button of its own in the window: it is reached through another's `toggle`. */
+  folded?: boolean;
 }
 
 export interface Suggestion {

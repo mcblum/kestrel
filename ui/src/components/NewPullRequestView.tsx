@@ -19,6 +19,9 @@ import { closeSessionDocument, confirmCreateIn, editNewPullRequestIn, leaveConfi
 import { createNewPullRequest, takeFocusRequest } from '../newPullRequest.ts';
 import { useCommitRequest } from '../commitRequest.ts';
 import { ConfirmCreateRow, UncommittedNotice } from './UncommittedChanges.tsx';
+import { formAutopilot, useAutopilotSetting } from '../autopilotPrefs.ts';
+import { DEFAULT_AUTOPILOT_PREFS } from '@kestrel/server/autopilot';
+import type { PullRequestDraft } from '@kestrel/server/session-documents';
 import '../styles/pull-request.css';
 
 interface Props {
@@ -171,6 +174,7 @@ export function NewPullRequestView({ sessionId, doc, terms, branch, uncommitted,
             <input type="checkbox" checked={form.draft} onChange={(e) => editNewPullRequestIn(sessionId, { draft: e.target.checked })} />
             Create as draft
           </label>
+          <AutopilotChoice sessionId={sessionId} form={form} />
         </fieldset>
         {offered && !reviewPreset && !review && noReviewer && <p className="form-note">No review is offered: {noReviewer}</p>}
         {offered && (reviewPreset || review) && (
@@ -196,5 +200,26 @@ export function NewPullRequestView({ sessionId, doc, terms, branch, uncommitted,
         )}
       </form>
     </div>
+  );
+}
+
+/** Autopilot for the new request (pr-autopilot.md): asked here, so no card asks again once it is made. */
+function AutopilotChoice({ sessionId, form }: { sessionId: string; form: PullRequestDraft }) {
+  const loaded = useAutopilotSetting().value;
+  const record = useApp((s) => s.sessionsById.get(sessionId)?.autopilot);
+  const choice = formAutopilot(form, loaded.state === 'ready' ? loaded.value : DEFAULT_AUTOPILOT_PREFS, record);
+  return (
+    <>
+      <label className="pr-form-check">
+        <input type="checkbox" checked={choice.on} onChange={(e) => editNewPullRequestIn(sessionId, { autopilotOn: e.target.checked })} />
+        Autopilot: fix failed checks, conflicts and requested changes on its own
+      </label>
+      {choice.on && (
+        <label className="pr-form-check pr-form-check-under">
+          <input type="checkbox" checked={choice.merge} onChange={(e) => editNewPullRequestIn(sessionId, { autopilotMerge: e.target.checked })} />
+          Merge it when it is green
+        </label>
+      )}
+    </>
   );
 }

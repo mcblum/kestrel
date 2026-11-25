@@ -22,9 +22,9 @@ export function sanitizeSetup(value: unknown): ProjectSetup {
 /**
  * Where a server is configured. Claude Code's own scopes come first (this project only, the
  * project's shared file, every project); then the other agents' and apps' configs, which Kestrel
- * reads so one list covers everything the user has set up.
+ * reads so one list covers everything the user has set up. `kestrel`: Kestrel's own list (shared/mcp-servers.ts).
  */
-export type McpScope = 'local' | 'project' | 'user' | 'codex' | 'opencode' | 'desktop';
+export type McpScope = 'local' | 'project' | 'user' | 'codex' | 'opencode' | 'desktop' | 'kestrel';
 
 export interface McpServerInfo {
   name: string;

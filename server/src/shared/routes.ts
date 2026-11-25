@@ -61,7 +61,7 @@ function parseProject(id: string, c: string | undefined, d: string | undefined):
 
 /** The view a path names; anything unknown is the Overview. */
 export function parseViewPath(path: string): View {
-  const [, a, b, c, d] = path.replace(/^#/, '').split('/');
+  const [, a, b, c, d, e] = path.replace(/^#/, '').split('/');
   const id = b ? decodeURIComponent(b) : '';
   if (a === 'project' && id) return parseProject(id, c, d);
   if (a === 'group' && id) return { kind: 'group', id };
@@ -71,8 +71,10 @@ export function parseViewPath(path: string): View {
   if (a === 'ticket' && id) return { kind: 'ticket', id };
   if (a === 'tickets') return b === 'dismissed' || b === 'done' || b === 'closed' ? { kind: 'tickets', filter: b } : { kind: 'tickets' };
   if (a === 'settings' && id.startsWith(OLD_PROJECT_SETTINGS) && id.length > OLD_PROJECT_SETTINGS.length) return projectSettings(id.slice(OLD_PROJECT_SETTINGS.length), 'agent-setup');
-  // A page under a section: the recovery key (`#/settings/connections/recovery`).
-  if (a === 'settings' && id === 'connections' && c === 'recovery') return { kind: 'settings', section: `connections/${c}` };
+  // A page under a section: the recovery key (`#/settings/connections/recovery`), Set up this computer (`…/setup`).
+  if (a === 'settings' && id === 'connections' && (c === 'recovery' || c === 'setup')) return { kind: 'settings', section: `connections/${c}` };
+  // Kestrel's MCP servers: Add a server (`#/settings/agent-setup/mcp/new`, for one project with its id after), and a server's page.
+  if (a === 'settings' && id === 'agent-setup' && c === 'mcp' && d) return { kind: 'settings', section: ['agent-setup', 'mcp', decodeURIComponent(d), ...(d === 'new' && e ? [decodeURIComponent(e)] : [])].join('/') };
   if (a === 'settings') return id ? { kind: 'settings', section: id } : { kind: 'settings' };
   if (a === 'move' && id && c) return { kind: 'move', sessionId: id, projectId: decodeURIComponent(c), ...(d ? { groupId: decodeURIComponent(d) } : {}) };
   if (a === 'code' && id && c && /^\d+$/.test(d ?? '')) return { kind: 'code', sessionId: id, messageId: decodeURIComponent(c), at: Number(d) };

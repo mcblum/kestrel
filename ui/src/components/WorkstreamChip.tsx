@@ -1,5 +1,5 @@
-// The small "Invoice export · 2 sessions" chip a session in a workstream carries, in its top bar and
-// in Details. A click opens the workstream's page; shift, Cmd or a middle click opens it in a new tab.
+// The small "Invoice export · 2 sessions" chip a session in a workstream carries in Details (the header
+// has the family chip, FamilyChip.tsx). A click opens the workstream's page; shift, Cmd or a middle click opens it in a new tab.
 import { Waypoints } from 'lucide-react';
 import { workstreamOf } from '@kestrel/server/workstreams';
 import { workstreamColour } from '@kestrel/server/colours';

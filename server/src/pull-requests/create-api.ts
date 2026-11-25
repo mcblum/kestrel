@@ -43,7 +43,7 @@ export interface CreateDeps {
   glabSignIn?: GlabSignInCheck;
   wait?: (ms: number) => Promise<void>;
   /** Told when the form created a request for a session: the user already chose about a review there. */
-  onCreated?: (sessionId: string) => void;
+  onCreated?: (sessionId: string, autopilot: AutopilotChoice | null) => void;
   /** The project's Git defaults (git-defaults/prefs.ts): its base branch is the form's base. Automatic when absent. */
   gitDefaults?: (projectId: string | null) => Promise<GitDefaults>;
 }
@@ -68,6 +68,18 @@ async function checkoutOf(workspace: Workspace, session: SessionView): Promise<C
   return checkoutIn(state, session, project ? folderOf(project, session.folderId) : null);
 }
 
+/** What the form's Autopilot switch and checkbox said; null when the form sent none (the settings decide). */
+export interface AutopilotChoice {
+  on: boolean;
+  merge: boolean;
+}
+
+export function autopilotChoice(raw: unknown): AutopilotChoice | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const r = raw as Record<string, unknown>;
+  return typeof r.on === 'boolean' ? { on: r.on, merge: r.merge === true } : null;
+}
+
 /** The route for one server: it keeps which checkouts are creating a pull request right now. */
 export function createPRRoutes(deps: CreateDeps) {
   const publishing = new Set<string>();
@@ -86,7 +98,10 @@ export function createPRRoutes(deps: CreateDeps) {
     }
   }
 
-  async function answer(action: string, session: SessionView, read: Read, workspace: Workspace): Promise<CreateAnswer> {
+  async function answer(action: string, session: SessionView, readOnce: Read, workspace: Workspace): Promise<CreateAnswer> {
+    // The body is read once: the form and the Autopilot choice both come from it.
+    let body: Promise<Record<string, unknown>> | null = null;
+    const read: Read = () => (body ??= readOnce());
     const checkout = await checkoutOf(workspace, session);
     if ('reason' in checkout) return refused(400, checkout.reason);
     const cwd = checkout.path;
@@ -99,7 +114,7 @@ export function createPRRoutes(deps: CreateDeps) {
       if (!branch) return refused(400, 'This checkout has no branch.');
       if (action === 'pr-create') {
         const created = await publish(cwd, branch, read, commands);
-        if (created.status === 200) deps.onCreated?.(session.id);
+        if (created.status === 200) deps.onCreated?.(session.id, autopilotChoice((await read()).autopilot));
         return created;
       }
       const generated = (await read()).generated === true;

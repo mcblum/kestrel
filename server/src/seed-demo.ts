@@ -103,6 +103,59 @@ export async function seedDemoExtras(ws: Workspace, savedActions: SavedActionsPr
   const billing = await ws.addGroup('Billing v2', { projectId: 'platform' });
   await ws.moveSession('billing', billing.id);
 
+  // ---- a lead with a request of its own and three of the sessions it brought in --------------
+  // "Billing migration" already delegated "usage reports" (seed.ts); two more parts inside Platform make
+  // three requests under its own pill, one with failed checks (shared/brought-in-requests.ts).
+  const before = await ws.state();
+  const reports = before.sessions.find((s) => s.title === 'Billing v2: usage reports');
+  if (reports) await ws.moveSession(reports.id, billing.id);
+  const parts = await ws.delegate('billing', [
+    { projectId: 'platform', brief: 'Billing v2: invoice export' },
+    { projectId: 'platform', brief: 'Billing v2: proration', agent: 'codex' },
+  ]);
+  const branches = ['feat/billing-invoices', 'feat/billing-proration'];
+  for (const [i, child] of parts.children.entries()) {
+    await ws.attachWorktree(child.id, { path: `~/.kestrel/worktrees/platform/${branches[i]!.replace('/', '-')}`, branch: branches[i]! });
+    await ws.setLandedIn(child.id, 'platform');
+    await ws.moveSession(child.id, billing.id);
+    await ws.setState(child.id, 'done', i === 0 ? 'Checks failed on the pull request' : 'Pull request open · checks running');
+  }
+
+  // ---- a workstream whose lead has a request of its own, and two of its three sessions do ----------
+  // The common case: the lead's own pill, with "2 PRs" under it on the elbow (one ready, one failed); the
+  // third session, a plain folder, has none (shared/brought-in-requests.ts).
+  await ws.addSession({ id: 'usage-pricing', title: 'Usage-based pricing', agent: 'claude', startedIn: 'platform', landedIn: 'platform', state: 'done', note: 'Pull request open · two parts out', branch: 'feat/usage-pricing', worktreePath: '~/.kestrel/worktrees/platform/usage-pricing' });
+  await ws.setDetail('usage-pricing', {
+    messages: [
+      { author: 'you', time: '10:02', text: 'Move billing to usage-based pricing: the metering in Platform, the plan picker in the app, the pricing page, and a note for the changelog.' },
+      { author: 'agent', time: '10:40', text: 'Metering is done here and its pull request is open. The plan picker, the pricing page and the changelog note are with three sessions.', activity: [{ icon: 'split', text: 'Delegated to 3 sessions: Bellbird, Docs, Field notes' }] },
+    ],
+    files: [],
+    agentOutput: '',
+  });
+  const usage = await ws.delegate(
+    'usage-pricing',
+    [
+      { projectId: 'bellbird', brief: 'Plan picker for usage-based pricing' },
+      { projectId: 'docs', brief: 'Pricing page for usage-based plans', agent: 'opencode' },
+      { projectId: 'field-notes', brief: 'Changelog note for usage-based pricing' },
+    ],
+    { name: 'Usage-based pricing', objective: 'Move billing to usage-based pricing across Platform, the app and the docs.' },
+  );
+  const [picker, page, note] = usage.children as [typeof usage.children[number], typeof usage.children[number], typeof usage.children[number]];
+  await ws.attachWorktree(picker.id, { path: '~/.kestrel/worktrees/bellbird/usage-plan-picker', branch: 'feat/usage-plan-picker' });
+  await ws.attachWorktree(page.id, { path: '~/.kestrel/worktrees/docs/usage-pricing-page', branch: 'docs/usage-pricing-page' });
+  await ws.setLandedIn(picker.id, 'bellbird');
+  await ws.setLandedIn(page.id, 'docs');
+  await ws.setLandedIn(note.id, 'field-notes');
+  await ws.setState(picker.id, 'done', 'Pull request ready to merge');
+  await ws.setState(page.id, 'done', 'Checks failed on the pull request');
+  await ws.setState(note.id, 'running', 'Drafting the note');
+
+  // ---- a group whose name is longer than the header's picker allows ---------------------------
+  const keyboard = await ws.addGroup('Keyboard navigation and accessibility follow-ups for the November launch', { projectId: 'bellbird' });
+  await ws.moveSession('shortcuts', keyboard.id);
+
   // ---- pins: a session and a project (a pinned review request is the user's to add) ----------
   await ws.setPinned('session', 'auth', true);
   await ws.setPinned('project', 'docs', true);

@@ -4,9 +4,10 @@
 // It is what the sidebar already knows (@kestrel/server/session-card), and it says what the row's
 // tooltip and its dot and icons said, which the row's hover hides. Lines do what the same thing does
 // in the Details pane or the session bar: the branch copies, changed files open the Changes pane,
-// the pull request opens its tab, the session it came from opens, and the time shows in full.
+// the pull request opens its tab, the session it came from opens, and the time shows in full. Under its
+// pull request, those of the sessions it brought in (CardRequests.tsx).
 import { useMemo } from 'react';
-import { Bot, Clock, CornerDownRight, Folder, GitBranch, GitPullRequest, Split, Users } from 'lucide-react';
+import { Bot, Clock, CornerDownRight, Folder, GitBranch, Split, Users } from 'lucide-react';
 import { guestWhere } from '@kestrel/server/working-tree';
 import { useWorkingTree } from '../workingTree.ts';
 import { primaryPullRequest } from '@kestrel/server/details';
@@ -26,6 +27,8 @@ import { useAttentionPrefs } from '../attentionPrefs.ts';
 import { useChangeCounts, usePullRequests } from './details/sources.ts';
 import { CHANGES_ICON } from './PaneToolbar.tsx';
 import { useRowDot } from './useRowDot.ts';
+import { useBroughtIn } from '../broughtIn.ts';
+import { BroughtInCardLines, CardRequestIcon } from './CardRequests.tsx';
 
 /** Changed files, asked only of a session with a worktree (as the row's icon is). */
 function ChangesLine({ session }: { session: SessionView }) {
@@ -50,16 +53,26 @@ function ChangesLine({ session }: { session: SessionView }) {
   );
 }
 
-function RequestLine({ sessionId }: { sessionId: string }) {
+/**
+ * Its pull request, the icon in the request's status colour, and under it the requests of the sessions it
+ * brought in, as its children (CardRequests.tsx). `withOwn` is false for a session with no branch, which
+ * can have no request of its own: its children hang from the card's heading.
+ */
+function RequestLines({ sessionId, withOwn }: { sessionId: string; withOwn: boolean }) {
   const lookup = usePullRequests(sessionId).value;
   const icon = requestIcon(lookup, useAttentionPrefs());
-  const pr = lookup.state === 'ready' ? primaryPullRequest(lookup.value.pullRequests) : undefined;
-  if (!icon || !pr) return null;
+  const pr = withOwn && lookup.state === 'ready' ? primaryPullRequest(lookup.value.pullRequests) : undefined;
+  const own = icon && pr;
   return (
-    <button type="button" className={`menu-item card-line card-tone pr-tone-${icon.tone}`} title="Open it in the session" {...opener((newTab) => (hoverCard.close(), openPullRequest(sessionId, pr), openSession(sessionId, newTab)))}>
-      <GitPullRequest aria-hidden />
-      <span className="card-text">{icon.label}</span>
-    </button>
+    <>
+      {own && (
+        <button type="button" className="menu-item card-line" title="Open it in the session" {...opener((newTab) => (hoverCard.close(), openPullRequest(sessionId, pr), openSession(sessionId, newTab)))}>
+          <CardRequestIcon tone={icon.tone} alert={icon.alert} />
+          <span className="card-text">{icon.label}</span>
+        </button>
+      )}
+      <BroughtInCardLines sessionId={sessionId} underOwn={!!own} />
+    </>
   );
 }
 
@@ -109,6 +122,7 @@ export function SessionCardBody({ session, lineage }: { session: SessionView; li
     );
   }, [session, projects, group, dot.label, tree]);
   const hasBranch = !!lines.branch;
+  const broughtIn = useBroughtIn(session.id);
   return (
     <>
       <div className="card-line card-head">
@@ -145,7 +159,14 @@ export function SessionCardBody({ session, lineage }: { session: SessionView; li
             </div>
           )}
           {tree && <ChangesLine session={session} />}
-          <RequestLine sessionId={session.id} />
+          <RequestLines sessionId={session.id} withOwn />
+        </>
+      )}
+      {/* No branch of its own (a lead with no project): the requests of the sessions it brought in, under the heading. */}
+      {!hasBranch && broughtIn && (
+        <>
+          <div className="menu-sep" role="separator" />
+          <RequestLines sessionId={session.id} withOwn={false} />
         </>
       )}
       {/* Its worktree, opened where the work is done (Matt, 2026-11-19). Not for one that was discarded. */}

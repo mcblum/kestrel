@@ -32,6 +32,8 @@ import { ticketSources } from './tickets/sources/index.ts';
 import { sampleSeenKeys, sampleTicketLinks } from './tickets/sources/fake.ts';
 import { plainCredentials, sealedCredentials } from './tickets/credentials.ts';
 import { PROTECTED_FILES } from './shared/protected-files.ts';
+import { McpServerStore } from './mcp-servers/store.ts';
+import { plainSecrets, sealedSecrets } from './mcp-servers/secrets.ts';
 import { JiraConnection, SAMPLE_TRACKERS_REASON } from './tickets/jira-connection.ts';
 import { LinearConnection } from './tickets/linear-connection.ts';
 import { readVaultKey } from './connect/link/vault.ts';
@@ -92,7 +94,11 @@ const titles = titleProviders(scripted ? 'scripted' : fake ? 'none' : 'real');
 // Tag rules and Settings → Git live in the store's settings; with fake data a sample GitHub login stands in for gh. The test-only `note` suggestion kind is offered to the scripted stand-in alone.
 // Codex is the user's own `codex app-server` (agents/codex/), OpenCode the user's own `opencode serve`
 // (agents/opencode/); the scripted stand-in replaces Claude only.
-const runtime = new SessionRuntime(workspace, scripted ? { claude: scriptedAdapter() } : { claude: claudeAdapter(), codex: codexAdapter(), opencode: opencodeAdapter() }, dataDir, { titleProviders: titles, suggestions: { settings: db, testKinds: scripted }, git: { settings: db, username: fake ? sampleUsername : undefined }, projectEdits: { settings: db }, remoteStarts: { settings: db }, startBase: { settings: db }, projectScripts: { settings: db }, projectEnv: { settings: db }, savedActions: { settings: db }, gitDefaults: { settings: db }, notifications: { settings: db }, cleanup: { settings: db }, whoDoesWhat: { settings: db }, keepAwake: { settings: db }, commandsKept: { settings: db }, openIn: { settings: db }, sandboxAllow: { settings: db }, commitSigning: { settings: db }, crashReports: { settings: db }, reviewPrefs: { settings: db }, colours: { settings: db }, reviewing: fake ? null : reviewingComments(), ...(fake ? { reviewRunner: async () => ({ stdout: '' }) } : {}) });
+// The app's key for the sealed store, read once from its private pipe (connect/link/vault.ts).
+const vaultKey = readVaultKey();
+// Kestrel's own MCP servers: definitions in the database, secret values sealed like the tracker keys (mcp-servers/).
+const mcpServers = new McpServerStore(db, vaultKey ? sealedSecrets(join(dataDir, PROTECTED_FILES.mcpSealed), vaultKey) : plainSecrets(join(dataDir, PROTECTED_FILES.mcpPlain)));
+const runtime = new SessionRuntime(workspace, scripted ? { claude: scriptedAdapter() } : { claude: claudeAdapter(), codex: codexAdapter(), opencode: opencodeAdapter() }, dataDir, { titleProviders: titles, suggestions: { settings: db, testKinds: scripted }, git: { settings: db, username: fake ? sampleUsername : undefined }, projectEdits: { settings: db }, remoteStarts: { settings: db }, startBase: { settings: db }, projectScripts: { settings: db }, projectEnv: { settings: db }, mcpServers, savedActions: { settings: db }, gitDefaults: { settings: db }, notifications: { settings: db }, cleanup: { settings: db }, whoDoesWhat: { settings: db }, keepAwake: { settings: db }, commandsKept: { settings: db }, openIn: { settings: db }, sandboxAllow: { settings: db }, commitSigning: { settings: db }, crashReports: { settings: db }, reviewPrefs: { settings: db }, colours: { settings: db }, reviewing: fake ? null : reviewingComments(), ...(fake ? { reviewRunner: async () => ({ stdout: '' }) } : {}) });
 if (demo && seeded && !story && !sidebarDemo) await seedDemoExtras(workspace, runtime.savedActions);
 // SAMPLE: with fake data, one running session shows background work left running (seed.ts).
 if (fake && !story && !sidebarDemo) {
@@ -175,7 +181,6 @@ const tickets = new TicketStore({
   saveClosed: keepSetting('ticket-closed', 'the closed tickets'),
 });
 // Jira Cloud's site, email and token are kept sealed under the app's key, as Connect's sign-in is.
-const vaultKey = readVaultKey();
 const credentials = vaultKey ? sealedCredentials(join(dataDir, PROTECTED_FILES.trackersSealed), vaultKey) : plainCredentials(join(dataDir, PROTECTED_FILES.trackersPlain));
 let checkTickets: () => void = () => undefined;
 const jira = new JiraConnection(credentials, { unavailable: fake ? SAMPLE_TRACKERS_REASON : null, changed: () => checkTickets() });
@@ -214,9 +219,10 @@ watchedNow = () => app.watched();
 checkTickets = () => void ticketSync.check();
 await app.listen();
 // The one copy of every session's pull requests, kept current and pushed to every window.
-const pullRequestSync = syncPullRequests(workspace, details, fake, () => app.watched(), (sessionId) => app.watching(sessionId));
+// Autopilot keeps it current with no window open too: it acts on what the store sees.
+const pullRequestSync = syncPullRequests(workspace, details, fake, () => app.watched() || (runtime.autopilot?.anyOn() ?? false), (sessionId) => app.watching(sessionId));
 // The cards about a pull request that needs the user, from the same store (suggestions/request-kind.ts).
-runtime.watchRequestAttention(details.store);
+runtime.watchRequestAttention(details.store, fake);
 // The requests the user was asked to review, asked of each host the projects are on and pushed.
 // With fake data they are samples, and no host is asked.
 const seedSampleReviews = async (): Promise<void> => {

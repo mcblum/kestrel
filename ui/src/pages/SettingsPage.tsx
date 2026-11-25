@@ -1,5 +1,6 @@
 // Settings, in the main canvas: a list of sections on the left, the chosen one on the right. App-wide
 // only: a project's own settings are on its page's Settings tab. Nothing opens in a panel from the side.
+import { useEffect } from 'react';
 import { TicketsSettings } from '../components/TicketsSetting.tsx';
 import { SaveBar } from '../components/SaveBar.tsx';
 import { thisComputer } from '../platform.ts';
@@ -10,6 +11,8 @@ import { SetupSetting } from '../onboarding/SetupSetting.tsx';
 import { CreateProjectPage } from './CreateProjectPage.tsx';
 import { ComposerControls } from '../components/ComposerControls.tsx';
 import { ProjectSetup } from '../components/ProjectSetup.tsx';
+import { McpServersSetting } from '../components/McpServers.tsx';
+import { McpServerPage } from './McpServerPage.tsx';
 import { TagSuggestionSettings } from '../components/TagSuggestionSettings.tsx';
 import { ProjectEditsSetting } from '../components/ProjectEditsSetting.tsx';
 import { RemoteStartsSetting } from '../components/RemoteStartsSetting.tsx';
@@ -31,10 +34,13 @@ import { CrashReportsSetting } from '../components/CrashReportsSetting.tsx';
 import { UpdateChannelSetting } from '../components/UpdateChannelSetting.tsx';
 import { KestrelConnectSetting } from '../components/KestrelConnectSetting.tsx';
 import { ConnectRecoveryPage } from '../components/ConnectRecoveryPage.tsx';
+import { SetupThisComputerPage } from '../components/SetupThisComputerPage.tsx';
+import { setupRecordRefresh } from '../setupList.ts';
 import { WorktreesSetting } from '../components/WorktreesSetting.tsx';
 import { SessionOrderSetting } from '../components/SessionOrderSetting.tsx';
 import { BranchPrefixSetting } from '../components/BranchPrefixSetting.tsx';
 import { PullRequestsNeedYouSetting } from '../components/PullRequestsNeedYouSetting.tsx';
+import { AutopilotSetting } from '../components/AutopilotSetting.tsx';
 import { StartFromLatestSetting } from '../components/StartFromLatestSetting.tsx';
 import { ConnectionList } from '../components/StatusArea.tsx';
 import { useConnections } from '../components/useAgents.ts';
@@ -72,7 +78,7 @@ function General() {
 }
 
 const MCP_HELP = (
-  <p className="settings-help">MCP servers are found in Claude Code, the Claude desktop app, Codex and OpenCode. A server set up for one project only appears on that project's Settings tab. Their tools still ask before they run, at the session's permission level.</p>
+  <p className="settings-help">Kestrel's own servers for every project come first; the rest are found in Claude Code, the Claude desktop app, Codex and OpenCode. Where a name is in both, Kestrel's is used. A server set up for one project only appears on that project's Settings tab. Their tools still ask before they run, at the session's permission level.</p>
 );
 
 /** The defaults every project follows: set once here, overridden per project only when needed. */
@@ -84,6 +90,7 @@ function AgentSetup() {
         title="Agent setup"
         help={<p className="settings-help">What every session gets from your own agent setup, in every project and with no project. Set it once here. A project can be given its own setup on its Settings tab. Changes apply to sessions started from now on.</p>}
       />
+      <McpServersSetting />
       <section className="settings-section wide">
         <ProjectSetup mcpHelp={MCP_HELP} />
       </section>
@@ -99,6 +106,7 @@ function Git() {
       <BranchPrefixSetting />
       <StartFromLatestSetting />
       <PullRequestsNeedYouSetting />
+      <AutopilotSetting />
       <CleanupPolicySetting />
     </>
   );
@@ -120,6 +128,8 @@ function Workflow() {
 
 function Connections() {
   const { rows } = useConnections();
+  // Opening Connections writes this computer's set-up record again if it changed (onboarding.md, section 3).
+  useEffect(() => setupRecordRefresh(), []);
   return (
     <>
       <SettingHeading level={1} title="Connections" help={<p className="settings-help">What Kestrel is connected to on {thisComputer()}.</p>} />
@@ -189,6 +199,8 @@ export function SettingsPage({ section: asked = 'general' }: { section?: string 
           <ShortcutsSetting />
         ) : section === 'agent-setup' ? (
           <AgentSetup />
+        ) : section.startsWith('agent-setup/mcp/') ? (
+          <McpServerPage name={section.split('/')[2] ?? 'new'} projectId={section.split('/')[3] ?? ''} />
         ) : section === 'git' ? (
           <Git />
         ) : section === 'code-reviews' ? (
@@ -201,6 +213,8 @@ export function SettingsPage({ section: asked = 'general' }: { section?: string 
           <Connections />
         ) : section === 'connections/recovery' ? (
           <ConnectRecoveryPage />
+        ) : section === 'connections/setup' ? (
+          <SetupThisComputerPage />
         ) : section === 'archived' ? (
           <ArchivedSettings />
         ) : section === 'worktrees' ? (

@@ -407,7 +407,9 @@ describe('a pull request the agent opened itself', () => {
   const link = { host: 'github' as const, number: 12, url: 'https://example.test/pr/12', branch: 'b', state: 'open' as const };
 
   it('offers a review once, and a started one is posted to the pull request when it ends', async () => {
-    const { workspace, codex, runtime, project, cards, posted, notices } = await world();
+    const { workspace, codex, runtime, project, cards: allCards, posted, notices } = await world();
+    // The Autopilot offer (pr-autopilot.md) is raised beside it; these are about the review card.
+    const cards = (id: string) => allCards(id).filter((c) => c.kind !== 'autopilot');
     codex.script = (turn) => turn.emit({ type: 'message', id: 'r1', text: 'Read it all.\nVERDICT: NOTHING TO FIX', delta: '', done: true });
     const session = await runtime.start({ agent: 'claude', projectId: project.id, prompt: 'Add the average', permission: 'auto' });
     await runtime.idle(session.id);
@@ -416,6 +418,7 @@ describe('a pull request the agent opened itself', () => {
     const card = cards(session.id)[0]!;
     expect(card).toMatchObject({ kind: 'review', title: 'Have Critic (Codex · gpt-6.2) review this pull request?', state: 'open' });
     expect(card.buttons.map((b) => b.label)).toEqual(['Start review', 'Always start reviews', 'Not now', "Don't ask again"]);
+    expect(allCards(session.id).find((c) => c.kind === 'autopilot')).toMatchObject({ title: 'Look after pull request #12?', state: 'open' });
     // Seen again by a later lookup: not offered twice.
     await workspace.recordRequests(session.id, [link]);
     expect(cards(session.id)).toHaveLength(1);
@@ -427,7 +430,9 @@ describe('a pull request the agent opened itself', () => {
   });
 
   it('offers nothing for a request the form made, when nobody reviews, or after "Don’t ask again"', async () => {
-    const { workspace, runtime, project, cards } = await world();
+    const { workspace, runtime, project, cards: allCards } = await world();
+    // The Autopilot offer (pr-autopilot.md) is raised beside it; these are about the review card.
+    const cards = (id: string) => allCards(id).filter((c) => c.kind !== 'autopilot');
     const session = await runtime.start({ agent: 'claude', projectId: project.id, prompt: 'Add the average', permission: 'auto' });
     await runtime.idle(session.id);
     runtime.noteFormRequest(session.id);
@@ -445,7 +450,9 @@ describe('a pull request the agent opened itself', () => {
   });
 
   it('asks before a review the agent asked for itself, starts nothing meanwhile, and starts it when the turn ends', async () => {
-    const { claude, codex, runtime, project, sessions, cards } = await world();
+    const { claude, codex, runtime, project, sessions, cards: allCards } = await world();
+    // The Autopilot offer (pr-autopilot.md) is raised beside it; these are about the review card.
+    const cards = (id: string) => allCards(id).filter((c) => c.kind !== 'autopilot');
     codex.script = (turn) => turn.emit({ type: 'message', id: 'r1', text: 'VERDICT: NOTHING TO FIX', delta: '', done: true });
     const seen: { told?: string; duringTurn?: number } = {};
     let release: () => void = () => undefined;
@@ -469,7 +476,9 @@ describe('a pull request the agent opened itself', () => {
   });
 
   it('starts reviews on their own after "Always start reviews", with no question', async () => {
-    const { workspace, codex, runtime, project, cards } = await world();
+    const { workspace, codex, runtime, project, cards: allCards } = await world();
+    // The Autopilot offer (pr-autopilot.md) is raised beside it; these are about the review card.
+    const cards = (id: string) => allCards(id).filter((c) => c.kind !== 'autopilot');
     codex.script = (turn) => turn.emit({ type: 'message', id: 'r1', text: 'VERDICT: NOTHING TO FIX', delta: '', done: true });
     const first = await runtime.start({ agent: 'claude', projectId: project.id, prompt: 'Add the average', permission: 'auto' });
     await runtime.idle(first.id);

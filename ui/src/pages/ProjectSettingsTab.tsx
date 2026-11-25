@@ -1,4 +1,5 @@
 // Project settings sections are selected by route, including direct links to folders.
+import { ProjectMcpServers } from '../components/McpServers.tsx';
 import { SaveBar } from '../components/SaveBar.tsx';
 import { SettingHeading } from '../components/SettingHelp.tsx';
 import type { Project } from '@kestrel/server/model';
@@ -61,6 +62,7 @@ export function ProjectSettingsTab({ project, section }: { project: Project; sec
     { id: 'agent-setup', label: 'Agent setup', content: (
       <section className="settings-block" aria-labelledby={heading('agent-setup')}>
         <SettingHeading id={heading('agent-setup')} title="Agent setup" help={<p>What sessions in {project.name} get from your own agent setup. Choose App defaults to follow your shared setup, or Custom to configure this project separately. Switching back restores your app defaults. Changes apply to sessions started from now on.</p>} />
+        <ProjectMcpServers projectId={project.id} />
         <ProjectSetup key={project.id} projectId={project.id} onEditDefaults={() => openView({ kind: 'settings', section: 'agent-setup' })} />
       </section>
     ) },

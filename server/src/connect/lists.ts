@@ -44,7 +44,7 @@ export function connectLists(prefs: Pick<ReviewPrefs, 'current' | 'onChange'>, r
   const pullRequests = async (): Promise<PullRequestsAnswer> => {
     if (!pulls) return pullRequestsAnswer([], {}, DEFAULT_ATTENTION_PREFS);
     const [state, attention] = await Promise.all([pulls.workspace.state(), pulls.prefs.attention()]);
-    return pullRequestsAnswer(state.sessions, pulls.store.all(), attention);
+    return pullRequestsAnswer(state.sessions, pulls.store.all(), attention, { links: state.links, workstreams: state.workstreams });
   };
   return {
     reviews: async () => reviewsAnswer(reviewRequests?.view() ?? NO_REVIEW_REQUESTS, await modeNow()),

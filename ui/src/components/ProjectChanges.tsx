@@ -41,10 +41,10 @@ export function ProjectChanges({ projectId }: { projectId: string }) {
   const { changes, error } = useProjectChanges(projectId, REFRESH_MS, folder?.id ?? null);
   const switcher = project && folder && <FolderSwitch project={project} folder={folder} onSelect={setFolderId} />;
   return (
-    <>
+    <div className="changes-pane">
       {switcher}
       <ChangesBody projectId={projectId} changes={changes} error={error} noFolder={project !== undefined && !folder} />
-    </>
+    </div>
   );
 }
 

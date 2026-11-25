@@ -1,6 +1,6 @@
 // Kestrel's own secrets, kept out of a confined session's reach (Matt, 2026-11-22). The protected store's
-// files live in Kestrel's data folder: the tracker credentials (tickets/credentials.ts) and Kestrel
-// Connect's sign-in and device keys (connect/link/vault.ts), each sealed under a key the app keeps in the
+// files live in Kestrel's data folder: the tracker credentials (tickets/credentials.ts), the MCP servers'
+// secret values (mcp-servers/secrets.ts) and Kestrel Connect's sign-in and device keys (connect/link/vault.ts), each sealed under a key the app keeps in the
 // OS keystore, or a plain file only the user can read where there is none. A session another session
 // started (`confineShell`) may not read, search or write them, for every provider:
 // - every tool call Kestrel sees (Claude's hook, a Codex or OpenCode ask) is checked here first, through
@@ -15,12 +15,14 @@ export const PROTECTED_FILES = {
   trackersPlain: 'trackers.json',
   connectSealed: 'connect.sealed',
   connectPlain: 'connect.json',
+  mcpSealed: 'mcp-servers.sealed',
+  mcpPlain: 'mcp-servers.json',
 } as const;
 
 export const PROTECTED_FILE_NAMES: readonly string[] = Object.values(PROTECTED_FILES);
 
 /** The reason a call is refused. Said for the agent, which passes it on. */
-export const PROTECTED_REFUSAL = "Kestrel: that is Kestrel's own credential store, which a session started by another session may not read, search or change. Ask the user if a tracker or Kestrel Connect needs looking at.";
+export const PROTECTED_REFUSAL = "Kestrel: that is Kestrel's own credential store, which a session started by another session may not read, search or change. Ask the user if a tracker, an MCP server or Kestrel Connect needs looking at.";
 
 /** File tools and the key holding the path each reads or writes (Claude's names; Codex and OpenCode calls are passed as these). */
 const PATH_KEYS: Record<string, string> = { Read: 'file_path', Write: 'file_path', Edit: 'file_path', MultiEdit: 'file_path', NotebookEdit: 'notebook_path', Grep: 'path', Glob: 'path' };

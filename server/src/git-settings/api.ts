@@ -7,6 +7,9 @@
 //   GET   /api/request-attention                                  200 { prefs: AttentionPrefs }
 //   PATCH /api/request-attention  { reason, watch?, card? }        200 { prefs } | 400 { error }
 //     Settings → Git → Pull requests that need you. Its own path so reading it never asks who gh is signed in as.
+//   GET   /api/autopilot-settings                                 200 { prefs: AutopilotPrefs }
+//   PATCH /api/autopilot-settings  { offer?, always?, confirmed?, merge?, rounds?, roundMinutes? }  200 { prefs } | 400 { error }
+//     Settings → Git → Autopilot (shared/autopilot.ts). "Always" is refused unless `confirmed` says its warning was shown.
 import { GitPrefsRefused, type GitPrefs } from './prefs.ts';
 
 export type GitSettingsAnswer = { status: number; body: unknown };
@@ -14,6 +17,7 @@ type ReadBody = () => Promise<Record<string, unknown>>;
 
 export async function gitSettingsRoute(parts: readonly string[], method: string, readBody: ReadBody, prefs: GitPrefs): Promise<GitSettingsAnswer | null> {
   if (parts[1] === 'request-attention' && parts.length === 2) return attentionRoute(method, readBody, prefs);
+  if (parts[1] === 'autopilot-settings' && parts.length === 2) return autopilotRoute(method, readBody, prefs);
   if (parts[1] !== 'git-settings' || parts.length !== 2) return null;
   if (method === 'GET') return { status: 200, body: await prefs.view() };
   if (method !== 'PATCH') return null;
@@ -34,6 +38,17 @@ async function attentionRoute(method: string, readBody: ReadBody, prefs: GitPref
   if (method !== 'PATCH') return null;
   try {
     return { status: 200, body: { prefs: await prefs.setAttention(await readBody()) } };
+  } catch (error) {
+    if (error instanceof GitPrefsRefused) return { status: 400, body: { error: error.message } };
+    throw error;
+  }
+}
+
+async function autopilotRoute(method: string, readBody: ReadBody, prefs: GitPrefs): Promise<GitSettingsAnswer | null> {
+  if (method === 'GET') return { status: 200, body: { prefs: await prefs.autopilot() } };
+  if (method !== 'PATCH') return null;
+  try {
+    return { status: 200, body: { prefs: await prefs.setAutopilot(await readBody()) } };
   } catch (error) {
     if (error instanceof GitPrefsRefused) return { status: 400, body: { error: error.message } };
     throw error;

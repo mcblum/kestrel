@@ -318,7 +318,7 @@ class ClaudeHandle implements AgentHandle {
 
   /** Runs one run and returns how it ended. Never rejects. */
   private async execute(run: Run): Promise<AgentEvent> {
-    const mapper = new ClaudeMapper(this.opts.directory, Object.keys(this.opts.setup?.mcpServers ?? {}), this.opts.browserElement);
+    const mapper = new ClaudeMapper(this.opts.directory, Object.keys(this.opts.setup?.mcpServers ?? {}), this.opts.browserElement, this.opts.setup?.kestrelServers);
     let outcome: Terminal | null = null;
     let started = false;
     const forward = (event: AgentEvent) => {

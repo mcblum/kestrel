@@ -23,6 +23,7 @@ import { SeenStore } from './seen.ts';
 import { deriveState, trailFor, withoutArchived } from './workspace-derive.ts';
 import { checkLimits, checkLive, copyTags, EMPTY_DETAIL, insertSession, projectNamer, refuseWhileWorking, type DelegateTask, type NewSession } from './workspace-records.ts';
 import * as settings from './workspace-settings.ts';
+import type { AutopilotRecord } from './shared/autopilot.ts';
 import type { Agent, Group, PinKind, Project, RequestLink, Session, SessionDetail, SessionRequestLink, SessionState, SessionWait, WorkstreamStatus, WorkspaceState, Workstream } from './model.ts';
 import type { Persistence, StoredDetail } from './persistence/types.ts';
 
@@ -78,8 +79,8 @@ export class Workspace {
     if (this.cache) return Promise.resolve(this.cache);
     if (this.loading) return this.loading;
     const version = this.version;
-    const load = Promise.all([this.db.listProjects(), this.db.listGroups(), this.db.listSessions(), this.db.listLinks(), settings.readArchived(this.db), this.db.listTags(), this.db.listPins(), this.db.listAllRequestLinks(), this.db.listWorkstreams(), this.db.listWaits()]).then(([projects, groups, sessions, links, archived, tags, pins, requests, workstreams, waits]) => {
-      const derived = withoutArchived(deriveState(projects, groups, sessions, links, tags, worktreeRepo, requests), archived);
+    const load = Promise.all([this.db.listProjects(), this.db.listGroups(), this.db.listSessions(), this.db.listLinks(), settings.readArchived(this.db), this.db.listTags(), this.db.listPins(), this.db.listAllRequestLinks(), this.db.listWorkstreams(), this.db.listWaits(), settings.readAutopilot(this.db)]).then(([projects, groups, sessions, links, archived, tags, pins, requests, workstreams, waits, autopilot]) => {
+      const derived = withoutArchived(deriveState(projects, groups, sessions, links, tags, worktreeRepo, requests, autopilot), archived);
       const shown = { sessions: new Set(derived.sessions.map((x) => x.id)), projects: new Set(derived.projects.map((x) => x.id)), groups: new Set(derived.groups.map((x) => x.id)) };
       // An archived workstream is out of the sidebar's list and kept apart, still pointing at its sessions.
       const split = shownWorkstreams(workstreams, shown.sessions);
@@ -118,6 +119,7 @@ export class Workspace {
 
   // ---- writes ---------------------------------------------------------------------
 
+  private autopilotWrites: Promise<unknown> = Promise.resolve();
   private readonly mergedListeners = new Set<(sessionId: string) => void>();
   private readonly requestListeners = new Set<(sessionId: string, link: RequestLink) => void>();
 
@@ -164,6 +166,29 @@ export class Workspace {
     // A request seen merged for the first time: whoever cleans up after a merge is told (cleanup/on-merge.ts).
     if (merged) for (const listener of this.mergedListeners) listener(sessionId);
     return added;
+  }
+
+  /**
+   * Set or clear one session's Autopilot (shared/autopilot.ts). Writes run one after another, and the
+   * state changes only when the record really did, so a look that changes nothing broadcasts nothing.
+   */
+  setAutopilot(sessionId: string, record: AutopilotRecord | null): Promise<void> {
+    const work = this.autopilotWrites.then(async () => {
+      const all = new Map(await settings.readAutopilot(this.db));
+      const before = all.get(sessionId);
+      if (JSON.stringify(before ?? null) === JSON.stringify(record)) return;
+      if (record) all.set(sessionId, record);
+      else all.delete(sessionId);
+      await settings.saveAutopilot(this.db, all);
+      this.changed();
+    });
+    this.autopilotWrites = work.catch(() => undefined);
+    return work;
+  }
+
+  /** One session's Autopilot as stored; null when it has none. */
+  async autopilot(sessionId: string): Promise<AutopilotRecord | null> {
+    return (await settings.readAutopilot(this.db)).get(sessionId) ?? null;
   }
 
   /** Store a project as given (project-record.ts); checking it is the caller's job (project-store.ts). */

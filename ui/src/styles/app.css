@@ -263,10 +263,13 @@ body { background: light-dark(#fafbf9, #171a19); }
 /* Controls are one quiet row of text labels inside the message box, new tab and running alike. */
 .kestrel .ctl-set { display: flex; flex-wrap: wrap; gap: 2px 4px; align-items: center; }
 .kestrel .ctl { display: inline-flex; align-items: center; min-width: 0; font-size: 11px; color: var(--s-muted); }
-.kestrel .ctl select, .kestrel .ctl .picker-button { appearance: none; -webkit-appearance: none; field-sizing: content; width: auto; max-width: 220px; margin: 0; padding: 3px 5px 3px 7px; font: inherit; font-size: 11px; color: var(--s-muted); background: transparent; border: 0; border-radius: 5px; cursor: pointer; text-overflow: ellipsis; }
+/* A picker is one target with its ▾: the select's (or button's) right padding runs on under the caret, which
+   is drawn over it, so a click on the ▾ opens the list and the hover fill covers it (Matt, 2026-11-24). */
+.kestrel .ctl { --ctl-caret: 6px; }
+.kestrel .ctl select, .kestrel .ctl .picker-button { appearance: none; -webkit-appearance: none; field-sizing: content; width: auto; max-width: 220px; margin: 0; padding: 3px calc(5px + var(--ctl-caret)) 3px 7px; font: inherit; font-size: 11px; color: var(--s-muted); background: transparent; border: 0; border-radius: 5px; cursor: pointer; text-overflow: ellipsis; }
 .kestrel .ctl select:hover:not(:disabled), .kestrel .ctl .picker-button:hover { color: var(--s-ink); background: var(--s-soft); }
-.kestrel .ctl select:disabled { opacity: .6; cursor: default; }
-.kestrel .ctl:has(select:not(:disabled))::after, .kestrel .ctl:has(.picker-button)::after { content: '▾'; font-size: 9px; margin: 0 6px 0 -2px; pointer-events: none; }
+.kestrel .ctl select:disabled { opacity: .6; cursor: default; padding-right: 5px; }
+.kestrel .ctl:has(select:not(:disabled))::after, .kestrel .ctl:has(.picker-button)::after { content: '▾'; flex: none; width: var(--ctl-caret); font-size: 9px; text-align: center; margin: 0 8px 0 calc(-2px - var(--ctl-caret)); pointer-events: none; }
 .kestrel .ctl-fixed { display: inline-flex; align-items: center; gap: 4px; padding: 3px 7px; font-size: 11px; color: var(--s-muted); }
 .kestrel .ctl-fixed svg { width: 11px; height: 11px; }
 
@@ -319,6 +322,10 @@ body { background: light-dark(#fafbf9, #171a19); }
 .kestrel .context-menu { max-width: 380px; }
 .kestrel .menu-item.disabled:has(small) { flex-wrap: wrap; row-gap: 2px; }
 .kestrel .menu-item.disabled small { flex-basis: 100%; line-height: 1.4; }
+/* A menu of one width (menuState `width`): its text wraps, a long unbroken name too, and it grows taller,
+   up to the window (usePopupPlacement caps its height, and the rest scrolls). */
+.kestrel .context-menu-fixed { min-width: 0; max-width: none; box-sizing: border-box; overflow-y: auto; }
+.kestrel .context-menu-fixed .menu-heading, .kestrel .context-menu-fixed .menu-item span, .kestrel .context-menu-fixed .menu-item small { white-space: normal; overflow-wrap: anywhere; line-height: 1.4; }
 .kestrel .submenu { position: fixed; }
 
 /* ---- delegation ------------------------------------------------------------------------ */
@@ -822,6 +829,9 @@ body { background: light-dark(#fafbf9, #171a19); }
 
 /* The icon and edge sizes belong to the whole app, so the settings list lines up like the sidebar. */
 .kestrel { --slot: 16px; --edge: 8px; }
+/* The line that joins a child to its parent: the sidebar's elbows (sidebar-rhythm.css) and the session
+   header's count of the requests a session brought in (brought-in.css). One colour for both. */
+.kestrel { --elbow-line: color-mix(in srgb, var(--s-muted) 45%, transparent); }
 .kestrel .settings-nav .side-link { padding: 5px 8px; }
 
 /* Agent setup: a project following the defaults shows them, greyed, so it is clear what it gets. */

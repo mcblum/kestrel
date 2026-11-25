@@ -15,7 +15,7 @@ import { ReviewReplies } from '../review-requests/reply.ts';
 import { SessionRuntime } from '../runtime.ts';
 import { ALWAYS_COMMAND, ALWAYS_FOLDER } from '../shared/sandbox-allow.ts';
 import { MOVE_DECLINED } from '../shared/session-move.ts';
-import { ASIDE_REFUSAL, CONNECT_PROTOCOL_VERSION, NEVER_REMOTE, type ConnectResponse, type Envelope } from '../shared/connect-ops.ts';
+import { ASIDE_REFUSAL, BYPASS_FROM_ELSEWHERE, CONNECT_PROTOCOL_VERSION, NEVER_REMOTE, type ConnectResponse, type Envelope } from '../shared/connect-ops.ts';
 import type { PullRequest } from '../shared/details.ts';
 import { ready } from '../shared/sourced.ts';
 import { openSuggestions } from '../shared/suggestions.ts';
@@ -30,6 +30,7 @@ import { TicketStore } from '../tickets/store.ts';
 import { syncTickets } from '../tickets/sync.ts';
 import type { TicketSource } from '../tickets/source.ts';
 import { remoteStartsOff } from '../remote-starts/prefs.ts';
+import { noSuchPreset } from '../remote-starts/session-start.ts';
 import { connectLists, PULL_REQUESTS_LOOK_MS } from './lists.ts';
 import { PullRequestStore } from '../pull-requests/store.ts';
 import { DEFAULT_ATTENTION_PREFS } from '../shared/request-attention.ts';
@@ -186,13 +187,11 @@ describe.each(SELECTABLE_AGENTS)('every operation, for a %s session', (agent) =>
     expect(await d.ask('media.read', { sessionId: session.id, name: 'nothing.png' })).toEqual({ ok: false, reason: 'That picture is no longer there.' });
   });
 
-  it('refuses what a phone never does, starting a session among them', async () => {
+  it('refuses what a phone never does', async () => {
     const d = await desk();
     const session = await d.start(agent, 'hello');
     await d.settle();
     for (const [op, reason] of Object.entries(NEVER_REMOTE)) expect(await d.ask(op, { sessionId: session.id })).toEqual({ ok: false, reason });
-    expect(await d.ask('session.start', { projectId: d.project.id, prompt: 'go' })).toEqual({ ok: false, reason: NEVER_REMOTE['session.start'] });
-    expect(NEVER_REMOTE['session.start']).toMatch(/^Sessions are started at the desk/);
     // No mode or model rides on a phone's message, Bypass least of all.
     expect(await d.ask('session.reply', { sessionId: session.id, text: 'go', permission: 'bypass' })).toEqual({ ok: false, reason: 'session.reply takes no permission.' });
     expect(await d.ask('session.read', { sessionId: 'nope' })).toEqual({ ok: false, reason: 'That session is no longer in Kestrel.' });
@@ -856,3 +855,68 @@ const ROUND: RoundFindings = {
     { id: 'f2', brief: 'A name is unclear.', priority: 'low', blocking: false, refs: [] },
   ],
 };
+
+describe.each(SELECTABLE_AGENTS)('a new session from a blank page on a phone, on %s (A8, Matt 2026-11-24)', (agent) => {
+  const remembered = (permission: string) => JSON.stringify({ remembered: { agent, projectId: null, byAgent: { [agent]: { model: 'm-desk', effort: '', fast: false, permission } } } });
+
+  it('starts with the New session box\'s choices here, the typed message first', async () => {
+    const d = await desk();
+    await d.workspace.setUiState(remembered('auto'));
+    const { sessionId } = await d.ok('session.start', { projectId: d.project.id, text: 'Fix the checkout' });
+    const session = (await d.workspace.state()).sessions.find((s) => s.id === sessionId)!;
+    expect(session.agent).toBe(agent);
+    await until(() => d.fakes[agent].starts.length > 0, 'the session starts');
+    expect(d.fakes[agent].starts[0]!.prompt).toContain('Fix the checkout');
+    expect(d.fakes[agent].starts[0]!.options.permission).toBe('auto');
+    await d.settle();
+  });
+
+  it('takes the agent and the mode the phone picked', async () => {
+    const d = await desk();
+    await d.workspace.setUiState(remembered('auto'));
+    const { sessionId } = await d.ok('session.start', { projectId: d.project.id, agent, mode: 'ask', text: 'go' });
+    await until(() => d.fakes[agent].starts.length > 0, 'the session starts');
+    expect(d.fakes[agent].starts[0]!.options.permission).toBe('ask');
+    expect((await d.workspace.state()).sessions.find((s) => s.id === sessionId)!.agent).toBe(agent);
+    await d.settle();
+  });
+
+  it('takes a preset\'s agent and model', async () => {
+    const d = await desk();
+    await d.runtime.whoDoesWhat.set({ ...(await d.runtime.whoDoesWhat.current()), presets: [{ id: 'quick', name: 'Quick', agent, model: 'm-preset', effort: '', fast: false }] });
+    const choices = await d.ok('session.startChoices');
+    expect(choices).toMatchObject({ here: 'your Mac', allowed: true, agents: [...SELECTABLE_AGENTS], presets: [expect.objectContaining({ id: 'quick' })] });
+    await d.ok('session.start', { projectId: d.project.id, presetId: 'quick', text: 'go' });
+    await until(() => d.fakes[agent].starts.length > 0, 'the session starts');
+    expect(d.fakes[agent].starts[0]!.options.model).toBe('m-preset');
+    await d.settle();
+  });
+
+  it('never starts in Bypass, even when the desk\'s box would', async () => {
+    const d = await desk();
+    await d.workspace.setUiState(remembered('bypass'));
+    expect((await d.ok('session.startChoices')).start.permission).not.toBe('bypass');
+    expect(await d.ask('session.start', { projectId: d.project.id, mode: 'bypass', text: 'go' })).toEqual({ ok: false, reason: BYPASS_FROM_ELSEWHERE });
+    await d.ok('session.start', { projectId: d.project.id, text: 'go' });
+    await until(() => d.fakes[agent].starts.length > 0, 'the session starts');
+    expect(d.fakes[agent].starts[0]!.options.permission).not.toBe('bypass');
+    await d.settle();
+  });
+});
+
+describe('a new session from a phone is refused, with the reason', () => {
+  it('while this computer\'s switch is off, and says so in its choices', async () => {
+    const d = await desk();
+    await d.runtime.remoteStarts.setAllowed(false);
+    expect(await d.ok('session.startChoices')).toMatchObject({ allowed: false, refusal: remoteStartsOff('your Mac') });
+    expect(await d.ask('session.start', { projectId: d.project.id, text: 'go' })).toEqual({ ok: false, reason: remoteStartsOff('your Mac') });
+    expect((await d.workspace.state()).sessions).toEqual([]);
+  });
+
+  it('for a preset no longer here, or a project that is not', async () => {
+    const d = await desk();
+    expect(await d.ask('session.start', { projectId: d.project.id, presetId: 'gone', text: 'go' })).toEqual({ ok: false, reason: noSuchPreset('your Mac') });
+    expect(await d.ask('session.start', { projectId: 'nope', text: 'go' })).toMatchObject({ ok: false, reason: expect.any(String) });
+    expect((await d.workspace.state()).sessions).toEqual([]);
+  });
+});

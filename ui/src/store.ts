@@ -447,9 +447,10 @@ function withoutRemoved(messages: ChatMessage[], removed: readonly string[] | un
 }
 
 const NO_QUEUE: SessionQueue = { items: [], held: false };
+const NO_SERVERS: NonNullable<LivePatch['mcpServers']> = [];
 
 function applyLive(id: string, patch: LivePatch) {
-  const prev = current().live.get(id) ?? { messages: [], files: [], filesProblem: null, commands: [], slashCommands: [], agentOutput: '', kestrelTools: 'unknown' as const, kestrelMissing: [] as string[], settings: { model: '', permission: 'ask' as PermissionLevel }, status: '', subagents: [], subagentsAfter: null, queue: NO_QUEUE, context: null, backgroundTasks: [] };
+  const prev = current().live.get(id) ?? { messages: [], files: [], filesProblem: null, commands: [], slashCommands: [], agentOutput: '', kestrelTools: 'unknown' as const, kestrelMissing: [] as string[], mcpServers: NO_SERVERS, settings: { model: '', permission: 'ask' as PermissionLevel }, status: '', subagents: [], subagentsAfter: null, queue: NO_QUEUE, context: null, backgroundTasks: [] };
   const next: LiveState = {
     // Removed first, then merged: a message the server both removes and sends again has moved to the end.
     messages: patch.messages ? mergeMessages(withoutRemoved(prev.messages, patch.removedMessages), patch.messages) : withoutRemoved(prev.messages, patch.removedMessages),
@@ -458,6 +459,7 @@ function applyLive(id: string, patch: LivePatch) {
     agentOutput: patch.agentOutput ?? prev.agentOutput,
     kestrelTools: patch.kestrelTools ?? prev.kestrelTools,
     kestrelMissing: patch.kestrelMissing ?? prev.kestrelMissing,
+    mcpServers: patch.mcpServers ?? prev.mcpServers,
     settings: patch.settings ?? prev.settings,
     status: patch.status ?? prev.status,
     subagents: patch.subagents ?? prev.subagents,

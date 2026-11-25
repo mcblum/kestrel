@@ -2,6 +2,7 @@
 // until the session is closed or the server stops), one thread on it, one turn at a time.
 // A child that dies is reported as a failed turn with its stderr; the next message starts a new
 // child and resumes the thread, as a restart of Kestrel does.
+import { codexServerStates } from './servers.ts';
 import { FILE_CHANGE_APPROVAL } from './approvals.ts';
 import type { ElementLookup } from '../claude/describe.ts';
 import { KESTREL_TOOLS, type AgentAttachment, type AgentEvent, type AgentHandle, type InputAnswer, type InputOption, type InputRequest, type MidTurnMessage, type StartOptions } from '../types.ts';
@@ -438,10 +439,11 @@ export class CodexHandle implements AgentHandle {
   /** `started`, with whether Codex really has every Kestrel tool (from its own MCP status). */
   private async startedEvent(rpc: RpcConnection, omitted: readonly string[]): Promise<AgentEvent> {
     const expected = KESTREL_TOOLS.filter((t) => !omitted.includes(t)) as string[];
-    const base = { type: 'started' as const, agentSessionId: this.threadId!, model: this.model };
-    if (!this.opts.kestrelMcp) return { ...base, kestrelTools: 'missing', missing: expected, detail: 'Kestrel did not give this session its tools.' };
-    const listed = await rpc.request('mcpServerStatus/list', { threadId: this.threadId }).catch(() => null);
+    const handed = this.opts.setup?.kestrelServers;
+    const listed = this.opts.kestrelMcp || handed?.length ? await rpc.request('mcpServerStatus/list', { threadId: this.threadId }).catch(() => null) : null;
     const servers = isObj(listed) && Array.isArray(listed.data) ? listed.data.filter(isObj) : [];
+    const base = { type: 'started' as const, agentSessionId: this.threadId!, model: this.model, ...(handed?.length ? { mcpServers: codexServerStates(servers, handed) } : {}) };
+    if (!this.opts.kestrelMcp) return { ...base, kestrelTools: 'missing', missing: expected, detail: 'Kestrel did not give this session its tools.' };
     const kestrel = servers.find((s) => s.name === KESTREL_SERVER);
     const tools = kestrel && isObj(kestrel.tools) ? Object.keys(kestrel.tools) : [];
     const missing = expected.filter((t) => !tools.includes(t));

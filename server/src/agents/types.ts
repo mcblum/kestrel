@@ -14,6 +14,7 @@ import type { BackgroundTask } from '../shared/background-tasks.ts';
 import type { SandboxAllowEntry, SandboxOffer } from '../shared/sandbox-allow.ts';
 import type { SigningAccess } from '../shared/commit-signing.ts';
 import type { Bounds } from '../sandbox-allow/match.ts';
+import type { HandedServer, McpServerState } from '../shared/mcp-servers.ts';
 
 // ---- events out -------------------------------------------------------------------
 
@@ -31,7 +32,9 @@ export type AgentEvent =
   /** The agent process is up. Sent once per start or resume, before anything else. */
   | { type: 'started'; agentSessionId: string; model: string; kestrelTools: KestrelToolsStatus; /** Kestrel tools the agent did not have. */ missing?: string[]; detail?: string;
       /** Set when the session carries tool servers Kestrel did not give it (claude.ai connectors, say). */
-      warning?: string }
+      warning?: string;
+      /** Kestrel's own MCP servers in this session, as the agent reported them (shared/mcp-servers.ts). */
+      mcpServers?: McpServerState[] }
   /** Agent text. `text` is everything so far for this message; `delta` is the new piece. */
   | { type: 'message'; id: string; text: string; delta: string; done: boolean }
   /** What the agent is doing right now, in a few words ("Thinking…"). Shown live, never stored. */
@@ -345,6 +348,8 @@ export interface StartOptions {
     inProject: boolean;
     /** The user's MCP servers switched on for this project, by name, with their configuration. */
     mcpServers: Record<string, Record<string, unknown>>;
+    /** Which of them are from Kestrel's own list (shared/mcp-servers.ts), for the header: names and what they lack, never a value. */
+    kestrelServers?: HandedServer[];
   };
   /** The name of an element the agent read in the browser pane, by ref, for approval titles. */
   browserElement?: (ref: number) => string | null;

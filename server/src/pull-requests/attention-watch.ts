@@ -6,6 +6,8 @@
 //   conflicts, the review that asks for changes), only while the session is idle and that reason's card
 //   is offered, so a session that is working is looked at again when its turn ends. A guest never gets
 //   one: its host does.
+// - None while Autopilot is on for the session: it sends the fix itself. Once it stops, a reason that
+//   still holds gets its card.
 // - Withdrawn when that occurrence no longer holds (checks passed or run again, the conflicts were
 //   resolved, the review no longer asks, a newer occurrence took its place, the request was merged or
 //   closed, or the reason was turned off). Seen moving within this run only: a card left open across a
@@ -26,6 +28,8 @@ export interface AttentionWatchDeps {
   raise(sessionId: string, card: Omit<RequestAttention, 'reasons'> & ReasonDetail): Promise<unknown>;
   /** Settle the session's open cards for which `line` says why they no longer apply (null keeps one open). */
   withdraw(sessionId: string, line: (payload: Record<string, unknown>) => string | null): Promise<unknown>;
+  /** Whether Autopilot looks after the session's request (pull-requests/autopilot.ts): it raises no card then, it acts. */
+  autopilotOn?(sessionId: string): boolean;
   lookMs?: number;
   log?: (line: string) => void;
 }
@@ -93,7 +97,7 @@ export class AttentionWatch {
       next.set(session.id, now);
       const before = this.held.get(session.id);
       if (before && [...before].some((k) => !now.has(k))) await this.deps.withdraw(session.id, (payload) => settledLine(payload as unknown as Parameters<typeof settledLine>[0], lookup, prefs));
-      const fact = sessionAttention(session, lookup, prefs);
+      const fact = this.deps.autopilotOn?.(session.id) ? null : sessionAttention(session, lookup, prefs);
       for (const detail of fact?.reasons ?? []) {
         const key = `${session.id}\n${keyOf(fact!, detail)}`;
         if (prefs[detail.reason].card !== 'ask' || this.raised.has(key)) continue;

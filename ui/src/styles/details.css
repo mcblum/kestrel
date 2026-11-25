@@ -77,6 +77,27 @@
 .kestrel .session-head .bar-line-title { min-height: 26px; }
 .kestrel .session-head .bar-line-where { min-height: 18px; gap: 10px; font-size: 10.5px; overflow: hidden; }
 .kestrel .session-head .bar-line-where > * { flex: none; }
+/* The group picker is as wide as the group it shows, never the widest in its list (Matt, 2026-11-24), and
+   no wider than --session-head-picker-max: past that the name ends in an ellipsis and its tooltip says it
+   whole. When the line is short of room it gives way before the project's chip. Its open list shows every
+   name in full. */
+/* The whole closed picker is one target (Matt, 2026-11-24): the select reaches back over the folder icon and
+   on over the caret, by its padding, so a click on the icon, the name, the gaps or the ▾ opens the list. Its
+   caret is the composer pickers' ▾ (app.css .ctl), drawn after it, so the line's one gap sits between the
+   icon and the name and again between the name and the caret, even when the name is cut short. */
+.kestrel .session-head { --picker-icon: 12px; --picker-gap: 5px; --picker-caret: 8px; --session-head-picker-max: 200px; }
+.kestrel .session-head .bar-line-where > .bar-group { flex: 0 100 auto; min-width: 0; color: var(--s-muted); }
+.kestrel .session-head .bar-line-where > .bar-group:hover { color: var(--s-ink); }
+.kestrel .session-head .bar-group > svg { pointer-events: none; }
+.kestrel .session-head .work-folder {
+  appearance: none; -webkit-appearance: none; flex: 0 1 auto; box-sizing: border-box; field-sizing: content; color: inherit; cursor: pointer;
+  margin: 0 calc(-1 * (var(--picker-gap) + var(--picker-caret))) 0 calc(-1 * (var(--picker-icon) + var(--picker-gap)));
+  padding: 0 calc(var(--picker-gap) + var(--picker-caret)) 0 calc(var(--picker-icon) + var(--picker-gap));
+  min-width: calc(8ch + var(--picker-icon) + 2 * var(--picker-gap) + var(--picker-caret));
+  max-width: calc(var(--session-head-picker-max) + var(--picker-icon) + 2 * var(--picker-gap) + var(--picker-caret));
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.kestrel .session-head .bar-group::after { content: '▾'; flex: none; width: var(--picker-caret); font-size: 9px; text-align: center; pointer-events: none; }
 .kestrel .session-head .bar-line-where > .bar-project { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .kestrel .session-head .bar-line-where .bar-project { font-weight: 500; color: var(--s-label, var(--s-muted)); }
 .kestrel .session-head .bar-none { font-weight: 400; color: var(--s-muted); }

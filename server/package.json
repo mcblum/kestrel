@@ -10,6 +10,9 @@
     "./session-archive": "./src/shared/session-archive.ts",
     "./working-tree": "./src/shared/working-tree.ts",
     "./request-attention": "./src/shared/request-attention.ts",
+    "./autopilot": "./src/shared/autopilot.ts",
+    "./brought-in-requests": "./src/shared/brought-in-requests.ts",
+    "./request-family": "./src/shared/request-family.ts",
     "./mid-turn": "./src/shared/mid-turn.ts",
     "./landing": "./src/shared/landing.ts",
     "./tabs": "./src/shared/tabs.ts",
@@ -76,6 +79,7 @@
     "./links": "./src/shared/links.ts",
     "./steps-summary": "./src/shared/steps-summary.ts",
     "./setup": "./src/shared/setup.ts",
+    "./mcp-servers": "./src/shared/mcp-servers.ts",
     "./files": "./src/files.ts",
     "./terminals": "./src/shared/terminals.ts",
     "./code-run": "./src/shared/code-run.ts",
@@ -87,6 +91,7 @@
     "./simulator": "./src/shared/simulator.ts",
     "./scope": "./src/shared/scope.ts",
     "./pane-layout": "./src/shared/pane-layout.ts",
+    "./changes-split": "./src/shared/changes-split.ts",
     "./browser-cap": "./src/shared/browser-cap.ts",
     "./details": "./src/shared/details.ts",
     "./diff-counts": "./src/shared/diff-counts.ts",
@@ -132,6 +137,7 @@
     "./task-row-name": "./src/shared/task-row-name.ts",
     "./commands": "./src/shared/commands.ts",
     "./connect": "./src/shared/connect.ts",
+    "./setup-list": "./src/shared/setup-list.ts",
     "./diff-anchors": "./src/shared/diff-anchors.ts"
   },
   "scripts": {

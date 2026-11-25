@@ -9,6 +9,7 @@ import { LIVE_FLUSH_MS, mergePatch } from '../live-channel.ts';
 import type { ChatMessage, LivePatch, Session } from '../model.ts';
 import { Refused } from '../refused.ts';
 import type { SessionRuntime } from '../runtime.ts';
+import { setAutopilot } from '../pull-requests/autopilot-api.ts';
 import { checkEnvelope, checkRequest, CONNECT_PROTOCOL_VERSION, isConnectId, versionRefusal, type ConnectOpArgs, type ConnectRequest, type ConnectResponse, type Envelope } from '../shared/connect-ops.ts';
 import { pageRefusal, transcriptPage } from '../shared/transcript-page.ts';
 import type { PullRequestsAnswer, ReviewsAnswer, TicketsAnswer } from '../shared/connect-lists.ts';
@@ -17,6 +18,7 @@ import type { Workspace } from '../workspace.ts';
 import { connectLists, type ConnectLists, type ListKind } from './lists.ts';
 import { deskLeadChoices } from '../remote-starts/choices.ts';
 import { remoteStartsOff } from '../remote-starts/prefs.ts';
+import { remoteStartChoices, remoteStartRun } from '../remote-starts/session-start.ts';
 import { startRequestedReview } from '../review-requests/start-requested.ts';
 import type { ReviewRequestStore } from '../review-requests/store.ts';
 import { ticketsRoute, type TicketsApi } from '../tickets/api.ts';
@@ -169,6 +171,10 @@ export class ConnectDispatcher {
         return this.stop(request.args.sessionId);
       case 'session.compact':
         return this.compact(request.args.sessionId);
+      case 'session.start':
+        return this.startSession(request.args);
+      case 'session.startChoices':
+        return this.startChoices();
       case 'session.seen':
         return this.seen(request.args.sessionId);
       case 'media.read':
@@ -183,6 +189,8 @@ export class ConnectDispatcher {
         return this.suggestion(request.args.sessionId, (s) => s.dismiss(request.args.sessionId, request.args.suggestionId));
       case 'suggestion.undo':
         return this.suggestion(request.args.sessionId, (s) => s.undo(request.args.sessionId, request.args.suggestionId));
+      case 'autopilot.set':
+        return this.autopilotSet(request.args);
       case 'reviews.read':
         return this.readList(device, 'reviews');
       case 'tickets.read':
@@ -280,6 +288,12 @@ export class ConnectDispatcher {
     return { answered: true };
   }
 
+  /** As the request pill's Autopilot entry: the same call, the same refusals. */
+  private async autopilotSet({ sessionId, on, merge }: ConnectOpArgs['autopilot.set']) {
+    await this.session(sessionId);
+    return { autopilot: await setAutopilot(this.deps.runtime.autopilot, sessionId, { on, ...(merge === undefined ? {} : { merge }) }) };
+  }
+
   private async stop(sessionId: string) {
     await this.session(sessionId);
     await this.deps.runtime.stop(sessionId);
@@ -366,6 +380,26 @@ export class ConnectDispatcher {
   private async mayStart(): Promise<Set<string>> {
     if (!(await this.deps.runtime.remoteStarts.prefs()).allowed) throw new Refused(remoteStartsOff(this.deps.here));
     return new Set((await this.deps.workspace.state()).sessions.map((s) => s.id));
+  }
+
+  /** What a phone may start a session here with: the switch, the agents, the presets and the New session box's choices. */
+  private async startChoices() {
+    const { allowed } = await this.deps.runtime.remoteStarts.prefs();
+    const { presets } = await this.deps.runtime.whoDoesWhat.current();
+    return remoteStartChoices(this.deps.here, allowed, remoteStartsOff(this.deps.here), presets, await this.deps.workspace.getUiState());
+  }
+
+  /**
+   * A new session here from a blank page on another device (A8): the same start the New session box makes,
+   * with the user's typed message, so a ticket it names is taken up. Only while this computer's switch
+   * allows it, and never in Bypass. The project and folder are checked by the runtime, as the box's are.
+   */
+  private async startSession({ projectId, folderId, presetId, agent, mode, text, draftId, attachments }: ConnectOpArgs['session.start']) {
+    await this.mayStart();
+    const { presets } = await this.deps.runtime.whoDoesWhat.current();
+    const run = remoteStartRun({ ...(presetId !== undefined ? { presetId } : {}), ...(agent !== undefined ? { agent } : {}), ...(mode !== undefined ? { mode } : {}) }, presets, await this.deps.workspace.getUiState(), this.deps.here);
+    const session = await this.deps.runtime.start({ ...run, projectId: projectId ?? null, folderId: folderId ?? null, prompt: text, draft: draftRefs({ draftId, attachments }), byUser: true });
+    return { sessionId: session.id };
   }
 
   /** The request's Start review button: restored, read, and its review started (or given back), never in Bypass. */

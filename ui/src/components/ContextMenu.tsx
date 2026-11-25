@@ -107,7 +107,8 @@ function MenuList({ items, menu, depth = 0, side }: ListProps) {
 
   return (
     <div
-      className="context-menu"
+      className={`context-menu${menu.width ? ' context-menu-fixed' : ''}`}
+      style={menu.width ? { width: menu.width } : undefined}
       role="menu"
       onKeyDown={(e) => {
         const keyed = !e.metaKey && !e.ctrlKey && !e.altKey ? items.find((it) => it.shortcut === e.key && !it.disabled) : undefined;

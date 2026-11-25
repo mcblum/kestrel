@@ -1,4 +1,5 @@
 // The data model from docs/designs/kestrel.md ("Data model"). Types only; shared with the UI.
+import type { McpServerState } from './shared/mcp-servers.ts';
 import type { ReviewReply } from './shared/review-reply.ts';
 import type { ReviewEnd, RoundFindings } from './shared/round-findings.ts';
 import type { AsideOf } from './shared/asides.ts';
@@ -17,6 +18,7 @@ import type { Attachment } from './shared/attachments.ts';
 import type { ContextUsage } from './shared/context-usage.ts';
 import type { HostKind } from './shared/host-terms.ts';
 import type { SandboxOffer } from './shared/sandbox-allow.ts';
+import type { AutopilotRecord } from './shared/autopilot.ts';
 
 export type { QueuedMessage, SessionQueue } from './shared/queue.ts';
 export type { Attachment } from './shared/attachments.ts';
@@ -230,6 +232,8 @@ export interface SessionView extends Session {
    * none or that state is unknown. What decides whether a finished session waits on review (status.ts).
    */
   request: PullRequestState | null;
+  /** Its Autopilot (shared/autopilot.ts), on or stopped; absent when it was never turned on. */
+  autopilot?: AutopilotRecord;
 }
 
 /** Something the user pinned to the top of the sidebar. */
@@ -478,6 +482,8 @@ export interface SessionDetail {
   kestrelTools: 'connected' | 'missing' | 'unknown';
   /** Names of Kestrel tools the agent did not have, when `kestrelTools` is `missing`. */
   kestrelMissing?: string[];
+  /** Kestrel's own MCP servers in this session, as the agent reported them at its last start (shared/mcp-servers.ts). Absent when it was handed none. */
+  mcpServers?: McpServerState[];
   /** The slash commands the session's agent offers, as it last listed them (shared/slash-commands.ts). Absent until it has. */
   slashCommands?: SlashCommand[];
   /** Absent on sample sessions. */
@@ -509,6 +515,7 @@ export interface LivePatch {
   agentOutput?: string;
   kestrelTools?: SessionDetail['kestrelTools'];
   kestrelMissing?: string[];
+  mcpServers?: McpServerState[];
   /** The slash commands the session's agent offers, as it last listed them (shared/slash-commands.ts). Absent until it has. */
   slashCommands?: SlashCommand[];
   settings?: SessionSettings;

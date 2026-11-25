@@ -7,6 +7,13 @@
 .kestrel .pr-group-pill:focus-visible { outline: 2px solid var(--s-ink); outline-offset: 2px; }
 .kestrel .pr-group-pill svg { width: 12px; height: 12px; flex: none; }
 .kestrel .pr-group-pill .pr-group-chevron { width: 11px; height: 11px; color: var(--s-muted); }
+/* The smaller size (`compact`): the requests of the sessions a session brought in, under its own pill.
+   Its height is --pr-compact-line + 2 × --pr-compact-pad + 1px + the 2px border: 20px against the main
+   pill's 27.5px. pull-request.css gives the single pill the same size. */
+.kestrel { --pr-compact-line: 13px; --pr-compact-pad: 2px; }
+.kestrel .pr-group-pill.compact { gap: 4px; padding: var(--pr-compact-pad) 5px calc(var(--pr-compact-pad) + 1px) 6px; font-size: 10px; line-height: var(--pr-compact-line); }
+.kestrel .pr-group-pill.compact svg { width: 10px; height: 10px; }
+.kestrel .pr-group-pill.compact .pr-group-chevron { width: 9px; height: 9px; }
 .kestrel .pr-group-strip { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 1px; height: 2px; pointer-events: none; }
 .kestrel .pr-group-strip > span { flex: 1 1 0; background: currentColor; }
 
@@ -16,6 +23,7 @@
 .kestrel .pr-group-row:hover, .kestrel .pr-group-row:focus-within { background: var(--s-soft); }
 .kestrel .pr-group-row .pr-number { color: var(--s-muted); border-radius: 4px; }
 .kestrel .pr-group-title { flex: 1 1 auto; min-width: 0; padding: 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .pr-group-session { display: block; overflow: hidden; text-overflow: ellipsis; color: var(--s-muted); font-size: 10px; }
 .kestrel .pr-group-row .pr-external { border-left: 0; color: var(--s-muted); border-radius: 4px; }
 .kestrel .pr-group-status { display: inline-flex; flex: none; }
 .kestrel .pr-group-status .pr-status-button { padding: 4px 8px; border: 1px solid color-mix(in srgb, currentColor 24%, transparent); border-radius: 5px; text-decoration: none; overflow: hidden; }

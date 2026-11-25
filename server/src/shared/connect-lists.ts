@@ -1,6 +1,7 @@
 // What a phone reads of the Code reviews and Tickets pages (kestrel-connect.md, "The Code reviews and
 // Tickets pages on a phone"): the views the window's pushes carry, or off in the desk's words. One
 // definition for the dispatcher's reads, its pushes and the held records. Pure.
+import { broughtInByLead, type BroughtInRequests, type BroughtInState } from './brought-in-requests.ts';
 import type { SessionView } from '../model.ts';
 import type { PullRequestLookup } from './details.ts';
 import { attentionBySession, type AttentionPrefs, type AttentionSession, type RequestAttention } from './request-attention.ts';
@@ -42,16 +43,22 @@ export interface PullRequestsAnswer {
   pullRequests: Record<string, Sourced<PullRequestLookup>>;
   attention: Record<string, RequestAttention>;
   prefs: AttentionPrefs;
+  /**
+   * Added 2026-11-24: by session, the open requests of the sessions it brought in (a workstream's lead, or
+   * one that delegated), worked out on the desk by the one rule (shared/brought-in-requests.ts), so the
+   * phone draws the same "3 PRs" count and menu. Absent from a desk older than that: draw nothing.
+   */
+  broughtIn?: Record<string, BroughtInRequests>;
 }
 
-type PullRequestSession = AttentionSession & Partial<Pick<SessionView, 'aside'>>;
+type PullRequestSession = AttentionSession & Partial<Pick<SessionView, 'aside' | 'title'>>;
 
 /**
  * The answer from what the store holds: no sidebar (it has no request of its own and is listed nowhere), and
  * `attention` by the one rule (`attentionBySession`), so a phone never works the fact out itself. `sessions` are
  * the workspace's; a lookup for a session not among them (deleted, archived) is left out too.
  */
-export function pullRequestsAnswer(sessions: readonly PullRequestSession[], all: Readonly<Record<string, Sourced<PullRequestLookup> | undefined>>, prefs: AttentionPrefs): PullRequestsAnswer {
+export function pullRequestsAnswer(sessions: readonly PullRequestSession[], all: Readonly<Record<string, Sourced<PullRequestLookup> | undefined>>, prefs: AttentionPrefs, shape: Pick<BroughtInState, 'links' | 'workstreams'> = { links: [], workstreams: [] }): PullRequestsAnswer {
   const shown = sessions.filter((s) => !s.aside);
   const pullRequests: Record<string, Sourced<PullRequestLookup>> = {};
   for (const s of shown) {
@@ -59,11 +66,18 @@ export function pullRequestsAnswer(sessions: readonly PullRequestSession[], all:
     if (lookup) pullRequests[s.id] = lookup;
   }
   const attention = Object.fromEntries(attentionBySession(shown, (id) => all[id], prefs));
-  return { pullRequests, attention, prefs };
+  const broughtIn = Object.fromEntries(broughtInByLead({ sessions: shown, ...shape }, (id) => pullRequests[id], prefs));
+  return { pullRequests, attention, prefs, broughtIn };
 }
 
 /** The pull-request answer as held while the desk is away: only the sessions the held index holds. */
 export function heldPullRequests(answer: PullRequestsAnswer, held: ReadonlySet<string>): PullRequestsAnswer {
   const keep = <T>(record: Record<string, T>): Record<string, T> => Object.fromEntries(Object.entries(record).filter(([id]) => held.has(id)));
-  return { ...answer, pullRequests: keep(answer.pullRequests), attention: keep(answer.attention) };
+  // A lead's count keeps only the requests of sessions held too, so it never names one the phone cannot open.
+  const broughtIn: Record<string, BroughtInRequests> = {};
+  for (const [id, rollup] of Object.entries(keep(answer.broughtIn ?? {}))) {
+    const requests = rollup.requests.filter((r) => held.has(r.sessionId));
+    if (requests.length > 0) broughtIn[id] = { requests, host: requests[0]!.host, needsYou: requests.filter((r) => r.needsYou).length };
+  }
+  return { ...answer, pullRequests: keep(answer.pullRequests), attention: keep(answer.attention), broughtIn };
 }

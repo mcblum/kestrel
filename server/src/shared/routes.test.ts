@@ -114,6 +114,12 @@ describe('the recovery page', () => {
   it('sits under Connections and round-trips; the old pairing page is gone', () => {
     expect(parseViewPath('#/settings/connections/pair')).not.toEqual({ kind: 'settings', section: 'connections/pair' });
     expect(parseViewPath('#/settings/connections/recovery')).toEqual({ kind: 'settings', section: 'connections/recovery' });
+    expect(parseViewPath('#/settings/agent-setup/mcp/new')).toEqual({ kind: 'settings', section: 'agent-setup/mcp/new' });
+    expect(parseViewPath('#/settings/agent-setup/mcp/new/p1')).toEqual({ kind: 'settings', section: 'agent-setup/mcp/new/p1' });
+    expect(parseViewPath('#/settings/agent-setup/mcp/n8n-mcp')).toEqual({ kind: 'settings', section: 'agent-setup/mcp/n8n-mcp' });
+    expect(viewPath({ kind: 'settings', section: 'agent-setup/mcp/n8n-mcp' })).toBe('#/settings/agent-setup/mcp/n8n-mcp');
     expect(viewPath({ kind: 'settings', section: 'connections/recovery' })).toBe('#/settings/connections/recovery');
+    expect(parseViewPath('#/settings/connections/setup')).toEqual({ kind: 'settings', section: 'connections/setup' });
+    expect(viewPath({ kind: 'settings', section: 'connections/setup' })).toBe('#/settings/connections/setup');
   });
 });

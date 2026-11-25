@@ -4,6 +4,7 @@
 // provisional one, or the user's if they renamed it meanwhile; a generated title that comes later
 // renames the branch too, while that is safe (runtime/late-branch.ts). Anywhere else there is no branch,
 // so nothing waits and the title comes in the background.
+import type { McpServerStore } from '../mcp-servers/store.ts';
 import type { HostKind } from '../shared/host-terms.ts';
 import type { ReviewingComments } from '../review-requests/reviewing.ts';
 import type { ProcessSystem } from './kill-task.ts';
@@ -65,6 +66,8 @@ export interface RuntimeOptions {
   savedActions?: { settings?: SettingStore };
   /** Where the environment settings are kept (project-env/prefs.ts). */
   projectEnv?: { settings?: SettingStore };
+  /** Kestrel's own list of MCP servers, handed to every agent (mcp-servers/). None by default. */
+  mcpServers?: McpServerStore;
   /** Where the default "Open in" app is kept (open-in/prefs.ts). */
   openIn?: { settings?: SettingStore };
   /** Where the always-allowed list for commands outside the sandbox is kept (sandbox-allow/store.ts). */

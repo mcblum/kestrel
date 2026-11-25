@@ -1,4 +1,5 @@
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { ChangesSplit } from './ChangesSplit.tsx';
 import { useWorkingTree } from '../workingTree.ts';
 import { FileCode } from 'lucide-react';
 import { Diff, getChangeKey, Hunk, parseDiff, type FileData } from 'react-diff-view';
@@ -91,32 +92,52 @@ export function ChangesView({ files, resetKey, empty, against, menu, focusFor }:
   }, [focus, focusAt]);
   useEffect(() => void (menu && loadOpeners()), [menu]);
   const file = files[index] ?? files[0];
+  const diffScroll = useRef<HTMLDivElement>(null);
+  const markLine = file && focus && focus.path === file.path ? focus.line : undefined;
+  // A new file: its row stays in sight in the list, and its diff starts at the top, or at the line
+  // asked for (OneFileDiff brings that one into view itself).
+  useEffect(() => {
+    selected.current?.scrollIntoView({ block: 'nearest' });
+    if (markLine === undefined && diffScroll.current) diffScroll.current.scrollTop = 0;
+  }, [file?.path]);
   if (!file) return <div className="context-content">{empty}</div>;
-  return (
+  // Up and down move the chosen file while a file in the list has focus.
+  const onListKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    const at = files.indexOf(file);
+    const next = Math.min(files.length - 1, Math.max(0, at + (e.key === 'ArrowDown' ? 1 : -1)));
+    e.preventDefault();
+    if (next === at) return;
+    setIndex(next);
+    e.currentTarget.querySelectorAll<HTMLButtonElement>('.file-button')[next]?.focus({ preventScroll: true });
+  };
+  const list = (
+    <div className="file-list" onKeyDown={onListKey}>
+      {files.map((f, i) => (
+        <button
+          key={f.path}
+          ref={f === file ? selected : undefined}
+          className={`file-button${f === file ? ' selected' : ''}`}
+          aria-pressed={f === file}
+          onClick={() => setIndex(i)}
+          onContextMenu={
+            menu &&
+            ((e) => {
+              if (isTypedText(e.target)) return;
+              e.preventDefault();
+              void openChangedFileMenu(e.clientX, e.clientY, f, f === file, menu, () => setIndex(i), e.currentTarget);
+            })
+          }
+        >
+          <FileCode aria-hidden />
+          <span>{f.path}</span>
+          <span className="file-stat">{f.status}</span>
+        </button>
+      ))}
+    </div>
+  );
+  const diff = (
     <>
-      <div className="file-list">
-        {files.map((f, i) => (
-          <button
-            key={f.path}
-            ref={f === file ? selected : undefined}
-            className={`file-button${f === file ? ' selected' : ''}`}
-            aria-pressed={f === file}
-            onClick={() => setIndex(i)}
-            onContextMenu={
-              menu &&
-              ((e) => {
-                if (isTypedText(e.target)) return;
-                e.preventDefault();
-                void openChangedFileMenu(e.clientX, e.clientY, f, f === file, menu, () => setIndex(i), e.currentTarget);
-              })
-            }
-          >
-            <FileCode aria-hidden />
-            <span>{f.path}</span>
-            <span className="file-stat">{f.status}</span>
-          </button>
-        ))}
-      </div>
       <div className="diff-header">
         <span>{file.path}</span>
         <span className="diff-header-side">
@@ -124,10 +145,13 @@ export function ChangesView({ files, resetKey, empty, against, menu, focusFor }:
           <DiffViewToggle value={viewType} />
         </span>
       </div>
-      {/* The line asked for is marked only in the file it was asked for in. */}
-      <FileDiffView file={file} viewType={viewType} markLine={focus && focus.path === file.path ? focus.line : undefined} />
+      <div className="changes-diff-scroll" ref={diffScroll}>
+        {/* The line asked for is marked only in the file it was asked for in. */}
+        <FileDiffView file={file} viewType={viewType} markLine={markLine} />
+      </div>
     </>
   );
+  return <ChangesSplit list={list} diff={diff} />;
 }
 
 /** A session's changes: everything its worktree has that its base does not. */
@@ -166,8 +190,9 @@ export function Changes({ detail, files, problem, plainFolder, git }: { detail: 
     </>
   );
   const menu = useMemo(() => ({ sessionId: detail.session.id, folder }), [detail.session.id, folder]);
+  // The pane's own lines stay above the split; the list and the diff scroll inside it (ChangesSplit.tsx).
   return (
-    <>
+    <div className="changes-pane">
       {uncommitted > 0 && (
         <div className="pane-head changes-uncommitted">
           <span className="pane-head-name">{uncommittedFilesText(uncommitted)}</span>
@@ -180,6 +205,6 @@ export function Changes({ detail, files, problem, plainFolder, git }: { detail: 
         </p>
       )}
       <ChangesView files={files} resetKey={detail.session.id} empty={empty} against="base" menu={menu} focusFor={detail.session.id} />
-    </>
+    </div>
   );
 }

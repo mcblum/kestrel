@@ -15,7 +15,7 @@ import type { PullRequestState } from '../shared/details.ts';
 import type { HostKind } from '../shared/host-terms.ts';
 import type { PinRef } from '../shared/pins.ts';
 
-export type StoredDetail = Pick<SessionDetail, 'messages' | 'files' | 'agentOutput' | 'kestrelTools' | 'kestrelMissing' | 'agentSessionId' | 'settings' | 'queue' | 'usage' | 'slashCommands'> & {
+export type StoredDetail = Pick<SessionDetail, 'messages' | 'files' | 'agentOutput' | 'kestrelTools' | 'kestrelMissing' | 'mcpServers' | 'agentSessionId' | 'settings' | 'queue' | 'usage' | 'slashCommands'> & {
   /** News from sessions this one started, waiting for its next turn. Never shown; absent when there is none. */
   inbox?: readonly string[];
   /** Started by `spawn`: it has no link to say so, and it is held to its own worktree like any other child. */

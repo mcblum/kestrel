@@ -37,7 +37,8 @@ export function onAgentEvent(host: EventHost, id: string, rec: Live, event: Agen
     rec.agentSessionId = event.agentSessionId;
     rec.kestrelTools = event.kestrelTools;
     rec.kestrelMissing = event.missing ?? [];
-    host.emitLive(id, { kestrelTools: rec.kestrelTools, kestrelMissing: rec.kestrelMissing });
+    rec.mcpServers = event.mcpServers ?? [];
+    host.emitLive(id, { kestrelTools: rec.kestrelTools, kestrelMissing: rec.kestrelMissing, mcpServers: rec.mcpServers });
   }
   if (event.type === 'context') return noteContext(host, id, rec, event.usage);
   if (event.type === 'picked-up') return pickedUp(host.midTurn, id, rec, event.ids);

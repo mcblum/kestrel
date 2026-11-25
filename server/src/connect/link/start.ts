@@ -4,7 +4,14 @@
 import type { TicketsApi } from '../../tickets/api.ts';
 import { connectLists } from '../lists.ts';
 import { connectCryptoProblem } from '../crypto-check.ts';
-import { hostname } from 'node:os';
+import { homedir, hostname } from 'node:os';
+import { basename, delimiter } from 'node:path';
+import { findIn, installDirs } from '../../agents/find-program.ts';
+import { readSetupRecord } from '../../setup-inventory/index.ts';
+import { nodeFs } from '../../setup-inventory/io.ts';
+import { knownMcpServers } from '../../setup-inventory/mcp.ts';
+import type { SetupChecks } from '../../shared/setup-list.ts';
+import { sampleSetupList } from '../../seed-setup.ts';
 import { ConnectDispatcher } from '../dispatcher.ts';
 import { hostPlatform } from '../../host.ts';
 import type { SessionRuntime } from '../../runtime.ts';
@@ -40,6 +47,36 @@ export function serviceUrl(env: NodeJS.ProcessEnv = process.env): string {
   return url.replace(/\/+$/, '');
 }
 
+/**
+ * How this machine is read for its set-up record (setup-inventory/): only ever called by Kestrel
+ * Connect with an account, so a Kestrel with no account never reads it. Projects kept off Kestrel
+ * Connect are left out whole.
+ */
+function setupDeps(workspace: Workspace, runtime: SessionRuntime, fake: boolean): NonNullable<ConstructorParameters<typeof KestrelConnect>[0]['setup']> {
+  const platform = hostPlatform();
+  const home = homedir();
+  const dirs = () => [...(process.env.PATH ?? '').split(delimiter).filter(Boolean), ...installDirs(home, platform, process.env)];
+  const checks: SetupChecks = {
+    tool: (name) => (name === 'Xcode' ? platform === 'mac' && nodeFs.exists('/Applications/Xcode.app') : findIn(dirs(), name === 'bundler' ? 'bundle' : name, platform, nodeFs.exists) !== null),
+  };
+  return {
+    checks,
+    ...(fake ? { sample: () => sampleSetupList(Date.now()) } : {}),
+    inventory: (desk, keptOff) =>
+      readSetupRecord({
+        machine: desk,
+        platform,
+        home,
+        now: Date.now(),
+        path: process.env.PATH ?? '',
+        env: process.env,
+        agents: () => runtime.agentAvailability(),
+        projects: async () => (await workspace.state()).projects.filter((p) => !keptOff.includes(p.id)).map((p) => ({ name: p.name, folders: p.folders.map((f) => ({ name: basename(f.path), path: f.path })) })),
+        mcpServers: (paths) => knownMcpServers(paths, home),
+      }),
+  };
+}
+
 /** `vaultKey`: the key the app handed over, read once by the caller (it is readable only once); absent, it is read here. */
 export async function startConnect(opts: { dataDir: string; settings: SettingStore; fake: boolean; workspace: Workspace; runtime: SessionRuntime; reviewRequests?: ReviewRequestStore; tickets?: TicketStore; ticketsApi?: TicketsApi; pullRequests?: PullRequestStore; vaultKey?: Buffer | null }): Promise<KestrelConnect> {
   const service = new HttpConnectService(serviceUrl());
@@ -52,7 +89,7 @@ export async function startConnect(opts: { dataDir: string; settings: SettingSto
   const pulls = opts.pullRequests ? { store: opts.pullRequests, prefs: opts.runtime.gitPrefs, workspace: opts.workspace } : null;
   const lists = connectLists(opts.runtime.reviewPrefs, opts.reviewRequests ?? null, opts.tickets ?? null, pulls);
   const dispatch = (deviceId: string, send: (frame: Envelope) => void) => new ConnectDispatcher({ workspace: opts.workspace, runtime: opts.runtime, deviceId, here, send, lists, reviewRequests: opts.reviewRequests ?? null, tickets: opts.ticketsApi ?? null });
-  const connect = new KestrelConnect({ vault, identity, service, settings: opts.settings, computerName: computerName(), unavailable: opts.fake ? SAMPLE_DATA_REASON : connectCryptoProblem(), dispatch, here, held: { source: heldSource(opts.workspace, opts.runtime, lists), queue: fileQueueStore(join(opts.dataDir, HELD_QUEUE_FILE)) }, push: { source: pushSource(opts.workspace, opts.runtime, opts.reviewRequests ?? null, opts.tickets ?? null, opts.pullRequests ?? null) } });
+  const connect = new KestrelConnect({ vault, identity, service, settings: opts.settings, computerName: computerName(), unavailable: opts.fake ? SAMPLE_DATA_REASON : connectCryptoProblem(), dispatch, here, held: { source: heldSource(opts.workspace, opts.runtime, lists), queue: fileQueueStore(join(opts.dataDir, HELD_QUEUE_FILE)) }, push: { source: pushSource(opts.workspace, opts.runtime, opts.reviewRequests ?? null, opts.tickets ?? null, opts.pullRequests ?? null) }, setup: setupDeps(opts.workspace, opts.runtime, opts.fake) });
   await connect.start();
   return connect;
 }

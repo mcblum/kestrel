@@ -10,6 +10,7 @@ import type { Link, SessionView } from '../model.ts';
 import type { PullRequestLookup } from './details.ts';
 import { attentionBySession, attentionLine, DEFAULT_ATTENTION_PREFS, occurrenceKey, type AttentionPrefs } from './request-attention.ts';
 import type { Sourced } from './sourced.ts';
+import { isOn } from './autopilot.ts';
 import { PLATFORM_NAME, type Platform } from './platform.ts';
 import type { ReviewRequestsView } from './review-requests.ts';
 import { statusOf, type StatusKey } from './status.ts';
@@ -186,6 +187,12 @@ export function ticketNotifyEvents(before: TicketsSeenBefore | null, after: Pick
     .map((t) => ({ kind: 'ticket' as const, sessionId: '', ticketKey: t.key, title: `${t.ref}: ${t.title}`, body: `Assigned to you in ${t.tracker}${t.sprint?.current ? `, in ${t.sprint.name}` : ''}.` }));
 }
 
+/** The told-key of an Autopilot stop worth telling, or null. */
+const autopilotStopKey = (session: RequestSession): string | null => {
+  const stopped = session.autopilot?.stopped;
+  return stopped?.notify ? `autopilot\n${stopped.at}` : null;
+};
+
 /** What the pull-request notifier remembers from one look to the next. */
 export interface RequestsSeenBefore {
   /** The sessions whose pull requests the store had an answer for. */
@@ -197,7 +204,7 @@ export interface RequestsSeenBefore {
 /** How many occurrences per session are remembered as told. */
 export const TOLD_KEPT = 20;
 
-type RequestSession = Notified & Partial<Pick<SessionView, 'hostId'>>;
+type RequestSession = Notified & Partial<Pick<SessionView, 'hostId' | 'autopilot'>>;
 
 /**
  * The sessions to tell about because their pull request needs the user (shared/request-attention.ts):
@@ -207,22 +214,29 @@ type RequestSession = Notified & Partial<Pick<SessionView, 'hostId'>>;
  * hold at once, one event names them all. Nothing on the first look (`before` null), nor the first
  * time the store answers for a session (what needed the user when Kestrel opened is not news), nor
  * while the session works (the fact is held, and told when the turn ends), nor for a guest (its host
- * is told), nor for the session in front of a focused window (it is remembered as told). Pure.
+ * is told), nor for the session in front of a focused window (it is remembered as told), nor while
+ * Autopilot looks after the request (it acts instead; remembered as told). Autopilot stopping with a
+ * reason the user should hear (shared/autopilot.ts `stopped.notify`) is told once, as the same kind. Pure.
  */
 export function requestNotifyEvents(before: RequestsSeenBefore | null, sessions: readonly RequestSession[], pullRequests: ReadonlyMap<string, Sourced<PullRequestLookup>>, attention: AttentionPrefs, prefs: NotifyPrefs, looking: Looking): { events: NotifyEvent[]; seen: RequestsSeenBefore } {
   const facts = attentionBySession(sessions, (id) => pullRequests.get(id), attention);
   const present = new Set(sessions.map((s) => s.id));
   const told = new Map([...(before?.told ?? [])].filter(([id]) => present.has(id)));
   const events: NotifyEvent[] = [];
+  const tells = (session: RequestSession): boolean => prefs.enabled && prefs.events['pull-request'] && !session.aside && !(looking.focused && looking.openSessionId === session.id);
   for (const session of sessions) {
+    const stop = autopilotStopKey(session);
+    if (stop && !(told.get(session.id) ?? []).includes(stop)) {
+      told.set(session.id, [...(told.get(session.id) ?? []), stop].slice(-TOLD_KEPT));
+      if (before && tells(session)) events.push({ kind: 'pull-request', sessionId: session.id, title: session.title, body: session.autopilot!.stopped!.why });
+    }
     const fact = facts.get(session.id);
     if (!fact) continue;
     const already = told.get(session.id) ?? [];
     const fresh = fact.reasons.map((d) => `${fact.number}\n${occurrenceKey(d)}`).filter((k) => !already.includes(k));
     if (fresh.length === 0) continue;
     told.set(session.id, [...already, ...fresh].slice(-TOLD_KEPT));
-    if (!before?.answered.has(session.id) || !prefs.enabled || !prefs.events['pull-request'] || session.aside) continue;
-    if (looking.focused && looking.openSessionId === session.id) continue;
+    if (!before?.answered.has(session.id) || isOn(session.autopilot) || !tells(session)) continue;
     events.push({ kind: 'pull-request', sessionId: session.id, title: session.title, body: attentionLine(fact) });
   }
   const answered = new Set(sessions.filter((s) => pullRequests.get(s.id)?.state === 'ready').map((s) => s.id));

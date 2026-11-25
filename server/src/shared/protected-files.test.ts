@@ -9,7 +9,7 @@ const refused = (tool: string, input: Record<string, unknown>) => protectedRefus
 
 describe("a confined session and Kestrel's credential store", () => {
   it('names the sealed files and their plain fallbacks', () => {
-    expect([...PROTECTED_FILE_NAMES].sort()).toEqual(['connect.json', 'connect.sealed', 'trackers.json', 'trackers.sealed']);
+    expect([...PROTECTED_FILE_NAMES].sort()).toEqual(['connect.json', 'connect.sealed', 'mcp-servers.json', 'mcp-servers.sealed', 'trackers.json', 'trackers.sealed']);
   });
 
   it('refuses a file tool aimed at one, reading or writing', () => {

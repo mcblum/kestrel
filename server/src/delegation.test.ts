@@ -890,7 +890,7 @@ describe('a signed commit in a child (0.0.18)', () => {
     await w.settle();
     const [parent, child] = w.agents.starts;
     const secrets = child!.options.protectedFiles!;
-    expect(secrets.map((f) => basename(f)).sort()).toEqual(['connect.json', 'connect.sealed', 'trackers.json', 'trackers.sealed']);
+    expect(secrets.map((f) => basename(f)).sort()).toEqual(['connect.json', 'connect.sealed', 'mcp-servers.json', 'mcp-servers.sealed', 'trackers.json', 'trackers.sealed']);
     expect(secrets.every((f) => dirname(f) === w.data)).toBe(true);
     expect(await child!.options.intercept!({ tool: 'Read', input: { file_path: join(w.data, 'trackers.json') } })).toEqual({ allow: false, message: PROTECTED_REFUSAL });
     expect(await child!.options.intercept!({ tool: 'Bash', input: { command: `cat ${join(w.data, 'connect.sealed')}` } })).toEqual({ allow: false, message: PROTECTED_REFUSAL });

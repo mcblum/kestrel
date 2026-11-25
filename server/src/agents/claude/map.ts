@@ -12,6 +12,7 @@ import { clip, editedFile, mayChangeFiles, summarizeTool, type ElementLookup } f
 import { pathsInside } from '../edited-paths.ts';
 import { claudeFailure } from './failure.ts';
 import { backgroundKind, type BackgroundTask } from '../../shared/background-tasks.ts';
+import { serverStates, type AgentServerReport, type HandedServer, type McpServerState } from '../../shared/mcp-servers.ts';
 
 /** The server name and tool Kestrel gives every session. */
 export const KESTREL_SERVER = 'kestrel';
@@ -53,6 +54,19 @@ export function unexpectedTools(init: SdkLike, expected: readonly string[] = [])
   if (servers.length === 0 && others.length === 0) return undefined;
   const names = [...new Set([...servers, ...others.map((t: string) => t.split('__')[1]!)])];
   return `This session carries tool servers Kestrel did not add: ${names.join(', ')}. Connector tools are refused, but they should not be here.`;
+}
+
+/** Claude's word for a server's state (`init.mcp_servers[].status`), as Kestrel's. */
+const CLAUDE_STATE: Record<string, AgentServerReport['state']> = { connected: 'connected', pending: 'starting', failed: 'failed', 'needs-auth': 'needs-sign-in' };
+
+/** Kestrel's own servers in a Claude session, from its `init` message. Pure. */
+export function claudeServerStates(init: SdkLike, handed: readonly HandedServer[] | undefined): McpServerState[] {
+  const reports = new Map<string, AgentServerReport>();
+  for (const s of init.mcp_servers ?? []) {
+    if (typeof s?.name !== 'string') continue;
+    reports.set(s.name, { state: CLAUDE_STATE[s.status] ?? 'unknown', ...(typeof s.error === 'string' && s.error ? { reason: s.error } : {}) });
+  }
+  return serverStates(handed, 'claude', reports);
 }
 
 /** Tools that only keep the agent's task list: shown as the list itself, not as a step. */
@@ -149,6 +163,8 @@ export class ClaudeMapper {
     private readonly expectedServers: readonly string[] = [],
     /** Names of browser-pane elements, so a click reads "Click “Sign in”". */
     private readonly element?: ElementLookup,
+    /** Kestrel's own MCP servers handed to this session, for the header. */
+    private readonly handed?: readonly HandedServer[],
   ) {}
 
   map(m: SdkLike): AgentEvent[] {
@@ -176,7 +192,7 @@ export class ClaudeMapper {
   private started(m: SdkLike): AgentEvent {
     const servers = (m.mcp_servers ?? []).map((s: any) => `${s.name}: ${s.status}`).join(', ');
     const check = kestrelToolsCheck(m);
-    return { type: 'started', agentSessionId: m.session_id, model: m.model, kestrelTools: check.status, missing: check.missing, detail: servers, warning: unexpectedTools(m, this.expectedServers) };
+    return { type: 'started', agentSessionId: m.session_id, model: m.model, kestrelTools: check.status, missing: check.missing, detail: servers, warning: unexpectedTools(m, this.expectedServers), ...(this.handed?.length ? { mcpServers: claudeServerStates(m, this.handed) } : {}) };
   }
 
   /** The SDK's full list of live background work replaces ours; it goes out whole (helpers left out: they have their own card). */

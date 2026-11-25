@@ -14,6 +14,8 @@ import { suggestionActions } from '../suggestionsApi.ts';
 
 function Card({ sessionId, suggestion, waiting }: { sessionId: string; suggestion: Suggestion; waiting: number }) {
   const [busy, setBusy] = useState(false);
+  // Each button's checkbox, by button id: as the server set it until the user changes it.
+  const [ticked, setTicked] = useState<Record<string, boolean>>({});
   const run = async (work: () => Promise<unknown>) => {
     setBusy(true);
     await work();
@@ -41,11 +43,25 @@ function Card({ sessionId, suggestion, waiting }: { sessionId: string; suggestio
         </div>
       )}
       <div className="suggestion-buttons">
-        {orderedButtons(suggestion.buttons).map((b) => (
-          <button key={b.id} type="button" className={b.primary ? 'suggestion-primary' : 'suggestion-quiet'} disabled={busy} onClick={() => void run(() => suggestionActions.answer(sessionId, suggestion.id, b.id))}>
-            {b.label}
-          </button>
-        ))}
+        {orderedButtons(suggestion.buttons)
+          .filter((b) => !b.folded)
+          .map((b) => {
+            const on = b.toggle ? (ticked[b.id] ?? b.toggle.checked) : false;
+            const sends = b.toggle && on ? b.toggle.id : b.id;
+            return (
+              <span key={b.id} className="suggestion-button-group">
+                <button type="button" className={b.primary ? 'suggestion-primary' : 'suggestion-quiet'} disabled={busy} onClick={() => void run(() => suggestionActions.answer(sessionId, suggestion.id, sends))}>
+                  {b.label}
+                </button>
+                {b.toggle && (
+                  <label className="suggestion-toggle">
+                    <input type="checkbox" checked={on} disabled={busy} onChange={(e) => setTicked((t) => ({ ...t, [b.id]: e.target.checked }))} />
+                    {b.toggle.label}
+                  </label>
+                )}
+              </span>
+            );
+          })}
       </div>
     </div>
   );

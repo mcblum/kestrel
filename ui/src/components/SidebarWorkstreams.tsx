@@ -11,6 +11,8 @@
 //     among its sessions (working, then waiting on you, then new), and unfolded the lead's own.
 //     The workstream's own things are the two buttons at the row's end: ↗ its page, … its menu
 //     (Rename there renames the workstream, on the second line).
+//     After the lead's marks, the count of the open requests of the sessions under it
+//     (shared/brought-in-requests.ts), so a folded workstream cannot hide one that needs you.
 //   - Under it, joined by the parent-to-child line, are the sessions the lead started (each with
 //     its own), then any other member, most recent activity first at each level. Each is two
 //     lines: its title, then its project and status.
@@ -37,6 +39,9 @@ import { FoldChevron, RowMore, RowOpen } from './SidebarRowParts.tsx';
 import { RowIcons } from './RowIcons.tsx';
 import { InTag, InWorkstream, startDrag, useReorderTarget } from './sidebarDrag.ts';
 import { rollupLabel, rowDotClass } from './useRowDot.ts';
+import { useBroughtIn } from '../broughtIn.ts';
+import { BroughtInMark } from './BroughtInRequests.tsx';
+import { workstreamRequestsDescription } from '@kestrel/server/brought-in-requests';
 
 const NO_ORDER: readonly string[] = [];
 /** A workstream is open until folded: its fold key is in `collapsed` while it is shut, as a group's is. */
@@ -65,6 +70,8 @@ function WorkstreamBlock({ workstream, present, onPage, activeId, workspace, ren
   const renamingLead = useApp((s) => shape.leadId !== null && s.renaming === leadRename(shape.leadId));
   const under = useMemo(() => (open ? orderTree(shape.under, (sessionId) => byId.get(sessionId), 'recent', NO_ORDER) : []), [open, shape, byId]);
   const lead = shape.leadId ? byId.get(shape.leadId) : undefined;
+  // The open requests of the sessions it brought in, so a folded workstream cannot hide them.
+  const broughtIn = useBroughtIn(shape.leadId);
   const viaReference = useApp((s) => lead !== undefined && s.openedFromReference === lead.id);
   // Folded, one dot per kind of state among its sessions; unfolded, the lead's alone (status.ts, `workstreamDots`).
   const dots = useMemo(() => workstreamDots(workspace.sessions, sessionIds, shape.leadId, !open, seen).map(rowDotClass), [workspace.sessions, sessionIds, shape.leadId, open, seen]);
@@ -132,15 +139,21 @@ function WorkstreamBlock({ workstream, present, onPage, activeId, workspace, ren
               )}
             </span>
           </span>
-          {dots.length > 0 && (
-            <span className="row-dots row-dot">
-              {dots.map((dot) => (
-                <span key={dot} className={`status-dot ${dot}`} title={open ? undefined : rollupLabel(dot)} />
-              ))}
-            </span>
-          )}
-          {/* The lead's own pull request and changed files, as on its row anywhere else. */}
-          {lead && <RowIcons session={lead} hasDot={dots.length > 0} />}
+          {/* The row's end marks, in one box at least as wide as the ↗ and … that take their place on hover or
+              focus (organize.css), so the title does not move between the two. */}
+          <span className="workstream-marks">
+            {dots.length > 0 && (
+              <span className="row-dots row-dot">
+                {dots.map((dot) => (
+                  <span key={dot} className={`status-dot ${dot}`} title={open ? undefined : rollupLabel(dot)} />
+                ))}
+              </span>
+            )}
+            {/* The lead's own pull request and changed files, as on its row anywhere else. */}
+            {lead && <RowIcons session={lead} hasDot={dots.length > 0} />}
+            {/* After them, on the first line: how many open requests the sessions under it have, as the icon and a number, red with a cross when one needs you. */}
+            {broughtIn && <BroughtInMark rollup={broughtIn} description={workstreamRequestsDescription(broughtIn)} />}
+          </span>
         </button>
         <RowOpen view={{ kind: 'workstream', id }} name={name} what="workstream" />
         <RowMore kind="workstream" id={id} name={name} />

@@ -22,6 +22,7 @@ import { CONNECT_PREFS_KEY, KestrelConnect } from './connect.ts';
 import { HeldApi } from './held-api.ts';
 import { AccountJoin } from './join.ts';
 import { JoinApi } from './join-api.ts';
+import type { ServiceMethod } from './service.ts';
 import { PhoneChannel, type KnownDesk } from './phone.ts';
 import { memoryVault } from './vault.ts';
 import { pushSource } from './push.ts';
@@ -108,7 +109,7 @@ async function newDesk(service: FakeService, wires: Relay, name = 'Desk') {
 async function newPhone(service: FakeService, wires: Relay, id = PHONE, tamper?: { next: ((frame: Record<string, unknown>) => Record<string, unknown>) | null }) {
   const identity: Identity = newIdentity();
   service.held.addDevice(id, 'Test phone', 'phone');
-  const call = (method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown) => service.call(`token-${id}`, id, method, path, body);
+  const call = (method: ServiceMethod, path: string, body?: unknown) => service.call(`token-${id}`, id, method, path, body);
   let trust: KeysTrust | null = null;
   const keys = new AccountKeys({
     api: () => new HeldApi(call),
@@ -222,6 +223,25 @@ describe('letting a phone in', () => {
     t.desk.dismissRequest(t.desk.view().requests[0]!.id);
     expect(t.desk.view().requests).toEqual([]);
     expect(t.service.held.keyring!.version).toBe(2);
+  });
+
+  it('the phone is told the name the user gave the desk, and a phone renamed at the service shows by its new name (a label only)', async () => {
+    const service = new FakeService();
+    const wires = relay(service);
+    const desk = await newDesk(service, wires);
+    await until(() => desk.desk.keys.ready() !== null, 'the account key is made');
+    await desk.desk.setComputerName('Work Laptop');
+    const phone = await newPhone(service, wires);
+    const id = await phoneAsksDesk(desk, phone);
+    await desk.desk.typeCode(id, codeOn(phone.joining));
+    await until(() => phone.joining.joining()?.state === 'confirm', 'the phone asks for the second code');
+    expect(phone.joining.joining()).toMatchObject({ by: 'Work Laptop' });
+    await phone.joining.confirm(secondOn(desk.desk.view().requests, id));
+    expect(phone.joining.joining()).toEqual({ state: 'in', by: 'Work Laptop' });
+    // Renaming the phone changes nothing about trust: it stays in the keyring under its id.
+    await desk.desk.renameDevice(PHONE, 'Pocket');
+    expect(desk.desk.view().devices.find((d) => d.id === PHONE)).toMatchObject({ name: 'Pocket', inAccount: true });
+    expect(desk.desk.keys.member(PHONE)).not.toBeNull();
   });
 
   it('a wrong code is refused with tries left, and the right one still works', async () => {
@@ -544,7 +564,7 @@ describe('the channel', () => {
     const read = await phone.request('session.read', { sessionId: session.id });
     expect(read.ok && JSON.stringify(read.result)).toContain('Run the secret command');
     expect(await phone.request('session.answer', { sessionId: session.id, requestId: 'ask-1', optionId: 'allow' })).toEqual({ ok: true, result: { answered: true } });
-    expect(await phone.request('session.start', {})).toMatchObject({ ok: false, reason: expect.stringContaining('started at the desk') });
+    expect(await phone.request('session.rename', {})).toMatchObject({ ok: false, reason: expect.stringContaining('renamed at the desk') });
 
     const relayed = carried.join('\n');
     expect(relayed).not.toContain('secret');

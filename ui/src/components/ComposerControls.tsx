@@ -26,6 +26,7 @@ import { ProviderControl } from './controls/ProviderControl.tsx';
 import { ModelControl } from './controls/ModelControl.tsx';
 import { PresetControl } from './controls/PresetControl.tsx';
 import { ContextRing } from './controls/ContextRing.tsx';
+import { AutopilotControl } from './controls/AutopilotControl.tsx';
 import { useCapabilities } from './controls/useCapabilities.ts';
 
 /** The models an agent offers, as the model picker lists them. */
@@ -100,6 +101,7 @@ export function ComposerControls({ value, mode, onChange, sessionId }: Props) {
         <span className="ctl" key="Mode">
           <ModePicker value={value.permission} levels={caps.permissions} agent={value.agent} help={`Mode: ${fixed ? `${hint}. Changes apply from your next message` : hint}`} onChange={(permission) => pick({ ...value, permission })} />
         </span>
+        {fixed && sessionId && <AutopilotControl sessionId={sessionId} />}
         {fixed && sessionId && caps.contextUsage && <ContextRing sessionId={sessionId} />}
       </span>
     </div>

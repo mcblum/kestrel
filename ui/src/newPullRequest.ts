@@ -3,7 +3,8 @@
 // (commitRequest.ts), and creates the pull request. Every step lands in the session's document store
 // (sessionView.ts), so the form shows it wherever the user has gone meanwhile.
 import { pullRequestNumberOf, type NewPullRequestMode, type PullRequestDraft } from '@kestrel/server/session-documents';
-import { call } from './store.ts';
+import { appStore, call } from './store.ts';
+import { formAutopilot, heldAutopilotPrefs } from './autopilotPrefs.ts';
 import {
   chooseNewPullRequestFor,
   closeSessionDocument,
@@ -78,7 +79,7 @@ export async function createNewPullRequest(sessionId: string, refresh: () => voi
   if (!doc || doc.phase !== 'editing') return;
   creatingNewPullRequestIn(sessionId);
   try {
-    const answer = await call<{ url?: unknown }>(path(sessionId, 'pr-create'), { method: 'POST', body: JSON.stringify(doc.form) });
+    const answer = await call<{ url?: unknown }>(path(sessionId, 'pr-create'), { method: 'POST', body: JSON.stringify({ ...doc.form, autopilot: formAutopilot(doc.form, heldAutopilotPrefs(), appStore.get().sessionsById.get(sessionId)?.autopilot) }) });
     const number = isText(answer?.url) ? pullRequestNumberOf(answer.url) : null;
     refresh();
     if (number !== null) return createdNewPullRequestIn(sessionId, number);

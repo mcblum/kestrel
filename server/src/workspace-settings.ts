@@ -1,8 +1,33 @@
-// Workspace data kept as settings: what is archived, and each project's agent setup.
+// Workspace data kept as settings: what is archived, each project's agent setup, and each session's Autopilot.
 import { NOTHING_ARCHIVED, sanitizeArchived, setArchived, type ArchiveKind, type Archived } from './shared/archive.ts';
 import { sanitizeSetup, type ProjectSetup } from './shared/setup.ts';
 import { Refused } from './refused.ts';
 import type { Persistence } from './persistence/types.ts';
+import { asRecord, type AutopilotRecord } from './shared/autopilot.ts';
+
+export const AUTOPILOT_KEY = 'autopilot';
+
+/** Each session's Autopilot (shared/autopilot.ts), by session id; what cannot be read is left out. */
+export async function readAutopilot(db: Persistence): Promise<ReadonlyMap<string, AutopilotRecord>> {
+  const raw = await db.getSetting(AUTOPILOT_KEY);
+  const out = new Map<string, AutopilotRecord>();
+  try {
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
+    if (typeof parsed === 'object' && parsed !== null) {
+      for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
+        const record = asRecord(value);
+        if (record) out.set(id, record);
+      }
+    }
+  } catch {
+    // Unreadable: none, and the next write replaces it.
+  }
+  return out;
+}
+
+export function saveAutopilot(db: Persistence, all: ReadonlyMap<string, AutopilotRecord>): Promise<void> {
+  return db.putSetting(AUTOPILOT_KEY, JSON.stringify(Object.fromEntries(all)));
+}
 
 export async function readArchived(db: Persistence): Promise<Archived> {
   const raw = await db.getSetting('archived');
@@ -72,4 +97,21 @@ export function setProjectSetup(db: Persistence, projectId: string, setup: unkno
     await tx.putSetting('project-setup', JSON.stringify(all));
     return projectSetup(tx, projectId);
   });
+}
+
+/**
+ * Switches one MCP server on or off in the defaults and in every project that has a setup of its own,
+ * in the caller's transaction: a server of Kestrel's list added for every project is on everywhere
+ * (each project can switch it off again), and one removed or moved to one project is on nowhere.
+ */
+export async function switchServerEverywhere(tx: Persistence, name: string, on: boolean): Promise<void> {
+  const all = await allSetups(tx);
+  const next = Object.fromEntries(
+    [DEFAULTS, ...Object.keys(all)].map((key) => {
+      const setup = sanitizeSetup(all[key]);
+      const names = setup.mcpServers.filter((n) => n !== name);
+      return [key, { ...setup, mcpServers: on ? [...names, name] : names }];
+    }),
+  );
+  await tx.putSetting('project-setup', JSON.stringify(next));
 }

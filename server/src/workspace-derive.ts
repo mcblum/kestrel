@@ -1,4 +1,5 @@
 // Pure derivation of the workspace state from the stored collections. Used by `Workspace.state()`.
+import type { AutopilotRecord } from './shared/autopilot.ts';
 import type { Archived } from './shared/archive.ts';
 import { sessionHidden } from './shared/archive.ts';
 import { fileSession } from './filing.ts';
@@ -29,6 +30,7 @@ export function deriveState(
   tagRows: readonly TagRow[] = [],
   repoOf?: (worktreePath: string) => string | null,
   requestRows: readonly SessionRequestLink[] = [],
+  autopilot: ReadonlyMap<string, AutopilotRecord> = new Map(),
 ): Omit<WorkspaceState, 'archived' | 'pins' | 'workstreams' | 'archivedWorkstreams'> {
   const tags = tagsBySession(tagRows);
   const requests = requestStatesBySession(requestRows);
@@ -46,7 +48,8 @@ export function deriveState(
     if (up) own.push(up);
     if (handoffParents.has(s.id)) own.push({ id: '', parentId: s.id, childId: '', kind: 'handoff' });
     const folderId = resolveStartedFolder(projectById.get(s.startedIn ?? ''), s, repoOf)?.id ?? null;
-    return { ...s, filing: fileSession(s, own), folderId, tags: tags.get(s.id) ?? NO_TAGS, request: requests.get(s.id) ?? null };
+    const pilot = autopilot.get(s.id);
+    return { ...s, filing: fileSession(s, own), folderId, tags: tags.get(s.id) ?? NO_TAGS, request: requests.get(s.id) ?? null, ...(pilot ? { autopilot: pilot } : {}) };
   });
   const idsByGroup = new Map<string, string[]>();
   for (const s of views) {

@@ -17,7 +17,7 @@ interface Loaded {
 
 const asLoaded = (raw: unknown): Sourced<Loaded> => ready(raw as Loaded);
 
-const SCOPE: Record<McpServerInfo['scope'], string> = { user: 'from Claude Code, all your projects', project: 'from this project (.mcp.json)', local: 'from Claude Code, this project only', desktop: 'from the Claude desktop app', codex: 'from Codex', opencode: 'from OpenCode' };
+const SCOPE: Record<McpServerInfo['scope'], string> = { user: 'from Claude Code, all your projects', project: 'from this project (.mcp.json)', local: 'from Claude Code, this project only', desktop: 'from the Claude desktop app', codex: 'from Codex', opencode: 'from OpenCode', kestrel: "Kestrel's own, every project" };
 
 /**
  * The switches. With no `projectId` these are the defaults every project follows. With one, the
@@ -84,9 +84,9 @@ function SetupSwitches({ data, save, toggleServer, mcpHelp }: { data: Loaded; sa
           <small>CLAUDE.md (yours and the project's), skills, slash commands, hooks and permission rules.</small>
         </span>
       </label>
-      {mcpHelp ? <SettingHeading level={3} className="setup-heading" title="MCP servers" help={mcpHelp} /> : <h3 className="setup-heading">MCP servers</h3>}
+      {mcpHelp ? <SettingHeading level={3} className="setup-heading" title="MCP servers switched on" help={mcpHelp} /> : <h3 className="setup-heading">MCP servers switched on</h3>}
       {data.servers.length === 0 ? (
-        <p className="setup-none">No MCP servers are set up in Claude Code, the Claude desktop app, Codex or OpenCode.</p>
+        <p className="setup-none">No MCP servers are set up in Kestrel, Claude Code, the Claude desktop app, Codex or OpenCode.</p>
       ) : (
         data.servers.map((server) => (
           <label className="setup-row" key={server.name}>

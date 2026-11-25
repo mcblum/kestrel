@@ -5,6 +5,9 @@ import { buildTree, rootOf, subtreeIds } from './tree.ts';
 import { memoryPersistence } from './persistence/memory.ts';
 import { sqlitePersistence } from './persistence/sqlite.ts';
 import type { Persistence } from './persistence/types.ts';
+import { McpServerStore, MCP_SERVERS_KEY } from './mcp-servers/store.ts';
+import { memorySecrets } from './mcp-servers/secrets.ts';
+import { sessionServers } from './mcp-servers/session.ts';
 
 // The same behaviour must hold on every provider behind the facade.
 describe.each([
@@ -907,5 +910,83 @@ describe.each([
     expect(state.links).toEqual([]);
     expect(state.sessions.map((s) => s.id)).toContain(child.id);
     await expect(ws.deleteSession(a.id)).rejects.toThrow(/No such session/);
+  });
+});
+
+// Kestrel's own MCP servers (mcp-servers/): the list through the facade on every provider, the values
+// sealed apart, and which servers each kind of session is handed.
+describe.each([
+  ['sqlite', () => sqlitePersistence(':memory:')],
+  ['memory', () => memoryPersistence()],
+])('MCP servers on %s', (_name, makeDb) => {
+  const TOKEN = 'n8n_live_9f8e7d6c5b4a';
+  const make = async () => {
+    const db = makeDb();
+    const ws = new Workspace(db);
+    const secrets = memorySecrets();
+    const store = new McpServerStore(db, secrets);
+    const wren = await ws.addProject({ name: 'Wren', path: '/tmp/wren', isGit: true });
+    const other = await ws.addProject({ name: 'Other', path: '/tmp/other', isGit: true });
+    return { db, ws, secrets, store, wren, other };
+  };
+  const n8n = (over: object = {}) => ({ name: 'n8n', kind: 'http', url: 'https://n8n.example.com/mcp', headers: [{ key: 'Authorization', value: `Bearer ${TOKEN}` }], ...over });
+  const none = () => [];
+
+  test('adds, lists, changes and removes a server; its value is sealed apart and never shown', async () => {
+    const { db, secrets, store } = await make();
+    const added = await store.save(null, n8n());
+    expect(added.headers).toEqual([{ key: 'Authorization', secret: true, set: true }]);
+    expect(JSON.stringify(await store.list())).not.toContain(TOKEN);
+    expect(await db.getSetting(MCP_SERVERS_KEY)).not.toContain(TOKEN);
+    expect(await secrets.read()).toEqual({ n8n: { 'header:Authorization': `Bearer ${TOKEN}` } });
+    // A change that leaves the secret empty keeps it.
+    await store.save('n8n', n8n({ url: 'https://n8n.example.com/mcp2', headers: [{ key: 'Authorization' }] }));
+    expect((await store.view('n8n')).url).toBe('https://n8n.example.com/mcp2');
+    expect((await secrets.read()).n8n).toEqual({ 'header:Authorization': `Bearer ${TOKEN}` });
+    await expect(store.save(null, n8n())).rejects.toThrow(/already an MCP server named n8n/);
+    await expect(store.save('n8n', n8n({ name: 'n9n' }))).rejects.toThrow(/name cannot be changed/);
+    await store.remove('n8n');
+    expect((await store.list()).servers).toEqual([]);
+    expect(await secrets.read()).toEqual({});
+    await expect(store.remove('n8n')).rejects.toThrow(/No MCP server named n8n/);
+  });
+
+  test('a server for every project is switched on in the defaults and in each project’s own setup, and off when it leaves', async () => {
+    const { ws, store, wren, other } = await make();
+    await ws.setProjectSetup(wren.id, { loadSettings: true, mcpServers: ['notes'] });
+    await store.save(null, n8n());
+    expect((await ws.projectSetup(null)).setup.mcpServers).toEqual(['n8n']);
+    expect((await ws.projectSetup(wren.id)).setup.mcpServers).toEqual(['notes', 'n8n']);
+    expect((await ws.projectSetup(other.id)).inherits).toBe(true);
+    // Moved to one project: off in every list.
+    await store.save('n8n', n8n({ projectId: other.id }));
+    expect((await ws.projectSetup(wren.id)).setup.mcpServers).toEqual(['notes']);
+    expect((await ws.projectSetup(null)).setup.mcpServers).toEqual([]);
+  });
+
+  test('which servers each kind of session is handed', async () => {
+    const { ws, store, wren, other } = await make();
+    await store.save(null, n8n());
+    await store.save(null, { name: 'wren-db', kind: 'stdio', command: 'wren-db-mcp', projectId: wren.id, env: [{ key: 'DB_PASSWORD', value: 'pw-1234' }] });
+    await store.save(null, { name: 'feeds', kind: 'sse', url: 'https://feeds.example/sse', projectId: null });
+    // Wren switches the default "feeds" off for itself.
+    await ws.setProjectSetup(wren.id, { loadSettings: true, mcpServers: ['n8n'] });
+    const inWren = await ws.addSession({ title: 'In Wren', agent: 'claude', startedIn: wren.id });
+    const noProject = await ws.addSession({ title: 'Loose', agent: 'claude', startedIn: null });
+    const review = await ws.addSession({ title: 'Review', agent: 'claude', startedIn: wren.id, review: { key: 'gh:o/r#7', host: 'github', number: 7, sha: 'abc', url: 'https://github.com/o/r/pull/7' } });
+    const { children: [child] } = await ws.delegate(inWren.id, [{ projectId: other.id, title: "Child", brief: "Do it" }]);
+    const names = async (id: string, project: typeof wren | null) => Object.keys((await sessionServers(ws, store, id, { project, folder: project?.folders[0] ?? null }, none)).mcpServers).sort();
+    expect(await names(inWren.id, wren)).toEqual(['n8n', 'wren-db']);
+    expect(await names(noProject.id, null)).toEqual(['feeds', 'n8n']);
+    // A review of somebody else's pull request gets the default set, not the project's.
+    expect(await names(review.id, wren)).toEqual(['feeds', 'n8n']);
+    // A child in another project gets its parent's.
+    expect(await names(child!.id, other)).toEqual(['n8n', 'wren-db']);
+    // A spawned session is an unrelated task: its own project's, not its caller's (M9, Matt 2026-11-24).
+    const spawned = await ws.spawn(inWren.id, { projectId: other.id, title: 'Unrelated' });
+    expect(await names(spawned.id, other)).toEqual(['feeds', 'n8n']);
+    const handed = await sessionServers(ws, store, inWren.id, { project: wren, folder: wren.folders[0] ?? null }, none);
+    expect(handed.mcpServers['wren-db']).toEqual({ command: 'wren-db-mcp', args: [], env: { DB_PASSWORD: 'pw-1234' } });
+    expect(JSON.stringify(handed.handed)).not.toContain('pw-1234');
   });
 });

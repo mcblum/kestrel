@@ -20,6 +20,12 @@ export interface MenuOptions {
    * the window needs: where a hover card sat beside the sidebar (openBeside).
    */
   beside?: boolean;
+  /**
+   * One width whatever the items say (the Autopilot menu, whose heading changes with its state): longer
+   * text wraps inside it, also a long unbroken name, and the menu grows taller instead of wider.
+   * Absent, a menu is as wide as its content, within the usual limits.
+   */
+  width?: number;
 }
 
 export interface OpenMenu extends MenuOptions {

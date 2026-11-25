@@ -6,6 +6,7 @@
 import { ANSWER_MAX, FINDING_ACTIONS, type FindingAction } from './findings.ts';
 import { REVIEW_END_ACTIONS, type ReviewEndAction } from './round-findings.ts';
 import type { PageAsk } from './transcript-page.ts';
+import { SELECTABLE_AGENTS, type Agent } from '../model.ts';
 
 /** The protocol version this copy of Kestrel speaks. A frame of any other version is refused. */
 /** 2: frames sealed with AES-256-GCM (1 was ChaCha20-Poly1305, which the app's Electron cannot do). */
@@ -86,6 +87,14 @@ export interface ConnectOpArgs {
   /** Compact the conversation (Matt, 2026-11-24): what the window's Compact button does. */
   'session.compact': { sessionId: string };
   'session.seen': { sessionId: string };
+  /**
+   * A new session on this computer, from a blank page (A8; account-sessions.md section 11, stage 6). The phone
+   * picks the machine by which desk it sends this to. A preset or an agent, else the New session box's choices
+   * here; the mode Manual (`ask`) or Auto, else the box's, never Bypass.
+   */
+  'session.start': { projectId?: string; folderId?: string; presetId?: string; agent?: Agent; mode?: 'ask' | 'auto'; text: string; draftId?: string; attachments?: string[] };
+  /** What `session.start` may pick from here: this computer's switch, its agents and presets, and what its New session box starts with. */
+  'session.startChoices': Record<string, never>;
   'media.read': { sessionId: string; name: string };
   'attachment.read': { sessionId: string; attachmentId: string };
   /** Checked by ReviewReplies.post, as the desk's are: the same edits and the same refusals. */
@@ -94,6 +103,8 @@ export interface ConnectOpArgs {
   'suggestion.answer': { sessionId: string; suggestionId: string; button: string };
   'suggestion.dismiss': { sessionId: string; suggestionId: string };
   'suggestion.undo': { sessionId: string; suggestionId: string };
+  /** Autopilot for the session's pull request: on, off, or Merge when green (docs/designs/pr-autopilot.md). */
+  'autopilot.set': { sessionId: string; on: boolean; merge?: boolean };
   /** The Code reviews page's list, as the window has it, or off in the desk's words (Matt, 2026-11-24). */
   'reviews.read': Record<string, never>;
   /** The Tickets page's list, as the window has it, or off in the desk's words (Matt, 2026-11-24). */
@@ -239,6 +250,26 @@ export const CONNECT_OPS: { readonly [K in ConnectOp]: OpSpec } = {
   // Matt, 2026-11-24: "Within the context stuff, there should be a button to trigger compacting the convo"
   // (kestrel-connect.md, "The context window, and Compact"). The same call the window's button makes.
   'session.compact': { mapsTo: 'POST /api/sessions/:id/compact', fields: ['sessionId'], check: (a) => all({ sessionId: id(a, 'sessionId') }) },
+  // Matt, 2026-11-24: "add the ability for the phone to start a new session on any worker" (A8, stage 6).
+  'session.start': {
+    mapsTo: 'POST /api/sessions (A8: this computer\'s switch, never Bypass)',
+    fields: ['projectId', 'folderId', 'presetId', 'agent', 'mode', 'text', 'draftId', 'attachments'],
+    check: (a) => {
+      if (a.mode === 'bypass') return fail(BYPASS_FROM_ELSEWHERE);
+      if (a.presetId !== undefined && a.agent !== undefined) return fail('Give a preset or an agent, not both.');
+      const f = files(a);
+      return all({
+        projectId: optional(a, 'projectId', id),
+        folderId: optional(a, 'folderId', id),
+        presetId: optional(a, 'presetId', id),
+        agent: optional(a, 'agent', oneOf(SELECTABLE_AGENTS)),
+        mode: optional(a, 'mode', oneOf(['ask', 'auto'] as const)),
+        text: text(MESSAGE_MAX, f.ok && f.value.attachments !== undefined)(a, 'text'),
+        ...spread(f),
+      });
+    },
+  },
+  'session.startChoices': { mapsTo: 'the New session box\'s choices and Settings → Workflow\'s switch', fields: [], check: () => ({ ok: true, value: {} }) },
   'session.seen': { mapsTo: 'POST /api/seen (the one seen map, pushed to every window)', fields: ['sessionId'], check: (a) => all({ sessionId: id(a, 'sessionId') }) },
   'media.read': { mapsTo: 'GET /api/sessions/:id/media/:name', fields: ['sessionId', 'name'], check: (a) => all({ sessionId: id(a, 'sessionId'), name: id(a, 'name') }) },
   'attachment.read': { mapsTo: 'GET /api/sessions/:id/attachments/:id', fields: ['sessionId', 'attachmentId'], check: (a) => all({ sessionId: id(a, 'sessionId'), attachmentId: id(a, 'attachmentId') }) },
@@ -258,6 +289,8 @@ export const CONNECT_OPS: { readonly [K in ConnectOp]: OpSpec } = {
   },
   'suggestion.dismiss': { mapsTo: 'POST /api/sessions/:id/suggestions/:sid/dismiss', fields: ['sessionId', 'suggestionId'], check: (a) => all({ sessionId: id(a, 'sessionId'), suggestionId: id(a, 'suggestionId') }) },
   'suggestion.undo': { mapsTo: 'POST /api/sessions/:id/suggestions/:sid/undo', fields: ['sessionId', 'suggestionId'], check: (a) => all({ sessionId: id(a, 'sessionId'), suggestionId: id(a, 'suggestionId') }) },
+  // Matt, 2026-11-24 (pr-autopilot.md section 4): the request pill's Autopilot entry, as the desk has it.
+  'autopilot.set': { mapsTo: 'POST /api/sessions/:id/autopilot', fields: ['sessionId', 'on', 'merge'], check: (a) => all({ sessionId: id(a, 'sessionId'), on: flag(a, 'on'), merge: optional(a, 'merge', flag) }) },
   // Matt, 2026-11-24: "please add the code review and tickets pages" (kestrel-connect.md, "The Code reviews and
   // Tickets pages on a phone"). Reads only: no action on a request or a ticket is on the list yet.
   'reviews.read': { mapsTo: 'the review-requests push (ReviewRequestStore.view)', fields: [], check: () => ({ ok: true, value: {} }) },
@@ -307,7 +340,6 @@ export const NEVER_REMOTE: Readonly<Record<string, string>> = {
   'sandbox-allow': 'The always-allowed list is edited in Settings at the desk. From a phone, a sandbox card\'s own choices add to it.',
   'project-edits': '"Keep each project\'s edits in its own session" is changed at the desk.',
   'review-mode': 'How reviews start is changed at the desk.',
-  'session.start': 'Sessions are started at the desk. From a phone you can start a review of a request or work a ticket, or answer a session an agent asks to start.',
   'session.rename': 'A session is renamed at the desk.',
   'session.move': 'A session is moved at the desk.',
   'session.archive': 'A session is archived at the desk.',
@@ -315,6 +347,9 @@ export const NEVER_REMOTE: Readonly<Record<string, string>> = {
   'session.permission': 'A session\'s mode is changed at the desk.',
   pair: 'Devices are paired at a desk or an already-paired phone, never by a request.',
 };
+
+/** Bypass is never chosen from another device (A8). */
+export const BYPASS_FROM_ELSEWHERE = 'Bypass is chosen on the computer the session runs on.';
 
 /** Every op that names a sidebar's session is refused with this (kestrel-connect.md, "Sidebars"). */
 export const ASIDE_REFUSAL = 'A sidebar is used beside its conversation at the desk.';

@@ -1,0 +1,24 @@
+/* Set up this computer (SetupThisComputerPage.tsx). Grey chrome: the done mark is ink, not green. */
+.kestrel .settings-connections-setup .setup-group { gap: 10px; margin-top: 24px; }
+.kestrel .setup-group-heading { display: flex; align-items: center; gap: 8px; }
+.kestrel .setup-group-heading h2 { margin: 0; }
+.kestrel .setup-lines { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.kestrel .setup-line { display: flex; align-items: flex-start; gap: 12px; padding: 12px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-paper); }
+.kestrel .setup-line-mark { width: 16px; height: 16px; flex: none; margin-top: 2px; color: var(--s-label); }
+.kestrel .setup-line.is-done .setup-line-mark { color: var(--s-accent); }
+.kestrel .setup-line-detail { display: grid; gap: 4px; min-width: 0; flex: 1; }
+.kestrel .setup-line-title { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.kestrel .setup-line-detail .settings-help { overflow-wrap: anywhere; }
+.kestrel .setup-line-detail code { font-family: var(--mono); font-size: 12px; }
+.kestrel .setup-line-from { font-size: 11px; color: var(--s-label); }
+.kestrel .setup-line-detail .sign-in { margin-top: 4px; }
+.kestrel .setup-line-kind { white-space: nowrap; }
+.kestrel .setup-already > summary { cursor: pointer; font-size: 12px; color: var(--s-label); padding: 2px 0; }
+.kestrel .setup-already[open] > summary { margin-bottom: 8px; }
+.kestrel .setup-summary-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.kestrel .connect-setup-offer { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-paper); }
+.kestrel .connect-setup-offer p { margin: 0; }
+
+@media (max-width: 640px) {
+  .kestrel .setup-line { flex-wrap: wrap; }
+}

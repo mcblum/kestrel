@@ -3,6 +3,7 @@
 import { guardLeave } from './unsaved.ts';
 import { DEFAULT_CONTROLS, withScope, activate, placement, activateNth, becomeSession, closeTab, isLastOverview, moveTab, openTarget, prune, replaceSession, retargetActive, sanitize, setControls, type Controls, type OpenTarget, type Preselect, type Tab, type TabsState } from '@kestrel/server/tabs';
 import { rememberPick, rememberPreset, rememberSent, startControls, startFromOf, storedRemembered, withFixed, withStartFrom, type Remembered, type StartFrom, type StickyPick } from '@kestrel/server/sticky-controls';
+import { clampChangesListHeight } from '@kestrel/server/changes-split';
 import { clampContextWidth, clampPaneWidth, clampSimWidth, clampWidth, place, placeMenuItem, placeProject, placeTag, placeWorkstream, sanitizeSidebar, toggleCollapsed, toggleHidden, type SidebarPrefs } from '@kestrel/server/sidebar';
 import { activityAt, parseSessionOrder, type SessionOrder } from '@kestrel/server/session-order';
 import type { StackWeights } from '@kestrel/server/pane-layout';
@@ -275,6 +276,12 @@ export const tabActions = {
   setChangesWidth: (px: number) => tabsView().sidebar.changesWidth !== clampPaneWidth(px) && update({ sidebar: { ...tabsView().sidebar, changesWidth: clampPaneWidth(px) } }),
   /** The Details pane was dragged to a new width. */
   setContextWidth: (px: number) => tabsView().sidebar.contextWidth !== clampContextWidth(px) && update({ sidebar: { ...tabsView().sidebar, contextWidth: clampContextWidth(px) } }),
+  /** The bar between the Changes pane's file list and its diff was dragged; null goes back to the default (changes-split.ts). */
+  setChangesListHeight(px: number | null): void {
+    const { changesListHeight: old, ...rest } = tabsView().sidebar;
+    const next = px === null ? undefined : clampChangesListHeight(px);
+    if (old !== next) update({ sidebar: next === undefined ? rest : { ...rest, changesListHeight: next } });
+  },
   /** The simulator column was dragged to a new width. */
   setSimWidth: (px: number) => tabsView().sidebar.simWidth !== clampSimWidth(px) && update({ sidebar: { ...tabsView().sidebar, simWidth: clampSimWidth(px) } }),
   /** A divider between stacked panes was dragged (or reset, with no weights), for one kind of page. */

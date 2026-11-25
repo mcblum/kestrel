@@ -1,6 +1,6 @@
 // The closed list of what a phone may ask, and the envelope its frames travel in (shared/connect-ops.ts).
 import { describe, expect, it } from 'vitest';
-import { checkEnvelope, checkRequest, CONNECT_OP_NAMES, CONNECT_OPS, CONNECT_PROTOCOL_VERSION, NEVER_REMOTE, PAGE_MAX, versionRefusal } from './connect-ops.ts';
+import { checkEnvelope, checkRequest, CONNECT_OP_NAMES, CONNECT_OPS, CONNECT_PROTOCOL_VERSION, NEVER_REMOTE, PAGE_MAX, versionRefusal, BYPASS_FROM_ELSEWHERE } from './connect-ops.ts';
 
 const frame = (over: Record<string, unknown> = {}) => ({ v: CONNECT_PROTOCOL_VERSION, from: 'phone-1', to: 'mac-1', kind: 'request', id: 'f1', body: 'ciphertext', ...over });
 
@@ -51,6 +51,7 @@ const GOOD: Record<string, Record<string, unknown>> = {
   'session.compact': { sessionId: 's1' },
   'reviews.read': {},
   'tickets.read': {},
+  'autopilot.set': { sessionId: 's1', on: true, merge: false },
   'reviews.seen': { keys: ['github.com/acme/shop#1'], seen: true },
   'reviews.dismiss': { keys: ['github.com/acme/shop#1'], dismissed: false },
   'reviews.start': { key: 'github.com/acme/shop#1' },
@@ -62,6 +63,8 @@ const GOOD: Record<string, Record<string, unknown>> = {
   'tickets.detail': { key: 'jira:acme/PLAT-1' },
   'tickets.work': { key: 'jira:acme/PLAT-1' },
   'session.seen': { sessionId: 's1' },
+  'session.start': { projectId: 'p1', text: 'go' },
+  'session.startChoices': {},
   'media.read': { sessionId: 's1', name: 'shot-1.png' },
   'attachment.read': { sessionId: 's1', attachmentId: 'a1' },
   'review.post': { sessionId: 's1', cardId: 'review-1', verdict: 'approve', withoutComment: true },
@@ -129,11 +132,32 @@ describe('the operations', () => {
 });
 
 describe('what a phone never does', () => {
-  it('starts no session, and edits none by hand (Matt, 2026-11-22)', () => {
-    for (const op of ['session.start', 'session.rename', 'session.move', 'session.archive', 'session.model', 'session.permission']) {
+  it('edits no session by hand (Matt, 2026-11-22)', () => {
+    for (const op of ['session.rename', 'session.move', 'session.archive', 'session.model', 'session.permission']) {
       expect(checkRequest({ op, args: {} })).toEqual({ ok: false, reason: NEVER_REMOTE[op] });
     }
-    expect(NEVER_REMOTE['session.start']).toMatch(/^Sessions are started at the desk/);
+  });
+});
+
+describe('session.start: a new session from a blank page (A8, Matt 2026-11-24)', () => {
+  it('is no longer refused as a desk-only thing', () => {
+    expect(NEVER_REMOTE['session.start']).toBeUndefined();
+  });
+
+  it('takes a project, a preset or an agent, Manual or Auto, and the message with its photos', () => {
+    expect(checkRequest({ op: 'session.start', args: { projectId: 'p1', folderId: 'f1', presetId: 'fast', mode: 'auto', text: 'go' } })).toEqual({ ok: true, value: { op: 'session.start', args: { projectId: 'p1', folderId: 'f1', presetId: 'fast', mode: 'auto', text: 'go' } } });
+    expect(checkRequest({ op: 'session.start', args: { agent: 'codex', text: '', draftId: 'd1', attachments: ['a1'] } })).toMatchObject({ ok: true, value: { args: { agent: 'codex', text: '', draftId: 'd1', attachments: ['a1'] } } });
+  });
+
+  it.each([
+    [{ text: 'go', mode: 'bypass' }, BYPASS_FROM_ELSEWHERE],
+    [{ text: 'go', presetId: 'p', agent: 'claude' }, 'Give a preset or an agent, not both.'],
+    [{ text: 'go', agent: 'gpt' }, 'agent must be one of: claude, codex, opencode.'],
+    [{ text: 'go', mode: 'plan' }, 'mode must be one of: ask, auto.'],
+    [{ text: ' ' }, 'text must be non-empty text of at most 20000 characters.'],
+    [{ text: 'go', permission: 'auto' }, 'session.start takes no permission.'],
+  ])('refuses %j with the reason', (args, reason) => {
+    expect(checkRequest({ op: 'session.start', args })).toEqual({ ok: false, reason });
   });
 
   it.each(Object.keys(NEVER_REMOTE))('refuses %s with its own reason', (op) => {

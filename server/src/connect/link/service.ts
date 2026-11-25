@@ -57,7 +57,7 @@ export interface RelayEvents {
   error(error: Error): void;
 }
 
-export type ServiceMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
+export type ServiceMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 const TIMEOUT_MS = 15_000;
 /** A held record can be tens of megabytes. */

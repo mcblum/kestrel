@@ -69,6 +69,21 @@
 .kestrel .hover-card .card-head .status-dot { flex: none; margin-right: 5px; }
 .kestrel .hover-card .card-line.card-tone > svg { color: inherit; }
 .kestrel .hover-card .card-line.card-tone > span { color: var(--s-ink); }
+/* A request in a card (CardRequests.tsx): its icon in the request's status colour, with the row mark's
+   cross when it needs the user; its words stay in the card's ink. */
+.kestrel .card-pr-icon { position: relative; display: inline-grid; place-items: center; flex: none; width: 13px; height: 13px; }
+.kestrel .card-pr-icon > svg { width: 13px; height: 13px; color: inherit; }
+.kestrel .card-pr-icon > svg.row-icon-alert { position: absolute; right: -4px; bottom: -3px; width: 7px; height: 7px; stroke-width: 4; background: var(--s-paper); border-radius: 50%; }
+/* The requests of the sessions it brought in, as its children: indented, each joined by the sidebar's
+   elbow to the session's own request above (or, with none, hanging from the card's heading). */
+.kestrel .hover-card .card-children { display: grid; }
+.kestrel .hover-card .card-line.card-child { position: relative; align-items: flex-start; padding-left: 28px; }
+.kestrel .hover-card .card-child > .card-pr-icon { margin-top: 2px; }
+.kestrel .hover-card .card-child::before { content: ''; position: absolute; left: 15px; top: -6px; width: 8px; height: 18px; border-left: 1px solid var(--elbow-line); border-bottom: 1px solid var(--elbow-line); border-bottom-left-radius: 4px; pointer-events: none; }
+.kestrel .hover-card .card-children:not(.under-own) > .card-child:first-child::before { top: 4px; height: 8px; }
+.kestrel .hover-card .card-child.card-more::before { content: none; }
+.kestrel .hover-card .card-child-text { display: grid; flex: 1; min-width: 0; gap: 1px; }
+.kestrel .hover-card .card-child-where { font-size: 11px; color: var(--s-muted); }
 .kestrel .hover-card .card-copy { padding-right: 4px; }
 .kestrel .hover-card .card-copy .copy-button { flex: none; }
 .kestrel .hover-card button.card-line { width: 100%; text-align: left; }

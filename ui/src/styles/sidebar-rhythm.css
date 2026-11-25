@@ -75,7 +75,7 @@
    turns in to the child's. Between children the line carries on down, through a child's own
    children too, and stops at the last one. Grey, like the rest of the chrome; it takes no clicks.
    The line sits 4px in from where the parent's title starts and stops 5px short of the child's. */
-.kestrel .studio-sidebar .tree-children > li { position: relative; --elbow-x: calc(var(--side-label-x) + (var(--depth, 1) - 1) * var(--side-indent) + 4px); --elbow-line: color-mix(in srgb, var(--s-muted) 45%, transparent); }
+.kestrel .studio-sidebar .tree-children > li { position: relative; --elbow-x: calc(var(--side-label-x) + (var(--depth, 1) - 1) * var(--side-indent) + 4px); }
 .kestrel .studio-sidebar .project-block .folder-block .tree-children > li { --elbow-x: calc(var(--folder-label-x) + (var(--depth, 1) - 1) * var(--side-indent) + 4px); }
 .kestrel .studio-sidebar .tree-children > li::before,
 .kestrel .studio-sidebar .tree-children > li:not(:last-child)::after { content: ''; position: absolute; z-index: 1; left: var(--elbow-x); top: 0; border-left: 1px solid var(--elbow-line); pointer-events: none; }

@@ -6,12 +6,14 @@
 // session where it lives. Everything shown comes from the workspace in the store; only the
 // objective being typed is local.
 import { WorkstreamTicketChip } from '../components/TicketChip.tsx';
+import { useBroughtIn } from '../broughtIn.ts';
+import { BroughtInPill } from '../components/BroughtInRequests.tsx';
 import { useWorkstreamTicket } from '../tickets.ts';
 import { useMemo, useState } from 'react';
 import type { SessionView, WorkspaceState } from '@kestrel/server/model';
 import { orderSessions } from '@kestrel/server/session-order';
 import { waitsIn, type ShownWait } from '@kestrel/server/waits';
-import { isArchived, isComplete, workstreamRows, workstreamSummary, WORKSTREAM_OBJECTIVE_MAX } from '@kestrel/server/workstreams';
+import { isArchived, isComplete, leadOf, workstreamRows, workstreamSummary, WORKSTREAM_OBJECTIVE_MAX } from '@kestrel/server/workstreams';
 import { opener, openSession } from '../route.ts';
 import { actions } from '../store.ts';
 import { PageHeader } from './PageHeader.tsx';
@@ -109,6 +111,8 @@ export function WorkstreamPage({ id, workspace }: { id: string; workspace: Works
   const rows = useMemo(() => (workstream ? workstreamRows(workstream, workspace.links, members) : []), [workstream, workspace.links, members]);
   const tree = useMemo(() => rows.map((r) => r.session), [rows]);
   const depths = useMemo(() => new Map(rows.map((r) => [r.session.id, r.depth])), [rows]);
+  // The open requests of the sessions its lead brought in, beside the page's … as on the lead's header.
+  const broughtIn = useBroughtIn(workstream ? leadOf(workstream) : null);
   const waits = useMemo(() => (workstream ? waitsIn(workstream, members, workspace.links, workspace.waits ?? []) : []), [workstream, members, workspace.links, workspace.waits]);
   if (!workstream)
     return (
@@ -121,7 +125,7 @@ export function WorkstreamPage({ id, workspace }: { id: string; workspace: Works
     );
   return (
     <div className="page column collection">
-      <PageHeader title={workstream.name} line={`Workstream · ${isComplete(workstream) ? 'Complete · ' : ''}${workstreamSummary(members)}. Each session stays in its own project.`} menu={{ kind: 'workstream', id }} mark={<WorkstreamColourPicker workstreamId={id} name={workstream.name} />} />
+      <PageHeader title={workstream.name} line={`Workstream · ${isComplete(workstream) ? 'Complete · ' : ''}${workstreamSummary(members)}. Each session stays in its own project.`} menu={{ kind: 'workstream', id }} actions={broughtIn && <BroughtInPill rollup={broughtIn} />} mark={<WorkstreamColourPicker workstreamId={id} name={workstream.name} />} />
       {isArchived(workstream) && (
         <p className="workstream-archived" role="status">
           This workstream is archived: it is out of the sidebar, and its sessions are where they were. A new message in one of them brings it back.

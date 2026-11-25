@@ -22,6 +22,9 @@
 .kestrel .suggestion-quiet { background: transparent; color: var(--s-muted); border: 1px solid var(--s-line); }
 .kestrel .suggestion-quiet:hover { color: var(--s-ink); background: var(--s-soft); }
 .kestrel .suggestion-buttons button:disabled, .kestrel .suggestion-x:disabled { opacity: .5; cursor: default; }
+.kestrel .suggestion-button-group { display: inline-flex; align-items: center; gap: 8px; }
+.kestrel .suggestion-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--s-muted); cursor: pointer; }
+.kestrel .suggestion-toggle input { margin: 0; }
 
 /* ---- the line an answered suggestion leaves in the conversation ---- */
 .kestrel .suggestion-line { display: flex; align-items: center; gap: 6px; margin: 2px 0; font-size: 11px; color: var(--s-muted); }

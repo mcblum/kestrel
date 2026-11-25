@@ -4,6 +4,7 @@
 
 import { clampColumnWidth, PANE_WIDTH, sanitizeStackSizes, type StackSizes } from './pane-layout.ts';
 import type { SessionOrder } from './session-order.ts';
+import { clampChangesListHeight } from './changes-split.ts';
 
 export { PANE_WIDTH };
 
@@ -28,6 +29,8 @@ export interface SidebarPrefs {
   changesWidth?: number;
   /** The Details pane's width, once dragged. */
   contextWidth?: number;
+  /** Height of the changed-files list above the diff in the Changes pane, when dragged (changes-split.ts). */
+  changesListHeight?: number;
   /** Width of the simulator column, when dragged. Absent in prefs stored before it existed. */
   simWidth?: number;
   /** Heights of the panes stacked in the tools column, per page kind, when dragged. */
@@ -66,6 +69,7 @@ export function sanitizeSidebar(value: unknown): SidebarPrefs {
   const paneWidth = typeof v.paneWidth === 'number' && Number.isFinite(v.paneWidth) ? { paneWidth: clampPaneWidth(v.paneWidth) } : {};
   const changesWidth = typeof v.changesWidth === 'number' && Number.isFinite(v.changesWidth) ? { changesWidth: clampPaneWidth(v.changesWidth) } : {};
   const contextWidth = typeof v.contextWidth === 'number' && Number.isFinite(v.contextWidth) ? { contextWidth: clampColumnWidth('context', v.contextWidth) } : {};
+  const changesListHeight = typeof v.changesListHeight === 'number' && Number.isFinite(v.changesListHeight) ? { changesListHeight: clampChangesListHeight(v.changesListHeight) } : {};
   const simWidth = typeof v.simWidth === 'number' && Number.isFinite(v.simWidth) ? { simWidth: clampSimWidth(v.simWidth) } : {};
   const stackSizes = sanitizeStackSizes(v.stack);
   const stack = stackSizes ? { stack: stackSizes } : {};
@@ -76,7 +80,7 @@ export function sanitizeSidebar(value: unknown): SidebarPrefs {
   const hidden = v.hidden === true ? { hidden: true } : {};
   // Checked here rather than with session-order.ts's list, which imports this file.
   const sessionOrder = v.sessionOrder === 'recent' || v.sessionOrder === 'custom' ? { sessionOrder: v.sessionOrder as SessionOrder } : {};
-  return { order: strings(v.order), ...projectOrder, ...tagOrder, ...workstreamOrder, ...menuOrder, collapsed: strings(v.collapsed), ...width, ...paneWidth, ...changesWidth, ...contextWidth, ...simWidth, ...stack, ...hidden, ...sessionOrder };
+  return { order: strings(v.order), ...projectOrder, ...tagOrder, ...workstreamOrder, ...menuOrder, collapsed: strings(v.collapsed), ...width, ...paneWidth, ...changesWidth, ...contextWidth, ...changesListHeight, ...simWidth, ...stack, ...hidden, ...sessionOrder };
 }
 
 /** Items in the user's order. Items the order does not know are new: they come first, as given. */

@@ -366,3 +366,17 @@ export async function originUrl(path: string): Promise<string | null> {
   const out = (await git(path, ['remote', 'get-url', 'origin'], { allowFail: true })).trim();
   return out || null;
 }
+
+/**
+ * Whether `sha` is in the history of the worktree's HEAD: a commit the session made or has. False when
+ * there is no worktree or git cannot tell (Autopilot then treats a new head as somebody else's push).
+ */
+export async function commitIsHere(worktreePath: string | null | undefined, sha: string): Promise<boolean> {
+  if (!worktreePath || !/^[0-9a-f]{7,64}$/i.test(sha)) return false;
+  try {
+    await run('git', ['merge-base', '--is-ancestor', sha, 'HEAD'], { cwd: worktreePath, env: GIT_ENV });
+    return true;
+  } catch {
+    return false;
+  }
+}

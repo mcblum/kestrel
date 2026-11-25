@@ -99,7 +99,9 @@ export type MenuAction =
   /** `turn`: the message that started the turn to fork from (TurnFork); absent, the end of the conversation. */
   | { type: 'fork-session'; sessionId: string; turn?: string }
   /** Take one session out of a workstream: only the reference goes. */
-  | { type: 'remove-from-workstream'; workstreamId: string; sessionId: string };
+  | { type: 'remove-from-workstream'; workstreamId: string; sessionId: string }
+  /** Autopilot for the session's pull request: on or off, or Merge when green (docs/designs/pr-autopilot.md). */
+  | { type: 'set-autopilot'; sessionId: string; on: boolean; merge?: boolean };
 
 /**
  * The menu of a row in the Commands pane. Its first item is what can be done with the command as

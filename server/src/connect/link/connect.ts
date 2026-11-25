@@ -1,7 +1,7 @@
 // Kestrel Connect on the desktop: the sign-in, this computer's device identity, the one switch, and
 // the relay link. It owns `ConnectView` (shared/connect.ts), pushes it whole on every change, and
 // dials nothing while the switch is off or nobody is signed in (design doc kestrel-connect.md, 8-9).
-import { CONNECT_OFF, type ConnectAccount, type ConnectDevice, type ConnectHeld, type ConnectLink, type ConnectView, NO_PUSH } from '../../shared/connect.ts';
+import { CONNECT_OFF, deviceNameOf, type ConnectAccount, type ConnectDevice, type ConnectHeld, type ConnectLink, type ConnectView, NO_PUSH } from '../../shared/connect.ts';
 import type { Envelope } from '../../shared/connect-ops.ts';
 import { newIdentity, publicIdentity } from '../keys.ts';
 import { DeskChannel } from './channel.ts';
@@ -20,8 +20,13 @@ import { PushNotices, type PushSource } from './push.ts';
 import { DEFAULT_HELD_PREFS, HeldConversations, type HeldPrefs, type HeldSource } from './held.ts';
 import type { QueueStore } from './held-queue.ts';
 import type { StoredDevice, StoredTokens, Vault, VaultData } from './vault.ts';
+import { SetupRecords } from './setup-records.ts';
+import type { SetupRecord } from '../../shared/setup-record.ts';
+import { setupListOf, type SetupChecks, type SetupList } from '../../shared/setup-list.ts';
 
 export const CONNECT_PREFS_KEY = 'kestrel-connect';
+/** The name the user gave this computer, kept here whether or not Connect is on: `{ name, unsent }`. */
+export const COMPUTER_NAME_KEY = 'connect.computerName';
 /** An access token this close to expiry is renewed before use. */
 const FRESH_FOR_MS = 60_000;
 
@@ -30,6 +35,7 @@ export interface ConnectDeps {
   identity: IdentityProvider;
   service: ConnectService;
   settings: SettingStore;
+  /** The host name, the name when the user gave none. */
   computerName: string;
   /** Why Connect cannot be used in this copy (sample data), or null. */
   unavailable?: string | null;
@@ -42,6 +48,8 @@ export interface ConnectDeps {
   held?: { source: HeldSource; queue: QueueStore };
   /** Push notifications: what the rule reads. None in tests of the link alone. */
   push?: { source: PushSource };
+  /** Set-up records (onboarding.md): how this machine is read, given the projects kept off. None in tests of the link alone. */
+  setup?: { inventory(desk: { id: string; name: string }, keptOff: readonly string[]): Promise<SetupRecord>; checks: SetupChecks; sample?: () => SetupList };
   now?(): number;
   random?(): number;
 }
@@ -72,12 +80,39 @@ function trustOf(raw: unknown): KeysTrust | null {
   return { generation: t.generation, devices: t.devices.filter((d) => typeof d?.id === 'string' && typeof d.signing === 'string'), wordsPending: t.wordsPending === true, changedBecause: Array.isArray(t.changedBecause) ? t.changedBecause.filter((n): n is string => typeof n === 'string') : null };
 }
 
+/** The name the user gave this computer, and whether the service still has to be told it. */
+interface GivenName {
+  name: string | null;
+  unsent: boolean;
+}
+
+function givenOf(raw: string | null): GivenName {
+  try {
+    const value = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    return { name: typeof value.name === 'string' && value.name ? value.name : null, unsent: value.unsent === true };
+  } catch {
+    return { name: null, unsent: false };
+  }
+}
+
+/** The text of a name that cannot be one, as a refusal. */
+function nameOrRefuse(text: string): string | null {
+  try {
+    return deviceNameOf(text);
+  } catch (error) {
+    throw new Refused(message(error));
+  }
+}
+
 const NO_HELD: ConnectHeld = { ...DEFAULT_HELD_PREFS, problem: null, usage: null, lastUploadAt: null };
 
 export class KestrelConnect {
   private data: VaultData = { tokens: null, device: null };
   private enabled = false;
   private heldPrefs: HeldPrefs = DEFAULT_HELD_PREFS;
+  private given: GivenName = { name: null, unsent: false };
+  /** Why the service has not taken this computer's name yet, or null. */
+  private nameProblem: string | null = null;
   private account: ConnectAccount = { state: 'signed-out', reason: null };
   private signInUnderWay: { callback: LoopbackCallback; request: AuthorizationRequest } | null = null;
   private refreshing: Promise<StoredTokens> | null = null;
@@ -95,13 +130,14 @@ export class KestrelConnect {
   readonly join: AccountJoin;
   readonly held: HeldConversations | null;
   readonly push: PushNotices | null;
+  readonly setup: SetupRecords | null;
 
   constructor(private readonly deps: ConnectDeps) {
     this.keys = new AccountKeys({
       api: () => this.api(),
       me: () => {
         const device = this.data.device;
-        return device && device.subject === this.data.tokens?.subject ? { id: device.id, name: device.name, kind: 'desktop' as const, identity: device } : null;
+        return device && device.subject === this.data.tokens?.subject ? { id: device.id, name: this.name(), kind: 'desktop' as const, identity: device } : null;
       },
       trust: () => trustOf(this.data.keys),
       saveTrust: (next) => this.save({ ...this.data, keys: next }),
@@ -118,7 +154,7 @@ export class KestrelConnect {
           resync: () => this.keys.sync(),
           desk: () => {
             const device = this.data.device;
-            return device && device.subject === this.data.tokens?.subject ? { id: device.id, name: device.name } : null;
+            return device && device.subject === this.data.tokens?.subject ? { id: device.id, name: this.name() } : null;
           },
           prefs: () => this.heldPrefs,
           changed: () => this.changed(),
@@ -134,10 +170,23 @@ export class KestrelConnect {
           keyFor: (generation) => this.keys.keyFor(generation),
           desk: () => {
             const device = this.data.device;
-            return device && device.subject === this.data.tokens?.subject ? { id: device.id, name: device.name } : null;
+            return device && device.subject === this.data.tokens?.subject ? { id: device.id, name: this.name() } : null;
           },
           changed: () => this.changed(),
           now: deps.now,
+        })
+      : null;
+    const setup = deps.setup;
+    this.setup = setup
+      ? new SetupRecords({
+          api: () => (this.link.link.state === 'connected' ? this.api() : null),
+          key: () => this.keys.ready(),
+          keyFor: (generation) => this.keys.keyFor(generation),
+          desk: () => {
+            const device = this.data.device;
+            return device && device.subject === this.data.tokens?.subject ? { id: device.id, name: device.name } : null;
+          },
+          inventory: (desk) => setup.inventory(desk, this.heldPrefs.keptOff),
         })
       : null;
     this.link = new RelayLink({
@@ -155,6 +204,8 @@ export class KestrelConnect {
       notice: (kind, notice) => {
         if (kind === 'held-messages') void this.held?.deliverWaiting();
         if (kind === 'push-devices') void this.push?.refreshPhones();
+        // A device of the account was renamed (or added or removed): read the list again.
+        if (kind === 'devices-changed') void this.refreshDevices();
         // Another device rotated the key or this one was given a copy: open it now, not at the next reconnect.
         if (kind === 'key-changed') void this.linkUp();
         if (kind === 'join') {
@@ -192,7 +243,7 @@ export class KestrelConnect {
       api: () => (this.link.link.state === 'connected' ? new JoinApi(this.call()) : null),
       me: () => {
         const device = this.data.device;
-        return device && device.subject === this.data.tokens?.subject ? { id: device.id, name: device.name, kind: 'desktop', identity: device } : null;
+        return device && device.subject === this.data.tokens?.subject ? { id: device.id, name: this.name(), kind: 'desktop', identity: device } : null;
       },
       keys: this.keys,
       hello: (to, body) => this.channel.sendHello(to, body),
@@ -243,6 +294,7 @@ export class KestrelConnect {
     // The link may have ended meanwhile (this computer was removed: its device is forgotten, and nothing
     // here may register it again).
     if (!up()) return;
+    await this.sendName();
     void this.refreshDevices();
     this.channel.endStrangers();
     if (!this.keys.ready()) {
@@ -254,6 +306,7 @@ export class KestrelConnect {
     }
     await this.join.refresh().catch((error: unknown) => console.error(`[kestrel] could not read requests to join the account: ${message(error)}`));
     this.held?.kick();
+    this.setup?.refreshOnce();
     void this.push?.refreshPhones();
     await this.held?.deliverWaiting();
     await this.keys.reseal().catch((error: unknown) => console.error(`[kestrel] could not re-seal held conversations under the new key: ${message(error)}`));
@@ -276,6 +329,7 @@ export class KestrelConnect {
     if (this.link.link.state !== 'connected') return;
     try {
       this.accountDevices = await new JoinApi(this.call()).devices();
+      await this.adoptName();
       this.changed();
     } catch (error) {
       console.error(`[kestrel] could not read the account's devices: ${message(error)}`);
@@ -301,6 +355,7 @@ export class KestrelConnect {
       void _gone;
       await this.save(rest);
     }
+    this.given = givenOf(await this.deps.settings.getSetting(COMPUTER_NAME_KEY).catch(() => null));
     const prefs = prefsOf(await this.deps.settings.getSetting(CONNECT_PREFS_KEY).catch(() => null));
     this.enabled = prefs.enabled;
     this.heldPrefs = prefs.held;
@@ -321,7 +376,10 @@ export class KestrelConnect {
       account: this.account,
       link: this.deps.unavailable ? CONNECT_OFF : link,
       storage: this.deps.vault.storage,
-      computerName: this.deps.computerName,
+      computerName: this.name(),
+      hostName: this.deps.computerName,
+      givenName: this.given.name,
+      nameProblem: this.nameProblem,
       unavailable: this.deps.unavailable ?? null,
       devices,
       joining: connected ? this.join.joining() : null,
@@ -363,6 +421,7 @@ export class KestrelConnect {
     if (!enabled) {
       this.keys.reset();
       this.join.reset();
+      this.setup?.reset();
     }
     this.follow();
     this.changed();
@@ -385,6 +444,21 @@ export class KestrelConnect {
     await this.held?.prefsChanged(before, after);
     this.changed();
     return this.view();
+  }
+
+  /** Settings → Connections was opened: this computer's set-up record is written again if it changed. */
+  setupRefresh(): void {
+    this.setup?.refresh();
+  }
+
+  /** The set-up list for this computer, from every other computer's record and this one read now (onboarding.md, section 7). */
+  async setupList(): Promise<SetupList> {
+    if (!this.setup || !this.deps.setup) throw new Refused('Set up this computer is not available in this copy of Kestrel.');
+    // Sample data: a sample list, and nothing read from this machine.
+    if (this.deps.unavailable && this.deps.setup.sample) return this.deps.setup.sample();
+    if (this.link.link.state !== 'connected' || !this.keys.ready()) throw new Refused('Set up this computer needs Kestrel Connect on, signed in, connected, and this computer let into your account.');
+    const { here, others } = await this.setup.read(await this.api().devices());
+    return setupListOf(here, others, this.deps.setup.checks);
   }
 
   /** The recovery words, shown from this computer because it holds the account key. */
@@ -463,6 +537,7 @@ export class KestrelConnect {
     this.link.stop();
     this.keys.reset();
     this.join.reset();
+    this.setup?.reset();
     // The device keys stay: signing in again to the same account keeps this computer's identity.
     await this.save({ ...this.data, tokens: null });
     this.account = { state: 'signed-out', reason: null };
@@ -506,9 +581,11 @@ export class KestrelConnect {
       try {
         const keys = device?.subject === tokens.subject ? device : newIdentity();
         const identity = { signing: keys.signing, agreement: keys.agreement };
-        const registered = await this.signedIn((token) => this.deps.service.registerDevice(token, this.deps.computerName, 'desktop', publicIdentity(identity)));
+        const registered = await this.signedIn((token) => this.deps.service.registerDevice(token, this.name(), 'desktop', publicIdentity(identity)));
         const stored: StoredDevice = { subject: tokens.subject, id: registered.id, name: registered.name, signing: keys.signing, agreement: keys.agreement };
         await this.save({ ...this.data, device: stored, keysPut: stored.id });
+        // The service has the name now: it was given at registration.
+        if (this.given.unsent && registered.name === this.name()) await this.saveGiven({ ...this.given, unsent: false });
         return stored.id;
       } finally {
         this.registering = null;
@@ -562,6 +639,77 @@ export class KestrelConnect {
   /** Not me: the request is refused. */
   async refuseRequest(id: string): Promise<ConnectView> {
     await this.join.refuse(id);
+    return this.view();
+  }
+
+  /** This computer's name: the one the user gave, or the host name. A label only, never identity. */
+  name(): string {
+    return this.given.name ?? this.deps.computerName;
+  }
+
+  private async saveGiven(given: GivenName): Promise<void> {
+    this.given = given;
+    await this.deps.settings.putSetting(COMPUTER_NAME_KEY, JSON.stringify(given));
+  }
+
+  /** This computer's registered device on the signed-in account, or null. */
+  private myDevice(): StoredDevice | null {
+    const device = this.data.device;
+    return device && device.subject === this.data.tokens?.subject ? device : null;
+  }
+
+  /**
+   * Names this computer (empty: its host name). Kept here at once, Connect on or off; told to the service now
+   * when the link is up, else when it is next up. A name the service did not take is kept, with why.
+   */
+  async setComputerName(text: string): Promise<ConnectView> {
+    const name = nameOrRefuse(text);
+    await this.saveGiven({ name, unsent: true });
+    this.nameProblem = null;
+    await this.sendName();
+    this.changed();
+    return this.view();
+  }
+
+  /** Tells the service this computer's name when it has not been told it yet. */
+  private async sendName(): Promise<void> {
+    const device = this.myDevice();
+    if (!this.given.unsent || !device || this.link.link.state !== 'connected') return;
+    const name = this.name();
+    try {
+      await new JoinApi(this.call()).rename(device.id, name);
+      // Typed again while it went: the newer one is sent next time.
+      if (this.name() === name) await this.saveGiven({ ...this.given, unsent: false });
+      this.nameProblem = null;
+      void this.refreshDevices();
+    } catch (error) {
+      this.nameProblem = `Kestrel Connect could not take the new name yet: ${message(error)} It is used here, and sent again when Connect reconnects.`;
+    }
+  }
+
+  /** Renamed from another device: the service's name for this computer is taken as its own, unless one typed here waits. */
+  private async adoptName(): Promise<void> {
+    const device = this.myDevice();
+    const listed = device ? this.accountDevices.find((d) => d.id === device.id) : undefined;
+    if (!listed || this.given.unsent || listed.name === this.name()) return;
+    await this.saveGiven({ name: listed.name === this.deps.computerName ? null : listed.name, unsent: false });
+  }
+
+  /** Renames a device of the account (this computer's own row is its name field). A label only: nothing about trust changes. */
+  async renameDevice(deviceId: string, text: string): Promise<ConnectView> {
+    if (deviceId === this.myDevice()?.id) return this.setComputerName(text);
+    if (this.link.link.state !== 'connected') throw new Refused('Connect this computer to rename the devices of your account.');
+    if (!this.accountDevices.some((d) => d.id === deviceId)) throw new Refused('That device is not on your account.');
+    const name = nameOrRefuse(text);
+    if (!name) throw new Refused('A device needs a name.');
+    try {
+      await new JoinApi(this.call()).rename(deviceId, name);
+    } catch (error) {
+      throw new Refused(`Kestrel Connect could not rename it: ${message(error)}`);
+    }
+    this.accountDevices = this.accountDevices.map((d) => (d.id === deviceId ? { ...d, name } : d));
+    this.changed();
+    void this.refreshDevices();
     return this.view();
   }
 

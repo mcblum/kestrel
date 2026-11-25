@@ -2,6 +2,7 @@
 // one facade callers use; the modules it hands work to (`events.ts`, `turns.ts`, `bring-up.ts`,
 // `agent-options.ts`, `agent-info.ts`, `session-worktrees.ts`) each take the part of this they
 // need (`Pick<RuntimeHost, …>`), built once by the runtime. Nothing here holds state of its own.
+import type { McpServerStore } from '../mcp-servers/store.ts';
 import type { WhoDoesWhatPrefs } from '../who-does-what/prefs.ts';
 import type { GitDefaultsPrefs } from '../git-defaults/prefs.ts';
 import type { ProjectEnvPrefs } from '../project-env/prefs.ts';
@@ -59,6 +60,8 @@ export interface RuntimeHost {
   readonly projectScripts: ScriptsHost;
   /** Variables, .env files and files copied into new worktrees (project-env/prefs.ts). */
   readonly projectEnv: ProjectEnvPrefs;
+  /** Kestrel's own list of MCP servers (mcp-servers/store.ts); null when this copy has none (tests). */
+  readonly mcpServers: McpServerStore | null;
   /** The model presets and the "Who does what" table (who-does-what/prefs.ts). */
   readonly whoDoesWhat: WhoDoesWhatPrefs;
   /** Each project's base branch and remote (git-defaults/prefs.ts). */
