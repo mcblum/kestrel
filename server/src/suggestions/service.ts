@@ -92,7 +92,8 @@ export class Suggestions {
   async fromTitle(sessionId: string, candidates: readonly Record<string, unknown>[]): Promise<void> {
     for (const candidate of candidates) {
       const result = await this.suggest(sessionId, { ...candidate, kind: 'tag' });
-      if (result.isError || result.text !== SHOWN_TEXT) this.log(`title tag candidate for session ${sessionId}: ${result.text}`);
+      // The reason only says the candidate was refused; its words come from the conversation, so they stay out of the log.
+      if (result.isError || result.text !== SHOWN_TEXT) this.log(`a tag candidate from the title of session ${sessionId} was not shown`);
     }
   }
 

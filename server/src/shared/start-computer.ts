@@ -6,8 +6,9 @@
 import type { PermissionLevel } from './permissions.ts';
 import type { Project } from '../model.ts';
 import type { Machine } from './machines.ts';
-import type { RemoteStartChoices, RemoteStartMode, RemoteStartModel } from '../remote-starts/session-start.ts';
+import type { RemoteStartChoices, RemoteStartMode, RemoteStartModel, RemoteStartProject } from '../remote-starts/session-start.ts';
 import type { ModelOption } from '../agents/types.ts';
+import { asClone } from './machine-offers.ts';
 import { BYPASS_FROM_ELSEWHERE } from './connect-ops.ts';
 
 /** What this computer knows of whether another computer can take a session now. */
@@ -86,15 +87,18 @@ export function defaultComputer(project: Pick<Project, 'away' | 'alsoOn' | 'else
  * The project the box keeps when the computer changes: the same project when the new computer has it too, else
  * none (the person picks one of that computer's). No project stays no project.
  */
-export function projectAfterSwitch(projects: readonly Project[], projectId: string | null, machine: string | null): string | null {
+export function projectAfterSwitch(projects: readonly Project[], projectId: string | null, machine: string | null, offers?: Pick<RemoteStartChoices, 'projects'> | null): string | null {
   if (projectId === null) return null;
   const project = projects.find((p) => p.id === projectId);
-  return project && projectOn(project, machine) !== undefined ? projectId : null;
+  return project && (projectOn(project, machine) !== undefined || (machine !== null && cloneOn(project, offers) !== undefined)) ? projectId : null;
 }
 
-/** The projects a computer has, as this computer lists them: the ones the box offers when it is chosen. */
-export function projectsOn(projects: readonly Project[], machine: string | null): Project[] {
-  return projects.filter((p) => projectOn(p, machine) !== undefined);
+/**
+ * The projects a computer has, as this computer lists them, and (with its offers) those it would clone when a session
+ * starts: the ones the box offers when it is chosen.
+ */
+export function projectsOn(projects: readonly Project[], machine: string | null, offers?: Pick<RemoteStartChoices, 'projects'> | null): Project[] {
+  return projects.filter((p) => projectOn(p, machine) !== undefined || (machine !== null && cloneOn(p, offers) !== undefined));
 }
 
 /**
@@ -107,6 +111,28 @@ export function remoteMode(permission: PermissionLevel, name: string): { mode: R
   if (permission === 'bypass') return { mode: 'auto', note: `${BYPASS_FROM_ELSEWHERE} This session starts in Auto on ${name}.` };
   return { mode: 'ask', note: `A session on ${name} starts in Manual or Auto from here. This one starts in Manual.` };
 }
+
+/**
+ * What a computer offers to clone that is this project (a worker node, item 64), or undefined: an entry marked
+ * `clone` whose ids include this project's id here or its id on a computer that has it.
+ */
+export function cloneOn(project: Pick<Project, 'id' | 'away' | 'alsoOn' | 'elsewhere'>, offers: Pick<RemoteStartChoices, 'projects'> | null | undefined): RemoteStartProject | undefined {
+  if (!offers) return undefined;
+  const ids = new Set([project.id, ...(project.alsoOn ?? []).map((m) => m.projectId), ...(project.elsewhere?.machines ?? []).flatMap((m) => m.projectId ?? [])]);
+  return offers.projects.find((p) => p.clone?.of.some((id) => ids.has(id)));
+}
+
+/** A computer that does not have the project and does not clone it on demand (a desktop; account-sessions.md 10.2). */
+export const doesNotHave = (name: string, project: string): string => `${name} does not have ${project}. Clone it there first, or pick a project it has.`;
+
+/** Under a project the computer chosen does not have yet but clones when the session starts. */
+export const notThereYet = (name: string): string => `Not on ${name} yet; it is cloned when the session starts.`;
+
+/** What the New session box says while a start waits for the other computer's answer. */
+export const startingOn = (name: string): string => `Starting on ${name}…`;
+
+/** A start that got no answer in time, even asked again: it may have happened there (item 81). */
+export const startMayHaveHappened = (name: string): string => `${name} did not answer in time. If the session started there it will show in the sidebar.`;
 
 /** The modes the box's mode picker offers while another computer is chosen. */
 export const REMOTE_PICKER_MODES: readonly PermissionLevel[] = ['ask', 'auto'];
@@ -176,7 +202,7 @@ export function asStartChoices(raw: unknown): RemoteStartChoices | null {
       ? r.missing.flatMap((m) => {
           const o = obj(m);
           const agent = o && agentOf(o.agent);
-          return o && agent ? [{ agent, name: str(o.name) ?? agent, reason: str(o.reason) ?? '' }] : [];
+          return o && agent ? [{ agent, name: str(o.name) ?? agent, reason: str(o.reason)?.trim() || `${str(o.name) ?? agent} cannot start a session on ${str(r.here) ?? 'that computer'} now.` }] : [];
         })
       : [],
     // An older computer answers no projects: the account's own project records say what it has.
@@ -187,7 +213,8 @@ export function asStartChoices(raw: unknown): RemoteStartChoices | null {
           if (!o || !id) return [];
           const folders = Array.isArray(o.folders) ? o.folders.flatMap((f) => ((x) => (x && str(x.id) ? [{ id: str(x.id)!, name: str(x.name) ?? '' }] : []))(obj(f))) : [];
           const chosen = str(o.defaultFolderId);
-          return [{ id, name: str(o.name) ?? 'Project', folders, defaultFolderId: chosen !== null && folders.some((f) => f.id === chosen) ? chosen : null }];
+          const clone = asClone(o.clone);
+          return [{ id, name: str(o.name) ?? 'Project', folders, defaultFolderId: chosen !== null && folders.some((f) => f.id === chosen) ? chosen : null, ...(clone ? { clone } : {}) }];
         })
       : [],
   };

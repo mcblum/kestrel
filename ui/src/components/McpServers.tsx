@@ -5,6 +5,7 @@
 import { Plus, Server } from 'lucide-react';
 import type { McpServerView } from '@kestrel/server/mcp-servers';
 import { KIND_LABEL } from '@kestrel/server/mcp-servers';
+import { NO_KEYSTORE_NOTE } from '@kestrel/server/protected-files';
 import { ready, type Sourced } from '@kestrel/server/sourced';
 import { useResource } from '../data/resources.ts';
 import { opener, openView } from '../route.ts';
@@ -92,7 +93,7 @@ export function McpServersSetting() {
       <div className="mcp-servers-actions">
         <AddButton label="Add a server" />
       </div>
-      {list.value.storage === 'file' && <p className="settings-help">This computer has no keystore Kestrel can use, so secret values are kept in a file in Kestrel's data folder that only you can read.</p>}
+      {list.value.storage === 'file' && <p className="settings-help">{NO_KEYSTORE_NOTE}</p>}
     </section>
   );
 }

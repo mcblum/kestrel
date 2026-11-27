@@ -2,7 +2,7 @@
 // missing program, and adds what to do about it. Everything that ends a Claude turn with an error
 // (an SDK message, a result) goes through `claudeFailure`; a thrown error through `claudeThrown`.
 import { existsSync } from 'node:fs';
-import type { AgentEvent } from '../types.ts';
+import type { AgentEvent, AvailabilityAnswer } from '../types.ts';
 import { CLAUDE_EXECUTABLE_ENV } from './executable.ts';
 import { claudeInstalled, claudeSignedIn, claudeSignInAdvice, type ClaudeInstalled } from './sign-in.ts';
 
@@ -54,9 +54,9 @@ export async function claudeAvailability(
   exists: (path: string) => boolean = existsSync,
   signedIn: () => Promise<boolean | null> = () => claudeSignedIn(env),
   installed: () => ClaudeInstalled = () => claudeInstalled(env),
-): Promise<{ available: boolean; reason?: string; signIn?: boolean }> {
+): Promise<AvailabilityAnswer> {
   const path = env[CLAUDE_EXECUTABLE_ENV];
-  if (path && !exists(path)) return { available: false, reason: `${CLAUDE_NOT_FOUND} (${path})` };
-  if ((await signedIn().catch(() => null)) === false) return { available: false, reason: claudeSignInAdvice(installed()), signIn: true };
+  if (path && !exists(path)) return { available: false, reason: `${CLAUDE_NOT_FOUND} (${path})`, problem: 'missing' };
+  if ((await signedIn().catch(() => null)) === false) return { available: false, reason: claudeSignInAdvice(installed()), signIn: true, problem: 'auth' };
   return { available: true };
 }

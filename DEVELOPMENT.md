@@ -52,6 +52,69 @@ The server makes a new access token every time it starts and writes it to
 to the page; in the app the Electron shell makes the token and hands it over itself. If the
 server restarts, an open page fetches the new token by itself.
 
+### A worker node (no window)
+
+```bash
+pnpm --filter @kestrel/server kestrel-node          # starts the node: the same server, no window, no UI origin
+pnpm --filter @kestrel/server kestrel-node status   # asks the running node, over its socket
+pnpm --filter @kestrel/server kestrel-node stop     # ends its sessions' turns and stops it
+pnpm --filter @kestrel/server kestrel-node join     # signs in with a code typed on another device, then asks to join
+```
+
+`server/src/node.ts` calls the same start function as `server/src/index.ts` (`startKestrel` in
+`server/src/start-server.ts`) with kind `node`. It listens on loopback only (the token and the Host and Origin checks stand,
+and no browser origin is allowed), keeps Kestrel Connect's sign-in in the file only you can read, and talks to the terminal over
+`node.sock` in its data folder (mode 600; `KESTREL_DATA_DIR` for another folder, kept short: a Unix socket's path is limited
+to about a hundred bytes). What needs a screen refuses with the reason (`server/src/shared/no-window.ts`).
+
+`join` signs in to Kestrel Connect by a device authorization grant as the realm's `kestrel-node` client (it prints an address
+and a short code to open on any device), then asks to join the account: a device already in it opens the request and types
+the six-digit code the node prints, and the node asks for the second code that device shows. Ctrl-C withdraws. The tests drive it
+with fakes and reach no network (`server/src/node-control/node-join.test.ts`).
+
+```bash
+pnpm --filter @kestrel/server kestrel-node start              # starts the installed service, or says how to run it
+pnpm --filter @kestrel/server kestrel-node logs [-f] [-n 500] # the node's log: journalctl for its unit, else its log file
+pnpm --filter @kestrel/server kestrel-node uninstall          # leaves the account and removes the installed node
+```
+
+`status`, `stop`, `join` and the node's part of `uninstall` go over the socket, from one closed list (`NODE_COMMANDS` in
+`server/src/shared/node-commands.ts`); `start` and `logs` are the terminal's alone (`TERMINAL_COMMANDS`), since the node
+may not be running to answer. `status` still says what it can when nothing answers: lingering, the service, free disk
+and the installed bundle. A node not started by systemd writes its log to `logs/node.log` in its data folder (mode 600,
+one rotation).
+
+#### A bundle and the install script
+
+The bundle is built on Linux (node-pty is compiled for it). From a Mac, in Docker, with the checkout mounted:
+
+```bash
+docker run --rm -v "$PWD":/src -w /src node:24-bookworm sh -c \
+  'corepack enable && pnpm install --frozen-lockfile && scripts/release/node-bundle/build.sh x64'
+```
+
+On an Apple Silicon Mac that container is arm64 unless `--platform linux/amd64` is given (emulated, slow); for
+`arm64` the build is native there and runs its own check. Either leaves `dist/node/kestrel-node-linux-<arch>.tar.gz`
+and its `.sha256` (RELEASING.md, "The worker node's bundles"). `pnpm install` inside the container replaces the
+checkout's `node_modules` with Linux ones: run `pnpm install` again on the Mac afterwards, or build from a second
+clone.
+
+To try the install script without publishing, point it at that folder; it reads
+`<url>/kestrel-node-linux-<arch>.tar.gz` and its `.sha256` from there, whichever version is asked for:
+
+```bash
+KESTREL_NODE_URL=file:///src/dist/node sh scripts/release/install-node.sh
+```
+
+On a Linux machine or container with a systemd user manager (a plain `docker run` has none: the script then says
+so and how to run `kestrel-node run` by hand). Run it twice to see an upgrade in place. `KESTREL_NODE_START_WAIT`
+(seconds, default 20) is how long it waits for the node's socket. Its tests run it against stub `uname`, `id`,
+`systemctl`, `loginctl` and a package manager in a temporary home, fetching over `file://`, with no network:
+
+```bash
+node --test scripts/release/install-node.test.mjs
+```
+
 ### Sessions from another computer, without a second computer
 
 ```bash
@@ -112,6 +175,7 @@ To start again from clean fake data, run with `KESTREL_FAKE=1` and delete
 | `KESTREL_SAMPLE_UNREAD` | all | With fake data, how many of those are unread (the most recent ones); the rest are marked read |
 | `KESTREL_SAMPLE_TICKETS` | 6 | With fake data or the demo, how many tickets the sample tracker holds (up to 1000), to see a long list |
 | `KESTREL_PERSISTENCE` | `sqlite` | `memory` keeps everything in memory |
+| `KESTREL_NODE_PORT` | `4318` | The worker node's loopback port (`pnpm --filter @kestrel/server kestrel-node`); `0` takes any free one |
 | `KESTREL_CRASH_DSN` | none | A test address for crash reports. A checkout never reports without it; with it, it reports there as `development` |
 | `KESTREL_TEST_CRASH_REPORT` | off | `1` sends one crash report from the server at launch and prints whether it left |
 

@@ -26,7 +26,7 @@ import { chosenFolder } from './projects.ts';
 import { copiedNotice, copyIntoWorktree, resolveEnv } from '../project-env/resolve.ts';
 import { runSetup, SetupFailed } from './project-scripts.ts';
 import { newRecord, type Live } from './record.ts';
-import { Abandoned, prepareWorkdir, type Launch } from './workdir.ts';
+import { Abandoned, prepareWorkdir, type CloneStart, type Launch } from './workdir.ts';
 
 export interface StartRequest {
   agent: Agent;
@@ -60,6 +60,11 @@ export interface StartRequest {
   context?: string;
   /** The user typed the prompt (the New session box, a phone): a ticket it names is taken up (shared/ticket-mention.ts). */
   byUser?: boolean;
+  /**
+   * The project is cloned first (a worker node starting a session asked by another device, item 64): `projectId` is
+   * null, the row says `clone.note` while it runs, and the session moves into the project once it is cloned.
+   */
+  clone?: CloneStart;
 }
 
 export type BringUpHost = Pick<
@@ -93,14 +98,15 @@ export async function startSession(host: BringUpHost, req: StartRequest): Promis
   const attachments = host.attachments.claim(id, req.draft);
   const title = req.title ?? titleFrom(prompt || attachmentsLabel(attachments)); // files alone: titled by their names
   if (req.purpose && project) throw new Refused('A session from Set up this computer starts with no project.');
-  const session = await host.workspace.addSession({ id, title, agent: req.agent, startedIn: project?.id ?? null, startedFolderId: source?.id ?? null, groupId: req.groupId ?? null, state: 'running', note: 'Starting…', ...(req.review ? { review: req.review } : {}), ...(req.purpose ? { purpose: req.purpose } : {}) });
+  if (req.clone && (project || req.purpose)) throw new Refused('A session whose project is cloned first starts with no project named.');
+  const session = await host.workspace.addSession({ id, title, agent: req.agent, startedIn: project?.id ?? null, startedFolderId: source?.id ?? null, groupId: req.groupId ?? null, state: 'running', note: req.clone?.note ?? 'Starting…', ...(req.review ? { review: req.review } : {}), ...(req.purpose ? { purpose: req.purpose } : {}) });
   const settings: SessionSettings = { model: req.model ?? '', permission: req.permission ?? DEFAULT_PERMISSION, ...(req.effort ? { effort: req.effort } : {}), ...(req.fast !== undefined ? { fast: req.fast } : {}) };
   const rec = newRecord({ settings, modelChosen: req.modelChosen === true }, null);
   host.records.set(id, rec);
   host.apply(id, rec, { type: 'user', id: `user-${randomUUID()}`, text: prompt, attachments });
   host.queue(rec, () => host.upkeep.persist(id, rec));
-  const launch: Launch = { agent: req.agent, project, source, folder, prompt, ...(req.context ? { context: req.context } : {}), attachments, title, generateTitle: req.title === undefined, settings, ...(base ? { base } : {}), ...(req.start ? { start: req.start } : {}) };
-  if (source?.isGit) {
+  const launch: Launch = { agent: req.agent, project, source, folder, prompt, ...(req.context ? { context: req.context } : {}), attachments, title, generateTitle: req.title === undefined, settings, ...(base ? { base } : {}), ...(req.start ? { start: req.start } : {}), ...(req.clone ? { clone: req.clone } : {}) };
+  if (source?.isGit || req.clone) {
     launchInBackground(host, id, rec, launch);
     return session;
   }
@@ -117,11 +123,13 @@ export async function startSession(host: BringUpHost, req: StartRequest): Promis
  * agent. A failure leaves the session failed with the reason, which is also returned (null when
  * it started).
  */
-async function bringUp(host: BringUpHost, id: string, rec: Live, adapter: AgentAdapter | undefined, launch: Launch, signal?: AbortSignal): Promise<string | null> {
-  const { project, source, prompt, settings } = launch;
+async function bringUp(host: BringUpHost, id: string, rec: Live, adapter: AgentAdapter | undefined, asked: Launch, signal?: AbortSignal): Promise<string | null> {
+  let launch = asked;
   let where = launch.workdir;
   try {
     if (!adapter) throw new Refused(`${AGENT_LABEL[launch.agent]} is not available in Kestrel.`);
+    if (launch.clone) launch = await cloned(host, id, launch, launch.clone, signal);
+    const { project, source, prompt, settings } = launch;
     if (source && !existsSync(source.path)) throw new Refused(`${source.path} no longer exists. Remove it from ${project?.name ?? 'the project'} and add it again.`);
     where ??= await prepareWorkdir(
       { titler: host.titler, workspace: host.workspace, worktreesDir: join(host.dataDir, 'worktrees'), branchPrefix: () => host.gitPrefs.prefixForNewBranch(), freshStart: async (repo) => (launch.start ? { start: launch.start, notice: null } : launch.base === 'default' ? host.baseRefresh.startFromDefault(repo, await host.gitDefaults.of(project?.id)) : host.baseRefresh.startFor(repo)), notice: (n) => host.notice(id, n.text, n.level) },
@@ -163,6 +171,11 @@ async function bringUp(host: BringUpHost, id: string, rec: Live, adapter: AgentA
     }
     // The row is already stored: do not leave it "Starting…" forever.
     const reason = error instanceof Error ? error.message : String(error);
+    if (error instanceof CloneFailed) {
+      // Nothing of the clone is left, and the session has no project: its row says why, in the words given.
+      host.onEvent(id, rec, { type: 'failed', reason, kind: 'other' });
+      return reason;
+    }
     if (error instanceof SetupFailed) {
       // Its worktree stays, with no agent yet: a reply runs the script again there.
       rec.unstarted = { ...launch, workdir: where };
@@ -172,6 +185,31 @@ async function bringUp(host: BringUpHost, id: string, rec: Live, adapter: AgentA
     host.onEvent(id, rec, { type: 'failed', reason: `The agent could not be started: ${reason}`, kind: failureKind(error) });
     return reason;
   }
+}
+
+/** A clone that failed: its reason is said as it is, not as an agent that could not start. */
+class CloneFailed extends Error {}
+
+/**
+ * The project of a start that clones it first: cloned (or found, cloned meanwhile), the session moved into it in its
+ * default folder, and the row back to "Starting…". The launch then goes on as for any session of the project.
+ */
+async function cloned(host: BringUpHost, id: string, launch: Launch, clone: CloneStart, signal?: AbortSignal): Promise<Launch> {
+  let project: Project;
+  try {
+    project = await clone.project(signal);
+  } catch (error) {
+    if (signal?.aborted) throw new Abandoned();
+    throw new CloneFailed(error instanceof Error ? error.message : String(error));
+  }
+  if (signal?.aborted) throw new Abandoned();
+  const source = chosenFolder(project, null);
+  if (!source) throw new CloneFailed(`${project.name} has no folder on this computer.`);
+  await host.workspace.moveToProject(id, { projectId: project.id, folderId: source.id, worktree: null });
+  await host.workspace.setState(id, 'running', 'Starting…');
+  const { clone: _done, ...rest } = launch;
+  // The clone is on its base (the branch asked for, else origin's default): the worktree is cut from its latest.
+  return { ...rest, project, source, folder: source.path, base: 'current' };
 }
 
 /** `bringUp` in the background, for a session that gets a worktree; Stop abandons it meanwhile (`stop`). */

@@ -24,7 +24,7 @@ import { agentStartOptions } from './start-options.ts';
 /** The file tools whose target is checked before an edit (Claude's names; Codex's changes are asked as Edit). */
 const EDIT_PATH_KEYS: Record<string, string> = { Write: 'file_path', Edit: 'file_path', MultiEdit: 'file_path', NotebookEdit: 'notebook_path' };
 
-export type OptionsHost = Pick<RuntimeHost, 'workspace' | 'dataDir' | 'browser' | 'attachments' | 'sandboxAllow' | 'commitSigning' | 'projectEdits' | 'knowledge' | 'projectEnv' | 'mcpServers' | 'whoDoesWhat' | 'records' | 'mcpAccess' | 'toolHost' | 'checkPlainFolderFree'>;
+export type OptionsHost = Pick<RuntimeHost, 'workspace' | 'dataDir' | 'sessionGitEnv' | 'browser' | 'attachments' | 'sandboxAllow' | 'commitSigning' | 'projectEdits' | 'knowledge' | 'projectEnv' | 'mcpServers' | 'whoDoesWhat' | 'records' | 'mcpAccess' | 'toolHost' | 'checkPlainFolderFree'>;
 
 /** Why a session whose worktree cannot be opened cannot go on. */
 function cannotContinue(session: Session, guest: boolean): string {
@@ -59,7 +59,10 @@ export async function startOptions(host: OptionsHost, sessionId: string, directo
   const options = await agentStartOptions(host.workspace, { sessionId, directory, branch, project, folder, settings, origin, tools, browserElement: (ref) => host.browser.elementName(sessionId, ref), attachmentsDir: host.attachments.readableDir(sessionId), who: await host.whoDoesWhat.current(), mcpServers: host.mcpServers, knowledge: await host.knowledge.briefFor(project).catch(() => null) });
   await host.sandboxAllow.entries();
   const signing = options.confineShell ? await host.commitSigning.accessFor(directory) : undefined;
-  const { env } = await resolveEnv(await host.projectEnv.all(), project?.id ?? null, folder?.path ?? null);
+  // On a worker node the agent commits with the identity of its repository's host (runtime/session-git.ts); the
+  // project's own variables, set by the person, still win.
+  const { env: projectEnv } = await resolveEnv(await host.projectEnv.all(), project?.id ?? null, folder?.path ?? null);
+  const env = { ...((await host.sessionGitEnv?.(directory)) ?? {}), ...projectEnv };
   // A confined session never reaches Kestrel's own credential store (shared/protected-files.ts).
   const secrets = options.confineShell ? protectedPaths(host.dataDir) : [];
   const intercept = async (action: ToolAction): Promise<Intercept> => {

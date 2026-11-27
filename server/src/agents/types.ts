@@ -14,6 +14,7 @@ import type { BackgroundTask } from '../shared/background-tasks.ts';
 import type { SandboxAllowEntry, SandboxOffer } from '../shared/sandbox-allow.ts';
 import type { SigningAccess } from '../shared/commit-signing.ts';
 import type { Bounds } from '../sandbox-allow/match.ts';
+import type { NodeAgentProblem } from '../shared/node-agents.ts';
 import type { HandedServer, McpServerState } from '../shared/mcp-servers.ts';
 
 // ---- events out -------------------------------------------------------------------
@@ -150,6 +151,20 @@ export interface InputAnswer {
   text?: string;
   /** For a card with questions: the answer to each, keyed by the question's text. */
   answers?: Record<string, string>;
+}
+
+/**
+ * Whether a session can start now. `problem` says which kind of reason it is, when it is one of the two a person
+ * fixes at the computer (the program is missing, it is not signed in), so a worker node can say it in its own words
+ * (shared/node-agents.ts). `signIn`: Kestrel can sign it in from here.
+ */
+export interface AvailabilityAnswer {
+  available: boolean;
+  reason?: string;
+  signIn?: boolean;
+  problem?: 'missing' | 'auth';
+  /** On a worker node: why it cannot run, as a value, so the node's own terminal words it for itself (runtime/agent-trouble.ts). */
+  nodeProblem?: NodeAgentProblem;
 }
 
 /** Whether an error thrown while starting an agent says it is not signed in (it carries `kind: 'auth'`). */
@@ -491,7 +506,12 @@ export interface AgentAdapter {
    * Whether a session can start now (installed, signed in), and if not, what the user should do.
    * `signIn`: it is not signed in, and `signIn` below can do it from Kestrel. Absent: always.
    */
-  availability?(): Promise<{ available: boolean; reason?: string; signIn?: boolean }>;
+  availability?(): Promise<AvailabilityAnswer>;
+  /**
+   * Forget any answer kept about whether it can start, so the next `availability` asks the agent again. A worker
+   * node calls it after `kestrel-node agents` installed or signed it in (node-control/agents-terminal.ts).
+   */
+  recheck?(): void;
   /**
    * Signing the agent in from Kestrel, with the agent's own program (sign-in.ts). Absent where that
    * program cannot do it without a terminal of its own: OpenCode signs in to one of many model

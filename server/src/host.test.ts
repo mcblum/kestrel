@@ -1,5 +1,5 @@
-import { describe, expect, test, vi } from 'vitest';
-import { endTree, scriptShell, terminalShell } from './host.ts';
+import { afterEach, describe, expect, test, vi } from 'vitest';
+import { endTree, hostKind, scriptShell, terminalShell, useHostKind } from './host.ts';
 import { platformOf } from './shared/platform.ts';
 
 describe('platformOf', () => {
@@ -8,6 +8,16 @@ describe('platformOf', () => {
     expect(platformOf('win32')).toBe('windows');
     expect(platformOf('linux')).toBe('linux');
     expect(platformOf('freebsd')).toBe('linux');
+  });
+});
+
+describe('hostKind', () => {
+  afterEach(() => useHostKind('app'));
+
+  test('is the app until the entry that started the server says otherwise', () => {
+    expect(hostKind()).toBe('app');
+    useHostKind('node');
+    expect(hostKind()).toBe('node');
   });
 });
 

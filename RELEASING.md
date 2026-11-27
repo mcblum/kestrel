@@ -10,6 +10,7 @@ released yet: neither has been installed and tried, so 0.0.23 ships as the Mac a
 | macOS, Apple Silicon | `Kestrel.dmg`, an update zip | `latest-mac.yml` | Developer ID, notarized | `make-release.sh`, by hand on a Mac |
 | Windows, x64 | `Kestrel-Setup-<v>-x64.exe` (NSIS, per user, no administrator prompt) | `latest.yml` | **not signed**: SmartScreen asks on first run | `make-release-desktop.sh --platform windows` (the `package-windows` CI job) |
 | Linux, the builder's architecture | `Kestrel-<v>-x86_64.AppImage` | `latest-linux.yml` | an AppImage carries none | `make-release-desktop.sh --platform linux` (the `package-linux` CI job) |
+| Linux worker node, x64 and arm64 | `kestrel-node-linux-<arch>.tar.gz` and its `.sha256` | none yet (self-update is a later item) | a SHA-256 checksum beside each | `node-bundle/build.sh <arch>` (the `package-node-x64` and `package-node-arm64` CI jobs) |
 
 A release is cut by CI when a merge raises the version (below); every step can still be run by
 hand. What each platform has and lacks once installed is in the design doc ("Windows and Linux").
@@ -24,8 +25,9 @@ Every merge request runs the pipeline in [.gitlab-ci.yml](.gitlab-ci.yml):
 | `test` | `pnpm test` (the server's unit and integration tests) |
 | `build-ui` | the production build of the UI |
 
-On a merge request `package-linux` and `package-windows` are there to start by hand (the play
-button), to try a build before merging. Nothing is published from a merge request.
+On a merge request `package-linux`, `package-windows`, `package-node-x64` and `package-node-arm64` are
+there to start by hand (the play button), to try a build before merging. Nothing is published from a
+merge request.
 
 ## A release: raise the version and merge
 
@@ -37,7 +39,8 @@ job says "Nothing to release" and passes).
 | Job | Runner | Starts | What it does |
 |---|---|---|---|
 | `release-notify` | k3s (Linux) | by itself, after the checks | posts to Slack that a release is waiting, tagging Matt, with a link straight to the `release` job |
-| `release` | the Mac runner (`macos`) | **by hand** | builds, signs and notarizes the Mac app and publishes it (`scripts/release/ci-release.sh`) |
+| `package-node-x64`, `package-node-arm64` | k3s (Linux, x64) | by themselves | build the worker node's bundles into `dist/node` (below, "The worker node's bundles"); "Nothing to release" and pass when no release is due |
+| `release` | the Mac runner (`macos`) | **by hand** | builds, signs and notarizes the Mac app and publishes it, with the node's bundles when the two jobs above made them (`scripts/release/ci-release.sh`) |
 
 So: write or finish `whats-new/<version>.md` (below, "Release notes"), bump `version` in `app/package.json` in a merge request, merge it, wait for the Slack message
 (`scripts/release/notify-slack.sh`; the same shape as configuration-management's Cloudflare review
@@ -323,6 +326,58 @@ What has been checked, and what has not (2026-11-21, all work done on a Mac):
   a signed commit inside the Linux sandbox, anything in Kestrel that compares paths written with
   backslashes.
 
+## The worker node's bundles
+
+A worker node (docs/designs/worker-nodes.md) is installed on a Linux server from a bundle that carries
+everything it runs, so the server needs nothing but a C library (glibc; Alpine's musl is refused):
+
+```bash
+scripts/release/node-bundle/build.sh x64      # or arm64; on Linux, after `pnpm install`
+```
+
+It leaves `dist/node/kestrel-node-linux-<arch>.tar.gz` and `.tar.gz.sha256`. Inside, under the version's folder
+once installed: `VERSION`; `bin/kestrel-node`, the launcher, which puts the bundle's Node first on `PATH` and sets
+`KESTREL_PACKAGED=1`, `KESTREL_APP_VERSION` (from `VERSION`) and `KESTREL_CLAUDE_EXECUTABLE`; `node/`, Node of the
+version `scripts/release/node-bundle/node-runtime.json` pins, from nodejs.org, its tarball's checksum checked against
+the pin before it is used; `server/kestrel-node.mjs`, the server with the `kestrel-node` entry built to one JavaScript
+file by the same `build-server.mjs` the app uses; `server/node_modules/node-pty` with a `pty.node` built for the
+architecture and laid out by the same `server-parts.mjs` as the app's; Claude Code's program for the architecture,
+as the Agent SDK ships it (`@anthropic-ai/claude-agent-sdk-linux-<arch>`); `share/kestrel-node.service`, the systemd
+user unit (`serviceUnitText` in `server/src/shared/node-service.ts`); and `LICENSE`. Every program in it is checked
+to be a Linux ELF of the right architecture before it is packed.
+
+- **x64** is built natively on the k3s runner: node-pty is compiled by `pnpm install`, and the bundle's own check
+  runs (`kestrel-node help`, and node-pty opens a terminal with the bundle's Node).
+- **arm64** has no runner of its own, so it is built on the same x64 runner: `build-pty.sh` cross-compiles
+  `pty.node` with `aarch64-linux-gnu-g++` (installed with apt in the job) against Node's own headers, and Claude
+  Code's arm64 program is fetched from npm at the Agent SDK's exact version (`fetch-claude-binary.mjs`). Its files'
+  architecture is checked, but **the arm64 bundle is not run in CI**: the first arm64 server to install it is its
+  first run.
+- A Mac cannot build one (node-pty has to be compiled for Linux); `DEVELOPMENT.md` says how to build one in Docker.
+
+On a version bump on `main` both jobs start by themselves, and `release` takes their `dist/node` (`needs` with
+`artifacts: true`, `optional`). Either may fail without holding up the Mac release (`allow_failure`); `publish.sh`
+publishes whatever bundles are there and says which are not.
+
+Published, by `publish.sh` (below) with the release: each bundle and its checksum to the same package version as the
+Mac files, linked from the Release as `/kestrel-node-linux-<arch>.tar.gz` and `.sha256`, and, for a release (not a
+beta), `scripts/release/install-node.sh` committed to `main` of `kestrel/releases` beside the feeds. On the server,
+as the user the node runs as (not root):
+
+```bash
+curl -fsSL https://starfish.nationalmachine.io/kestrel/releases/-/raw/main/install-node.sh | sh
+curl -fsSL https://starfish.nationalmachine.io/kestrel/releases/-/raw/main/install-node.sh | sh -s -- 0.0.34   # a given version
+```
+
+The newest is fetched through the Release's permanent link, so a release published without node bundles leaves
+the script with nothing to fetch until the next one that has them; the given-version form reads the package
+registry, where a beta's bundles are too. `KESTREL_NODE_URL` points the script somewhere else (a folder over https,
+or `file://` for a test). What the script does, and the two steps it prints that need an administrator, are in its
+header.
+
+Not checked yet (2026-11-27): neither CI job has run; no bundle has been installed on a real server. The install
+script's whole flow is tested against stubs (`scripts/release/install-node.test.mjs`).
+
 ## Publishing
 
 ```bash
@@ -333,7 +388,9 @@ scripts/release/publish.sh
 With a Windows installer or a Linux AppImage of the same version in `dist/release`, it publishes
 those too: uploaded with the Mac files, linked from the Release (`/Kestrel-Setup.exe`,
 `/Kestrel.AppImage`), and their feeds committed beside `latest-mac.yml`. Each must have its feed
-beside it and say the same version. The Mac build is always required.
+beside it and say the same version. The Mac build is always required. The worker node's bundles in
+`dist/node` (or `KESTREL_NODE_DIR`) are published too: each must match its `.sha256`, hold this version in
+`VERSION`, and carry nothing private (above, "The worker node's bundles").
 
 For the Mac build it refuses artifacts that are not notarized and stapled, anything that carries a local home
 path, the git email or a token, and a version not newer than the live feed's (`--force` to

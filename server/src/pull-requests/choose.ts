@@ -4,12 +4,12 @@
 // so the host's name is never the test. Otherwise the reason says what to do, instead of looking
 // like "no pull requests".
 import type { PullRequestLookup } from '../shared/details.ts';
-import type { HostKind } from '../shared/host-terms.ts';
+import { isGithubHost, type HostKind } from '../shared/host-terms.ts';
 import { ready, unavailable, type Sourced } from '../shared/sourced.ts';
 import type { GlabSignIn, GlabSignInCheck } from './glab.ts';
 import type { PullRequestProvider } from './types.ts';
 
-const GITHUB_HOSTS = new Set(['github.com', 'ssh.github.com', 'www.github.com']);
+export { canonicalHost, isGithubHost } from '../shared/host-terms.ts';
 
 /** The host of a remote URL (https, ssh:// or scp-like git@host:path), or null for a local path. Pure. */
 export function remoteHost(url: string): string | null {
@@ -25,10 +25,6 @@ export function remoteHost(url: string): string | null {
   }
 }
 
-/** A host's one name: GitHub answers on several, and all of them are github.com. Pure. */
-export const canonicalHost = (host: string): string => (GITHUB_HOSTS.has(host) ? 'github.com' : host);
-
-export const isGithubHost = (host: string): boolean => GITHUB_HOSTS.has(host);
 
 /**
  * The repository a remote URL names on its host ("owner/name", or a GitLab group path), without
@@ -56,7 +52,7 @@ export type ProviderChoice = { kind: 'github' } | { kind: 'gitlab'; host: string
 /** The host whose glab sign-in decides the choice, or null when none is needed (GitHub, no remote, a folder). Pure. */
 export function hostNeedingGlab(origin: string | null): string | null {
   const host = origin ? remoteHost(origin) : null;
-  return host && !GITHUB_HOSTS.has(host) ? host : null;
+  return host && !isGithubHost(host) ? host : null;
 }
 
 /**
@@ -67,7 +63,7 @@ export function chooseProvider(origin: string | null, glab?: GlabSignIn): Provid
   if (!origin) return { kind: 'none', reason: 'This repository has no remote' };
   const host = remoteHost(origin);
   if (!host) return { kind: 'none', reason: 'The origin remote is a folder on this computer, not a hosting service' };
-  if (GITHUB_HOSTS.has(host)) return { kind: 'github' };
+  if (isGithubHost(host)) return { kind: 'github' };
   if (glab?.signedIn) return { kind: 'gitlab', host };
   return { kind: 'none', reason: glab?.signedIn === false ? glab.reason : `No connection to ${host} yet` };
 }

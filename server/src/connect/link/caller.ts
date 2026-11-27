@@ -57,6 +57,12 @@ interface Channel {
 /** Why a computer could not be asked: not reached, or it refused in words a person can act on. */
 export class CallFailed extends Error {}
 
+/**
+ * A request that went over an open channel and got no answer in time: that computer may still be carrying it out
+ * (a start it accepted late, item 81), so it is not "nothing was done".
+ */
+export class CallTimedOut extends CallFailed {}
+
 const record = (value: unknown): Record<string, unknown> => (typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {});
 
 export class DeskCaller {
@@ -259,7 +265,7 @@ export class DeskCaller {
       const timer = setTimeout(() => {
         if (!this.settle(map, id)) return;
         if (rests) this.unreachable.set(to, this.now());
-        reject(new CallFailed(`That computer ${what}.`));
+        reject(rests ? new CallFailed(`That computer ${what}.`) : new CallTimedOut(`That computer ${what}.`));
       }, timeoutMs ?? this.deps.timeoutMs ?? CALL_TIMEOUT_MS);
       timer.unref?.();
       map.set(id, { to, resolve: (v) => (clearTimeout(timer), resolve(v)), reject: (e) => (clearTimeout(timer), reject(e)) });

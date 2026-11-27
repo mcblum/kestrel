@@ -38,6 +38,8 @@ export interface RuntimeHost {
   readonly workspace: Workspace;
   readonly adapters: Partial<Record<Agent, AgentAdapter>>;
   readonly dataDir: string;
+  /** The git environment of a session's agent working in `directory`: on a worker node, the node's with that repository's host's commit identity (runtime/session-git.ts); none in the app. */
+  sessionGitEnv?(directory: string): Promise<Record<string, string>>;
   /** Every session loaded this server run, by id. */
   readonly records: Map<string, Live>;
   /** Which agent each live session runs, for the words the Commands pane uses. */
@@ -87,6 +89,12 @@ export interface RuntimeHost {
   onEvent(id: string, rec: Live, event: AgentEvent): void;
   /** Send what is queued as the next turn, saying so when it cannot. */
   flushQueue(id: string): Promise<void>;
+  /** How an agent's turns ended, for what a worker node says about whether it can run (runtime/agent-info.ts). */
+  readonly agentTurns: {
+    /** The failure as the session shows it (on a node, a lasting reason in the node's words). */
+    failed(agent: Agent, event: Extract<AgentEvent, { type: 'failed' }>): Extract<AgentEvent, { type: 'failed' }>;
+    succeeded(agent: Agent): void;
+  };
   /** A turn ended complete (not stopped): what follows on it that is not the turn's own (a ticket's summary proposal). Not waited for. */
   turnComplete(id: string): void;
   /** Nothing the agent's process ran is running any more. */

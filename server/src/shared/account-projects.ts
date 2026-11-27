@@ -27,6 +27,11 @@ export interface RecordFolder {
   isGit: boolean;
   /** Under the home folder as `~/…`; absent for a folder anywhere else. */
   path?: string;
+  /**
+   * A git folder's `origin` as a repository key, or null when it has no `origin`: which repository each folder is, so
+   * a worker node can clone a project of several (worker-nodes.md section 9). Absent from a computer that does not say.
+   */
+  repo?: string | null;
 }
 
 /** One computer's project, as it holds it on the service. */
@@ -42,10 +47,11 @@ export interface AccountProject {
 }
 
 /** What is sealed: the project, the computer that wrote it, and nothing else. */
-export function projectRecordOf(project: Project, repos: readonly string[], machine: Machine, home: string): { v: 1; kind: 'project'; machine: Machine; project: Omit<AccountProject, 'machine'> } {
+export function projectRecordOf(project: Project, repos: readonly string[], machine: Machine, home: string, origins?: ReadonlyMap<string, string | null>): { v: 1; kind: 'project'; machine: Machine; project: Omit<AccountProject, 'machine'> } {
   const folders = project.folders.map((f): RecordFolder => {
     const path = homePath(f.path, home);
-    return { name: folderName(f), isGit: f.isGit, ...(path.startsWith('~') ? { path } : {}) };
+    const repo = f.isGit && origins?.has(f.path) ? { repo: origins.get(f.path) ?? null } : {};
+    return { name: folderName(f), isGit: f.isGit, ...(path.startsWith('~') ? { path } : {}), ...repo };
   });
   return { v: 1, kind: 'project', machine: { id: machine.id, name: machine.name }, project: { id: project.id, name: project.name, repos: [...repos], folders } };
 }
@@ -58,8 +64,9 @@ function asFolder(raw: unknown): RecordFolder | null {
   const name = r && text(r.name);
   if (!r || !name) return null;
   const path = text(r.path, 1000);
+  const repo = r.repo === null ? { repo: null } : text(r.repo, 300) ? { repo: r.repo as string } : {};
   // Only a home-relative path is ever kept: anything else another computer sends is dropped.
-  return { name, isGit: r.isGit === true, ...(path && path.startsWith('~') ? { path } : {}) };
+  return { name, isGit: r.isGit === true, ...(path && path.startsWith('~') ? { path } : {}), ...(r.isGit === true ? repo : {}) };
 }
 
 /**

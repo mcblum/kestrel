@@ -2,6 +2,7 @@
 // kestrel-connect.md, "Actions"). On by default. Off, a start asked by another device of the account is
 // refused with `REMOTE_STARTS_OFF`. Kept on this computer only: it is this computer's own choice.
 import { memorySettings, type SettingStore } from '../suggestions/prefs.ts';
+import { StartIds } from './start-ids.ts';
 
 export const REMOTE_STARTS_KEY = 'remote-starts';
 
@@ -30,8 +31,12 @@ export class RemoteStarts {
     return () => void this.listeners.delete(listener);
   }
 
+  /** The starts other devices asked by id, so a retry is answered with the session the first made (start-ids.ts). */
+  readonly ids: StartIds;
+
   constructor(opts: { settings?: SettingStore } = {}) {
     this.store = opts.settings ?? memorySettings();
+    this.ids = new StartIds(this.store);
   }
 
   async prefs(): Promise<RemoteStartPrefs> {

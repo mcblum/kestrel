@@ -34,6 +34,8 @@ export interface ProjectUpload {
   projects: readonly Project[];
   keptOff: readonly string[];
   repos(projectId: string): Promise<string[]>;
+  /** Each git folder's `origin` key by path, so the record says which repository each folder is (absent: not said). */
+  origins?(projectId: string): Promise<ReadonlyMap<string, string | null>>;
 }
 
 /**
@@ -50,7 +52,7 @@ export class ProjectUploader {
 
   constructor(private readonly home: string = homedir()) {}
 
-  async pass({ api, key, desk, projects, keptOff, repos }: ProjectUpload): Promise<void> {
+  async pass({ api, key, desk, projects, keptOff, repos, origins }: ProjectUpload): Promise<void> {
     if (this.refused) return;
     const tag = (label: string) => tagOf(key.idKey, label);
     const scope = `${desk.id}|${tag('scope')}`;
@@ -63,7 +65,7 @@ export class ProjectUploader {
     const want = new Map<string, { project: Project; content: ReturnType<typeof projectRecordOf> }>();
     for (const project of projects) {
       if (off.has(project.id)) continue;
-      want.set(tag(projectLabel(project.id)), { project, content: projectRecordOf(project, await repos(project.id), desk, this.home) });
+      want.set(tag(projectLabel(project.id)), { project, content: projectRecordOf(project, await repos(project.id), desk, this.home, await origins?.(project.id)) });
     }
     const list = tag(PROJECTS_LIST);
     if (!this.reconciled) {

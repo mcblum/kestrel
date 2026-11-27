@@ -94,10 +94,11 @@ export function codexAdapter(options: CodexAdapterOptions = {}): AgentAdapter {
         await probed();
         return { available: true };
       } catch (error) {
-        const signedOut = error instanceof CodexUnavailable && error.kind === 'auth';
-        return { available: false, reason: error instanceof Error ? error.message : String(error), ...(signedOut ? { signIn: true } : {}) };
+        const kind = error instanceof CodexUnavailable ? error.kind : null;
+        return { available: false, reason: error instanceof Error ? error.message : String(error), ...(kind === 'auth' ? { signIn: true } : {}), ...(kind ? { problem: kind } : {}) };
       }
     },
+    recheck: () => void (probe = null),
     // Codex lists no slash commands, only skills: those are what "/" offers (skills.ts).
     slashCommands: async (startOptions) => skillCommands(await probeSkills(launch, env, version, startOptions.directory)),
     start(startOptions, prompt, emit, attachments) {

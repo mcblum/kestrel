@@ -18,13 +18,19 @@ import { installHostOf } from '../../setup-actions/host.ts';
 import { nodeRunner, nodeSetupFs } from '../../setup-actions/io.ts';
 import { projectAdder } from '../../setup-actions/projects.ts';
 import { previewSetupList, sampleSetupList } from '../../seed-setup.ts';
-import { ConnectDispatcher, type DeskOps } from '../dispatcher.ts';
+import { ConnectDispatcher, type DeskOps, type NodeClones } from '../dispatcher.ts';
+import { cloneProbe } from '../../project-clone/checks.ts';
+import { ProjectCloner } from '../../project-clone/clone.ts';
+import { nodeKeyReady } from '../../node-control/node-git-env.ts';
+import { CLONES_FOLDER } from '../../shared/project-clone.ts';
 import { hostPlatform } from '../../host.ts';
 import type { SessionRuntime } from '../../runtime.ts';
 import type { Envelope } from '../../shared/connect-ops.ts';
 import type { Workspace } from '../../workspace.ts';
 import { join } from 'node:path';
-import { CONNECT_DESKTOP_CLIENT, CONNECT_SERVICE_URL } from '../../shared/connect.ts';
+import { CONNECT_SERVICE_URL, CONNECT_SIGN_IN } from '../../shared/connect.ts';
+import type { KestrelKind } from '../../shared/host-kind.ts';
+import type { Platform } from '../../shared/platform.ts';
 import type { SettingStore } from '../../suggestions/prefs.ts';
 import { KestrelConnect } from './connect.ts';
 import { OidcProvider } from './identity.ts';
@@ -53,6 +59,22 @@ export const SAMPLE_DATA_REASON = 'Kestrel Connect is off while Kestrel runs wit
 /** The name other devices see: the host name without its local domain. */
 export function computerName(name: string = hostname()): string {
   return name.replace(/\.(local|lan|home)$/i, '').trim() || 'This computer';
+}
+
+/**
+ * How this computer names itself in what another device reads (a refusal, the offers): "your Mac" in the app; a worker
+ * node, which is one of several computers somebody may have, by its name ("OpenCode is not signed in on build-01").
+ */
+export function hereOf(kind: KestrelKind, platform: Platform, name: string): string {
+  if (kind === 'node') return name;
+  return platform === 'mac' ? 'your Mac' : 'your computer';
+}
+
+/** A worker node clones a project it does not have when a session starts in it (item 64); the app never does. One cloner per server, so two starts clone once. */
+export function nodeClones(kind: KestrelKind, dataDir: string, workspace: Workspace): NodeClones | null {
+  if (kind !== 'node') return null;
+  const root = join(dataDir, CLONES_FOLDER);
+  return { cloner: new ProjectCloner({ root, workspace }), probe: cloneProbe(root, () => nodeKeyReady(dataDir)) };
 }
 
 export function serviceUrl(env: NodeJS.ProcessEnv = process.env): string {
@@ -183,18 +205,20 @@ function setupDeps(...args: Parameters<typeof setupDepsBase>): ReturnType<typeof
   return { ...deps, preview: async (name) => previewSetupList(await deps.inventory({ id: 'preview-source', name }, []), Date.now()) };
 }
 
-export async function startConnect(opts: { dataDir: string; settings: SettingStore; fake: boolean; workspace: Workspace; runtime: SessionRuntime; reviewRequests?: ReviewRequestStore; tickets?: TicketStore; ticketsApi?: TicketsApi; pullRequests?: PullRequestStore; mcpServers?: McpServerStore; vaultKey?: Buffer | null; sessionRoute?: SessionRoute | null }): Promise<KestrelConnect> {
+export async function startConnect(opts: { kind: KestrelKind; dataDir: string; settings: SettingStore; fake: boolean; workspace: Workspace; runtime: SessionRuntime; reviewRequests?: ReviewRequestStore; tickets?: TicketStore; ticketsApi?: TicketsApi; pullRequests?: PullRequestStore; mcpServers?: McpServerStore; vaultKey?: Buffer | null; sessionRoute?: SessionRoute | null }): Promise<KestrelConnect> {
   const service = new HttpConnectService(serviceUrl());
-  const identity = new OidcProvider(async () => (await service.config()).issuer, CONNECT_DESKTOP_CLIENT);
+  // The client follows the kind: the app's `kestrel-desktop`, a worker node's `kestrel-node` (CONNECT_SIGN_IN).
+  const identity = new OidcProvider(async () => (await service.config()).issuer, CONNECT_SIGN_IN[opts.kind].client);
   const key = opts.vaultKey !== undefined ? opts.vaultKey : readVaultKey();
   const vault = key ? keyedFileVault(join(opts.dataDir, PROTECTED_FILES.connectSealed), key) : plainFileVault(join(opts.dataDir, PROTECTED_FILES.connectPlain));
   // How a refusal names this computer to the phone.
-  const here = hostPlatform() === 'mac' ? 'your Mac' : 'your computer';
+  const here = hereOf(opts.kind, hostPlatform(), computerName());
   // A paired phone's decrypted requests are carried out in process (connect/dispatcher.ts).
   const pulls = opts.pullRequests ? { store: opts.pullRequests, prefs: opts.runtime.gitPrefs, workspace: opts.workspace } : null;
   const lists = connectLists(opts.runtime.reviewPrefs, opts.reviewRequests ?? null, opts.tickets ?? null, pulls);
-  const dispatch = (deviceId: string, send: (frame: Envelope) => void, desk: DeskOps): ConnectDispatcher => new ConnectDispatcher({ workspace: opts.workspace, runtime: opts.runtime, deviceId, here, send, lists, reviewRequests: opts.reviewRequests ?? null, tickets: opts.ticketsApi ?? null, desk, keptOff: (): readonly string[] => connect.keptOff(), sessionRoute: opts.sessionRoute ?? null });
-  const connect: KestrelConnect = new KestrelConnect({ vault, identity, service, settings: opts.settings, computerName: computerName(), unavailable: opts.fake ? SAMPLE_DATA_REASON : connectCryptoProblem(), dispatch, here, held: { source: heldSource(opts.workspace, opts.runtime, lists), queue: fileQueueStore(join(opts.dataDir, HELD_QUEUE_FILE)) }, push: { source: pushSource(opts.workspace, opts.runtime, opts.reviewRequests ?? null, opts.tickets ?? null, opts.pullRequests ?? null) }, setup: setupDeps(opts.workspace, opts.runtime, opts.fake, opts.dataDir, opts.mcpServers ?? null), replica: opts.workspace.account, projects: opts.workspace.accountProjects, seen: seenSource(opts.workspace), offers: { source: offersSource(opts.runtime, opts.workspace, here), store: opts.workspace.accountOffers, watch: offersWatch(opts.runtime, opts.workspace) } });
+  const clones = nodeClones(opts.kind, opts.dataDir, opts.workspace);
+  const dispatch = (deviceId: string, send: (frame: Envelope) => void, desk: DeskOps): ConnectDispatcher => new ConnectDispatcher({ workspace: opts.workspace, runtime: opts.runtime, deviceId, here, send, lists, reviewRequests: opts.reviewRequests ?? null, tickets: opts.ticketsApi ?? null, desk, keptOff: (): readonly string[] => connect.keptOff(), kind: opts.kind, clones, sessionRoute: opts.sessionRoute ?? null });
+  const connect: KestrelConnect = new KestrelConnect({ kind: opts.kind, vault, identity, service, settings: opts.settings, computerName: computerName(), unavailable: opts.fake ? SAMPLE_DATA_REASON : connectCryptoProblem(), dispatch, here, held: { source: heldSource(opts.workspace, opts.runtime, lists), queue: fileQueueStore(join(opts.dataDir, HELD_QUEUE_FILE)) }, push: { source: pushSource(opts.workspace, opts.runtime, opts.reviewRequests ?? null, opts.tickets ?? null, opts.pullRequests ?? null) }, setup: setupDeps(opts.workspace, opts.runtime, opts.fake, opts.dataDir, opts.mcpServers ?? null), replica: opts.workspace.account, projects: opts.workspace.accountProjects, seen: seenSource(opts.workspace), offers: { source: offersSource(opts.runtime, opts.workspace, here, undefined, undefined, opts.kind), store: opts.workspace.accountOffers, watch: offersWatch(opts.runtime, opts.workspace, opts.kind) } });
   await connect.start();
   return connect;
 }

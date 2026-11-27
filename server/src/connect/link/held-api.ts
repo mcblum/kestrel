@@ -2,6 +2,7 @@
 // kestrel-connect.md, "Phase 3 as built, part C, and phase 5 as built": the route table). Every
 // sealed string here is opaque to the service; nothing is opened in this file.
 import type { ServiceMethod } from './service.ts';
+import { deviceKindOf, type DeviceKind } from '../../shared/connect.ts';
 
 /** One call, with the token and this computer's device id already bound (connect.ts). */
 export type ServiceCall = (method: ServiceMethod, path: string, body?: unknown) => Promise<unknown>;
@@ -20,7 +21,7 @@ export interface KeysAnswer {
 export interface AccountDevice {
   id: string;
   name: string;
-  kind: 'desktop' | 'phone';
+  kind: DeviceKind;
 }
 
 export interface HeldRecord {
@@ -123,7 +124,7 @@ export class HeldApi {
   async devices(): Promise<AccountDevice[]> {
     return list(obj(await this.call('GET', '/devices')).devices).flatMap((d) => {
       const r = obj(d);
-      return str(r.id) && str(r.name) ? [{ id: r.id as string, name: r.name as string, kind: r.kind === 'phone' ? 'phone' : 'desktop' } as AccountDevice] : [];
+      return str(r.id) && str(r.name) ? [{ id: r.id as string, name: r.name as string, kind: deviceKindOf(r.kind) } as AccountDevice] : [];
     });
   }
 

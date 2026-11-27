@@ -33,6 +33,12 @@
 # their feeds (latest.yml, latest-linux.yml) are committed in 5. They are not code-signed, so step 1
 # checks only their names and feeds for private strings and that their feed says this version.
 #
+# So do the worker node's bundles (kestrel-node-linux-<arch>.tar.gz and .sha256, from dist/node, where the
+# package-node-* CI jobs leave them): step 1 checks each against its checksum, that it holds this version, and that
+# nothing private is inside; 3 uploads them; 4 links them from the Release (/kestrel-node-linux-<arch>.tar.gz, the
+# address install-node.sh fetches the newest from); a release (not a beta) also commits install-node.sh to `main`
+# in 5, served at …/-/raw/main/install-node.sh. None is required: a release without them publishes the rest.
+#
 #   scripts/release/publish.sh [--dry-run] [--force] [--dir dist/release]
 #
 #   --dry-run  run the checks and the read-only lookups, and print every request that would
@@ -45,6 +51,7 @@
 #   KESTREL_RELEASES_PROJECT  default kestrel/releases
 #   GITLAB_UPLOAD_HOST        optional direct URL for the big uploads (e.g. the GitLab box on the
 #                             LAN, past the edge's upload cap); the Host header is set for it
+#   KESTREL_NODE_DIR          where the worker node's bundles are; default dist/node
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 HOST="${GITLAB_HOST:-starfish.nationalmachine.io}"
@@ -53,6 +60,7 @@ PROJECT="${KESTREL_RELEASES_PROJECT:-kestrel/releases}"
 PACKAGE="kestrel"
 UPLOAD="${GITLAB_UPLOAD_HOST:-$PUBLIC}"
 DIR="$ROOT/dist/release"
+NODE_DIR="${KESTREL_NODE_DIR:-$ROOT/dist/node}"
 DRY=0; FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -103,6 +111,19 @@ while read -r _ _ feed artifact _; do
   OTHER_FILES="$OTHER_FILES $artifact"
   [ ! -f "$DIR/$artifact.blockmap" ] || OTHER_FILES="$OTHER_FILES $artifact.blockmap"
 done <<< "$OTHERS"
+
+# The worker node's bundles of this version, by architecture, when they are here.
+NODE_ARCHES=""
+NODE_FILES=""
+for arch in x64 arm64; do
+  f="kestrel-node-linux-$arch.tar.gz"
+  [ -f "$NODE_DIR/$f" ] || continue
+  [ -f "$NODE_DIR/$f.sha256" ] || fail "$f is here without its checksum $f.sha256 (scripts/release/node-bundle/build.sh)"
+  NODE_ARCHES="$NODE_ARCHES $arch"
+  NODE_FILES="$NODE_FILES $f $f.sha256"
+done
+# Where a file to upload is: the node's bundles in NODE_DIR, everything else in DIR.
+source_of() { case "$1" in kestrel-node-*) echo "$NODE_DIR/$1" ;; *) echo "$DIR/$1" ;; esac; }
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -159,6 +180,20 @@ while read -r platform arch feed artifact _; do
   echo "    also publishing $artifact ($platform $arch; not code-signed, its contents are not opened here)"
 done <<< "$OTHERS"
 [ -n "$OTHERS" ] || echo "    no Windows or Linux build of $VERSION in $DIR: publishing the Mac build alone"
+for arch in x64 arm64; do
+  f="kestrel-node-linux-$arch.tar.gz"
+  case " $NODE_ARCHES " in *" $arch "*) ;; *) echo "    no worker node bundle for linux-$arch in $NODE_DIR: not published"; continue ;; esac
+  grep -q "^[0-9a-f]\{64\}  $f\$" "$NODE_DIR/$f.sha256" || fail "$f.sha256 is not one checksum line for $f"
+  [ "$(cut -d' ' -f1 "$NODE_DIR/$f.sha256")" = "$(shasum -a 256 "$NODE_DIR/$f" | cut -d' ' -f1)" ] || fail "$f does not match its checksum"
+  mkdir -p "$WORK/node-$arch"
+  tar -xzf "$NODE_DIR/$f" -C "$WORK/node-$arch" || fail "$f does not unpack"
+  said="$(tr -d '[:space:]' < "$WORK/node-$arch/VERSION" 2>/dev/null || true)"
+  [ "$said" = "$VERSION" ] || fail "$f holds ${said:-no version}, the Mac feed says $VERSION"
+  hits="$( { grep -rlaF -f "$PRIVATE" "$WORK/node-$arch"; grep -rlaE "$TOKEN_SHAPE" "$WORK/node-$arch"; } 2>/dev/null | sed "s|$WORK/||" | sort -u | head -5 || true)"
+  [ -z "$hits" ] || { echo "$hits" >&2; fail "files in $f contain a private string (listed above)"; }
+  rm -rf "$WORK/node-$arch"
+  echo "    also publishing $f (worker node, linux $arch; checksum and version checked, nothing private inside)"
+done
 
 # ---- API -------------------------------------------------------------------------------------
 ENC_PROJECT="$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "$PROJECT")"
@@ -209,11 +244,11 @@ for id in $existing; do api_send DELETE "/projects/$PROJECT_ID/packages/$id" >/d
 UPLOAD_ARGS=()
 # The direct upload route (the GitLab box itself) needs the public name; the public route must not get one.
 [ "$UPLOAD" = "$PUBLIC" ] || UPLOAD_ARGS=(--http1.1 -H "Host: $HOST")
-for f in "$ZIP" "$ZIP.blockmap" "$DMG" $OTHER_FILES; do
+for f in "$ZIP" "$ZIP.blockmap" "$DMG" $OTHER_FILES $NODE_FILES; do
   path="/projects/$PROJECT_ID/packages/generic/$PACKAGE/$VERSION/$f"
-  if [ "$DRY" = 1 ]; then echo "    (dry run) PUT $UPLOAD/api/v4$path  <- $f ($(du -h "$DIR/$f" | cut -f1))"; continue; fi
+  if [ "$DRY" = 1 ]; then echo "    (dry run) PUT $UPLOAD/api/v4$path  <- $f ($(du -h "$(source_of "$f")" | cut -f1))"; continue; fi
   echo "    PUT  $UPLOAD/api/v4$path" >&2
-  curl -fsS --max-time 1800 -X PUT -H @"$HEADER" "${UPLOAD_ARGS[@]+"${UPLOAD_ARGS[@]}"}" --upload-file "$DIR/$f" "$UPLOAD/api/v4$path" >/dev/null \
+  curl -fsS --max-time 1800 -X PUT -H @"$HEADER" "${UPLOAD_ARGS[@]+"${UPLOAD_ARGS[@]}"}" --upload-file "$(source_of "$f")" "$UPLOAD/api/v4$path" >/dev/null \
     || fail "uploading $f failed"
 done
 
@@ -235,9 +270,9 @@ if curl -fsS -o /dev/null -H @"$HEADER" "$PUBLIC/api/v4/projects/$PROJECT_ID/rel
   api_send DELETE "/projects/$PROJECT_ID/releases/v$VERSION" >/dev/null
 fi
 printf '%s' "$OTHERS" > "$WORK/others"
-python3 - "$VERSION" "$REGISTRY" "$ZIP" "$DMG" "$WORK/others" "$NOTES_BODY" > "$WORK/release.json" <<'PY'
+python3 - "$VERSION" "$REGISTRY" "$ZIP" "$DMG" "$WORK/others" "$NOTES_BODY" "$NODE_ARCHES" "${RAW}install-node.sh" > "$WORK/release.json" <<'PY'
 import json, sys
-v, registry, zip_name, dmg, others, notes = sys.argv[1:7]
+v, registry, zip_name, dmg, others, notes, node_arches, installer = sys.argv[1:9]
 links = [
     {"name": "Kestrel.dmg", "url": registry + dmg, "filepath": "/Kestrel.dmg", "link_type": "package"},
     {"name": zip_name, "url": registry + zip_name, "filepath": f"/{zip_name}", "link_type": "package"},
@@ -251,6 +286,12 @@ for line in open(others).read().splitlines():
         text.append(f"**Windows** ({arch}): download and run {permalink}. It is not code-signed yet, so Windows SmartScreen asks before it runs.")
     else:
         text.append(f"**Linux** ({arch}): download {permalink}, make it executable (`chmod +x`) and run it. It needs FUSE 2 (libfuse2) as every AppImage does.")
+node_arches = node_arches.split()
+for arch in node_arches:
+    for name in (f"kestrel-node-linux-{arch}.tar.gz", f"kestrel-node-linux-{arch}.tar.gz.sha256"):
+        links.append({"name": name, "url": registry + name, "filepath": f"/{name}", "link_type": "package"})
+if node_arches:
+    text.append(f"**Linux worker node** ({', '.join(node_arches)}): on the server, as the user it will run as, `curl -fsSL {installer} | sh`. It needs no administrator; the bundles and their checksums are below.")
 text.append("Installed copies update themselves.")
 print(json.dumps({"tag_name": f"v{v}", "ref": "main", "name": f"Kestrel {v}", "description": "\n\n".join(text), "assets": {"links": links}}))
 PY
@@ -260,18 +301,22 @@ fi
 # ---- 5. the feeds ----------------------------------------------------------------------------
 step "Feeds on main"
 COMMITTED=""
-commit_feed() { # platform arch feed-file-name
-  local platform="$1" arch="$2" name="$3"
-  node "$ROOT/scripts/release/write-feed.mjs" --dir "$DIR" --version "$VERSION" --platform "$platform" --arch "$arch" --base "$REGISTRY" --out "$WORK/$name" >/dev/null
-  ! private_in "$WORK/$name" || fail "$name contains a private string"
-  echo "    $name:"; sed 's/^/      /' "$WORK/$name"
-  python3 -c 'import json,sys; print(json.dumps({"branch":"main","content":open(sys.argv[1]).read(),"commit_message":"Kestrel "+sys.argv[2]+" ("+sys.argv[3]+")"}))' "$WORK/$name" "$VERSION" "$name" > "$WORK/feed.json"
+commit_file() { # name local-file: committed to main of the releases project as <name>
+  local name="$1" file="$2"
+  python3 -c 'import json,sys; print(json.dumps({"branch":"main","content":open(sys.argv[1]).read(),"commit_message":"Kestrel "+sys.argv[2]+" ("+sys.argv[3]+")"}))' "$file" "$VERSION" "$name" > "$WORK/feed.json"
   echo "    GET  $PUBLIC/api/v4/projects/$PROJECT_ID/repository/files/$name?ref=main"
   if curl -fsS -o /dev/null -H @"$HEADER" "$PUBLIC/api/v4/projects/$PROJECT_ID/repository/files/$name?ref=main" 2>/dev/null; then
     api_send PUT "/projects/$PROJECT_ID/repository/files/$name" -H "Content-Type: application/json" --data @"$WORK/feed.json" >/dev/null
   else
     api_send POST "/projects/$PROJECT_ID/repository/files/$name" -H "Content-Type: application/json" --data @"$WORK/feed.json" >/dev/null
   fi
+}
+commit_feed() { # platform arch feed-file-name
+  local platform="$1" arch="$2" name="$3"
+  node "$ROOT/scripts/release/write-feed.mjs" --dir "$DIR" --version "$VERSION" --platform "$platform" --arch "$arch" --base "$REGISTRY" --out "$WORK/$name" >/dev/null
+  ! private_in "$WORK/$name" || fail "$name contains a private string"
+  echo "    $name:"; sed 's/^/      /' "$WORK/$name"
+  commit_file "$name" "$WORK/$name"
   COMMITTED="$COMMITTED $name"
 }
 # Each platform's feeds, from the channel rule: a beta's beta feed; a release's own feed, then its
@@ -288,6 +333,13 @@ while read -r platform arch feed _ _; do
   [ -n "${feed:-}" ] || continue
   commit_feeds "$platform" "$arch"
 done <<< "$OTHERS"
+# The worker node's install script, beside the feeds, where its one-line command fetches it. A release only: a beta
+# has no Release, so the newest bundle the script fetches is still the last release's.
+if [ "$CHANNEL" = stable ] && [ -n "$NODE_ARCHES" ]; then
+  ! private_in "$ROOT/scripts/release/install-node.sh" || fail "install-node.sh contains a private string"
+  echo "    install-node.sh (the worker node's install, for linux:$NODE_ARCHES)"
+  commit_file install-node.sh "$ROOT/scripts/release/install-node.sh"
+fi
 
 if [ "$DRY" = 1 ]; then
   step "Dry run: nothing was changed"
@@ -309,6 +361,8 @@ if [ "$CHANNEL" = stable ]; then
     [ -n "${feed:-}" ] || continue
     permalinks="$permalinks $PUBLIC/$PROJECT/-/releases/permalink/latest/downloads/$permalink"
   done <<< "$OTHERS"
+  for f in $NODE_FILES; do permalinks="$permalinks $PUBLIC/$PROJECT/-/releases/permalink/latest/downloads/$f"; done
+  [ -z "$NODE_ARCHES" ] || permalinks="$permalinks ${RAW}install-node.sh"
 fi
 for u in $(printf '%s\n' $urls | sort -u) "$REGISTRY$ZIP.blockmap" $permalinks; do
   code="$(curl -sS -o /dev/null -I -L -w '%{http_code}' "$u")"
@@ -326,4 +380,5 @@ else
   echo "Published Kestrel $VERSION"
   for name in $COMMITTED; do echo "    feed:     $RAW$name"; done
   for u in $permalinks; do echo "    download: $u"; done
+  [ -z "$NODE_ARCHES" ] || echo "    worker node: curl -fsSL ${RAW}install-node.sh | sh"
 fi

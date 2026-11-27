@@ -106,12 +106,13 @@ export async function lookReport(project: Pick<Project, 'elsewhere'>, deps: Here
   if (!where) return 'not a project of another computer';
   const steps = await Promise.all(
     where.folders.map(async (f) => {
+      // Folders are named, never given by path: this goes to the log (a node's log is read on a shared machine).
       if (!f.path) return `${f.name}: no place under the home folder was recorded`;
       const path = homePathHere(f.path, deps.home);
-      if (!path) return `${f.path}: not under this home folder`;
-      if (!(await deps.isFolder(path))) return `${path}: no such folder`;
-      const remotes = await deps.remotes(path).then((urls) => urls.map((url) => repositoryKey(url) ?? 'unreadable'), (error: unknown) => [`failed: ${error instanceof Error ? error.message : String(error)}`]);
-      return `${path}: remotes ${remotes.join(', ') || 'none'}`;
+      if (!path) return `${f.name}: not under this home folder`;
+      if (!(await deps.isFolder(path))) return `${f.name}: no such folder here`;
+      const remotes = await deps.remotes(path).then((urls) => urls.map((url) => repositoryKey(url) ?? 'unreadable'), () => ['git could not list them']);
+      return `${f.name}: remotes ${remotes.join(', ') || 'none'}`;
     }),
   );
   return `wanted ${where.repos.join(', ') || 'no repository'}; ${steps.join('; ') || 'no folder recorded'}`;

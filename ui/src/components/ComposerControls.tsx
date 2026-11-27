@@ -12,7 +12,7 @@
 import { useEffect } from 'react';
 import { Laptop } from 'lucide-react';
 import { ENVIRONMENTS, showEnvironmentControl } from '@kestrel/server/environments';
-import type { Agent } from '@kestrel/server/model';
+import type { Agent, Project } from '@kestrel/server/model';
 import { modelLabel } from '@kestrel/server/model-choice';
 import { PERMISSION_LEVELS, permissionHint } from '@kestrel/server/permissions';
 import { pickBetween, picksModel } from '@kestrel/server/sticky-controls';
@@ -32,7 +32,7 @@ import { ContextRing } from './controls/ContextRing.tsx';
 import { ComputerControl } from './controls/ComputerControl.tsx';
 import { RemoteAgentControls } from './controls/RemoteAgentControls.tsx';
 import { useComputerOffers, useOtherComputers } from '../startComputers.ts';
-import { modelOptionsOf, projectAfterSwitch, projectsOn, remoteMode, remoteRunningModes, remoteRunningNote, REMOTE_PICKER_MODES, type ComputerStatus } from '@kestrel/server/start-computer';
+import { cloneOn, modelOptionsOf, notThereYet, projectAfterSwitch, projectOn, projectsOn, remoteMode, remoteRunningModes, remoteRunningNote, REMOTE_PICKER_MODES, type ComputerStatus } from '@kestrel/server/start-computer';
 import type { ModelOption } from '@kestrel/server/agent-types';
 import { useMachineName } from '../machines.ts';
 import { AutopilotControl } from './controls/AutopilotControl.tsx';
@@ -106,8 +106,10 @@ export function ComposerControls({ value, mode, onChange, sessionId, computers =
   const elsewhereName = useMachineName(elsewhere ?? undefined) ?? 'another computer';
   const offers = useComputerOffers(machine ? [machine] : elsewhere ? [elsewhere] : []);
   const status = offers(machine ?? elsewhere ?? '');
+  const offered = status.state === 'ready' ? status.choices : null;
   const switchComputer = (next: string | null) => {
-    const projectId = projectAfterSwitch(projects, value.projectId, next);
+    const nextStatus = next ? offers(next) : null;
+    const projectId = projectAfterSwitch(projects, value.projectId, next, nextStatus?.state === 'ready' ? nextStatus.choices : null);
     const { folderId: _folder, groupId: _group, ...rest } = value;
     // Back here: the agent's choices as this computer remembers them; there, that computer's (RemoteAgentControls).
     const base = next === null ? switchAgent({ ...rest, groupId: null }, value.agent, tabsView().remembered) : { ...rest, groupId: null };
@@ -122,7 +124,7 @@ export function ComposerControls({ value, mode, onChange, sessionId, computers =
   const project = fixed ? (
     <span className="ctl-fixed">{projectName}</span>
   ) : (
-    <ProjectPicker value={value.projectId} onSelect={(id) => onChange({ ...value, projectId: id, folderId: undefined })} {...(machine ? { projects: projectsOn(projects, machine), computer: machineName ?? undefined } : {})} />
+    <ProjectPicker value={value.projectId} onSelect={(id) => onChange({ ...value, projectId: id, folderId: undefined })} {...(machine ? { projects: projectsOn(projects, machine, offered), computer: machineName ?? undefined, ...(offered ? { cloned: (p: Project) => (projectOn(p, machine) === undefined && cloneOn(p, offered) ? notThereYet(machineName ?? 'that computer') : null) } : {}) } : {})} />
   );
   const remote = (part: 'agent' | 'model') => <RemoteAgentControls part={part} agent={value.agent} model={value.model} status={status} onChange={(next) => onChange({ ...value, ...next, effort: '', fast: false, modelChosen: true })} />;
   return (

@@ -363,7 +363,8 @@ export async function call<T>(path: string, init?: RequestInit, retried = false)
   if (res.status === 401 && !retried && (await refreshLaunch())) return call<T>(path, init, true);
   if (res.status === 204) return undefined as T;
   const body = await res.json();
-  if (!res.ok) throw Object.assign(new Error(body?.error ?? `Request failed (${res.status})`), { status: res.status, field: typeof body?.field === 'string' ? body.field : undefined, archiveScript: body?.archiveScript as { output: string } | undefined });
+  // A refusal always has words: an empty or blank reason is never shown as an empty toast (item 81).
+  if (!res.ok) throw Object.assign(new Error((typeof body?.error === 'string' && body.error.trim()) || `Request failed (${res.status})`), { status: res.status, field: typeof body?.field === 'string' ? body.field : undefined, archiveScript: body?.archiveScript as { output: string } | undefined });
   return body as T;
 }
 
@@ -400,8 +401,11 @@ const UNKNOWN_ROUTE = 'Not found';
 export const OLDER_SERVER = 'This needs a newer Kestrel server than the one running. Quit and reopen Kestrel, then try again.';
 
 /** An action's failure in words. A route the running server does not have says to restart, not "Not found". */
+/** What a failure with no words of its own says: never an empty toast (item 81). */
+const SOMETHING_WENT_WRONG = 'That did not work, and Kestrel was not told why. Try again.';
+
 export function messageFor(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = (error instanceof Error ? error.message : String(error)).trim() || SOMETHING_WENT_WRONG;
   const status = (error as { status?: number }).status;
   return status === 404 && message === UNKNOWN_ROUTE ? OLDER_SERVER : message;
 }
@@ -677,7 +681,7 @@ export const actions = {
     return announced(() => call(`/api/groups/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ name }) }), quiet || !was || was === name, () => `Renamed the group to “${name}”`, () => actions.renameGroup(id, was!, true));
   },
   deleteGroup: (id: string) => act(() => call(`/api/groups/${encodeURIComponent(id)}`, { method: 'DELETE' })),
-  createSession: (input: { prompt: string; agent: Agent; projectId: string | null; groupId: string | null; folderId?: string | null; model?: string; effort?: string; fast?: boolean; modelChosen?: boolean; permission?: PermissionLevel; base?: BaseChoice; rememberBase?: boolean; purpose?: 'setup'; machine?: string | null } & Partial<AttachmentRefs>) => act(() => call<{ id: string }>('/api/sessions', { method: 'POST', body: JSON.stringify(input) })),
+  createSession: (input: { prompt: string; agent: Agent; projectId: string | null; groupId: string | null; folderId?: string | null; model?: string; effort?: string; fast?: boolean; modelChosen?: boolean; permission?: PermissionLevel; base?: BaseChoice; rememberBase?: boolean; purpose?: 'setup'; machine?: string | null; startId?: string } & Partial<AttachmentRefs>) => act(() => call<{ id: string }>('/api/sessions', { method: 'POST', body: JSON.stringify(input) })),
   /** Start reviewing a request the user was asked to review, or get the review already started (server review-requests/start.ts). */
   startReview: (key: string) => act(() => call<{ id: string }>('/api/review-requests/start', { method: 'POST', body: JSON.stringify({ key }) })),
   stopFolder: (id: string) => act(() => call<{ stopped: number }>(`/api/groups/${encodeURIComponent(id)}/stop`, { method: 'POST', body: '{}' })),

@@ -66,7 +66,8 @@ export interface Project {
     /** `projectId`: the project's id on that computer, what a session started there is given (shared/start-computer.ts). */
     machines: { id: string; name: string; projectId?: string }[];
     repos: string[];
-    folders: { name: string; isGit: boolean; path?: string }[];
+    /** `repo`: the folder's `origin` as a repository key, null when it has none; absent from a computer that does not say. */
+    folders: { name: string; isGit: boolean; path?: string; repo?: string | null }[];
   };
 }
 

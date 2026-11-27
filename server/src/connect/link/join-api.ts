@@ -4,11 +4,12 @@
 import type { PublicIdentity } from '../keys.ts';
 import type { ServiceCall } from './held-api.ts';
 import { ServiceRefusal } from './service.ts';
+import { deviceKindOf, type DeviceKind } from '../../shared/connect.ts';
 
 /** A request to be let in, as the service carries it. */
 export interface JoinRequest {
   id: string;
-  device: { id: string; name: string; kind: 'desktop' | 'phone' };
+  device: { id: string; name: string; kind: DeviceKind };
   commitment: string;
   createdAt: number;
   expiresAt: number;
@@ -18,13 +19,12 @@ export interface JoinRequest {
 export interface ServiceDevice {
   id: string;
   name: string;
-  kind: 'desktop' | 'phone';
+  kind: DeviceKind;
   keys: PublicIdentity | null;
 }
 
 const obj = (value: unknown): Record<string, unknown> => (typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {});
 const str = (value: unknown): string | null => (typeof value === 'string' && value.length > 0 ? value : null);
-const kindOf = (value: unknown): 'desktop' | 'phone' => (value === 'phone' ? 'phone' : 'desktop');
 const time = (value: unknown): number => (typeof value === 'number' ? value : typeof value === 'string' ? Date.parse(value) : NaN);
 
 function keysOf(raw: unknown): PublicIdentity | null {
@@ -44,7 +44,7 @@ export function asJoinRequest(raw: unknown): JoinRequest | null {
   const expiresAt = time(j.expiresAt);
   if (!id || !deviceId || !commitment || !Number.isFinite(expiresAt)) return null;
   const createdAt = time(j.createdAt);
-  return { id, device: { id: deviceId, name: str(device.name) ?? 'A device', kind: kindOf(device.kind) }, commitment, createdAt: Number.isFinite(createdAt) ? createdAt : 0, expiresAt };
+  return { id, device: { id: deviceId, name: str(device.name) ?? 'A device', kind: deviceKindOf(device.kind) }, commitment, createdAt: Number.isFinite(createdAt) ? createdAt : 0, expiresAt };
 }
 
 export class JoinApi {
@@ -66,7 +66,7 @@ export class JoinApi {
     return list.flatMap((raw) => {
       const d = obj(raw);
       const id = str(d.id);
-      return id ? [{ id, name: str(d.name) ?? 'A device', kind: kindOf(d.kind), keys: keysOf(d.keys) }] : [];
+      return id ? [{ id, name: str(d.name) ?? 'A device', kind: deviceKindOf(d.kind), keys: keysOf(d.keys) }] : [];
     });
   }
 

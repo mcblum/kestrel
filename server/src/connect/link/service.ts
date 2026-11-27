@@ -4,6 +4,7 @@
 // /api/v1/devices`, and the relay at `/api/v1/relay` with `Authorization` and `Kestrel-Device`.
 import WebSocket from 'ws';
 import type { PublicIdentity } from '../keys.ts';
+import type { DeviceKind } from '../../shared/connect.ts';
 
 export interface ServiceConfig {
   issuer: string;
@@ -29,7 +30,7 @@ export class ServiceRefusal extends Error {
 export interface ConnectService {
   config(): Promise<ServiceConfig>;
   /** Registers a device with its public keys (shown to whoever lets it in; trusted by nobody for being there). */
-  registerDevice(accessToken: string, name: string, kind?: 'desktop' | 'phone', keys?: PublicIdentity): Promise<RegisteredDevice>;
+  registerDevice(accessToken: string, name: string, kind?: DeviceKind, keys?: PublicIdentity): Promise<RegisteredDevice>;
   /**
    * One call to the service's API for a device (`/api/v1` + `path`): the account data key, held
    * records and waiting messages. The JSON answer, null for 204, or throws `ServiceRefusal`.
@@ -90,7 +91,7 @@ export class HttpConnectService implements ConnectService {
     return this.found;
   }
 
-  async registerDevice(accessToken: string, name: string, kind: 'desktop' | 'phone' = 'desktop', keys?: PublicIdentity): Promise<RegisteredDevice> {
+  async registerDevice(accessToken: string, name: string, kind: DeviceKind = 'desktop', keys?: PublicIdentity): Promise<RegisteredDevice> {
     const res = await this.fetcher(`${this.baseUrl}/api/v1/devices`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ name, kind, ...(keys ? { keys } : {}) }), signal: AbortSignal.timeout(TIMEOUT_MS) });
     if (res.status !== 201 && res.status !== 200) throw await refusalOf(res);
     const body = (await res.json()) as { device?: { id?: unknown; name?: unknown } };

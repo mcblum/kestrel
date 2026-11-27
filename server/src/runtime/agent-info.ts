@@ -3,17 +3,24 @@
 // without a list), and how full a session's context window is. Each answer that is slow to get is
 // asked once and shared. Moved out of runtime.ts as it was (0.0.18).
 import type { AgentSignIn } from '../agents/sign-in.ts';
-import type { AgentCapabilities, ModelOption } from '../agents/types.ts';
+import type { AgentCapabilities, AgentEvent, AvailabilityAnswer, ModelOption } from '../agents/types.ts';
 import { AGENT_LABEL, type Agent, type Session } from '../model.ts';
+import type { KestrelKind } from '../shared/host-kind.ts';
 import { contextNote, type ContextUsage } from '../shared/context-usage.ts';
 import { DEFAULT_PERMISSION, PERMISSION_LEVELS } from '../shared/permissions.ts';
 import { defaultFolder, folderOf } from '../shared/project-folders.ts';
 import type { SlashCommand } from '../shared/slash-commands.ts';
 import { Refused } from '../workspace.ts';
+import { availabilityHere, AgentTroubles, failedHere, type AgentsWhere } from './agent-trouble.ts';
+import type { NodeAgentProblem } from '../shared/node-agents.ts';
 import { noteContext } from './events.ts';
+import { opencodeDatabase } from '../agents/opencode/one-at-a-time.ts';
+import { homedir } from 'node:os';
 import type { RuntimeHost } from './host.ts';
 import { isWorking, type Live } from './record.ts';
 import { agentStartOptions } from './start-options.ts';
+
+type FailedEvent = Extract<AgentEvent, { type: 'failed' }>;
 
 /** Stands in for a session id where one is asked for before the session exists (the new-session box's slash commands). */
 const DRAFT_SESSION = 'draft';
@@ -31,6 +38,8 @@ export interface AgentAvailability {
   available: Agent[];
   notes: Partial<Record<Agent, string>>;
   signIn: Agent[];
+  /** On a worker node only: why each agent that cannot run cannot, as a value, for the node's own terminal. */
+  problems?: Partial<Record<Agent, NodeAgentProblem>>;
 }
 
 export type AgentInfoHost = Pick<RuntimeHost, 'workspace' | 'adapters' | 'emitLive' | 'onEvent' | 'scratch' | 'toolHost' | 'optionsFor' | 'sessionOrThrow' | 'recordFor' | 'now'>;
@@ -69,7 +78,73 @@ export class AgentInfo {
   /** A context measurement being asked of a session's agent, so a second click waits for the first answer. */
   private readonly contextAsks = new Map<string, Promise<ContextUsage | null>>();
 
-  constructor(private readonly host: AgentInfoHost) {}
+  /** What each agent's last failed turn said, while it lasts (agent-trouble.ts); counted only on a worker node. */
+  private readonly troubles = new AgentTroubles();
+
+  /** What other devices call this computer, read when an agent is worded: the name can be changed while it runs. */
+  private nameOf: () => string;
+
+  /** `kind` and `name`: which kind of server this is and its name, so a worker node words its agents for itself (agent-trouble.ts). */
+  constructor(
+    private readonly host: AgentInfoHost,
+    private readonly kind: KestrelKind = 'app',
+    name = '',
+  ) {
+    this.nameOf = () => name;
+  }
+
+  /** Reads the name from where it is kept once that is known (Kestrel Connect's computer name). */
+  nameBy(read: () => string): void {
+    this.nameOf = read;
+  }
+
+  private get where(): AgentsWhere {
+    return { kind: this.kind, name: this.nameOf(), ...(this.kind === 'node' ? { opencodeDatabase: shownHere(opencodeDatabase(process.env)) } : {}) };
+  }
+
+  /** What each agent last said when it could not run, raw: written to the node's log once per change (agent-trouble.ts). */
+  private readonly rawSaid = new Map<Agent, string>();
+
+  /**
+   * On a node, an agent's own words for why it cannot run go to the log, whole, while the sentence other devices and the
+   * terminal read is one plain sentence (`nodeAgentReason`). Once per change, so a status asked again logs nothing.
+   */
+  private logRaw(agent: Agent, raw: string | undefined): void {
+    if (this.kind !== 'node') return;
+    if (!raw) return void this.rawSaid.delete(agent);
+    if (this.rawSaid.get(agent) === raw) return;
+    this.rawSaid.set(agent, raw);
+    console.warn(`[kestrel] ${AGENT_LABEL[agent]} cannot run. What it said: ${raw}`);
+  }
+
+  /**
+   * A turn of `agent` failed: the failure as the session shows it (on a node, a lasting reason in the node's words),
+   * remembered while it lasts so the node says the agent cannot run (status, the offers other devices read).
+   */
+  turnFailed(agent: Agent, event: FailedEvent): FailedEvent {
+    if (this.kind === 'node' && this.troubles.failed(agent, event)) {
+      this.logRaw(agent, event.reason);
+      void this.availability().catch(() => undefined);
+    }
+    return failedHere(agent, event, this.where);
+  }
+
+  /** A turn of `agent` completed: whatever was remembered against it is over. */
+  turnSucceeded(agent: Agent): void {
+    if (this.troubles.forget(agent)) void this.availability().catch(() => undefined);
+  }
+
+  /**
+   * `kestrel-node agents` installed or signed in these agents, or a check turn of theirs answered: forget what was
+   * remembered and what each adapter kept, and ask them again. The answer is what the node now says about every agent.
+   */
+  async recheck(agents: readonly Agent[]): Promise<AgentAvailability> {
+    for (const agent of agents) {
+      this.troubles.forget(agent);
+      this.host.adapters[agent]?.recheck?.();
+    }
+    return this.availability();
+  }
 
   /** Which agents Kestrel has an adapter for. Whether one can start right now is `availability`. */
   agents(): Agent[] {
@@ -84,8 +159,10 @@ export class AgentInfo {
     const checked = await Promise.all(
       this.agents().map(async (agent) => {
         const adapter = this.host.adapters[agent]!;
-        const answer: { available: boolean; reason?: string; signIn?: boolean } = adapter.availability ? await adapter.availability().catch((error: unknown) => ({ available: false, reason: error instanceof Error ? error.message : String(error) })) : { available: true };
-        return { agent, ...answer, signIn: Boolean(answer.signIn && adapter.signIn) };
+        const asked: AvailabilityAnswer = adapter.availability ? await adapter.availability().catch((error: unknown) => ({ available: false, reason: error instanceof Error ? error.message : String(error) })) : { available: true };
+        const answer = availabilityHere(agent, asked, this.troubles.of(agent), this.where);
+        if (!asked.available) this.logRaw(agent, asked.reason);
+        return { agent, available: answer.available, ...(answer.reason !== undefined ? { reason: answer.reason } : {}), ...(answer.nodeProblem ? { nodeProblem: answer.nodeProblem } : {}), signIn: Boolean(answer.signIn && adapter.signIn) };
       }),
     );
     this.said('availability', checked);
@@ -93,6 +170,7 @@ export class AgentInfo {
       available: checked.filter((c) => c.available).map((c) => c.agent),
       notes: Object.fromEntries(checked.filter((c) => !c.available && c.reason).map((c) => [c.agent, c.reason])) as Partial<Record<Agent, string>>,
       signIn: checked.filter((c) => !c.available && c.signIn).map((c) => c.agent),
+      ...(this.kind === 'node' ? { problems: Object.fromEntries(checked.flatMap((c) => (c.nodeProblem ? [[c.agent, c.nodeProblem]] : []))) as Partial<Record<Agent, NodeAgentProblem>> } : {}),
     };
   }
 
@@ -220,4 +298,9 @@ export class AgentInfo {
       .then((commands) => commands && this.host.onEvent(session.id, rec, { type: 'slash-commands', commands }))
       .catch(() => undefined); // it cannot say (not installed, not signed in): the menu just stays shut
   }
+}
+
+/** A path under the home folder as the node's terminal would type it: `~/…`. */
+function shownHere(path: string, home: string = process.env.HOME || homedir()): string {
+  return home && path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
 }

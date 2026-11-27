@@ -56,3 +56,11 @@ test('a plain folder is never looked for, and a refused add is left for the page
   expect(w.finds()).toBe(1);
   expect(w.settings.has(ADOPTED_KEY)).toBe(false);
 });
+
+test('on a worker node, where not having a project is normal, it says one line with a count and never a project or a path', async () => {
+  const w = world([away('docs', ['git.example.com/team/docs']), away('core', ['git.example.com/team/core'])], []);
+  const logged: string[] = [];
+  const quiet = new AdoptHere({ view: async () => ({ projects: w.projects }), find: async () => null, create: async () => undefined, settings: { getSetting: async (k) => w.settings.get(k) ?? null, putSetting: async (k, v) => void w.settings.set(k, v) }, report: async () => 'wanted ~/Code/docs', log: (t) => logged.push(t), quiet: true });
+  await quiet.check();
+  expect(logged).toEqual(['2 projects of the account are not on this computer; each is cloned when a session starts in it']);
+});

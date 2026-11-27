@@ -3,7 +3,7 @@
 // connect/link/remote-actions.test.ts; here the other computer is a stand-in that records what it was asked.
 import { describe, expect, it } from 'vitest';
 import type { RemoteAnswer } from './connect/link/remote-sessions.ts';
-import { remoteActionRoute } from './remote-actions.ts';
+import { failedRemoteAction, remoteActionRoute } from './remote-actions.ts';
 import { BYPASS_FROM_ELSEWHERE } from './shared/connect-ops.ts';
 
 const MINI = { id: 'mini', name: 'Mac mini' };
@@ -128,5 +128,19 @@ describe('a session route as an operation of the list', () => {
       expect(await c.route(path, {}, method)).toEqual({ status: 409, body: { error: 'This session runs on Mac mini. That can only be done there.' } });
       expect(c.asked).toEqual([]);
     }
+  });
+});
+
+describe('how a failed remote action is worded (item 81: never an empty toast)', () => {
+  it('keeps the other computer’s words, and says it refused when it gave none', () => {
+    expect(failedRemoteAction({ ok: false, reached: true, reason: 'Starts are off.' }, 'Mac mini')).toEqual({ status: 409, body: { error: 'Starts are off.' } });
+    for (const reason of ['', '   ', '\n']) {
+      expect(failedRemoteAction({ ok: false, reached: true, reason }, 'Mac mini')).toEqual({ status: 409, body: { error: 'Mac mini refused that without saying why. Look at Kestrel there.' } });
+    }
+  });
+
+  it('names a computer that could not be reached, with or without the link’s reason', () => {
+    expect(failedRemoteAction({ ok: false, reached: false, reason: '' }, 'Mac mini')).toEqual({ status: 503, body: { error: 'Mac mini cannot be reached, so nothing was done there. Try again when it is back.' } });
+    expect((failedRemoteAction({ ok: false, reached: false, reason: 'That computer did not answer.' }, 'Mac mini').body as { error: string }).error).toBe('Mac mini cannot be reached, so nothing was done there. That computer did not answer. Try again when it is back.');
   });
 });

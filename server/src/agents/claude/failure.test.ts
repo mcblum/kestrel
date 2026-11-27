@@ -46,11 +46,11 @@ describe('whether Claude can start a session', () => {
   it('cannot when the program Kestrel was told to run is not there', async () => {
     const env = { KESTREL_CLAUDE_EXECUTABLE: '/gone/claude' };
     expect(await claudeAvailability(env, () => true, signedIn)).toEqual({ available: true });
-    expect(await claudeAvailability(env, () => false, signedIn)).toEqual({ available: false, reason: `${CLAUDE_NOT_FOUND} (/gone/claude)` });
+    expect(await claudeAvailability(env, () => false, signedIn)).toEqual({ available: false, reason: `${CLAUDE_NOT_FOUND} (/gone/claude)`, problem: 'missing' });
   });
 
   it('cannot when it is not signed in, and says Kestrel can sign it in', async () => {
-    expect(await claudeAvailability({}, () => true, signedOut, onlyDesktop)).toEqual({ available: false, reason: claudeSignInAdvice(onlyDesktop()), signIn: true });
+    expect(await claudeAvailability({}, () => true, signedOut, onlyDesktop)).toEqual({ available: false, reason: claudeSignInAdvice(onlyDesktop()), signIn: true, problem: 'auth' });
   });
 
   it('lets a session start when the program cannot say whether it is signed in', async () => {

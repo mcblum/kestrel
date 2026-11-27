@@ -13,6 +13,7 @@ import { asSetupFileRecord, FILE_RECORD_MAX_BYTES, setupFilesLabel, type SetupFi
 import { openRecord, sealRecord, tagOf } from '../account-key.ts';
 import type { ReadyKey } from './account-keys.ts';
 import type { AccountDevice, HeldApi } from './held-api.ts';
+import { isComputerKind } from '../../shared/connect.ts';
 
 export interface SetupRecordsDeps {
   /** The service, when the link is up; null otherwise. */
@@ -116,12 +117,18 @@ export class SetupRecords {
     void this.write().catch((error: unknown) => console.error(`[kestrel] could not write this computer's set-up record: ${message(error)}`));
   }
 
-  /** This machine's record, read now, and every other computer's record the account holds. */
+  /** This machine's record, read now, and every other computer's record the account holds (a worker node is a computer). */
   async read(devices: readonly AccountDevice[]): Promise<{ here: SetupRecord; others: SetupRecord[] }> {
-    const { api, key, desk } = this.ready();
+    this.ready();
     const here = await this.write();
-    const ids = new Map(devices.filter((d) => d.kind === 'desktop' && d.id !== desk.id).map((d) => [tagOf(key.idKey, setupLabel(d.id)), d.id]));
-    if (ids.size === 0) return { here, others: [] };
+    return { here, others: await this.others(devices) };
+  }
+
+  /** Every other computer's record the account holds, without reading or writing this machine's. */
+  async others(devices: readonly AccountDevice[]): Promise<SetupRecord[]> {
+    const { api, key, desk } = this.ready();
+    const ids = new Map(devices.filter((d) => isComputerKind(d.kind) && d.id !== desk.id).map((d) => [tagOf(key.idKey, setupLabel(d.id)), d.id]));
+    if (ids.size === 0) return [];
     const read = await api.readRecords([...ids.keys()]);
     const others = read.flatMap((r) => {
       try {
@@ -133,7 +140,7 @@ export class SetupRecords {
       }
     });
     this.othersByName = new Map([...others].sort((a, b) => b.readAt - a.readAt).map((r) => [r.machine.name, r.machine.id]));
-    return { here, others };
+    return others;
   }
 
   /** Kestrel connected: written once a run (a reconnect does not read the machine again), and again after `reset`. */

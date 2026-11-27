@@ -60,6 +60,13 @@ export interface RemoteStartProject {
   /** Its folders, by name (never a path); a session starts in `defaultFolderId` unless one is picked. Empty: a project with no folder. */
   folders: { id: string; name: string }[];
   defaultFolderId: string | null;
+  /**
+   * Present for a project this computer does not have yet and clones from `origin` when a session starts in it (a
+   * worker node; worker-nodes.md section 9): `of` is the project's id on each computer that has it, which is how a
+   * device that lists the project under one of those ids finds this entry. Send back `id` as for any project. A reader
+   * that does not know the field lists it as a project the computer has, and a start in it still clones.
+   */
+  clone?: { of: string[] };
 }
 
 /** One row of the desk's model menu, as a phone shows it: send back `id` ('' is the agent's own default), show `name`. */
@@ -168,11 +175,22 @@ function asProvider(p: Record<string, unknown>): RemoteStartProvider | null {
 }
 const asMissing = (m: Record<string, unknown>): RemoteStartMissing | null => (agent(m.agent) && text(m.name) && text(m.reason) ? { agent: m.agent, name: m.name, reason: m.reason } : null);
 const asFolder = (f: Record<string, unknown>): { id: string; name: string } | null => (id(f.id) && text(f.name) ? { id: f.id as string, name: f.name } : null);
+/** The most computers one project is said to be on: the ids a reader matches against. */
+const MAX_CLONE_OF = 20;
+/** A clone mark as a reader may use it, or null. Pure; shared with the live answer's reader (start-computer.ts). */
+export function asClone(raw: unknown): { of: string[] } | null {
+  const o = obj(raw);
+  if (!o || !Array.isArray(o.of)) return null;
+  const of = o.of.filter((x): x is string => id(x) !== null).slice(0, MAX_CLONE_OF);
+  return of.length > 0 ? { of } : null;
+}
+
 function asProject(p: Record<string, unknown>): RemoteStartProject | null {
   if (!id(p.id) || !text(p.name)) return null;
   const folders = each(p.folders, asFolder);
   const defaultFolderId = typeof p.defaultFolderId === 'string' && folders.some((f) => f.id === p.defaultFolderId) ? p.defaultFolderId : null;
-  return { id: p.id as string, name: p.name, folders, defaultFolderId };
+  const clone = asClone(p.clone);
+  return { id: p.id as string, name: p.name, folders, defaultFolderId, ...(clone ? { clone } : {}) };
 }
 function asStart(raw: unknown): RemoteStartChoices['start'] | null {
   const s = obj(raw);

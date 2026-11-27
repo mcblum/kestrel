@@ -1,10 +1,49 @@
 // What Settings → Connections → Kestrel Connect shows, as the server pushes it (connect/connect.ts).
 // One copy, the server's; the window holds it in the store's `connect` slice.
+import type { KestrelKind } from './host-kind.ts';
 
 /** The public service. Overridden by KESTREL_CONNECT_URL for a self-hosted one. */
 export const CONNECT_SERVICE_URL = 'https://connect.kestrelapp.ai';
 /** The desktop's client in the service's identity realm. */
 export const CONNECT_DESKTOP_CLIENT = 'kestrel-desktop';
+/** A worker node's client: the device authorization grant only, typed on another device (worker-nodes.md, W8). */
+export const CONNECT_NODE_CLIENT = 'kestrel-node';
+
+/**
+ * How a Kestrel server signs in to Kestrel Connect, decided by its kind and nowhere else: the app through the
+ * browser to a loopback redirect, as `kestrel-desktop`; a worker node, which has no browser, by a device
+ * authorization grant typed on another device, as `kestrel-node` (worker-nodes.md, section 5).
+ */
+export const CONNECT_SIGN_IN: Readonly<Record<KestrelKind, { client: string; grant: 'loopback' | 'device' }>> = {
+  app: { client: CONNECT_DESKTOP_CLIENT, grant: 'loopback' },
+  node: { client: CONNECT_NODE_CLIENT, grant: 'device' },
+};
+
+/** What a device of the account is (W2): a computer with a window, a phone, or a computer with none. */
+export type DeviceKind = 'desktop' | 'phone' | 'node';
+
+/** What a server of this kind registers itself as. */
+export const deviceKindFor = (kind: KestrelKind): 'desktop' | 'node' => (kind === 'node' ? 'node' : 'desktop');
+
+/** A device kind from the service's words; an unknown word is read as a desktop, as before there were nodes. */
+export const deviceKindOf = (value: unknown): DeviceKind => (value === 'phone' ? 'phone' : value === 'node' ? 'node' : 'desktop');
+
+/**
+ * A computer of the account: a desktop or a worker node, never a phone. The one check for "a machine": who may
+ * ask a `who: 'desk'` operation, whose sessions, projects, offers, seen marks and set-up records are read, and
+ * which computers a session may be started on.
+ */
+export const isComputerKind = (kind: DeviceKind | null | undefined): kind is 'desktop' | 'node' => kind === 'desktop' || kind === 'node';
+
+/** What a device's kind is called in a list. */
+export const DEVICE_KIND_NAME: Readonly<Record<DeviceKind, string>> = { desktop: 'Computer', phone: 'Phone', node: 'Worker node' };
+
+/**
+ * Why the recovery words may not be shown or typed here, or null where they may (W5): a worker node never shows
+ * or takes them, and joins by the two codes only.
+ */
+export const recoveryWordsRefusal = (kind: KestrelKind): string | null =>
+  kind === 'node' ? 'A worker node never shows or takes the recovery words. See them on a computer with a screen; join this node from another of your devices with "kestrel-node join".' : null;
 
 export type ConnectAccount =
   | { state: 'signed-out'; reason: string | null }
@@ -26,7 +65,7 @@ export type ConnectStorage = 'keystore' | 'file';
 export interface ConnectDevice {
   id: string;
   name: string;
-  kind: 'desktop' | 'phone';
+  kind: DeviceKind;
   /** It is in the account's keyring: it was let in, and holds the account key. */
   inAccount: boolean;
   /** It has a channel open to this computer right now. */
@@ -52,7 +91,7 @@ export type ConnectJoining =
 export interface ConnectJoinRequest {
   id: string;
   name: string;
-  kind: 'desktop' | 'phone';
+  kind: DeviceKind;
   expiresAt: number;
   /** waiting: nobody opened it here; opening: asked the device for its nonce; typing: the code can be typed; letting-in: the right code, the key is being given; showing: let in, the second code is shown until the device answers or `expiresAt`; done: what happened, in `outcome`, until Done (steps 8b, 8c). */
   state: 'waiting' | 'opening' | 'typing' | 'letting-in' | 'showing' | 'done';

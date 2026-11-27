@@ -18,6 +18,7 @@ import { scopeKey } from './shared/scope.ts';
 import { terminalSocket, type TerminalMessage } from './terminal-socket.ts';
 import { isBrowserMessage } from './browser-bridge.ts';
 import { simRoute } from './sim-api.ts';
+import { windowThingOf } from './window-routes.ts';
 import { organizeRoute } from './organize-api.ts';
 import { suggestionRoute } from './suggestions/api.ts';
 import { gitSettingsRoute } from './git-settings/api.ts';
@@ -149,6 +150,8 @@ export interface KestrelServer {
   /** Some window has this session open: its pull requests are asked about every few seconds. */
   watching(sessionId: string): boolean;
   listen(): Promise<void>;
+  /** The port really bound: the one asked for, or the free one found for port 0. Right once `listen` has answered. */
+  port(): number;
   close(): Promise<void>;
 }
 
@@ -170,6 +173,8 @@ export interface KestrelServerOptions {
    * account's other desktops over the sealed channel. Only the account preview of a checkout passes its own.
    */
   startComputers?: StartComputers;
+  /** How long a start on another computer waits for its answer; `START_TIMEOUT_MS` unless a test makes it shorter. */
+  startTimeoutMs?: number;
   /** How this copy reports its own failures, or null when it never does (shared/crash-reports.ts). Default: never. */
   crashReporting?: CrashReportSetup | null;
   /** What's new: the notes this copy carries and the record of what was shown, pushed to every window (whats-new/). */
@@ -184,7 +189,9 @@ export interface KestrelServerOptions {
   fileOpen?: Partial<Pick<FileOpenDeps, 'run' | 'editors' | 'canOpen' | 'folderApps' | 'folderAppIcons' | 'platform' | 'launch'>>;
 }
 
-export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, runtime?: SessionRuntime, options: KestrelServerOptions = {}): KestrelServer {
+export function createKestrelServer(workspace: Workspace, givenPolicy: AccessPolicy, runtime?: SessionRuntime, options: KestrelServerOptions = {}): KestrelServer {
+  // Port 0 asks for any free port: the Host check and the MCP endpoints use the one really bound, so the policy is this server's own copy.
+  const policy: AccessPolicy = { ...givenPolicy };
   // A session another computer runs is watched there while some window here watches it (remote-sessions.ts).
   const live = new LiveChannel((id, watched) => void watchElsewhere(id, watched));
   const unsubscribeLive = runtime?.onLive((id, patch) => live.publish(id, patch));
@@ -298,7 +305,7 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
   }
 
   /** The account's other computers a session may be started on from here, and how each is asked; none with no account. */
-  const startSource: StartComputers | null = options.startComputers ?? (options.connect ? { list: () => options.connect!.otherComputers(), ask: (machine, op, args) => options.connect!.remote.ask(machine, op, args) } : null);
+  const startSource: StartComputers | null = options.startComputers ?? (options.connect ? { list: () => options.connect!.otherComputers(), ask: (machine, op, args, opts) => options.connect!.remote.ask(machine, op, args, opts) } : null);
   const otherComputers = (): Machine[] => startSource?.list() ?? [];
 
   /** A New session sent to another computer of the account (remote-start.ts), or refused with why it cannot go. */
@@ -312,6 +319,9 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
       reposOf: (project) => workspace.repos.ofProject(project),
       started: (m, head) => workspace.account.started(m, head),
       now: Date.now,
+      // What it published it offers: where a project it would clone is found (a worker node, item 64).
+      offersOf: async (m) => (await workspace.accountOffers.view())[m.id]?.offers ?? null,
+      ...(options.startTimeoutMs ? { startTimeoutMs: options.startTimeoutMs } : {}),
     });
   }
 
@@ -369,6 +379,11 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
     const parts = url.pathname.split('/').filter(Boolean); // ['api', 'sessions', ':id', 'move']
     const method = req.method ?? 'GET';
     if (parts[0] !== 'api') return send(req, res, 404, { error: 'Not found' });
+
+    // What needs a screen is refused on a computer with none, with the reason (window-routes.ts).
+    const windowThing = windowThingOf(parts, method);
+    const noScreen = windowThing && runtime ? runtime.noWindow[windowThing] : null;
+    if (noScreen) throw new Refused(noScreen);
 
     // A session another computer runs is read here and acted on there (remote-actions.ts): a route with an
     // operation of the closed list is asked of that computer, anything else is refused saying where it runs
@@ -1039,12 +1054,14 @@ async function files(req: IncomingMessage, res: ServerResponse, runtime: Session
     server,
     watched: () => sockets.clients.size > 0,
     watching: (sessionId) => live.isWatched(sessionId),
+    port: () => policy.port,
     listen: () =>
       new Promise((resolve) =>
         server.listen(policy.port, LOOPBACK_HOST, () => {
           // The browser pane never opens Kestrel's own API (the port really bound) or its interface.
           const bound = server.address();
-          runtime?.browser.protect({ serverPort: typeof bound === 'object' && bound ? bound.port : policy.port, appOrigins: policy.allowedOrigins });
+          if (typeof bound === 'object' && bound) policy.port = bound.port;
+          runtime?.browser.protect({ serverPort: policy.port, appOrigins: policy.allowedOrigins });
           resolve();
         }),
       ),

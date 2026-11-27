@@ -13,6 +13,15 @@ describe('a project record', () => {
     expect(JSON.stringify(content)).not.toContain('/srv');
   });
 
+  test('says which repository each git folder is, or that it has no origin, so a node can clone it (item 64)', () => {
+    const origins = new Map<string, string | null>([['/Users/me/Code/shop', 'example.test/acme/shop'], ['/Users/me/Code/bare', null]]);
+    const content = projectRecordOf({ id: 'p1', name: 'Shop', folders: [{ id: 'f1', path: '/Users/me/Code/shop', isGit: true }, { id: 'f2', path: '/Users/me/Code/bare', isGit: true }, { id: 'f3', path: '/Users/me/notes', isGit: false }] }, ['example.test/acme/shop'], MINI, '/Users/me', origins);
+    expect(content.project.folders).toEqual([{ name: 'shop', isGit: true, path: '~/Code/shop', repo: 'example.test/acme/shop' }, { name: 'bare', isGit: true, path: '~/Code/bare', repo: null }, { name: 'notes', isGit: false, path: '~/notes' }]);
+    expect(asProjectRecord(JSON.parse(JSON.stringify(content)))!.folders).toEqual(content.project.folders);
+    // A plain folder never carries one, whatever is sent.
+    expect(asProjectRecord({ kind: 'project', machine: MINI, project: { id: 'p1', name: 'N', repos: [], folders: [{ name: 'n', isGit: false, repo: 'x/y' }] } })!.folders).toEqual([{ name: 'n', isGit: false }]);
+  });
+
   test('is opened through one parser that keeps only what a record may hold', () => {
     expect(asProjectRecord({ kind: 'head' })).toBeNull();
     expect(asProjectRecord({ kind: 'project', machine: MINI, project: { name: 'No id' } })).toBeNull();

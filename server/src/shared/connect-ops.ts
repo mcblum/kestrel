@@ -105,7 +105,12 @@ export interface ConnectOpArgs {
    * picks the machine by which desk it sends this to. A preset or an agent, else the New session box's choices
    * here; the mode Manual (`ask`) or Auto, else the box's, never Bypass.
    */
-  'session.start': { projectId?: string; folderId?: string; presetId?: string; agent?: Agent; model?: string; mode?: 'ask' | 'auto'; text: string; draftId?: string; attachments?: string[] };
+  /**
+   * `startId`: made by the starting device, the same on every retry of one start, so a machine that already started it
+   * answers with that session instead of starting another (item 81). `base`: the branch the session starts from, when the
+   * starting device names one; a machine that clones the project refuses one that is not on `origin`.
+   */
+  'session.start': { projectId?: string; folderId?: string; presetId?: string; agent?: Agent; model?: string; mode?: 'ask' | 'auto'; text: string; draftId?: string; attachments?: string[]; startId?: string; base?: string };
   /** What `session.start` may pick from here: this computer's switch, its agents and presets, and what its New session box starts with. */
   'session.startChoices': Record<string, never>;
   'media.read': { sessionId: string; name: string };
@@ -223,6 +228,9 @@ const ids = (max: number) => (a: Args, field: string): Checked<string[]> => {
   const v = a[field];
   return Array.isArray(v) && v.length <= max && v.every((x) => typeof x === 'string' && KEY.test(x)) ? { ok: true, value: v as string[] } : fail(`${field} must be a list of at most ${max} ids.`);
 };
+/** A branch as git would take it: no `..`, no leading `-` or `/`, no trailing `/`, `.` or `.lock`. */
+const BRANCH = /^(?![-/])(?!.*\.\.)(?!.*\/\/)(?!.*(?:\/|\.|\.lock)$)[A-Za-z0-9._/-]{1,200}$/;
+const branchName = (a: Args, field: string): Checked<string> => (typeof a[field] === 'string' && BRANCH.test(a[field] as string) ? { ok: true, value: a[field] as string } : fail(`${field} must be a branch name.`));
 /** As controls-api.ts: an effort is a short word, empty for the model's default. */
 const EFFORT = /^[a-z]{0,16}$/;
 /** A path inside a session's folder ('' is the folder itself); the route there confines it. */
@@ -293,7 +301,7 @@ interface OpSpec {
   /** The fields it takes; anything else is refused. */
   fields: readonly string[];
   check: (a: Args) => Checked<Args>;
-  /** Who may ask it: absent is any device of the keyring; 'desk' is a desktop only, and a phone is refused (`phoneRefusal`). */
+  /** Who may ask it: absent is any device of the keyring; 'desk' is a computer only (a desktop or a worker node, `isComputerKind`), and a phone is refused (`phoneRefusal`). */
   who?: 'desk';
   /** For a desk-only operation: the `NEVER_REMOTE` reason a phone is refused with; absent, it is told it is not something Kestrel Connect does. */
   never?: string;
@@ -350,7 +358,7 @@ export const CONNECT_OPS: { readonly [K in ConnectOp]: OpSpec } = {
   // Matt, 2026-11-24: "add the ability for the phone to start a new session on any worker" (A8, stage 6).
   'session.start': {
     mapsTo: 'POST /api/sessions (A8: this computer\'s switch, never Bypass)',
-    fields: ['projectId', 'folderId', 'presetId', 'agent', 'model', 'mode', 'text', 'draftId', 'attachments'],
+    fields: ['projectId', 'folderId', 'presetId', 'agent', 'model', 'mode', 'text', 'draftId', 'attachments', 'startId', 'base'],
     check: (a) => {
       if (a.mode === 'bypass') return fail(BYPASS_FROM_ELSEWHERE);
       if (a.presetId !== undefined && (a.agent !== undefined || a.model !== undefined)) return fail('Give a preset or an agent, not both.');
@@ -363,6 +371,8 @@ export const CONNECT_OPS: { readonly [K in ConnectOp]: OpSpec } = {
         agent: optional(a, 'agent', oneOf(SELECTABLE_AGENTS)),
         model: optional(a, 'model', modelId),
         mode: optional(a, 'mode', oneOf(['ask', 'auto'] as const)),
+        startId: optional(a, 'startId', id),
+        base: optional(a, 'base', branchName),
         text: text(MESSAGE_MAX, f.ok && f.value.attachments !== undefined)(a, 'text'),
         ...spread(f),
       });

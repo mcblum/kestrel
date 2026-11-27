@@ -72,6 +72,8 @@ export class SimTools {
     readonly simulator: Simulator,
     private readonly host: SimHost,
     private readonly derivedData: string = DERIVED_DATA,
+    /** Why the simulator cannot be used on this computer (it has no screen), or null. Every tool is refused with it. */
+    private readonly noScreen: string | null = null,
   ) {}
 
   /** The user picked a device in a pane: a session's agent uses it from now on. A project or group page's pick is only remembered for its pane. */
@@ -100,6 +102,7 @@ export class SimTools {
   /** A refusal goes back to the agent and shows in the conversation, like Kestrel's other tools. */
   private async guard(sessionId: string, tool: string, work: () => Promise<ToolResult>): Promise<ToolResult> {
     try {
+      if (this.noScreen) throw new Refused(this.noScreen);
       return await work();
     } catch (error) {
       if (!(error instanceof Refused)) throw error;

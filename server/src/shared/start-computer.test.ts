@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Project } from '../model.ts';
 import { BYPASS_FROM_ELSEWHERE } from './connect-ops.ts';
-import { ASKING, asStartChoices, cannotStartOn, computerOptions, computersOf, defaultComputer, projectAfterSwitch, projectOn, projectsOn, remoteMode, remoteRunningModes, remoteRunningNote, modelOptionsOf, statusOf, type ComputerStatus } from './start-computer.ts';
+import { ASKING, asStartChoices, cannotStartOn, cloneOn, computerOptions, computersOf, defaultComputer, doesNotHave, modelOptionsOf, notThereYet, projectAfterSwitch, projectOn, projectsOn, remoteMode, remoteRunningModes, remoteRunningNote, startingOn, startMayHaveHappened, statusOf, type ComputerStatus } from './start-computer.ts';
 import type { RemoteStartChoices } from '../remote-starts/session-start.ts';
 
 const MINI = { id: 'mini', name: 'Mac mini' };
@@ -113,5 +113,37 @@ describe('reading what another computer offers', () => {
       { id: '', label: 'Default', efforts: ['low', 'high'], fast: true },
       { id: 'haiku', label: 'Haiku' },
     ]);
+  });
+});
+
+describe('a project the computer chosen would clone (item 64)', () => {
+  const nodeOffers = { projects: [{ id: 'b-studio', name: 'Billing', folders: [], defaultFolderId: null, clone: { of: ['b-studio', 'b-mini'] } }] };
+
+  it('finds the clone offer by any of the project’s ids elsewhere, and none without offers', () => {
+    expect(cloneOn(away, nodeOffers)?.id).toBe('b-studio');
+    expect(cloneOn(mineOnly, nodeOffers)).toBeUndefined();
+    expect(cloneOn(away, null)).toBeUndefined();
+    expect(cloneOn(away, { projects: [{ id: 'b-studio', name: 'Billing', folders: [], defaultFolderId: null }] })).toBeUndefined();
+  });
+
+  it('lists what the node has and what it would clone, and keeps a clonable project when switching to it', () => {
+    const node = 'node-1';
+    expect(projectsOn(PROJECTS, node).map((p) => p.id)).toEqual([]);
+    expect(projectsOn(PROJECTS, node, nodeOffers).map((p) => p.id)).toEqual([away.id]);
+    expect(projectAfterSwitch(PROJECTS, away.id, node, nodeOffers)).toBe(away.id);
+    expect(projectAfterSwitch(PROJECTS, away.id, node, null)).toBeNull();
+  });
+
+  it('says each of its words once', () => {
+    expect(doesNotHave('Mac mini', 'Docs')).toBe('Mac mini does not have Docs. Clone it there first, or pick a project it has.');
+    expect(notThereYet('Worker node 1')).toBe('Not on Worker node 1 yet; it is cloned when the session starts.');
+    expect(startingOn('Worker node 1')).toBe('Starting on Worker node 1…');
+    expect(startMayHaveHappened('Worker node 1')).toBe('Worker node 1 did not answer in time. If the session started there it will show in the sidebar.');
+  });
+
+  it('reads the clone mark of a live answer, and never an empty reason for an agent that cannot start', () => {
+    const read = asStartChoices({ here: 'Worker node 1', allowed: true, agents: ['claude'], start: { agent: 'claude' }, missing: [{ agent: 'codex', name: 'Codex', reason: '  ' }], projects: [{ id: 'b', name: 'Billing', folders: [], clone: { of: ['b', 7] } }] });
+    expect(read!.projects).toEqual([{ id: 'b', name: 'Billing', folders: [], defaultFolderId: null, clone: { of: ['b'] } }]);
+    expect(read!.missing).toEqual([{ agent: 'codex', name: 'Codex', reason: 'Codex cannot start a session on Worker node 1 now.' }]);
   });
 });

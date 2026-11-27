@@ -7,6 +7,7 @@ import { useShallow } from 'zustand/react/shallow';
 import type { Machine } from '@kestrel/server/machines';
 import { ready, type Sourced } from '@kestrel/server/sourced';
 import { statusOf, type ComputerStatus, type StartComputerAnswer } from '@kestrel/server/start-computer';
+import { isComputerKind } from '@kestrel/server/connect';
 import { fetchResource, useResource } from './data/resources.ts';
 import { useApp, type AppState } from './store.ts';
 import './connectStore.ts';
@@ -26,13 +27,13 @@ const asAnswer = (raw: unknown): Sourced<StartComputerAnswer> => {
 };
 
 /**
- * The account's desktops as the server pushes them with Kestrel Connect's state (`connect.devices`), as one
+ * The account's computers (desktops and worker nodes) as the server pushes them with Kestrel Connect's state (`connect.devices`), as one
  * string: when a computer joins, leaves or is renamed it changes, and the list is asked for again. The server
  * keeps the one rule for which of them a session may start on (`otherComputers`).
  */
 const accountDesktops = (s: AppState): string =>
   (s.connect?.devices ?? [])
-    .filter((d) => d.kind === 'desktop' && !d.here)
+    .filter((d) => isComputerKind(d.kind) && !d.here)
     .map((d) => `${d.id}\t${d.name}\t${d.inAccount}`)
     .join('\n');
 

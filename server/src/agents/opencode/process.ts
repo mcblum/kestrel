@@ -11,6 +11,7 @@ import { randomBytes } from 'node:crypto';
 import { dirname, delimiter } from 'node:path';
 import { Tail } from '../codex/process.ts';
 import { findOpencode } from './binary.ts';
+import { startGate, type StartGate } from './one-at-a-time.ts';
 
 type Env = Record<string, string | undefined>;
 
@@ -130,9 +131,17 @@ export function launchCommand(command: string, args: readonly string[], options:
   });
 }
 
-/** Starts the user's `opencode serve`. */
-export const launchOpencode: Launch = async (options) => {
-  const binary = findOpencode(options.env);
-  if (!binary) throw new OpencodeUnavailable(NOT_INSTALLED, 'missing');
-  return launchCommand(binary, serveArgs(options.pure), options);
-};
+/**
+ * Starts the user's `opencode serve`, through the gate that lets one OpenCode program start at a time per data folder
+ * (one-at-a-time.ts): it is held until the server says it is listening, so its database is made before the next starts.
+ */
+export function opencodeLauncher(gate: StartGate): Launch {
+  return async (options) => {
+    const binary = findOpencode(options.env);
+    if (!binary) throw new OpencodeUnavailable(NOT_INSTALLED, 'missing');
+    return gate.run(options.env, () => launchCommand(binary, serveArgs(options.pure), options));
+  };
+}
+
+/** Starts the user's `opencode serve`, one at a time within this process (a test's or a tool's adapter). */
+export const launchOpencode: Launch = opencodeLauncher(startGate(null));

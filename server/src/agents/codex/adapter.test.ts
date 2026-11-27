@@ -205,7 +205,7 @@ describe('Codex adapter, against a fake app-server', () => {
     const failed = await t.next('failed');
     expect(failed).toMatchObject({ kind: 'auth' });
     expect(failed.reason).toMatch(/codex login/);
-    expect(await t.adapter.availability!()).toMatchObject({ available: false, reason: expect.stringMatching(/not signed in/) });
+    expect(await t.adapter.availability!()).toMatchObject({ available: false, reason: expect.stringMatching(/not signed in/), signIn: true, problem: 'auth' });
   });
 
   it('not installed: the turn fails saying how to install it, and the agent shows as unavailable', async () => {
@@ -216,13 +216,13 @@ describe('Codex adapter, against a fake app-server', () => {
     const events: AgentEvent[] = [];
     const ended = new Promise<AgentEvent>((resolve) => adapter.start({ directory: tmpdir(), instruction: '', tools: NO_TOOLS, permission: 'ask' }, 'hi', (e) => (events.push(e), terminal(e) && resolve(e))));
     expect(await ended).toEqual({ type: 'failed', reason: NOT_INSTALLED, kind: 'other' });
-    expect(await adapter.availability!()).toEqual({ available: false, reason: NOT_INSTALLED });
+    expect(await adapter.availability!()).toEqual({ available: false, reason: NOT_INSTALLED, problem: 'missing' });
     expect((await adapter.models()).fromSdk).toBe(false);
   });
 
   it('a missing binary named by KESTREL_CODEX_BINARY is reported as not installed', async () => {
     const adapter = codexAdapter({ env: { ...process.env, KESTREL_CODEX_BINARY: join(tmpdir(), 'no-such-codex') }, log: () => undefined });
-    expect(await adapter.availability!()).toEqual({ available: false, reason: NOT_INSTALLED });
+    expect(await adapter.availability!()).toEqual({ available: false, reason: NOT_INSTALLED, problem: 'missing' });
   });
 
   it('lists the models Codex reports, Default first', async () => {

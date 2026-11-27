@@ -72,6 +72,9 @@
     "./cleanup-policy": "./src/shared/cleanup-policy.ts",
     "./appearance": "./src/shared/appearance.ts",
     "./platform": "./src/shared/platform.ts",
+    "./host-kind": "./src/shared/host-kind.ts",
+    "./no-window": "./src/shared/no-window.ts",
+    "./protected-files": "./src/shared/protected-files.ts",
     "./shortcuts": "./src/shared/shortcuts.ts",
     "./worktree-guests": "./src/shared/worktree-guests.ts",
     "./sandbox-allow": "./src/shared/sandbox-allow.ts",
@@ -161,6 +164,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
+    "kestrel-node": "tsx src/node.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

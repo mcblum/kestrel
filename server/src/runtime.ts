@@ -40,6 +40,7 @@ import { AttachmentStore } from './attachments/store.ts';
 import { BaseRefresh } from './base-refresh.ts';
 import { BrowserBridge } from './browser-bridge.ts';
 import { BrowserTools } from './browser-tools.ts';
+import { needsWindow, type WindowRefusals } from './shared/no-window.ts';
 import { CommitSigning } from './commit-signing/prefs.ts';
 import { CrashReports } from './crash-reports/prefs.ts';
 import { Delegation, type ChildOrigin } from './delegation.ts';
@@ -143,6 +144,8 @@ import { titleFrom } from './title.ts';
 import { appendOutput, applyToTranscript, outputLine, type TranscriptAction } from './transcript.ts';
 import type { WorktreeList } from './worktree-cleanup.ts';
 import { Refused, type Workspace } from './workspace.ts';
+import type { KestrelKind } from './shared/host-kind.ts';
+import { sessionGitEnvFor } from './runtime/session-git.ts';
 
 export type { ContextShown, ModelList } from './runtime/agent-info.ts';
 export type { ReplyOptions } from './runtime/turns.ts';
@@ -162,6 +165,8 @@ export class SessionRuntime implements McpSessions {
   readonly display: Display;
   readonly browser: BrowserTools;
   readonly sim: SimTools;
+  /** What needs a window and is refused here, with the reason: nothing in the app, every one on a worker node (shared/no-window.ts). */
+  readonly noWindow: WindowRefusals;
   /** Generated session titles, in the background (runtime/titling.ts). */
   readonly titler: Titler;
   readonly suggestions: Suggestions;
@@ -240,6 +245,8 @@ export class SessionRuntime implements McpSessions {
   private readonly agents = new Map<string, Agent>();
   /** What the slices in runtime/ share (runtime/host.ts). */
   private readonly host: RuntimeHost;
+  /** Which kind of server this is (the app or a worker node), as the entry that started it said. */
+  private readonly kind: KestrelKind;
   /** Deleting sessions, discarding worktrees, Settings → Worktrees (runtime/session-worktrees.ts). */
   private readonly checkouts: SessionWorktrees;
   /** Models, capabilities, slash commands and context use, asked of the agents (runtime/agent-info.ts). */
@@ -309,12 +316,19 @@ export class SessionRuntime implements McpSessions {
       },
       dataDir,
     );
-    this.browser = new BrowserTools(new BrowserBridge(), { notice: (id, text, level) => this.notice(id, text, level) });
-    this.sim = new SimTools(simulator, {
-      directoryOf: (id) => this.directoryOf(id),
-      notice: (id, text, level) => this.notice(id, text, level),
-      show: (id, udid) => this.simShows.forEach((l) => l(id, udid)),
-    });
+    this.kind = opts.window?.kind ?? 'app';
+    this.noWindow = needsWindow(this.kind, opts.window?.name ?? '');
+    this.browser = new BrowserTools(new BrowserBridge(), { notice: (id, text, level) => this.notice(id, text, level) }, this.noWindow.browser);
+    this.sim = new SimTools(
+      simulator,
+      {
+        directoryOf: (id) => this.directoryOf(id),
+        notice: (id, text, level) => this.notice(id, text, level),
+        show: (id, udid) => this.simShows.forEach((l) => l(id, udid)),
+      },
+      undefined,
+      this.noWindow.simulator,
+    );
     this.requestComment = opts.requestComment ?? ((cwd, number, body, host) => commentOnPR(cwd, number, body, { commands: host === 'gitlab' ? gitlabCommands : githubCommands }));
     this.suggestions = createSuggestions(this, workspace, {
       ...opts.suggestions,
@@ -438,7 +452,7 @@ export class SessionRuntime implements McpSessions {
     });
     this.host = this.makeHost();
     this.checkouts = new SessionWorktrees(this.host);
-    this.info = new AgentInfo(this.host);
+    this.info = new AgentInfo(this.host, opts.window?.kind ?? 'app', opts.window?.name ?? '');
   }
 
   /** What the runtime's slices share (runtime/host.ts), built once. */
@@ -447,6 +461,7 @@ export class SessionRuntime implements McpSessions {
       workspace: this.workspace,
       adapters: this.adapters,
       dataDir: this.dataDir,
+      sessionGitEnv: (directory) => sessionGitEnvFor(this.kind, this.dataDir, directory),
       records: this.records,
       agents: this.agents,
       upkeep: this.upkeep,
@@ -480,6 +495,7 @@ export class SessionRuntime implements McpSessions {
       notice: (id, text, level) => this.notice(id, text, level),
       onEvent: (id, rec, event) => onAgentEvent(this.host, id, rec, event),
       flushQueue: (id) => flushQueue(this.host, id),
+      agentTurns: { failed: (agent, event) => this.info.turnFailed(agent, event), succeeded: (agent) => this.info.turnSucceeded(agent) },
       turnComplete: (id) => {
         void this.proposeTicketFinished(id).catch((error: unknown) => console.error('[kestrel] could not propose the ticket’s summary', error));
         void this.startWaitingReview(id);
@@ -542,6 +558,16 @@ export class SessionRuntime implements McpSessions {
   /** Which agents can start a session now (installed, signed in), and for the others why not. */
   agentAvailability(): Promise<AgentAvailability> {
     return this.info.availability();
+  }
+
+  /** A worker node's `kestrel-node agents` changed these agents: forget what was known of them and ask again (runtime/agent-info.ts). */
+  recheckAgents(agents: readonly Agent[]): Promise<AgentAvailability> {
+    return this.info.recheck(agents);
+  }
+
+  /** How a worker node names itself when it words its agents: Kestrel Connect's computer name, once that is up. */
+  nameAgentsBy(read: () => string): void {
+    this.info.nameBy(read);
   }
 
   /** Told when an agent's availability or model list differs from what it answered before (runtime/agent-info.ts). */

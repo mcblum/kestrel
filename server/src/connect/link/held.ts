@@ -68,6 +68,8 @@ export interface HeldSource {
   lists: ConnectLists;
   /** The repository keys of a project (repo-keys.ts), for its sessions' heads; none when left out. */
   repos?(projectId: string): Promise<string[]>;
+  /** Each git folder's `origin` key by path (repo-keys.ts), for the project's record; none when left out. */
+  origins?(projectId: string): Promise<ReadonlyMap<string, string | null>>;
 }
 
 export function heldSource(workspace: Workspace, runtime: SessionRuntime, lists: ConnectLists): HeldSource {
@@ -91,6 +93,10 @@ export function heldSource(workspace: Workspace, runtime: SessionRuntime, lists:
     async repos(projectId) {
       const project = (await workspace.state()).projects.find((p) => p.id === projectId);
       return project ? workspace.repos.ofProject(project) : [];
+    },
+    async origins(projectId) {
+      const project = (await workspace.state()).projects.find((p) => p.id === projectId);
+      return project ? workspace.repos.originsOf(project) : new Map();
     },
     onContext: (listener) => runtime.onLive((_sessionId, patch) => {
       if (patch.context) listener();
@@ -297,7 +303,7 @@ export class HeldConversations {
     const prefs = this.deps.prefs();
     const state = await this.deps.source.state();
     // Projects first, so another computer lists a project before its sessions arrive.
-    await this.deps.projects?.pass({ api, key, desk, projects: state.projects, keptOff: prefs.keptOff, repos: (id) => this.deps.source.repos?.(id) ?? Promise.resolve([]) });
+    await this.deps.projects?.pass({ api, key, desk, projects: state.projects, keptOff: prefs.keptOff, repos: (id) => this.deps.source.repos?.(id) ?? Promise.resolve([]), origins: (id) => this.deps.source.origins?.(id) ?? Promise.resolve(new Map()) });
     const keptOff = new Set(prefs.keptOff);
     // A sidebar is listed nowhere and drawn only in its pane at the desk: never held (kestrel-connect.md, "Sidebars").
     const want = state.sessions.filter((s) => !s.aside && !keptOff.has(projectOfSession(s) ?? NO_PROJECT));

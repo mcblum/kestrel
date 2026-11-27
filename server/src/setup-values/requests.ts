@@ -12,6 +12,7 @@
 import { randomUUID } from 'node:crypto';
 import { Refused } from '../refused.ts';
 import { NEVER_REMOTE } from '../shared/connect-ops.ts';
+import { isComputerKind, type DeviceKind } from '../shared/connect.ts';
 import type { SetupRecord } from '../shared/setup-record.ts';
 import { asSentList, copyableNames, copyStepOf, SETUP_SENT_KEY, stepText, VALUE_REQUEST_TTL_MS, VALUE_WORDS, withSent, type SentEntry, type ValueRequestView, type ValuesAnswer } from '../shared/setup-values.ts';
 import type { SettingStore } from '../suggestions/prefs.ts';
@@ -21,7 +22,7 @@ export interface ValueRequestsDeps {
   /** This computer's own set-up record, read now. Throws when it cannot be (no account, not let in). */
   ownRecord(): Promise<SetupRecord>;
   /** What this computer's keyring says the asking device is; null when it is not in it. */
-  device(id: string): { kind: 'desktop' | 'phone'; name: string } | null;
+  device(id: string): { kind: DeviceKind; name: string } | null;
   /** Reads exactly the named values of a step (read.ts). Throws only `ReadFailed`. */
   read(lineId: string, names: readonly string[], own: SetupRecord): Promise<ValuesAnswer>;
   /** Where the values would be read from, in words for the card (read.ts `sourceText`). */
@@ -82,13 +83,13 @@ export class ValueRequests {
   }
 
   /**
-   * A desktop of the keyring asks for a step's values: checked, shown, and answered when the person here
+   * A computer of the keyring (a desktop or a worker node) asks for a step's values: checked, shown, and answered when the person here
    * says Allow. Refused with the reason, having read nothing, for anything else.
    */
   async ask(device: string, args: { requestId: string; line: string; names: string[] }): Promise<ValuesAnswer> {
     const here = this.deps.here();
     const asker = this.deps.device(device);
-    if (!asker || asker.kind !== 'desktop') throw new Refused(NEVER_REMOTE.setup!);
+    if (!asker || !isComputerKind(asker.kind)) throw new Refused(NEVER_REMOTE.setup!);
     if ([...this.pending.values()].some((p) => p.device === device)) throw new Refused(VALUE_WORDS.busy(here));
     if (!copyStepOf(args.line)) throw new Refused(VALUE_WORDS.kind);
     let own: SetupRecord;

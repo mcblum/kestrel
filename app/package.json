@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "start": "electron .",
-    "test": "node --test quit-guard.test.mjs folder-chooser.test.mjs open-folders.test.mjs server-log.test.mjs menu-template.test.mjs edit-menu.test.mjs update-support.test.mjs release-channel.test.mjs ../scripts/release/feed-files.test.mjs ../scripts/release/release-needed.test.mjs ../scripts/release/release-notes.test.mjs",
+    "test": "node --test quit-guard.test.mjs folder-chooser.test.mjs open-folders.test.mjs server-log.test.mjs menu-template.test.mjs edit-menu.test.mjs update-support.test.mjs release-channel.test.mjs ../scripts/release/feed-files.test.mjs ../scripts/release/release-needed.test.mjs ../scripts/release/release-notes.test.mjs ../scripts/release/install-node.test.mjs",
     "build:simhelper": "mkdir -p native/build && xcrun swiftc -O -swift-version 5 native/simhelper/*.swift -o native/build/kestrel-sim"
   },
   "devDependencies": {

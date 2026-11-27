@@ -50,7 +50,7 @@ export interface AgentModels {
 const DEFAULT_ROW: RemoteStartModel = { id: '', name: 'Default' };
 
 /** An agent that cannot start here, in words naming this computer when it gave none. */
-const cannotStart = (a: AgentModels, here: string): string => a.reason ?? `${AGENT_LABEL[a.agent]} cannot start a session on ${here} now.`;
+const cannotStart = (a: AgentModels, here: string): string => a.reason?.trim() || `${AGENT_LABEL[a.agent]} cannot start a session on ${here} now.`;
 
 function providerOf(a: AgentModels, r: ReturnType<typeof storedRemembered>): RemoteStartProvider {
   const rows = menuRows(a.models).map(({ option, more }): RemoteStartModel => ({ id: option.id, name: option.label, ...(more ? { more: true as const } : {}), ...(option.efforts?.length ? { efforts: [...option.efforts] } : {}), ...(option.fast ? { fast: true as const } : {}) }));

@@ -13,13 +13,16 @@ import type { Sourced } from '../../shared/sourced.ts';
 import type { ConnectOp } from '../../shared/connect-ops.ts';
 import type { PageAsk } from '../../shared/transcript-page.ts';
 import { asRemotePage, asRemotePatch, type RemotePage } from '../../shared/machines.ts';
-import { CALL_TIMEOUT_MS, CallFailed, DeskCaller, type CallerDeps } from './caller.ts';
+import { CALL_TIMEOUT_MS, CallFailed, CallTimedOut, DeskCaller, type CallerDeps } from './caller.ts';
 
 /** What another computer said to `session.read`: a page, its refusal, or that it could not be reached. */
 export type RemoteRead = { ok: true; page: RemotePage } | { ok: false; reached: boolean; reason: string };
 
-/** What another computer said to a request: its answer, its refusal (`reached`), or that it could not be reached. */
-export type RemoteAnswer = { ok: true; result: unknown } | { ok: false; reached: boolean; reason: string };
+/**
+ * What another computer said to a request: its answer, its refusal (`reached`), or that it could not be reached.
+ * `late`: the request went to it and no answer came in time, so it may still have been carried out there.
+ */
+export type RemoteAnswer = { ok: true; result: unknown } | { ok: false; reached: boolean; reason: string; late?: true };
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -61,6 +64,7 @@ export class RemoteSessions {
       const answer = await this.caller.request(machine, op, args, opts);
       return answer.ok ? answer : { ok: false, reached: true, reason: answer.reason };
     } catch (error) {
+      if (error instanceof CallTimedOut) return { ok: false, reached: false, reason: error.message, late: true };
       if (error instanceof CallFailed) return { ok: false, reached: false, reason: error.message };
       throw error;
     }

@@ -11,13 +11,13 @@ import type { AttachmentStore } from './attachments/store.ts';
 import type { RemoteAnswer } from './connect/link/remote-sessions.ts';
 import { decodedSegment } from './request-fields.ts';
 import { checkRequest, SESSION_SECTIONS, type ConnectOp, type SessionSection } from './shared/connect-ops.ts';
-import { remoteRefusal, unreachableRefusal, type Machine } from './shared/machines.ts';
+import { refusedThere, remoteRefusal, unreachableRefusal, type Machine } from './shared/machines.ts';
 import { tooLargeToBring } from './shared/remote-carry.ts';
 import { Refused } from './refused.ts';
 
 export interface RemoteActionDeps {
   /** Asks the session's machine one operation of the list (`RemoteSessions.ask`). */
-  ask: (machine: string, op: ConnectOp, args: Record<string, unknown>) => Promise<RemoteAnswer>;
+  ask: (machine: string, op: ConnectOp, args: Record<string, unknown>, opts?: { timeoutMs?: number }) => Promise<RemoteAnswer>;
   /** This computer's drafts, whose files a reply carries there; null where there are none. */
   drafts: Pick<AttachmentStore, 'draftFiles' | 'removeDraft'> | null;
   /** A session that computer just made from this one (a fork): listed here at once, until its own head arrives. */
@@ -172,9 +172,12 @@ export function mapRoute(asked: Asked): Mapped | null {
   return method === 'POST' ? actionRoute(asked) : null;
 }
 
-/** Why an answer that is not one is refused: the computer's own reason, or that it could not be reached. */
-function refusal(answer: Extract<RemoteAnswer, { ok: false }>, machine: Machine): ActionAnswer {
-  return answer.reached ? { status: 409, body: { error: answer.reason } } : { status: 503, body: { error: unreachableRefusal(machine.name, answer.reason) } };
+/**
+ * How a failed remote action is answered to the window: the computer's own reason (409), or that it could not be
+ * reached (503). Never without words: a refusal with an empty reason says that it refused (`refusedThere`).
+ */
+export function failedRemoteAction(answer: Extract<RemoteAnswer, { ok: false }>, machineName: string): ActionAnswer {
+  return answer.reached ? { status: 409, body: { error: refusedThere(machineName, answer.reason) } } : { status: 503, body: { error: unreachableRefusal(machineName, answer.reason) } };
 }
 
 /** Asks one operation, checked first against the list as the other computer will check it. */
@@ -182,7 +185,7 @@ export async function asked(machine: Machine, op: ConnectOp, args: Body, deps: R
   const checked = checkRequest({ op, args });
   if (!checked.ok) return { ok: false, answer: { status: 400, body: { error: checked.reason } } };
   const answer = await deps.ask(machine.id, op, args);
-  return answer.ok ? answer : { ok: false, answer: refusal(answer, machine) };
+  return answer.ok ? answer : { ok: false, answer: failedRemoteAction(answer, machine.name) };
 }
 
 /**

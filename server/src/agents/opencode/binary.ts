@@ -8,6 +8,7 @@ import { delimiter, join } from 'node:path';
 import { hostPlatform } from '../../host.ts';
 import type { Platform } from '../../shared/platform.ts';
 import { findIn, installDirs } from '../find-program.ts';
+import { kestrelAgentDirs } from '../kestrel-agents.ts';
 
 type Env = Record<string, string | undefined>;
 
@@ -31,10 +32,13 @@ function wellKnownDirs(home: string, platform: Platform, env: Env): string[] {
   return [join(home, '.opencode', 'bin'), ...installDirs(home, platform, env)];
 }
 
-/** The `opencode` to run: the override when set (null if it does not exist), else PATH, else the usual folders. */
-export function findOpencode(env: Env = process.env, lookup: Lookup = realLookup, platform: Platform = hostPlatform()): string | null {
+/**
+ * The `opencode` to run: the override when set (null if it does not exist), else on a worker node Kestrel's own
+ * agents folder (`kestrelDirs`), else PATH, else the usual folders.
+ */
+export function findOpencode(env: Env = process.env, lookup: Lookup = realLookup, platform: Platform = hostPlatform(), kestrelDirs: readonly string[] = kestrelAgentDirs()): string | null {
   const override = env.KESTREL_OPENCODE_BINARY;
   if (override !== undefined && override !== '') return lookup.exists(override) ? override : null;
-  const dirs = [...(env.PATH ?? env.Path ?? '').split(delimiter).filter(Boolean), ...wellKnownDirs(lookup.home, platform, env)];
+  const dirs = [...kestrelDirs, ...(env.PATH ?? env.Path ?? '').split(delimiter).filter(Boolean), ...wellKnownDirs(lookup.home, platform, env)];
   return findIn(dirs, 'opencode', platform, lookup.exists);
 }

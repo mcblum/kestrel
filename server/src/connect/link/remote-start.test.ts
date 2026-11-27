@@ -124,3 +124,69 @@ describe('the computers a New session may run on', () => {
     expect(await w.get(`/api/start-computers/${a.mini.id()}`)).toEqual({ ok: false, reason: 'Mac mini cannot be reached now.' });
   });
 });
+
+// Item 81: Matt started a session on a worker node from his Mac; the first answer came after the Mac gave up, the
+// node carried on, and the second Enter made a second session. A start carries an id, is waited for as long as a
+// start takes, is asked again with the same id when late, and the other computer answers a repeat with the same session.
+describe('a start on another computer is asked once and happens once', () => {
+  /** The Mac mini accepts each start only after `ms`, as a cold node's first start does. */
+  function slowStarts(a: Awaited<ReturnType<typeof account>>, ms: number): () => number {
+    const real = a.mini.runtime.start.bind(a.mini.runtime);
+    let starts = 0;
+    a.mini.runtime.start = async (req) => {
+      starts++;
+      await new Promise((resolve) => setTimeout(resolve, ms));
+      return real(req);
+    };
+    return () => starts;
+  }
+  const sessionsOn = async (d: { workspace: { state: () => Promise<{ sessions: { id: string }[] }> } }) => (await d.workspace.state()).sessions.map((s) => s.id);
+
+  it('a start answered after the wait makes one session, and this computer ends up showing it', async () => {
+    const a = await account();
+    const w = await laptopWindow(a.laptop, true, { startTimeoutMs: 300 });
+    const before = await sessionsOn(a.mini);
+    const asked = slowStarts(a, 450);
+    const sent = await w.post('/api/sessions', { machine: a.mini.id(), agent: 'claude', projectId: null, prompt: 'hello', permission: 'ask', startId: 'draft-1' });
+    expect(sent.status).toBe(201);
+    const id = sent.body!.id as string;
+    await a.mini.settle();
+    expect((await sessionsOn(a.mini)).filter((s) => !before.includes(s))).toEqual([id]);
+    // The retry waited for the first, which it found under way: one start.
+    expect(asked()).toBe(1);
+    expect((await a.laptop.workspace.view()).sessions.some((s) => s.id === id)).toBe(true);
+  });
+
+  it('the same id asked twice makes one session; no id behaves as before', async () => {
+    const a = await account();
+    const w = await laptopWindow(a.laptop, true);
+    const body = { machine: a.mini.id(), agent: 'claude', projectId: null, prompt: 'hello', permission: 'ask', startId: 'draft-2' };
+    const first = await w.post('/api/sessions', body);
+    const second = await w.post('/api/sessions', body);
+    expect(first.status).toBe(201);
+    expect(second.body).toEqual(first.body);
+    await a.mini.settle();
+    expect((await sessionsOn(a.mini)).filter((id) => id === first.body!.id)).toHaveLength(1);
+
+    // An older device sends no id: each start is a start.
+    const count = (await sessionsOn(a.mini)).length;
+    const ask = () => a.laptop.desk.remote.ask(a.mini.id(), 'session.start', { text: 'old device', mode: 'ask' });
+    const [x, y] = [await ask(), await ask()];
+    expect(x.ok && y.ok).toBe(true);
+    expect((x as { result: { sessionId: string } }).result.sessionId).not.toBe((y as { result: { sessionId: string } }).result.sessionId);
+    await a.mini.settle();
+    expect(await sessionsOn(a.mini)).toHaveLength(count + 2);
+  });
+
+  it('late every time: says it may have started there, and it then starts once', async () => {
+    const a = await account();
+    const w = await laptopWindow(a.laptop, true, { startTimeoutMs: 200 });
+    const before = await sessionsOn(a.mini);
+    slowStarts(a, 700);
+    const sent = await w.post('/api/sessions', { machine: a.mini.id(), agent: 'claude', projectId: null, prompt: 'hello', permission: 'ask', startId: 'draft-3' });
+    expect(sent).toEqual({ status: 504, body: { error: 'Mac mini did not answer in time. If the session started there it will show in the sidebar.' } });
+    await until(async () => (await sessionsOn(a.mini)).length > before.length, 'it starts there after all');
+    await a.mini.settle();
+    expect((await sessionsOn(a.mini)).filter((s) => !before.includes(s))).toHaveLength(1);
+  });
+});

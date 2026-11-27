@@ -14,11 +14,16 @@ import { Refused } from './workspace.ts';
 
 const run = promisify(execFile);
 const MAX_DIFF_BYTES = 200_000;
-const GIT_ENV = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' };
+/**
+ * The environment every git call here runs in: the server's own, read at each call (on a worker node it carries the
+ * node's key, commit name and email, which `kestrel-node git` can change while it runs: node-control/node-git-env.ts),
+ * with no terminal prompt and no optional locks.
+ */
+export const gitEnv = (): NodeJS.ProcessEnv => ({ ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' });
 
 export async function git(cwd: string, args: string[], opts: { allowFail?: boolean; env?: Record<string, string> } = {}): Promise<string> {
   try {
-    const { stdout } = await run('git', args, { cwd, env: { ...GIT_ENV, ...opts.env }, maxBuffer: 64 * 1024 * 1024 });
+    const { stdout } = await run('git', args, { cwd, env: { ...gitEnv(), ...opts.env }, maxBuffer: 64 * 1024 * 1024 });
     return stdout;
   } catch (error) {
     if (opts.allowFail) return '';
@@ -246,7 +251,7 @@ export interface ChangesRead {
  */
 async function markNewFiles(worktreePath: string, env: Record<string, string>): Promise<string | null> {
   try {
-    await run('git', ['add', '-A', '-N', '--ignore-errors', '.'], { cwd: worktreePath, env: { ...GIT_ENV, ...env }, maxBuffer: 64 * 1024 * 1024 });
+    await run('git', ['add', '-A', '-N', '--ignore-errors', '.'], { cwd: worktreePath, env: { ...gitEnv(), ...env }, maxBuffer: 64 * 1024 * 1024 });
     return null;
   } catch (error) {
     const stderr = (error as { stderr?: string }).stderr ?? '';
@@ -355,7 +360,7 @@ export async function headCommit(worktreePath: string): Promise<string> {
 /** Whether `commit` is in the history of `ref`. False when either is unknown. */
 export async function isAncestor(cwd: string, commit: string, ref: string): Promise<boolean> {
   try {
-    await run('git', ['merge-base', '--is-ancestor', commit, ref], { cwd, env: GIT_ENV });
+    await run('git', ['merge-base', '--is-ancestor', commit, ref], { cwd, env: gitEnv() });
     return true;
   } catch {
     return false;
@@ -368,10 +373,22 @@ export async function originUrl(path: string): Promise<string | null> {
   return out || null;
 }
 
+/** The remotes a git config file names, by name, `origin` first. Pure. */
+export function namedRemotesOfConfig(config: string): { name: string; url: string }[] {
+  const found = [...config.matchAll(/\[remote "([^"]+)"\][^\[]*?^\s*url\s*=\s*(\S+)\s*$/gm)].map((m) => ({ name: m[1]!, url: m[2]! }));
+  return [...found.filter((r) => r.name === 'origin'), ...found.filter((r) => r.name !== 'origin')];
+}
+
 /** The remote addresses a git config file names, `origin` first. Pure. */
 export function remotesOfConfig(config: string): string[] {
-  const found = [...config.matchAll(/\[remote "([^"]+)"\][^\[]*?^\s*url\s*=\s*(\S+)\s*$/gm)].map((m) => ({ name: m[1]!, url: m[2]! }));
-  return [...found.filter((r) => r.name === 'origin'), ...found.filter((r) => r.name !== 'origin')].map((r) => r.url);
+  return namedRemotesOfConfig(config).map((r) => r.url);
+}
+
+/** The folder's `origin` address, from its own config file where there is one (as `remoteUrls`), else asked of git; null when it has none. */
+export async function originRemote(path: string): Promise<string | null> {
+  const config = await readFile(join(path, '.git', 'config'), 'utf8').catch(() => null);
+  if (config !== null) return namedRemotesOfConfig(config).find((r) => r.name === 'origin')?.url ?? null;
+  return originUrl(path);
 }
 
 /**
@@ -400,7 +417,7 @@ export async function remoteUrls(path: string): Promise<string[]> {
 export async function commitIsHere(worktreePath: string | null | undefined, sha: string): Promise<boolean> {
   if (!worktreePath || !/^[0-9a-f]{7,64}$/i.test(sha)) return false;
   try {
-    await run('git', ['merge-base', '--is-ancestor', sha, 'HEAD'], { cwd: worktreePath, env: GIT_ENV });
+    await run('git', ['merge-base', '--is-ancestor', sha, 'HEAD'], { cwd: worktreePath, env: gitEnv() });
     return true;
   } catch {
     return false;

@@ -1,7 +1,7 @@
 // Kestrel Connect on the desktop: the sign-in, this computer's device identity, the one switch, and
 // the relay link. It owns `ConnectView` (shared/connect.ts), pushes it whole on every change, and
 // dials nothing while the switch is off or nobody is signed in (design doc kestrel-connect.md, 8-9).
-import { CONNECT_OFF, deviceNameOf, type ConnectAccount, type ConnectDevice, type ConnectHeld, type ConnectLink, type ConnectView, NO_PUSH } from '../../shared/connect.ts';
+import { CONNECT_OFF, CONNECT_SIGN_IN, deviceKindFor, deviceNameOf, isComputerKind, recoveryWordsRefusal, type ConnectAccount, type ConnectDevice, type ConnectHeld, type ConnectLink, type ConnectView, NO_PUSH } from '../../shared/connect.ts';
 import type { Envelope } from '../../shared/connect-ops.ts';
 import { newIdentity, publicIdentity } from '../keys.ts';
 import { DeskChannel } from './channel.ts';
@@ -11,7 +11,9 @@ import { AccountJoin } from './join.ts';
 import { asJoinRequest, JoinApi, type ServiceDevice } from './join-api.ts';
 import { Refused } from '../../refused.ts';
 import type { SettingStore } from '../../suggestions/prefs.ts';
-import { SignInEnded, type AuthorizationRequest, type IdentityProvider } from './identity.ts';
+import { SignInEnded, type AuthorizationRequest, type DeviceAuthorization, type IdentityProvider } from './identity.ts';
+import { pollDeviceGrant, promptOf, type DeviceSignInPrompt } from './device-sign-in.ts';
+import type { KestrelKind } from '../../shared/host-kind.ts';
 import { listenForCallback, type LoopbackCallback } from './loopback.ts';
 import { DIAL_FRESH_FOR_MS, RelayLink } from './relay-link.ts';
 import { ServiceRefusal, type ConnectService, type ServiceMethod } from './service.ts';
@@ -23,6 +25,7 @@ import { DEFAULT_HELD_PREFS, HeldConversations, type HeldPrefs, type HeldSource 
 import type { QueueStore } from './held-queue.ts';
 import type { StoredDevice, StoredTokens, Vault, VaultData } from './vault.ts';
 import { SetupRecords } from './setup-records.ts';
+import type { PublishedGit } from '../../shared/node-commands.ts';
 import type { DeskOps } from '../dispatcher.ts';
 import { copyValues, type CopyDeps, type CopyReport } from '../../setup-values/copy.ts';
 import { readValues, sourceText, type ValueSources } from '../../setup-values/read.ts';
@@ -56,6 +59,8 @@ export interface ConnectDeps {
   computerName: string;
   /** Why Connect cannot be used in this copy (sample data), or null. */
   unavailable?: string | null;
+  /** Which kind of server this is (`hostKind`): how it signs in and what it registers as (`CONNECT_SIGN_IN`). Default: the app. */
+  kind?: KestrelKind;
   listen?: typeof listenForCallback;
   /** Makes the dispatcher for this computer's device id (connect/dispatcher.ts); none in tests of the link alone. `desk`: the desk-only operations' part. */
   dispatch?: (deviceId: string, send: (frame: Envelope) => void, desk: DeskOps) => Dispatch;
@@ -102,6 +107,9 @@ export interface Dispatch {
   forget(device: string): void;
   close(): void;
 }
+
+/** The switch and the held-conversation choices, as the settings store keeps them (read back by `prefsOf`). */
+export const connectPrefsJson = (enabled: boolean, held: HeldPrefs = DEFAULT_HELD_PREFS): string => JSON.stringify({ enabled, keptOff: held.keptOff, attachments: held.attachments });
 
 /** The switch and the held-conversation choices, as kept in the settings store. */
 function prefsOf(raw: string | null): { enabled: boolean; held: HeldPrefs } {
@@ -155,6 +163,13 @@ export class KestrelConnect {
   private nameProblem: string | null = null;
   private account: ConnectAccount = { state: 'signed-out', reason: null };
   private signInUnderWay: { callback: LoopbackCallback; request: AuthorizationRequest } | null = null;
+  /** A worker node's sign-in by a device authorization grant, while it is polled. */
+  private deviceSignIn: { request: DeviceAuthorization; abort: AbortController } | null = null;
+  /** This computer was removed from the account by another device: nothing is dialled until it joins again. */
+  private removedFromAccount = false;
+  private readonly kind: KestrelKind;
+  /** Why the recovery words may not be shown or typed here (a worker node), or null. */
+  private readonly wordsRefusal: string | null;
   private refreshing: Promise<StoredTokens> | null = null;
   private registering: Promise<string> | null = null;
   private readonly listeners = new Set<(view: ConnectView) => void>();
@@ -189,12 +204,16 @@ export class KestrelConnect {
   readonly offers: OffersSync | null;
 
   constructor(private readonly deps: ConnectDeps) {
+    this.kind = deps.kind ?? 'app';
+    this.wordsRefusal = recoveryWordsRefusal(this.kind);
+    const kind = deviceKindFor(this.kind);
     this.keys = new AccountKeys({
       api: () => this.api(),
       me: () => {
         const device = this.data.device;
-        return device && device.subject === this.data.tokens?.subject ? { id: device.id, name: this.name(), kind: 'desktop' as const, identity: device } : null;
+        return device && device.subject === this.data.tokens?.subject ? { id: device.id, name: this.name(), kind, identity: device } : null;
       },
+      wordsRefusal: this.wordsRefusal,
       trust: () => trustOf(this.data.keys),
       saveTrust: (next) => this.save({ ...this.data, keys: next }),
       changed: () => this.changed(),
@@ -262,7 +281,8 @@ export class KestrelConnect {
           ...(sources.requestTtlMs ? { ttlMs: sources.requestTtlMs } : {}),
         })
       : null;
-    const machines = () => this.accountDevices.filter((d) => d.kind === 'desktop' && !this.removedHere.has(d.id) && this.keys.member(d.id) !== null).map((d) => ({ id: d.id, name: d.name }));
+    // The account's computers, desktops and worker nodes alike (W2): whose sessions, projects, offers and seen marks are read.
+    const machines = () => this.accountDevices.filter((d) => isComputerKind(d.kind) && !this.removedHere.has(d.id) && this.keys.member(d.id) !== null).map((d) => ({ id: d.id, name: d.name }));
     this.seen = deps.seen
       ? new SeenSync({
           source: deps.seen,
@@ -315,7 +335,7 @@ export class KestrelConnect {
           keyFor: (generation) => this.keys.keyFor(generation),
           desk: () => this.myDevice(),
           now: deps.now,
-          machines: () => this.accountDevices.filter((d) => d.kind === 'desktop' && !this.removedHere.has(d.id) && this.keys.member(d.id) !== null).map((d) => ({ id: d.id, name: d.name })),
+          machines,
         })
       : null;
     this.link = new RelayLink({
@@ -358,7 +378,7 @@ export class KestrelConnect {
       // Answers to this computer's own calls go to the caller, the rest to the channel (caller.ts).
       frame: (text) => void (routeFrame(text, this.myDevice()?.id ?? null, this.caller) && this.channel.receive(text)),
       signedOut: (reason) => void this.endSignIn(`the sign-in expired or was ended (${reason}). Sign in again.`),
-      deviceGone: () => void this.save({ ...this.data, device: null }),
+      deviceGone: () => void this.dropRemoved(),
       now: deps.now,
       random: deps.random,
     });
@@ -391,7 +411,7 @@ export class KestrelConnect {
       api: () => (this.link.link.state === 'connected' ? new JoinApi(this.call()) : null),
       me: () => {
         const device = this.data.device;
-        return device && device.subject === this.data.tokens?.subject ? { id: device.id, name: this.name(), kind: 'desktop', identity: device } : null;
+        return device && device.subject === this.data.tokens?.subject ? { id: device.id, name: this.name(), kind, identity: device } : null;
       },
       keys: this.keys,
       hello: (to, body) => this.channel.sendHello(to, body),
@@ -582,6 +602,8 @@ export class KestrelConnect {
     if (this.deps.unavailable) throw new Refused(this.deps.unavailable);
     await this.savePrefs(enabled, this.heldPrefs);
     this.enabled = enabled;
+    // Off and on again registers this computer afresh: removed no longer applies.
+    if (enabled) this.removedFromAccount = false;
     if (!enabled) {
       this.keys.reset();
       this.join.reset();
@@ -593,7 +615,7 @@ export class KestrelConnect {
   }
 
   private savePrefs(enabled: boolean, held: HeldPrefs): Promise<void> {
-    return this.deps.settings.putSetting(CONNECT_PREFS_KEY, JSON.stringify({ enabled, keptOff: held.keptOff, attachments: held.attachments }));
+    return this.deps.settings.putSetting(CONNECT_PREFS_KEY, connectPrefsJson(enabled, held));
   }
 
   /** Which projects are kept off, and whether attachments are held. Saved as changed; what is no longer held is deleted from the service. */
@@ -625,6 +647,17 @@ export class KestrelConnect {
   /** Settings → Connections was opened: this computer's set-up record is written again if it changed. */
   setupRefresh(): void {
     this.setup?.refresh();
+  }
+
+  /**
+   * What the account's other computers publish about their git (their set-up records: name, email, whether they sign),
+   * newest first, for a worker node's `kestrel-node git`. Refused, with the reason, when this computer cannot read them.
+   */
+  async publishedGit(): Promise<PublishedGit[]> {
+    if (!this.setup) throw new Refused('This copy of Kestrel does not read set-up records.');
+    if (this.link.link.state !== 'connected' || !this.keys.ready()) throw new Refused('Not connected to your Kestrel Connect account, so what your other computers use could not be read.');
+    const others = await this.setup.others(await this.api().devices());
+    return [...others].sort((a, b) => b.readAt - a.readAt).map((r) => ({ computer: r.machine.name, name: r.git.name, email: r.git.email, signs: r.git.signs }));
   }
 
   /** The set-up list for this computer, from every other computer's record and this one read now (onboarding.md, section 7). */
@@ -661,7 +694,7 @@ export class KestrelConnect {
     );
   }
 
-  /** The recovery words, shown from this computer because it holds the account key. */
+  /** The recovery words, shown from this computer because it holds the account key. Never on a worker node. */
   recoveryWords(): { words: string[] } {
     return { words: this.keys.words() };
   }
@@ -671,8 +704,9 @@ export class KestrelConnect {
     return this.view();
   }
 
-  /** Lets this computer in with the recovery words. */
+  /** Lets this computer in with the recovery words. Never a worker node: it joins by the two codes only. */
   async recover(words: string): Promise<ConnectView> {
+    if (this.wordsRefusal) throw new Refused(this.wordsRefusal);
     if (this.link.link.state !== 'connected') throw new Refused('Turn Kestrel Connect on, sign in, and wait until it says Connected, then enter the recovery key.');
     await this.keys.recover(words);
     void this.linkUp();
@@ -682,6 +716,7 @@ export class KestrelConnect {
   /** Begins a sign-in: the browser is sent to the returned address and comes back to a loopback listener. */
   async signIn(): Promise<{ url: string }> {
     if (this.deps.unavailable) throw new Refused(this.deps.unavailable);
+    if (CONNECT_SIGN_IN[this.kind].grant !== 'loopback') throw new Refused('A worker node has no browser. Sign it in from its terminal with "kestrel-node join".');
     if (this.account.state === 'signed-in') throw new Refused(`Already signed in as ${this.account.email}. Sign out first to use another account.`);
     if (this.signInUnderWay) return { url: this.signInUnderWay.request.url };
     let callback: LoopbackCallback | null = null;
@@ -709,9 +744,7 @@ export class KestrelConnect {
       if ('error' in result) throw new Error(result.error);
       const tokens = await this.deps.identity.exchange(result.code, underWay.request);
       if (this.signInUnderWay !== underWay) return;
-      const device = this.data.device?.subject === tokens.subject ? this.data.device : null;
-      await this.save({ ...this.data, tokens, device });
-      this.account = { state: 'signed-in', email: tokens.email };
+      await this.adopt(tokens);
     } catch (error) {
       if (this.signInUnderWay !== underWay) return;
       this.account = { state: 'signed-out', reason: message(error) };
@@ -722,12 +755,86 @@ export class KestrelConnect {
     this.changed();
   }
 
+  /** The sign-in's tokens are this computer's: kept in the protected store, with its device when the account is the same. */
+  private async adopt(tokens: StoredTokens): Promise<void> {
+    const device = this.data.device?.subject === tokens.subject ? this.data.device : null;
+    await this.save({ ...this.data, tokens, device });
+    this.account = { state: 'signed-in', email: tokens.email };
+  }
+
+  /**
+   * Begins a worker node's sign-in (worker-nodes.md, section 5): a device authorization grant, whose address and
+   * short code the person opens on any device. Polled in the background until it ends; the account's state says how.
+   */
+  async signInWithCode(): Promise<DeviceSignInPrompt> {
+    if (this.deps.unavailable) throw new Refused(this.deps.unavailable);
+    if (CONNECT_SIGN_IN[this.kind].grant !== 'device') throw new Refused('This computer signs in to Kestrel Connect through the browser.');
+    if (this.account.state === 'signed-in') throw new Refused(`Already signed in as ${this.account.email}. Sign out first to use another account.`);
+    if (this.deviceSignIn) return promptOf(this.deviceSignIn.request);
+    let request: DeviceAuthorization;
+    try {
+      request = await this.deps.identity.deviceAuthorize();
+    } catch (error) {
+      throw new Refused(`Kestrel Connect could not be reached to sign in: ${message(error)}`);
+    }
+    const underWay = { request, abort: new AbortController() };
+    this.deviceSignIn = underWay;
+    this.account = { state: 'signing-in', url: request.verificationUriComplete ?? request.verificationUri };
+    this.changed();
+    void pollDeviceGrant({ identity: this.deps.identity, ...(this.deps.now ? { now: this.deps.now } : {}) }, request, underWay.abort.signal)
+      .then(
+        async (tokens) => {
+          if (this.deviceSignIn === underWay) await this.adopt(tokens);
+        },
+        (error: unknown) => {
+          if (this.deviceSignIn === underWay) this.account = { state: 'signed-out', reason: message(error) };
+        },
+      )
+      .finally(() => {
+        if (this.deviceSignIn !== underWay) return;
+        this.deviceSignIn = null;
+        this.follow();
+        this.changed();
+      });
+    return promptOf(request);
+  }
+
   cancelSignIn(): void {
+    const device = this.deviceSignIn;
     const underWay = this.signInUnderWay;
-    if (!underWay) return;
+    if (!underWay && !device) return;
+    this.deviceSignIn = null;
+    device?.abort.abort();
     this.signInUnderWay = null;
-    underWay.callback.close();
+    underWay?.callback.close();
     this.account = { state: 'signed-out', reason: null };
+    this.changed();
+  }
+
+  /** Removed from the account by another device (the relay says so): the device and the key are dropped, and nothing is dialled. */
+  private async dropRemoved(): Promise<void> {
+    this.removedFromAccount = true;
+    this.keys.reset();
+    this.join.reset();
+    await this.save({ ...this.data, device: null });
+  }
+
+  /** Whether another device removed this computer from the account, and it has not joined again since. */
+  wasRemoved(): boolean {
+    return this.removedFromAccount;
+  }
+
+  /** Whether this computer is in the account now: let in, by the keyring it holds or last accepted, and not removed since. */
+  inAccount(): boolean {
+    const device = this.myDevice();
+    return !this.removedFromAccount && device !== null && (this.keys.ready() !== null || this.keys.member(device.id) !== null);
+  }
+
+  /** Starts afresh after a removal: the link dials again and this computer is registered as a new device, to ask to join. */
+  rejoin(): void {
+    this.removedFromAccount = false;
+    this.link.stop();
+    this.follow();
     this.changed();
   }
 
@@ -745,9 +852,30 @@ export class KestrelConnect {
     // The device keys stay: signing in again to the same account keeps this computer's identity.
     await this.save({ ...this.data, tokens: null });
     this.account = { state: 'signed-out', reason: null };
+    this.removedFromAccount = false;
     this.changed();
     if (tokens) void this.deps.identity.revoke(tokens).catch(() => undefined);
     return this.view();
+  }
+
+  /**
+   * This computer leaves the account for good (`kestrel-node uninstall`): the service removes it as Remove does from
+   * another device, which leaves the key's rotation due for the next device that may rotate it; then it signs out
+   * and forgets its device keys. Nothing is dropped when the service refuses: the caller deletes nothing then.
+   */
+  async leaveAccount(): Promise<'left' | 'not-signed-in'> {
+    const device = this.data.device;
+    if (!this.data.tokens) return 'not-signed-in';
+    if (device) {
+      try {
+        await this.signedIn((token) => this.deps.service.removeDevice(token, device.id));
+      } catch (error) {
+        throw new Refused(`Kestrel Connect could not remove this computer from your account: ${message(error)} Try again when it is connected, or remove it from another device.`);
+      }
+    }
+    await this.signOut();
+    await this.save({ ...this.data, device: null });
+    return 'left';
   }
 
   private async endSignIn(reason: string): Promise<void> {
@@ -792,7 +920,7 @@ export class KestrelConnect {
           await this.projects?.forget();
         }
         const identity = { signing: keys.signing, agreement: keys.agreement };
-        const registered = await this.signedIn((token) => this.deps.service.registerDevice(token, this.name(), 'desktop', publicIdentity(identity)));
+        const registered = await this.signedIn((token) => this.deps.service.registerDevice(token, this.name(), deviceKindFor(this.kind), publicIdentity(identity)));
         const stored: StoredDevice = { subject: tokens.subject, id: registered.id, name: registered.name, signing: keys.signing, agreement: keys.agreement };
         await this.save({ ...this.data, device: stored, keysPut: stored.id });
         // The service has the name now: it was given at registration.
@@ -864,12 +992,12 @@ export class KestrelConnect {
   }
 
   /**
-   * The account's other computers a session may be started on from here (issue 52): every desktop of the keyring
-   * this computer accepted but itself, by name. Empty while not connected or with no account.
+   * The account's other computers a session may be started on from here (issue 52): every desktop and worker node of
+   * the keyring this computer accepted but itself, by name. Empty while not connected or with no account.
    */
   otherComputers(): { id: string; name: string }[] {
     const me = this.myDevice()?.id;
-    return this.accountDevices.filter((d) => d.kind === 'desktop' && d.id !== me && !this.removedHere.has(d.id) && this.keys.member(d.id) !== null).map((d) => ({ id: d.id, name: d.name }));
+    return this.accountDevices.filter((d) => isComputerKind(d.kind) && d.id !== me && !this.removedHere.has(d.id) && this.keys.member(d.id) !== null).map((d) => ({ id: d.id, name: d.name }));
   }
 
   /** This computer's registered device on the signed-in account, or null. */

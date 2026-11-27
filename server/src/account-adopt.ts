@@ -20,7 +20,15 @@ export interface AdoptDeps {
   /** What the look found, step by step, for the log. */
   report?(project: Project): Promise<string>;
   log?(text: string): void;
+  /**
+   * A worker node, where not having a project is the normal state (it clones one when a session starts in it): one
+   * line with how many were not found, instead of a line per project.
+   */
+  quiet?: boolean;
 }
+
+/** The one line a worker node logs for the account's projects it does not have. */
+export const notHereCount = (count: number): string => `${count} project${count === 1 ? '' : 's'} of the account ${count === 1 ? 'is' : 'are'} not on this computer; each is cloned when a session starts in it`;
 
 function keysOf(json: string | null): string[] {
   try {
@@ -62,6 +70,7 @@ export class AdoptHere {
     this.looked = signature;
     const adopted = new Set(keysOf(await this.deps.settings.getSetting(ADOPTED_KEY)));
     const added: string[] = [];
+    let missing = 0;
     for (const project of lacking) {
       const repos = project.elsewhere?.repos ?? [];
       if (repos.some((k) => adopted.has(k))) continue;
@@ -70,6 +79,8 @@ export class AdoptHere {
         return null;
       });
       if (!found) {
+        missing += 1;
+        if (this.deps.quiet) continue;
         // Said once per look, so a clone that is here and was missed can be traced from the log.
         this.deps.log?.(`${project.name} was not found on this computer: ${(await this.deps.report?.(project).catch(() => null)) ?? 'nothing more is known'}`);
         continue;
@@ -78,14 +89,15 @@ export class AdoptHere {
         await this.deps.create(project.name, found.path);
       } catch (error) {
         // Left for the person to add from its page, which says why.
-        this.deps.log?.(`${project.name} was found at ${found.shown} and not added: ${error instanceof Error ? error.message : String(error)}`);
+        this.deps.log?.(`${project.name} was found on this computer and not added: ${error instanceof Error ? error.message : String(error)}`);
         continue;
       }
       for (const key of repos) adopted.add(key);
       await this.deps.settings.putSetting(ADOPTED_KEY, JSON.stringify([...adopted]));
-      this.deps.log?.(`${project.name} was found at ${found.shown} and added`);
+      this.deps.log?.(`${project.name} was found on this computer and added`);
       added.push(project.name);
     }
+    if (this.deps.quiet && missing > 0) this.deps.log?.(notHereCount(missing));
     return added;
   }
 }

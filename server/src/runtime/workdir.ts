@@ -22,6 +22,7 @@ import type { KeepAwakeOptions } from '../keep-awake/hold.ts';
 import type { RunScript } from '../project-scripts/run.ts';
 import { DEFAULT_PREFIX } from '../shared/branch-prefix.ts';
 import type { Agent, Attachment, Project, ProjectFolder, SessionSettings } from '../model.ts';
+import type { KestrelKind } from '../shared/host-kind.ts';
 import type { BaseChoice } from '../shared/start-base.ts';
 import type { Simulator } from '../simulator.ts';
 import type { SuggestionOptions } from '../suggestions/index.ts';
@@ -30,6 +31,8 @@ import { followTitle } from './late-branch.ts';
 import type { Titler } from './titling.ts';
 
 export interface RuntimeOptions {
+  /** What this server is and what this computer is called, for what needs a window and so a screen (shared/no-window.ts). Default: the app. */
+  window?: { kind: KestrelKind; name: string };
   simulator?: Simulator;
   /** Who writes short session titles (agents/title-providers.ts); none by default. */
   titleProviders?: readonly TitleProvider[];
@@ -115,6 +118,16 @@ export interface Launch {
   start?: WorktreeStart;
   /** A working folder already made (a start the user stopped, then resumed by replying). */
   workdir?: Workdir;
+  /** The project is cloned first (a worker node, item 64): the session starts with no project and moves into it once it is there. */
+  clone?: CloneStart;
+}
+
+/** A start in a project this computer clones first (worker-nodes.md section 9). */
+export interface CloneStart {
+  /** What the row says while it runs ("Cloning acme/shop…"). */
+  note: string;
+  /** Clones the project (or finds it, cloned meanwhile) and answers it; `Refused` with why it could not. */
+  project(signal?: AbortSignal): Promise<Project>;
 }
 
 export interface Workdir {

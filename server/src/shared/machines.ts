@@ -215,6 +215,15 @@ export function remoteRefusal(machineName: string): string {
 }
 
 /**
+ * Another machine's refusal as it is shown: its own words, or, when it gave none, that it refused (item 81: an empty
+ * reason once reached the window as an empty toast). Every refusal of a remote action is worded through this.
+ */
+export function refusedThere(machineName: string, reason: unknown): string {
+  const said = typeof reason === 'string' ? reason.trim() : '';
+  return said || `${machineName} refused that without saying why. Look at Kestrel there.`;
+}
+
+/**
  * Why an action on a session on another machine was not done: that machine could not be reached ("Mac mini cannot
  * be reached."), with why the link said so. Nothing is held for later (that is issue 53).
  */

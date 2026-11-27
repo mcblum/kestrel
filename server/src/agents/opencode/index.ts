@@ -10,13 +10,16 @@ import { forkSession, probeCommands, probeOpencode, type ProbeResult } from './c
 import { OpencodeHandle, type HandleDeps } from './handle.ts';
 import { contextWindow, FALLBACK_MODELS } from './models.ts';
 import { OPENCODE_LEVELS } from './policy.ts';
-import { launchCommand, launchOpencode, OpencodeUnavailable, serveArgs, type Launch } from './process.ts';
+import { opencodeLocks, startGate } from './one-at-a-time.ts';
+import { launchCommand, launchOpencode, opencodeLauncher, OpencodeUnavailable, serveArgs, type Launch } from './process.ts';
 import { configuredServers } from './user-config.ts';
 
 type Env = Record<string, string | undefined>;
 
 export interface OpencodeAdapterOptions {
   launch?: Launch;
+  /** Kestrel's folder: OpenCode programs start one at a time across Kestrel's processes, by a lock there (one-at-a-time.ts). */
+  dataDir?: string;
   env?: Env;
   /** For how long an availability answer is reused. */
   availabilityTtlMs?: number;
@@ -32,7 +35,7 @@ const MAX_REMEMBERED = 200;
 
 export function opencodeAdapter(options: OpencodeAdapterOptions = {}): AgentAdapter {
   const env = options.env ?? process.env;
-  const launch = options.launch ?? launchOpencode;
+  const launch = options.launch ?? (options.dataDir ? opencodeLauncher(startGate(opencodeLocks(options.dataDir))) : launchOpencode);
   const now = options.now ?? Date.now;
   const probeDirectory = options.probeDirectory ?? homedir();
   const log = options.log ?? ((message: string) => console.warn(`[kestrel] opencode: ${message}`));
@@ -75,9 +78,11 @@ export function opencodeAdapter(options: OpencodeAdapterOptions = {}): AgentAdap
         await probed();
         return { available: true };
       } catch (error) {
-        return { available: false, reason: error instanceof OpencodeUnavailable ? error.message : `OpenCode could not start: ${error instanceof Error ? error.message : String(error)}` };
+        if (error instanceof OpencodeUnavailable) return { available: false, reason: error.message, problem: error.kind };
+        return { available: false, reason: `OpenCode could not start: ${error instanceof Error ? error.message : String(error)}` };
       }
     },
+    recheck: () => void (probe = null),
     slashCommands: (startOptions) => probeCommands(launch, env, startOptions.directory),
     start(startOptions, prompt, emit, attachments) {
       const handle = new OpencodeHandle(null, startOptions, emit, deps);

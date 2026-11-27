@@ -41,6 +41,8 @@ export class BrowserTools {
   constructor(
     readonly bridge: BrowserBridge,
     private readonly host: BrowserHost,
+    /** Why the pane cannot be used on this computer (it has no screen), or null. Every tool is refused with it. */
+    private readonly noScreen: string | null = null,
   ) {}
 
   /** Kestrel's own server port and UI origins: the pane never opens them. Set once the server is listening. */
@@ -67,6 +69,7 @@ export class BrowserTools {
   /** A refusal goes back to the agent and shows in the conversation, like Kestrel's other tools. */
   private async guard(sessionId: string, tool: string, work: () => Promise<ToolResult>): Promise<ToolResult> {
     try {
+      if (this.noScreen) throw new Refused(this.noScreen);
       return await work();
     } catch (error) {
       if (!(error instanceof Refused)) throw error;

@@ -8,14 +8,14 @@ import { createPrivateKey, randomBytes } from 'node:crypto';
 import { keyringSigned, newAccountKey, openRecord, openSealed, recoveryKey, recoverySecretFromWords, recoveryWords, sealRecord, sealWith, signKeyring, unwrapKey, wrapKey } from '../account-key.ts';
 import { publicIdentity, type Identity, type PublicIdentity } from '../keys.ts';
 import { Refused } from '../../refused.ts';
-import type { ConnectKeys } from '../../shared/connect.ts';
+import type { DeviceKind, ConnectKeys } from '../../shared/connect.ts';
 import type { HeldApi, KeysAnswer } from './held-api.ts';
 import { ServiceRefusal } from './service.ts';
 
 export interface KeyringDevice {
   id: string;
   name: string;
-  kind: 'desktop' | 'phone';
+  kind: DeviceKind;
   signing: string;
   agreement: string;
   addedBy: string;
@@ -42,12 +42,21 @@ export interface KeysTrust {
 
 export interface KeysDeps {
   api(): HeldApi;
-  me(): { id: string; name: string; kind?: 'desktop' | 'phone'; identity: Identity } | null;
+  me(): { id: string; name: string; kind?: DeviceKind; identity: Identity } | null;
   trust(): KeysTrust | null;
   saveTrust(next: KeysTrust): Promise<void>;
   changed(): void;
   now?(): number;
+  /**
+   * Why the recovery words may not be shown or typed on this device, or null where they may (`recoveryWordsRefusal`,
+   * shared/connect.ts: a worker node). Such a device never makes the account's first key or a rotation's, since
+   * each makes new words that would wait to be shown here; a computer with a screen or a phone does those.
+   */
+  wordsRefusal?: string | null;
 }
+
+/** The account has no key yet, and this device may not make one (a worker node, W5). */
+export const NO_KEY_YET_HERE = 'Your Kestrel Connect account has no devices in it yet. Sign in to Kestrel on a computer with a screen first, then join this worker node from it.';
 
 /** The key, ready to seal with. */
 export interface ReadyKey {
@@ -112,7 +121,7 @@ export class AccountKeys {
    * null when it is not in it or the key is not open yet. What a desk-only operation is checked against
    * (onboarding.md 19.6), never the account's device list or a request.
    */
-  device(deviceId: string): { kind: 'desktop' | 'phone'; name: string } | null {
+  device(deviceId: string): { kind: DeviceKind; name: string } | null {
     const found = this.current?.keyring.devices.find((d) => d.id === deviceId);
     return found ? { kind: found.kind, name: found.name } : null;
   }
@@ -175,10 +184,11 @@ export class AccountKeys {
   private async doSync(attempt = 0): Promise<void> {
     try {
       const answer = await this.deps.api().keys();
-      if (answer.generation === null) return await this.create(attempt);
+      if (answer.generation === null) return this.deps.wordsRefusal ? this.set({ state: 'failed', reason: NO_KEY_YET_HERE }) : await this.create(attempt);
       await this.open(answer);
       if (!this.current) return;
-      if (answer.rotationDue) return await this.rotate(answer.rotationDue.removed.map((d) => d.name), attempt);
+      // A device that may not hold the words leaves the rotation to one that may.
+      if (answer.rotationDue && !this.deps.wordsRefusal) return await this.rotate(answer.rotationDue.removed.map((d) => d.name), attempt);
       await this.withdrawCopyless(answer.holders);
     } catch (error) {
       if (error instanceof ServiceRefusal && (error.code === 'key-exists' || error.code === 'key-changed') && attempt < 2) return this.doSync(attempt + 1);
@@ -287,14 +297,14 @@ export class AccountKeys {
    * says under which generation and keyring version. `again`: even when the keyring has it (a device
    * recovering its own lost copy).
    */
-  grant(device: { id: string; name: string; kind: 'desktop' | 'phone'; keys: PublicIdentity }, again = false): Promise<{ generation: number; keyringVersion: number }> {
+  grant(device: { id: string; name: string; kind: DeviceKind; keys: PublicIdentity }, again = false): Promise<{ generation: number; keyringVersion: number }> {
     // One at a time: two grants at once would both name the same keyring version.
     const next = this.granting.then(() => this.grantOnce(device, 0, again));
     this.granting = next.catch(() => undefined);
     return next;
   }
 
-  private async grantOnce(device: { id: string; name: string; kind: 'desktop' | 'phone'; keys: PublicIdentity }, attempt: number, again: boolean): Promise<{ generation: number; keyringVersion: number }> {
+  private async grantOnce(device: { id: string; name: string; kind: DeviceKind; keys: PublicIdentity }, attempt: number, again: boolean): Promise<{ generation: number; keyringVersion: number }> {
     const current = this.current;
     if (!current) throw new Refused('This device does not hold your account key, so it cannot let another in.');
     if (!again && this.holds(device.id, device.keys)) return { generation: current.generation, keyringVersion: current.keyringVersion };
@@ -440,11 +450,18 @@ export class AccountKeys {
 
   /** The recovery words, from a device that holds the key. */
   words(): string[] {
+    this.refuseWordsHere();
     if (!this.current) throw new Refused('The recovery key can be shown only once this computer holds your account key.');
     return recoveryWords(Buffer.from(this.current.keyring.recovery.secret, 'base64url'));
   }
 
+  /** Throws `Refused` with the reason where the words may not be shown or typed. */
+  private refuseWordsHere(): void {
+    if (this.deps.wordsRefusal) throw new Refused(this.deps.wordsRefusal);
+  }
+
   async wordsPutAway(): Promise<void> {
+    this.refuseWordsHere();
     const trust = this.deps.trust();
     if (trust) await this.deps.saveTrust({ ...trust, wordsPending: false, changedBecause: null });
     this.deps.changed();
@@ -452,6 +469,7 @@ export class AccountKeys {
 
   /** Lets this computer in with the 24 words, and gives it a copy of its own. */
   async recover(text: string): Promise<void> {
+    this.refuseWordsHere();
     const secret = recoverySecretFromWords(text);
     if (!secret) throw new Refused('Those are not 24 recovery words: check each word and their order.');
     const answer = await this.deps.api().keys();

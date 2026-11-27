@@ -21,6 +21,9 @@ export const PROTECTED_FILES = {
 
 export const PROTECTED_FILE_NAMES: readonly string[] = Object.values(PROTECTED_FILES);
 
+/** What Settings says where there is no keystore, and what a worker node's status says: one wording for both. */
+export const NO_KEYSTORE_NOTE = "This computer has no keystore Kestrel can use, so secret values are kept in a file in Kestrel's data folder that only you can read.";
+
 /** The reason a call is refused. Said for the agent, which passes it on. */
 export const PROTECTED_REFUSAL = "Kestrel: that is Kestrel's own credential store, which a session started by another session may not read, search or change. Ask the user if a tracker, an MCP server or Kestrel Connect needs looking at.";
 

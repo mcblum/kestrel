@@ -20,12 +20,16 @@ interface Props {
   projects?: readonly Project[];
   /** Named in the empty search's words and the foot, when the projects are another computer's. */
   computer?: string;
+  /** For a project that computer does not have yet but clones when the session starts: what is said under its name. */
+  cloned?: (project: Project) => string | null;
 }
 
 const looksLikePath = (q: string) => q.trim().startsWith('/');
 
 /** Under a project's name: its default directory, how many it has, or that it has none yet. */
-function PickerDetail({ p }: { p: Project }) {
+function PickerDetail({ p, cloned }: { p: Project; cloned?: string | null }) {
+  // A project the computer chosen clones when the session starts (a worker node).
+  if (cloned) return <small>{cloned}</small>;
   // Another computer's project: its folder there, as that computer told of it.
   if (p.away) {
     const there = p.elsewhere?.folders[0];
@@ -36,7 +40,7 @@ function PickerDetail({ p }: { p: Project }) {
   return <PathDetail path={first.path} note={p.folders.length > 1 ? ` · ${p.folders.length} folders` : first.isGit ? '' : ' · plain folder'} />;
 }
 
-export function ProjectPicker({ value, onSelect, projects: offered, computer }: Props) {
+export function ProjectPicker({ value, onSelect, projects: offered, computer, cloned }: Props) {
   const here = useHereProjects();
   const projects = offered ?? here;
   const [open, setOpen] = useState(false);
@@ -110,7 +114,7 @@ export function ProjectPicker({ value, onSelect, projects: offered, computer }: 
                 <span className="picker-mark">{p.name.charAt(0).toUpperCase()}</span>
                 <span className="picker-text">
                   <strong>{p.name}</strong>
-                  <PickerDetail p={p} />
+                  <PickerDetail p={p} cloned={cloned?.(p) ?? null} />
                 </span>
               </button>
             ))}

@@ -7,6 +7,7 @@ import { delimiter, dirname, join } from 'node:path';
 import { hostPlatform } from '../../host.ts';
 import type { Platform } from '../../shared/platform.ts';
 import { findIn, installDirs } from '../find-program.ts';
+import { kestrelAgentDirs } from '../kestrel-agents.ts';
 
 type Env = Record<string, string | undefined>;
 
@@ -35,9 +36,12 @@ function wellKnownDirs(lookup: Lookup, platform: Platform, env: Env): string[] {
   return [...installDirs(lookup.home, platform, env), ...nodeBins];
 }
 
-/** The path of the `codex` command, from PATH first and then the usual install folders. */
-export function findCodex(env: Env = process.env, lookup: Lookup = realLookup, platform: Platform = hostPlatform()): string | null {
-  const dirs = [...(env.PATH ?? env.Path ?? '').split(delimiter).filter(Boolean), ...wellKnownDirs(lookup, platform, env)];
+/**
+ * The path of the `codex` command: on a worker node Kestrel's own agents folder first (`kestrelDirs`), then PATH,
+ * then the usual install folders.
+ */
+export function findCodex(env: Env = process.env, lookup: Lookup = realLookup, platform: Platform = hostPlatform(), kestrelDirs: readonly string[] = kestrelAgentDirs()): string | null {
+  const dirs = [...kestrelDirs, ...(env.PATH ?? env.Path ?? '').split(delimiter).filter(Boolean), ...wellKnownDirs(lookup, platform, env)];
   return findIn(dirs, 'codex', platform, lookup.exists);
 }
 

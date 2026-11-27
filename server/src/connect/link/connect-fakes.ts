@@ -1,6 +1,7 @@
 // Stand-ins for the identity provider and the Connect service, so tests never reach the network.
 import type { CallbackResult, LoopbackCallback } from './loopback.ts';
-import { SignInEnded, type AuthorizationRequest, type IdentityProvider } from './identity.ts';
+import { DEVICE_CODE_EXPIRED, DEVICE_SIGN_IN_DENIED, DeviceGrantEnded, SignInEnded, type AuthorizationRequest, type DeviceAuthorization, type DevicePoll, type IdentityProvider } from './identity.ts';
+import { isComputerKind, type DeviceKind } from '../../shared/connect.ts';
 import { ServiceRefusal, type ConnectService, type RegisteredDevice, type RelayEvents, type RelaySocket, type ServiceConfig, type ServiceMethod } from './service.ts';
 import type { StoredTokens } from './vault.ts';
 import type { PublicIdentity } from '../keys.ts';
@@ -19,7 +20,37 @@ export class FakeIdentity implements IdentityProvider {
   subject = 'sub-1';
   email = 'person@example.com';
 
+  /** The device grant (RFC 8628): what the person did on the other device, as a test says it. */
+  device: 'waiting' | 'signed-in' | 'denied' | 'expired' = 'waiting';
+  /** The next polls answer slow_down. */
+  slowDowns = 0;
+  /** Every device poll, with the time it was made. */
+  polls: number[] = [];
+  /** Device authorizations started. */
+  deviceStarts = 0;
+  /** The wait between polls the provider asks for; tests make it short. */
+  deviceIntervalMs = 5_000;
+
   constructor(private readonly now: () => number = Date.now) {}
+
+  async deviceAuthorize(): Promise<DeviceAuthorization> {
+    this.deviceStarts += 1;
+    this.device = this.device === 'signed-in' ? 'waiting' : this.device;
+    return { verificationUri: 'https://id.example.test/device', verificationUriComplete: `https://id.example.test/device?user_code=WDJB-MJHT`, userCode: 'WDJB-MJHT', intervalMs: this.deviceIntervalMs, expiresAt: this.now() + 600_000, deviceCode: `device-code-${this.deviceStarts}`, verifier: 'verifier' };
+  }
+
+  async devicePoll(request: DeviceAuthorization): Promise<DevicePoll> {
+    this.polls.push(this.now());
+    if (this.device === 'denied') throw new DeviceGrantEnded(DEVICE_SIGN_IN_DENIED);
+    if (this.device === 'expired' || this.now() >= request.expiresAt) throw new DeviceGrantEnded(DEVICE_CODE_EXPIRED);
+    if (this.slowDowns > 0) {
+      this.slowDowns -= 1;
+      return { state: 'slow-down' };
+    }
+    if (this.device !== 'signed-in') return { state: 'pending' };
+    this.issued += 1;
+    return { state: 'signed-in', tokens: tokensFor(this.issued, this.now(), this.subject, this.email) };
+  }
 
   async authorize(redirectUri: string): Promise<AuthorizationRequest> {
     return { url: `https://id.example.test/auth?redirect_uri=${encodeURIComponent(redirectUri)}&state=s1`, state: 's1', verifier: 'v1', redirectUri };
@@ -99,7 +130,7 @@ export class FakeService implements ConnectService {
     return { issuer: 'https://id.example.test/realms/kestrel', relayPath: '/api/v1/relay' };
   }
 
-  async registerDevice(accessToken: string, name: string, kind: 'desktop' | 'phone' = 'desktop', keys?: PublicIdentity): Promise<RegisteredDevice> {
+  async registerDevice(accessToken: string, name: string, kind: DeviceKind = 'desktop', keys?: PublicIdentity): Promise<RegisteredDevice> {
     this.check(accessToken, 'POST /devices');
     if (this.registerFails) throw this.registerFails;
     const device = { id: `device-${this.nextId++}`, name };
@@ -174,7 +205,7 @@ type Row = Record<string, unknown>;
  * real service does; tests read `records` to check nothing in them is plaintext.
  */
 export class FakeHeldService {
-  devices = new Map<string, { id: string; name: string; kind: 'desktop' | 'phone'; keys: PublicIdentity | null }>();
+  devices = new Map<string, { id: string; name: string; kind: DeviceKind; keys: PublicIdentity | null }>();
   /** Requests to be let in (account stage 1). */
   joins = new Map<string, { id: string; device: string; commitment: string; createdAt: number; expiresAt: number }>();
   private joinCount = 0;
@@ -220,7 +251,7 @@ export class FakeHeldService {
     return { device };
   }
 
-  addDevice(id: string, name: string, kind: 'desktop' | 'phone', keys: PublicIdentity | null = null): void {
+  addDevice(id: string, name: string, kind: DeviceKind, keys: PublicIdentity | null = null): void {
     this.devices.set(id, { id, name, kind, keys });
   }
 
@@ -325,7 +356,7 @@ export class FakeHeldService {
       case 'GET /push/devices':
         return { devices: [...this.push].map(([id, p]) => ({ deviceId: id, name: this.devices.get(id)?.name ?? 'a phone', environment: 'sandbox', hasToken: p.token !== null, generation: p.generation, prefs: p.prefs, updatedAt: new Date(0).toISOString() })) };
       case 'POST /push': {
-        if (this.devices.get(deviceId)?.kind !== 'desktop') this.refuse(403, 'not-a-desktop', 'Only a computer sends notifications.');
+        if (!isComputerKind(this.devices.get(deviceId)?.kind)) this.refuse(403, 'not-a-desktop', 'Only a computer sends notifications.');
         this.current(b.generation);
         if (typeof b.body !== 'string' || b.body.length > 3000) this.refuse(413, 'push-too-big', 'A notification is at most 3000 characters.');
         const to = b.to as string[];

@@ -6,7 +6,8 @@
 import { readFile } from 'node:fs/promises';
 import { draftRefs, servedType } from '../attachments/api.ts';
 import { LIVE_FLUSH_MS, mergePatch } from '../live-channel.ts';
-import type { ChatMessage, LivePatch, Session } from '../model.ts';
+import { AGENT_LABEL, type Agent, type ChatMessage, type LivePatch, type Session } from '../model.ts';
+import type { KestrelKind } from '../shared/host-kind.ts';
 import { isSetupRunTool, SETUP_AT_DESK } from '../shared/setup-agent.ts';
 import { Refused } from '../refused.ts';
 import type { SessionRuntime } from '../runtime.ts';
@@ -18,13 +19,19 @@ import { deskSessionOp, isDeskSessionRequest } from './desk-session.ts';
 import { pageRefusal, transcriptPage } from '../shared/transcript-page.ts';
 import type { PullRequestsAnswer, ReviewsAnswer, StateAnswer, TicketsAnswer } from '../shared/connect-lists.ts';
 import { ASIDE_REFUSAL } from '../shared/connect-ops.ts';
+import { isComputerKind, type DeviceKind } from '../shared/connect.ts';
 import type { Workspace } from '../workspace.ts';
 import type { ValueRequests } from '../setup-values/requests.ts';
 import { connectLists, type ConnectLists, type ListKind } from './lists.ts';
 import { deskLeadChoices } from '../remote-starts/choices.ts';
 import { remoteStartsOff } from '../remote-starts/prefs.ts';
 import { agentModels, offersNow, offersSource } from '../remote-starts/offers.ts';
-import { remoteStartRun } from '../remote-starts/session-start.ts';
+import { remoteStartRun, type AgentModels } from '../remote-starts/session-start.ts';
+import { checkClone, type CloneProbe } from '../project-clone/checks.ts';
+import type { ProjectCloner } from '../project-clone/clone.ts';
+import { cloneTargetOf, cloningNote } from '../shared/project-clone.ts';
+import { doesNotHave } from '../shared/start-computer.ts';
+import type { CloneStart } from '../runtime/workdir.ts';
 import { startRequestedReview } from '../review-requests/start-requested.ts';
 import type { ReviewRequestStore } from '../review-requests/store.ts';
 import { ticketsRoute, type TicketsApi } from '../tickets/api.ts';
@@ -53,18 +60,36 @@ export interface ConnectDeps {
   reviewRequests?: ReviewRequestStore | null;
   /** The Tickets routes the pages' buttons call (`tickets/api.ts`); absent where there are none. */
   tickets?: TicketsApi | null;
-  /** What only another desktop may ask (`who: 'desk'`); absent: every such operation is refused. */
+  /** What only another computer, a desktop or a worker node, may ask (`who: 'desk'`); absent: every such operation is refused. */
   desk?: DeskOps | null;
   /** Projects kept off Kestrel Connect: left out of what this computer offers, as its record leaves them out. */
   keptOff: () => readonly string[];
+  /** Which kind of server carries the requests out (default the app): a worker node refuses a start its agent cannot take. */
+  kind?: KestrelKind;
   /** The session page's routes (session-routes.ts), which another desktop's desk-only operations call; absent, those are refused. */
   sessionRoute?: SessionRoute | null;
+  /** On a worker node: how a project it does not have is checked and cloned when a session starts in it (item 64). */
+  clones?: NodeClones | null;
+}
+
+/** A worker node's clone on demand (project-clone/): the checks before a start is accepted, and the clone after. */
+export interface NodeClones {
+  cloner: Pick<ProjectCloner, 'projectFor'>;
+  probe: CloneProbe;
+}
+
+/** What `session.start` answers: the session, and what a desktop that started it draws its row with until its head arrives. */
+interface StartAnswer {
+  sessionId: string;
+  title?: string;
+  agent?: Agent;
+  note?: string;
 }
 
 /** The desk-only operations' part: who a device is, by this computer's keyring, and the set-up value requests. */
 export interface DeskOps {
   /** What the keyring this computer accepted says a device is; null when it is not in it. */
-  kindOf(device: string): 'desktop' | 'phone' | null;
+  kindOf(device: string): DeviceKind | null;
   values?: Pick<ValueRequests, 'ask' | 'withdraw' | 'dropDevice' | 'close'> | null;
 }
 
@@ -157,8 +182,8 @@ export class ConnectDispatcher {
 
   /** Carries out one decrypted request body for a device. Never throws: a refusal is the answer. */
   async answer(device: string, body: unknown): Promise<ConnectResponse> {
-    // Desk-only operations, and a model or mode on a message, only from a desktop of this computer's keyring (onboarding.md 19.6).
-    const request = checkRequestFrom(body, this.deps.desk?.kindOf(device) === 'desktop');
+    // Desk-only operations, and a model or mode on a message, only from a computer of this computer's keyring, a desktop or a worker node (onboarding.md 19.6; worker-nodes.md, W2).
+    const request = checkRequestFrom(body, isComputerKind(this.deps.desk?.kindOf(device)));
     if (!request.ok) return { ok: false, reason: request.reason };
     try {
       return { ok: true, result: await this.run(device, request.value) };
@@ -477,29 +502,73 @@ export class ConnectDispatcher {
 
   /** What a phone may start a session here with: the same value this computer holds as its `offers` record (remote-starts/offers.ts). */
   private startChoices() {
-    return offersNow(offersSource(this.deps.runtime, this.deps.workspace, this.deps.here), this.deps.keptOff());
-  }
-
-  /** Each agent here: whether it can start now, and the one model list kept for it. */
-  private agentModels() {
-    return agentModels(this.deps.runtime);
+    return offersNow(offersSource(this.deps.runtime, this.deps.workspace, this.deps.here, undefined, undefined, this.deps.kind ?? 'app'), this.deps.keptOff());
   }
 
   /**
    * A new session here from a blank page on another device (A8): the same start the New session box makes,
    * with the user's typed message, so a ticket it names is taken up. Only while this computer's switch
    * allows it, and never in Bypass. The project and folder are checked by the runtime, as the box's are.
+   * With a start id, a repeat (the starting device did not get the first answer in time) is answered with the
+   * session the first made, never a second one (item 81). The answer comes once the row exists: a clone and the
+   * agent's start come after it.
    */
-  private async startSession({ projectId, folderId, presetId, agent, model, mode, text, draftId, attachments }: ConnectOpArgs['session.start']) {
+  private async startSession({ startId, ...args }: ConnectOpArgs['session.start']): Promise<StartAnswer> {
+    if (!startId) return this.startOnce(args);
+    let first: StartAnswer | null = null;
+    const { sessionId } = await this.deps.runtime.remoteStarts.ids.once(startId, async () => (first = await this.startOnce(args)).sessionId);
+    return first ?? (await this.answerFor(sessionId));
+  }
+
+  /** What a repeated start answers: the session it started, as it is now. */
+  private async answerFor(sessionId: string): Promise<StartAnswer> {
+    const state = await this.deps.workspace.state();
+    const session = [...state.sessions, ...state.archived.sessions].find((s) => s.id === sessionId);
+    return session ? { sessionId, title: session.title, agent: session.agent, note: session.note } : { sessionId };
+  }
+
+  private async startOnce({ projectId, folderId, presetId, agent, model, mode, text, draftId, attachments, base }: Omit<ConnectOpArgs['session.start'], 'startId'>): Promise<StartAnswer> {
     await this.mayStart();
     const { presets } = await this.deps.runtime.whoDoesWhat.current();
-    // The agents' lists are asked for only when a model is named: a start without one is checked as before.
-    const agents = model !== undefined ? await this.agentModels() : [];
+    // The agent's list is asked for only when a model is named, and only the agent named: a start is accepted quickly.
+    const agents = model !== undefined && agent !== undefined ? await agentModels(this.deps.runtime, agent) : [];
     const pick = { ...(presetId !== undefined ? { presetId } : {}), ...(agent !== undefined ? { agent } : {}), ...(model !== undefined ? { model } : {}), ...(mode !== undefined ? { mode } : {}) };
     const run = remoteStartRun(pick, presets, await this.deps.workspace.getUiState(), this.deps.here, agents);
-    const session = await this.deps.runtime.start({ ...run, projectId: projectId ?? null, folderId: folderId ?? null, prompt: text, draft: draftRefs({ draftId, attachments }), byUser: true });
-    // The title and agent are for a desktop that started it, to draw its row before the head arrives (issue 52).
-    return { sessionId: session.id, title: session.title, agent: session.agent };
+    await this.refuseAgentThatCannotRun(run.agent, agents);
+    const where = await this.whereToStart(projectId ?? null, base);
+    const session = await this.deps.runtime.start({ ...run, projectId: where.projectId, folderId: where.clone ? null : (folderId ?? null), prompt: text, draft: draftRefs({ draftId, attachments }), byUser: true, ...(where.clone ? { clone: where.clone } : {}) });
+    // The title, agent and note are for a desktop that started it, to draw its row before the head arrives (issue 52).
+    return { sessionId: session.id, title: session.title, agent: session.agent, note: session.note };
+  }
+
+  /**
+   * The project a start names, as this computer has it: its own project; its own project of the same repository when
+   * the start names it by another computer's id; or, on a worker node, one it clones first, checked now so a refusal
+   * comes before anything is made (worker-nodes.md section 9). An id it knows nothing of goes to the runtime, which says so.
+   */
+  private async whereToStart(projectId: string | null, base: string | undefined): Promise<{ projectId: string | null; clone?: CloneStart }> {
+    if (projectId === null) return { projectId };
+    const { projects } = await this.deps.workspace.view();
+    if (projects.some((p) => p.id === projectId && !p.away)) return { projectId };
+    const mine = projects.find((p) => !p.away && p.alsoOn?.some((m) => m.projectId === projectId));
+    if (mine) return { projectId: mine.id };
+    const target = cloneTargetOf(projects, projectId);
+    if (!target) return { projectId };
+    const clones = this.deps.clones;
+    if ((this.deps.kind ?? 'app') !== 'node' || !clones) throw new Refused(doesNotHave(this.deps.here, target.name));
+    const plan = await checkClone(target, { node: this.deps.here, keptOff: this.deps.keptOff(), ...(base ? { base } : {}), probe: clones.probe });
+    return { projectId: null, clone: { note: cloningNote(plan.repos.map((r) => r.key)), project: (signal) => clones.cloner.projectFor(plan, { ...(base ? { base } : {}), ...(signal ? { signal } : {}) }) } };
+  }
+
+  /**
+   * On a worker node, a start for an agent that cannot run there is refused with the node's own sentence (which names
+   * it and the command to run there; runtime/agent-trouble.ts), instead of a session whose first turn fails. The app
+   * lets the session start and says it on the session, as before.
+   */
+  private async refuseAgentThatCannotRun(agent: Agent, known: readonly AgentModels[]): Promise<void> {
+    if ((this.deps.kind ?? 'app') !== 'node') return;
+    const here = (known.length > 0 ? known : await agentModels(this.deps.runtime, agent, false)).find((a) => a.agent === agent);
+    if (here && !here.available) throw new Refused(here.reason?.trim() || `${AGENT_LABEL[agent]} cannot run on ${this.deps.here} now.`);
   }
 
   /** The request's Start review button: restored, read, and its review started (or given back), never in Bypass. */
@@ -547,7 +616,7 @@ export class ConnectDispatcher {
       const shaped = new Map<boolean, LivePatch | null>();
       for (const [device, ids] of this.watching) {
         if (!ids.has(sessionId)) continue;
-        const desk = this.deps.desk?.kindOf(device) === 'desktop';
+        const desk = isComputerKind(this.deps.desk?.kindOf(device));
         if (!shaped.has(desk)) shaped.set(desk, remotePatch(gathered, desk));
         const patch = shaped.get(desk);
         if (patch) this.deps.send({ v: CONNECT_PROTOCOL_VERSION, from: this.deps.deviceId, to: device, kind: 'push', id: this.newId(), body: { type: 'live', sessionId, patch } });

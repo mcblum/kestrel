@@ -435,14 +435,14 @@ describe('OpenCode adapter, availability and models', () => {
 
   it('not signed in: unavailable with what to run', async () => {
     const t = setup('reply', 'ask', { env: () => ({ FAKE_OPENCODE_PROVIDERS: 'none' }) });
-    expect(await t.adapter.availability!()).toEqual({ available: false, reason: NOT_SIGNED_IN });
+    expect(await t.adapter.availability!()).toEqual({ available: false, reason: NOT_SIGNED_IN, problem: 'auth' });
     expect((await t.adapter.models()).fromSdk).toBe(false);
   });
 
   it('not installed: unavailable with how to install', async () => {
     const missing: Launch = () => Promise.reject(new OpencodeUnavailable(NOT_INSTALLED, 'missing'));
     const adapter = opencodeAdapter({ launch: missing, env: {}, log: () => undefined });
-    expect(await adapter.availability!()).toEqual({ available: false, reason: NOT_INSTALLED });
+    expect(await adapter.availability!()).toEqual({ available: false, reason: NOT_INSTALLED, problem: 'missing' });
   });
 
   it('a session started without OpenCode installed fails with the install note', async () => {

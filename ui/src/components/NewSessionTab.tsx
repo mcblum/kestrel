@@ -15,7 +15,7 @@ import { MessageInput, type MessageInputHandle } from './MessageInput.tsx';
 import { useSlashMenu } from './useSlashMenu.tsx';
 import { useResource } from '../data/resources.ts';
 import { ready, type Sourced } from '@kestrel/server/sourced';
-import { remoteMode } from '@kestrel/server/start-computer';
+import { remoteMode, startingOn } from '@kestrel/server/start-computer';
 import { useOtherComputers } from '../startComputers.ts';
 import type { SlashCommand } from '@kestrel/server/slash-commands';
 
@@ -39,6 +39,9 @@ export function NewSessionTab({ tab }: { tab: Extract<Tab, { kind: 'new' }> }) {
   const [text, setText] = useState(() => drafts.get(`tab:${tab.id}`));
   const [busy, setBusy] = useState(false);
   const input = useRef<MessageInputHandle>(null);
+  // One id per start on another computer, kept across a second Enter after it did not answer in time, so that
+  // computer starts it once (item 81). A new one only once a start went through.
+  const startId = useRef<string>(crypto.randomUUID());
   // Files attached before the session exists are held as a draft and go with the first message.
   const files = useAttachments(`tab:${tab.id}`, busy);
   // A checkout off its default branch asks where the session starts, before it exists.
@@ -86,9 +89,10 @@ export function NewSessionTab({ tab }: { tab: Extract<Tab, { kind: 'new' }> }) {
 
   /** Started on another computer: its page opens here at once from the answer, the tab kept while its row arrives. */
   const startThere = async (id: string, prompt: string, refs: ReturnType<typeof files.refs>, mode: 'ask' | 'auto') => {
-    const created = await actions.createSession({ machine: id, prompt, agent: controls.agent, projectId: controls.projectId, groupId: null, model: controls.model, permission: mode, ...refs });
+    const created = await actions.createSession({ machine: id, prompt, agent: controls.agent, projectId: controls.projectId, groupId: null, model: controls.model, permission: mode, startId: startId.current, ...refs });
     setBusy(false);
     if (!created) return input.current?.focus();
+    startId.current = crypto.randomUUID();
     update('');
     files.sent();
     if (controls.pinned) void actions.setPinned('session', created.id, true, true);
@@ -101,6 +105,7 @@ export function NewSessionTab({ tab }: { tab: Extract<Tab, { kind: 'new' }> }) {
       <div className="new-session-space">
         <h1>What are we working on?</h1>
         {controls.pinned && <p className="new-session-note muted">This session will be pinned.</p>}
+        {busy && machineName && <p className="new-session-note muted" role="status">{startingOn(machineName)}</p>}
         {controls.purpose && controls.projectId === null && <p className="new-session-note muted">From Set up this computer: it may offer to run a step, and you answer each on a card.</p>}
       </div>
       <div className="composer-wrap" ref={files.anchor}>

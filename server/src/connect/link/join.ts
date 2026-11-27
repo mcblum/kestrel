@@ -8,7 +8,7 @@
 // here is a `hello` in the clear.
 import { codesMatch, joinCode, joinConfirmCode, joinDeclinedSigned, joinJoinedSigned, signJoinDeclined, signJoinJoined, JOIN_DECLINED_REASONS, type JoinDeclined, joinCommitment, joinCommitted, joinWelcomeSigned, newJoinNonce, publicIdentity, shownCode, signJoinWelcome, typedCode, type Identity, type PublicIdentity } from '../keys.ts';
 import { Refused } from '../../refused.ts';
-import type { ConnectJoining, ConnectJoinRequest } from '../../shared/connect.ts';
+import type { DeviceKind, ConnectJoining, ConnectJoinRequest } from '../../shared/connect.ts';
 import type { JoinAnchor } from './account-keys.ts';
 import type { JoinApi, JoinRequest } from './join-api.ts';
 
@@ -18,10 +18,10 @@ export const MAX_WRONG_CODES = 3;
 export interface JoinDeps {
   /** The service's join routes, or null while not connected. */
   api(): JoinApi | null;
-  me(): { id: string; name: string; kind: 'desktop' | 'phone'; identity: Identity } | null;
+  me(): { id: string; name: string; kind: DeviceKind; identity: Identity } | null;
   keys: {
     ready(): unknown;
-    grant(device: { id: string; name: string; kind: 'desktop' | 'phone'; keys: PublicIdentity }): Promise<{ generation: number; keyringVersion: number }>;
+    grant(device: { id: string; name: string; kind: DeviceKind; keys: PublicIdentity }): Promise<{ generation: number; keyringVersion: number }>;
     acceptFrom(anchor: JoinAnchor): Promise<void>;
     /** Deletes this device's copy at the service (step 8b). */
     discardCopy(): Promise<void>;
@@ -93,6 +93,8 @@ export class AccountJoin {
   private outcome: { state: 'in'; by: string } | { state: 'ended'; reason: string } | null = null;
   private readonly opened = new Map<string, Opened>();
   private askedOnItsOwn = false;
+  /** An ask on its way to the service: a second ask meanwhile joins it rather than racing it. */
+  private askInFlight: Promise<void> | null = null;
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
 
   constructor(private readonly deps: JoinDeps) {}
@@ -154,8 +156,13 @@ export class AccountJoin {
 
   // As the new device.
 
-  /** Asks to be let in, with a new nonce (never one shown to another device before). */
-  async ask(): Promise<void> {
+  /** Asks to be let in, with a new nonce (never one shown to another device before). One at a time. */
+  ask(): Promise<void> {
+    this.askInFlight ??= this.askNow().finally(() => (this.askInFlight = null));
+    return this.askInFlight;
+  }
+
+  private async askNow(): Promise<void> {
     const me = this.me();
     const nonce = newJoinNonce();
     const request = await this.api().ask(joinCommitment(nonce, publicIdentity(me.identity)));

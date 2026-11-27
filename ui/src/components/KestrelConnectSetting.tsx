@@ -4,7 +4,7 @@
 // slice (connectStore.ts); nothing here keeps a copy.
 import { useState } from 'react';
 import { ExternalLink, ListChecks, LogIn, LogOut, Monitor, Smartphone } from 'lucide-react';
-import { DEVICE_NAME_MAX, deviceNameOf, linkText, type ConnectDevice, type ConnectJoinRequest, type ConnectView } from '@kestrel/server/connect';
+import { DEVICE_KIND_NAME, DEVICE_NAME_MAX, deviceNameOf, isComputerKind, linkText, type ConnectDevice, type ConnectJoinRequest, type ConnectView } from '@kestrel/server/connect';
 import { connectActions, useConnect } from '../connectStore.ts';
 import { thisComputer } from '../platform.ts';
 import { opener, openView } from '../route.ts';
@@ -49,12 +49,12 @@ function Account({ view }: { view: ConnectView }) {
 const openSetup = opener((newTab) => openView({ kind: 'settings', section: 'connections/setup' }, newTab));
 
 /** Whether another computer of the account could have a set-up record to build this one's list from. */
-const canSetUp = (view: ConnectView) => view.link.state === 'connected' && view.keys.state === 'ready' && view.devices.some((d) => !d.here && d.kind === 'desktop' && d.inAccount);
+const canSetUp = (view: ConnectView) => view.link.state === 'connected' && view.keys.state === 'ready' && view.devices.some((d) => !d.here && isComputerKind(d.kind) && d.inAccount);
 
 /** Right after this computer was let in (onboarding.md 7, step 2): the offer to build its set-up list. */
 function SetupOffer({ view }: { view: ConnectView }) {
   const [later, setLater] = useState(false);
-  const others = view.devices.filter((d) => !d.here && d.kind === 'desktop' && d.inAccount).map((d) => d.name);
+  const others = view.devices.filter((d) => !d.here && isComputerKind(d.kind) && d.inAccount).map((d) => d.name);
   if (later || others.length === 0) return null;
   return (
     <div className="connect-setup-offer">
@@ -166,7 +166,7 @@ function JoinRequest({ request }: { request: ConnectJoinRequest }) {
     <li>
       <Icon className="connect-device-icon" aria-hidden />
       <div className="connect-device-detail">
-        <span className="connect-device-name">{request.state === 'showing' || request.state === 'done' ? request.name : `${request.name} wants to join your account`}</span>
+        <span className="connect-device-name">{request.state === 'showing' || request.state === 'done' ? request.name : `${request.name}${request.kind === 'node' ? `, a ${DEVICE_KIND_NAME.node.toLowerCase()},` : ''} wants to join your account`}</span>
         {request.state === 'done' ? (
           <span className="settings-help" role="status">{request.outcome}</span>
         ) : request.state === 'showing' ? (
@@ -270,7 +270,13 @@ function RenameDevice({ device, done }: { device: ConnectDevice; done: () => voi
   );
 }
 
+/** A worker node's line says what it is first ("Worker node, connected now"); a computer's and a phone's are as they were. */
 function deviceLine(device: ConnectDevice): string {
+  const line = deviceState(device);
+  return device.kind === 'node' ? `${DEVICE_KIND_NAME.node}, ${line.charAt(0).toLowerCase()}${line.slice(1)}` : line;
+}
+
+function deviceState(device: ConnectDevice): string {
   if (device.here) return device.inAccount ? 'This computer' : 'This computer, not in your account yet';
   if (!device.inAccount) return 'Not let in';
   return device.connected ? 'Connected now' : 'In your account';

@@ -2,11 +2,24 @@
 // user's, how a script is handed to it, and how a command and everything it started is ended.
 // Callers take the platform as an argument so tests can ask about all three from any of them.
 import { execFile } from 'node:child_process';
+import type { KestrelKind } from './shared/host-kind.ts';
 import { platformOf, type Platform } from './shared/platform.ts';
 
 type Env = Record<string, string | undefined>;
 
 export const hostPlatform = (): Platform => platformOf(process.platform);
+
+// Which kind of Kestrel server this is (shared/host-kind.ts), decided once by the entry that started it:
+// index.ts is the app's, node.ts a worker node's. Nothing else reads an environment variable for it, and a
+// caller that matters takes the kind as an argument (defaulting to this) so tests cover both.
+let startedAs: KestrelKind = 'app';
+
+export const hostKind = (): KestrelKind => startedAs;
+
+/** Called by an entry, before it starts the server. */
+export function useHostKind(kind: KestrelKind): void {
+  startedAs = kind;
+}
 
 /** A program and the arguments that start it. */
 export interface Launch {

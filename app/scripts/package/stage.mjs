@@ -17,12 +17,13 @@
 // Claude Code binary of another platform is not installed by pnpm: fetch-claude-binary.mjs gets it.
 // The version is app/package.json's: the one source for the bundle, the About panel and the updater.
 import { build } from 'esbuild';
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { isVersion } from '../../release-channel.mjs';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { buildServer } from './build-server.mjs';
+import { claudePackageDir, copyNodePty, findPackageDir } from './server-parts.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appDir = join(here, '..', '..');
@@ -48,15 +49,9 @@ function need(path, what) {
   return path;
 }
 
-/** A package's real folder, found the way Node would from `fromDir` (pnpm keeps each package's
- *  dependencies beside it, so this is asked of the package that depends on it). Not through
- *  require.resolve: some packages export no package.json. */
+/** A package's real folder (server-parts.mjs), or the build stops. */
 function packageDir(fromDir, name) {
-  for (let dir = fromDir; ; dir = dirname(dir)) {
-    const candidate = join(dir, 'node_modules', name);
-    if (existsSync(join(candidate, 'package.json'))) return realpathSync(candidate);
-    if (dirname(dir) === dir) fail(`${name} is not installed (looked from ${fromDir})`);
-  }
+  return findPackageDir(fromDir, name) ?? fail(`${name} is not installed (looked from ${fromDir})`);
 }
 
 async function stageShell(appPackage) {
@@ -99,37 +94,15 @@ async function stageServer() {
   // in KESTREL_WHATS_NEW_DIR), so the page works offline.
   cpSync(join(root, 'whats-new'), join(out, 'whats-new'), { recursive: true });
   const pty = packageDir(serverDir, 'node-pty');
-  const ptyOut = join(out, 'node_modules', 'node-pty');
-  cpSync(join(pty, 'package.json'), join(ptyOut, 'package.json'));
-  cpSync(join(pty, 'LICENSE'), join(ptyOut, 'LICENSE'));
-  // lib/worker is the Windows console's output reader; the Unix terminal never loads it.
-  const skipWorker = OS !== 'win32';
-  cpSync(join(pty, 'lib'), join(ptyOut, 'lib'), { recursive: true, filter: (src) => !/\.(test\.js|map)$/.test(src) && !(skipWorker && src.includes(`${join('lib', 'worker')}`)) });
-  if (OS === 'linux') {
-    // No prebuild for Linux: the module pnpm compiled on this computer, which must be the target.
-    if (process.platform !== 'linux' || process.arch !== ARCH) fail(`node-pty has no prebuild for Linux, so a ${PLATFORM} build is staged on a ${PLATFORM} computer (this is ${process.platform}-${process.arch})`);
-    const built = need(join(pty, 'build', 'Release', 'pty.node'), "node-pty's compiled module (pnpm install builds it; it needs python3, make and g++)");
-    cpSync(built, join(ptyOut, 'build', 'Release', 'pty.node'));
-    return;
-  }
-  const prebuilt = need(join(pty, 'prebuilds', PLATFORM), `node-pty's ${PLATFORM} prebuild`);
-  cpSync(prebuilt, join(ptyOut, 'prebuilds', PLATFORM), { recursive: true, filter: (src) => !src.endsWith('.pdb') });
-  if (OS === 'darwin') chmodSync(join(ptyOut, 'prebuilds', PLATFORM, 'spawn-helper'), 0o755);
+  // No prebuild for Linux: the module pnpm compiled on this computer, which must be the target.
+  if (OS === 'linux' && (process.platform !== 'linux' || process.arch !== ARCH)) fail(`node-pty has no prebuild for Linux, so a ${PLATFORM} build is staged on a ${PLATFORM} computer (this is ${process.platform}-${process.arch})`);
+  copyNodePty({ ptyDir: pty, outDir: join(out, 'node_modules', 'node-pty'), os: OS, arch: ARCH, builtPty: OS === 'linux' ? join(pty, 'build', 'Release', 'pty.node') : null, fail });
 }
 
-/** The Claude Code binary for the target: from node_modules when pnpm installed that platform's
- *  package (it does for this computer's), else from where fetch-claude-binary.mjs put it. */
+/** The Claude Code binary for the target (server-parts.mjs). */
 function claudeBinary(sdk) {
-  const name = `claude${EXE}`;
-  const pkg = `@anthropic-ai/claude-agent-sdk-${PLATFORM}`;
-  for (let dir = sdk; ; dir = dirname(dir)) {
-    const candidate = join(dir, 'node_modules', pkg, name);
-    if (existsSync(candidate)) return candidate;
-    if (dirname(dir) === dir) break;
-  }
-  const version = JSON.parse(readFileSync(join(sdk, 'package.json'), 'utf8')).version;
-  const fetched = join(root, 'dist', 'cache', `claude-${PLATFORM}-${version}`, 'package', name);
-  return need(fetched, `the Claude Code binary for ${PLATFORM} (node scripts/release/fetch-claude-binary.mjs --platform ${OS} --arch ${ARCH})`);
+  const dir = claudePackageDir({ root, sdkDir: sdk, os: OS, arch: ARCH });
+  return dir ? join(dir, `claude${EXE}`) : fail(`the Claude Code binary for ${PLATFORM} is missing (node scripts/release/fetch-claude-binary.mjs --platform ${OS} --arch ${ARCH})`);
 }
 
 function stageBinaries() {

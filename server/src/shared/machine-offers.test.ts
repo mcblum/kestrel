@@ -1,6 +1,6 @@
 // The offers record's reading and cleaning (machine-offers.ts): what another computer sends is outside data.
 import { describe, expect, it } from 'vitest';
-import { asMachineOffersView, asOffersRecord, cleanText, HIDDEN, offersRecordOf, type RemoteStartChoices } from './machine-offers.ts';
+import { asClone, asMachineOffersView, asOffersRecord, cleanText, HIDDEN, offersRecordOf, type RemoteStartChoices } from './machine-offers.ts';
 
 const OFFERS: RemoteStartChoices = {
   here: 'your Mac',
@@ -66,5 +66,16 @@ describe('what a computer offers', () => {
     expect(cleanText('Signed in as someone@example.test', WHO)).toBe('Signed in as (an account)');
     expect(cleanText(`token ghp_${'a1B2'.repeat(9)}`, WHO)).toBe(HIDDEN);
     expect(cleanText('Claude', { home: '/', user: '' })).toBe('Claude');
+  });
+});
+
+describe('the clone mark of a node’s offers (item 64)', () => {
+  it('keeps a project’s clone mark, drops a malformed one, and bounds how many ids it carries', () => {
+    const marked: RemoteStartChoices = { ...OFFERS, projects: [{ id: 'p2', name: 'Billing', folders: [], defaultFolderId: null, clone: { of: ['p2', 'p3'] } }] };
+    expect(asOffersRecord(JSON.parse(JSON.stringify(offersRecordOf(MINI, 1000, marked))))!.offers).toEqual(marked);
+    expect(asClone({ of: [] })).toBeNull();
+    expect(asClone({ of: 'p2' })).toBeNull();
+    expect(asClone({ of: ['p2', 4, ''] })).toEqual({ of: ['p2'] });
+    expect(asClone({ of: Array.from({ length: 50 }, (_, i) => `p${i}`) })!.of).toHaveLength(20);
   });
 });

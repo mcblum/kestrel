@@ -19,7 +19,7 @@ import { noteFromText, trackSubagent, type Live } from './record.ts';
 /** The events `onAgentEvent` deals with before the turn's own (`applyTurnEvent`). */
 type TurnEvent = Exclude<AgentEvent, { type: 'context' | 'picked-up' | 'unread' | 'outside-allowed' | 'slash-commands' | 'tool-output' | 'background-ended' | 'background-tasks' | 'image' | 'mode' | 'subagent-output' }>;
 
-export type EventHost = Pick<RuntimeHost, 'workspace' | 'agents' | 'upkeep' | 'background' | 'commands' | 'delegation' | 'display' | 'midTurn' | 'emitLive' | 'apply' | 'queue' | 'setQueue' | 'flushQueue' | 'turnComplete'>;
+export type EventHost = Pick<RuntimeHost, 'workspace' | 'agents' | 'upkeep' | 'background' | 'commands' | 'delegation' | 'display' | 'midTurn' | 'emitLive' | 'apply' | 'queue' | 'setQueue' | 'flushQueue' | 'turnComplete' | 'agentTurns'>;
 
 /** How full the context window is, as last measured: kept on the record and sent to watchers. */
 export function noteContext(host: Pick<RuntimeHost, 'emitLive'>, id: string, rec: Live, usage: ContextUsage): void {
@@ -54,6 +54,10 @@ export function onAgentEvent(host: EventHost, id: string, rec: Live, event: Agen
     host.emitLive(id, { slashCommands: event.commands });
     return host.upkeep.schedulePersist(id, rec);
   }
+  // How the turn ended counts for what a worker node says about the agent (runtime/agent-trouble.ts); on a node a
+  // lasting failure is said in its words.
+  if (event.type === 'failed') event = host.agentTurns.failed(agentOf(host, id), event);
+  if (event.type === 'done' && event.reason === 'complete') host.agentTurns.succeeded(agentOf(host, id));
   host.commands.apply(id, AGENT_LABEL[agentOf(host, id)], event, rec.handle);
   if (event.type === 'tool-output' || event.type === 'background-ended') return;
   if (event.type === 'background-tasks') return host.background.replace(id, event.tasks);
