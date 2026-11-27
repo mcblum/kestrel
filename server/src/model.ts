@@ -23,6 +23,8 @@ import type { AutopilotRecord } from './shared/autopilot.ts';
 export type { QueuedMessage, SessionQueue } from './shared/queue.ts';
 export type { Attachment } from './shared/attachments.ts';
 
+import type { Machine } from './shared/machines.ts';
+
 export type Agent = 'claude' | 'codex' | 'opencode';
 export type SessionState = 'running' | 'attention' | 'done' | 'interrupted';
 /** Only `delegate` makes a child (tree.ts `isChildLink`). `handoff` and `fork` are lineage only: the task moved, or a copy of the conversation carries on. */
@@ -49,6 +51,23 @@ export interface Project {
    * Absent, or naming a folder no longer there, means the first (`defaultFolder` reads it).
    */
   defaultFolderId?: string | null;
+  /** Set on a project only another computer of the account has: it is listed for its sessions, and has no folder here. */
+  away?: true;
+  /**
+   * Set on a project of this computer that other computers of the account have too (by repository key): each
+   * of them, with its id for the project there, so New session can start it there (shared/start-computer.ts).
+   */
+  alsoOn?: { id: string; name: string; projectId: string }[];
+  /**
+   * Set with `away`: the computers of the account that have it, its repositories, and its folders as they
+   * told of them (shared/account-projects.ts). No repositories: a plain folder, only on its computer.
+   */
+  elsewhere?: {
+    /** `projectId`: the project's id on that computer, what a session started there is given (shared/start-computer.ts). */
+    machines: { id: string; name: string; projectId?: string }[];
+    repos: string[];
+    folders: { name: string; isGit: boolean; path?: string }[];
+  };
 }
 
 /** Shown as "group" in the UI. Spans projects. `auto` marks one created by a delegate split. */
@@ -154,6 +173,17 @@ export interface Session {
    * (shared/working-tree.ts), never from `worktreePath`. Added 2026-11-24; absent on every other session.
    */
   hostId?: string;
+  /**
+   * `'setup'` on a session started from Set up this computer's Ask the agent (shared/setup-agent.ts): the
+   * only sessions that may run a set-up step or command, each on a card. Set only at creation, by that tab.
+   */
+  purpose?: 'setup';
+  /**
+   * Set on a session that runs on another computer of the account (shared/machines.ts): that machine's
+   * id. Such a session is never in this computer's `sessions` table or its runtime; it is drawn from
+   * the replica, and only in the view a window is sent (`Workspace.view`). Absent on this computer's own.
+   */
+  runsOn?: string;
 }
 
 /**
@@ -269,6 +299,8 @@ export interface WorkspaceState {
   archived: { sessions: SessionView[]; projects: Project[]; groups: Group[] };
   /** What is pinned and in sight (in the lists above), in the order the user dragged them into. */
   pins: Pin[];
+  /** The account's other computers whose sessions are in `sessions` (`runsOn`); absent when there are none. */
+  machines?: Machine[];
 }
 
 /** One tool use shown under an agent message. `status` is absent on the seeded fake data. */
@@ -496,6 +528,13 @@ export interface SessionDetail {
   queue?: SessionQueue;
   /** What the agent reported spending, summed over its turns. Absent when nothing was ever recorded (older sessions, agents that do not report cost). */
   usage?: SessionUsage;
+  /**
+   * Set for a session that runs on another computer (`session.runsOn`); its messages are this computer's copy
+   * (remote-conversation.ts). `current`: they are all the session's head says there is. `reachable`: false only
+   * when they are not and that machine was asked for the rest and did not answer. `asOf`: when this computer last
+   * read the conversation from the account (ms; null if it never has).
+   */
+  remote?: { machine: Machine; current: boolean; reachable: boolean; asOf: number | null };
 }
 
 export const AGENT_LABEL: Record<Agent, string> = { claude: 'Claude', codex: 'Codex', opencode: 'OpenCode' };

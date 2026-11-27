@@ -14,6 +14,7 @@ import type { Group, Link, Pin, PinKind, Project, ProjectFolder, RequestLink, Se
 import type { PullRequestState } from '../shared/details.ts';
 import type { HostKind } from '../shared/host-terms.ts';
 import type { PinRef } from '../shared/pins.ts';
+import type { AccountChunk, AccountHead } from '../shared/machines.ts';
 
 export type StoredDetail = Pick<SessionDetail, 'messages' | 'files' | 'agentOutput' | 'kestrelTools' | 'kestrelMissing' | 'mcpServers' | 'agentSessionId' | 'settings' | 'queue' | 'usage' | 'slashCommands'> & {
   /** News from sessions this one started, waiting for its next turn. Never shown; absent when there is none. */
@@ -137,6 +138,26 @@ export interface Persistence {
   /** Records a linked request's last-seen state; false when it is not linked or already had that state. */
   setRequestState(sessionId: string, host: HostKind, number: number, state: PullRequestState): Promise<boolean>;
 
+  // The replica: what this computer keeps of the account's other machines (shared/machines.ts). These
+  // tables are apart from `sessions`: nothing that lists, runs or interrupts a session reads them.
+
+  /** Every other machine's session heads, oldest first. */
+  listAccountSessions(): Promise<AccountHead[]>;
+  /** Stores each head, replacing the one already there for its session. */
+  putAccountSessions(heads: readonly AccountHead[]): Promise<void>;
+  /** Removes these heads, each with its stored chunks. */
+  deleteAccountSessions(ids: readonly string[]): Promise<void>;
+  /** The stored chunks of a session with `from <= n < to`, in order. */
+  listAccountDetails(sessionId: string, from: number, to: number): Promise<AccountChunk[]>;
+  /** Stores each chunk, replacing the one already there at its place. */
+  putAccountDetails(sessionId: string, chunks: readonly AccountChunk[]): Promise<void>;
+  /** Removes the session's chunks from `from` on. */
+  deleteAccountDetails(sessionId: string, from: number): Promise<void>;
+  /** Small named values of the replica (a machine's card, what was fetched), by key. The caller owns the format. */
+  listAccountRecords(): Promise<{ key: string; value: string }[]>;
+  putAccountRecord(key: string, value: string): Promise<void>;
+  deleteAccountRecord(key: string): Promise<void>;
+
   /**
    * Run `fn` atomically. Everything inside must use `tx`. If `fn` throws, nothing it wrote is
    * kept. Transactions and single calls on the same provider never interleave.
@@ -199,6 +220,15 @@ export interface LocalDriver {
   listAllRequestLinks(): SessionRequestLink[];
   insertRequestLink(sessionId: string, link: RequestLink): boolean;
   setRequestState(sessionId: string, host: HostKind, number: number, state: PullRequestState): boolean;
+  listAccountSessions(): AccountHead[];
+  putAccountSessions(heads: readonly AccountHead[]): void;
+  deleteAccountSessions(ids: readonly string[]): void;
+  listAccountDetails(sessionId: string, from: number, to: number): AccountChunk[];
+  putAccountDetails(sessionId: string, chunks: readonly AccountChunk[]): void;
+  deleteAccountDetails(sessionId: string, from: number): void;
+  listAccountRecords(): { key: string; value: string }[];
+  putAccountRecord(key: string, value: string): void;
+  deleteAccountRecord(key: string): void;
   begin(): void;
   commit(): void;
   rollback(): void;

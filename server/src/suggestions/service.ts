@@ -171,7 +171,7 @@ export class Suggestions {
       this.host.show(ctx.sessionId, { ...suggestion, state: 'expired', answeredAt: this.now(), line: 'Suggestion no longer applies' });
       throw new Refused(`That suggestion no longer applies: ${message(error)}`);
     }
-    const settled: Suggestion = { ...suggestion, state: force ?? pressed.state, answer: button, answeredAt: this.now(), line: pressed.line, ...(pressed.undo && kind.undo ? { undo: pressed.undo } : {}), ...(pressed.opens ? { opens: pressed.opens } : {}), ...(auto ? { auto: true } : {}) };
+    const settled: Suggestion = { ...suggestion, state: force ?? pressed.state, answer: button, answeredAt: this.now(), line: pressed.line, ...(pressed.undo && kind.undo ? { undo: pressed.undo } : {}), ...(pressed.opens ? { opens: pressed.opens } : {}), ...(pressed.link ? { link: pressed.link } : {}), ...(auto ? { auto: true } : {}) };
     this.host.show(ctx.sessionId, settled);
     return settled;
   }

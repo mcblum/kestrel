@@ -15,6 +15,7 @@ import { PLATFORM_NAME, type Platform } from './platform.ts';
 import type { ReviewRequestsView } from './review-requests.ts';
 import { statusOf, type StatusKey } from './status.ts';
 import { ticketsOn, type TicketsView } from './tickets.ts';
+import type { ValueRequestView } from './setup-values.ts';
 
 export type NotifyKind = 'done' | 'failed' | 'needs-you' | 'review-request' | 'ticket' | 'pull-request';
 export const NOTIFY_KINDS: readonly NotifyKind[] = ['needs-you', 'failed', 'done', 'pull-request', 'review-request', 'ticket'];
@@ -64,14 +65,23 @@ export function sanitizeNotify(value: unknown): NotifyPrefs {
   return { enabled: v.enabled !== false, banner: typeof v.banner === 'boolean' ? v.banner : DEFAULT_NOTIFY.banner, sound: isSound(v.sound) ? v.sound : DEFAULT_NOTIFY.sound, events: Object.fromEntries(NOTIFY_KINDS.map((kind) => [kind, event(kind)])) as Record<NotifyKind, boolean> };
 }
 
+/**
+ * Kinds told at the desk only, whatever the settings say (onboarding.md 19.7 and 19.13): another computer
+ * asking this one's person for set-up values, which cannot wait. No setting turns one off, and a phone is
+ * never told (`deskOnlyEvent`; push.ts drops one, and is never handed what makes one).
+ */
+export type DeskKind = 'setup-values';
+
 export interface NotifyEvent {
-  kind: NotifyKind;
+  kind: NotifyKind | DeskKind;
   /** The session it is about; '' for a review request, which has `requestKey` instead. */
   sessionId: string;
   /** The review request it is about (its key in the store): a click opens that request's page. */
   requestKey?: string;
   /** The ticket it is about (its key): a click opens the ticket's page. */
   ticketKey?: string;
+  /** Another computer's request for set-up values (its id): a click opens the request's page. */
+  setupRequestId?: string;
   /** The banner's first line: the session's title. */
   title: string;
   /** Its second line: what happened, in the status vocabulary, with the session's own note where it says more. */
@@ -250,9 +260,30 @@ export interface NotifySeen {
   requests: readonly string[] | null;
   tickets: TicketsSeenBefore | null;
   checks: RequestsSeenBefore | null;
+  /** The ids of other computers' requests for set-up values; absent where none are shown (a phone's push). */
+  setupRequests?: readonly string[] | null;
 }
 
 export const NOTHING_SEEN: NotifySeen = { sessions: null, requests: null, tickets: null, checks: null };
+
+/** Whether an event is one only the desk is told of. */
+export const deskOnlyEvent = (event: Pick<NotifyEvent, 'kind'>): event is NotifyEvent & { kind: DeskKind } => event.kind === 'setup-values';
+
+/** One request another computer made for set-up values, as the rule needs it: names, never values. */
+export type SetupRequestNotice = Pick<ValueRequestView, 'id' | 'from' | 'step' | 'names'>;
+
+/**
+ * A request for set-up values is news when it first shows, even on the first look (it lasts two minutes
+ * and someone at the other computer is waiting), and whatever the settings say. Pure.
+ */
+function setupValueEvents(before: readonly string[] | null | undefined, now: readonly SetupRequestNotice[] | undefined): { events: NotifyEvent[]; seen: readonly string[] | null } {
+  if (!now) return { events: [], seen: before ?? null };
+  const had = new Set(before ?? []);
+  const events = now
+    .filter((r) => !had.has(r.id))
+    .map((r): NotifyEvent => ({ kind: 'setup-values', sessionId: '', setupRequestId: r.id, title: `${r.from.name} asks for values from this computer`, body: `${r.names.length === 1 ? '1 value' : `${r.names.length} values`} for ${r.step}. Allow or Deny within 2 minutes.` }));
+  return { events, seen: now.map((r) => r.id) };
+}
 
 /** What is there now: the workspace's sessions and links, their pull requests (the PR store's, by session), the review requests and the tickets. */
 export interface NotifyNow {
@@ -263,6 +294,8 @@ export interface NotifyNow {
   links: readonly Pick<Link, 'childId' | 'kind'>[];
   reviewRequests: Pick<ReviewRequestsView, 'requests' | 'unread'>;
   tickets: Pick<TicketsView, 'tickets' | 'unread' | 'sources' | 'settings'>;
+  /** Other computers' requests for set-up values waiting here: the window passes them, a phone's push never does. */
+  setupRequests?: readonly SetupRequestNotice[];
 }
 
 /**
@@ -280,16 +313,20 @@ export function notificationsOf(seen: NotifySeen, now: NotifyNow, prefs: NotifyP
     ...reviewNotifyEvents(seen.requests, now.reviewRequests, prefs),
     ...ticketNotifyEvents(seen.tickets, now.tickets, prefs),
   ];
-  return { events, seen: { sessions: now.sessions, requests: now.reviewRequests.requests.map((r) => r.key), tickets: ticketsBefore(now.tickets), checks: checks.seen } };
+  const setup = setupValueEvents(seen.setupRequests, now.setupRequests);
+  return { events: [...setup.events, ...events], seen: { sessions: now.sessions, requests: now.reviewRequests.requests.map((r) => r.key), tickets: ticketsBefore(now.tickets), checks: checks.seen, setupRequests: setup.seen } };
 }
 
 /** A banner's click target as the desktop shell carries it back: a session's id, or a review request's key behind this mark. */
 export const REVIEW_TARGET = 'review:';
 export const TICKET_TARGET = 'ticket:';
-export const targetOf = (event: Pick<NotifyEvent, 'sessionId' | 'requestKey' | 'ticketKey'>): string => (event.requestKey ? `${REVIEW_TARGET}${event.requestKey}` : event.ticketKey ? `${TICKET_TARGET}${event.ticketKey}` : event.sessionId);
-/** What a target names: `{ requestKey }`, `{ ticketKey }`, `{ sessionId }`, or null for none (a test banner). */
-export function parseTarget(target: string): { requestKey: string } | { ticketKey: string } | { sessionId: string } | null {
+export const SETUP_REQUEST_TARGET = 'setup-request:';
+export const targetOf = (event: Pick<NotifyEvent, 'sessionId' | 'requestKey' | 'ticketKey' | 'setupRequestId'>): string =>
+  event.setupRequestId ? `${SETUP_REQUEST_TARGET}${event.setupRequestId}` : event.requestKey ? `${REVIEW_TARGET}${event.requestKey}` : event.ticketKey ? `${TICKET_TARGET}${event.ticketKey}` : event.sessionId;
+/** What a target names: `{ setupRequestId }`, `{ requestKey }`, `{ ticketKey }`, `{ sessionId }`, or null for none (a test banner). */
+export function parseTarget(target: string): { setupRequestId: string } | { requestKey: string } | { ticketKey: string } | { sessionId: string } | null {
   if (!target) return null;
+  if (target.startsWith(SETUP_REQUEST_TARGET)) return { setupRequestId: target.slice(SETUP_REQUEST_TARGET.length) };
   if (target.startsWith(REVIEW_TARGET)) return { requestKey: target.slice(REVIEW_TARGET.length) };
   if (target.startsWith(TICKET_TARGET)) return { ticketKey: target.slice(TICKET_TARGET.length) };
   return { sessionId: target };

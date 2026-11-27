@@ -26,6 +26,9 @@ import { ProjectFolderLine } from './ProjectFolderLine.tsx';
 import { ProjectPanel, ProjectTabs } from './ProjectTabs.tsx';
 import { ProjectSettingsTab } from './ProjectSettingsTab.tsx';
 import { projectTabOf } from '@kestrel/server/routes';
+import { ProjectElsewhereAdd, ProjectElsewhereEmpty, ProjectElsewhereLine } from './ProjectElsewhere.tsx';
+import { notHere } from '../awayProjects.ts';
+import '../styles/away-projects.css';
 
 const sessionCount = (n: number) => `${n} session${n === 1 ? '' : 's'}`;
 
@@ -45,7 +48,11 @@ export function ListPage({ view, workspace }: { view: Exclude<View, { kind: 'ove
   const empty = emptyState({ view: view.kind, shown: rows.length, unfiltered: inScope.length, projects: workspace.projects.length, sessions: workspace.sessions.length });
   const newSession = (newTab: boolean) => void runMenuAction(item.newSession(view.kind === 'project' ? { projectId: view.id } : view.kind === 'group' ? { groupId: view.id } : {}).action!, newTab);
 
-  const line = project ? (
+  // Only another computer of the account has it: no folder, settings or changes here (account-sessions.md, 10.2).
+  const elsewhere = project?.away ? project : null;
+  const line = elsewhere ? (
+    <ProjectElsewhereLine project={elsewhere} />
+  ) : project ? (
     <ProjectFolderLine project={project} />
   ) : group ? (
     sessionCount(inScope.length)
@@ -66,6 +73,8 @@ export function ListPage({ view, workspace }: { view: Exclude<View, { kind: 'ove
         <div className="empty">
           <h2>No session is tagged “{title}” now</h2>
         </div>
+      ) : elsewhere && inScope.length === 0 ? (
+        <ProjectElsewhereEmpty project={elsewhere} />
       ) : empty && empty !== 'filtered' ? (
         <EmptyState kind={empty} name={title} onNewSession={newSession} onAddProject={() => openCreateProject()} onClearFilters={() => setFilters(NO_FILTERS)} />
       ) : empty === 'filtered' ? (
@@ -84,9 +93,9 @@ export function ListPage({ view, workspace }: { view: Exclude<View, { kind: 'ove
         line={line}
         menu={menu}
         // A project's, group's or tag's colour, as one circle in the corner (Settings → Colours has the same).
-        mark={project ? <ProjectColourPicker projectId={project.id} name={project.name} /> : tagged ? <TagColourPicker tag={view.id} /> : undefined}
+        mark={project && !elsewhere ? <ProjectColourPicker projectId={project.id} name={project.name} /> : tagged ? <TagColourPicker tag={view.id} /> : undefined}
       />
-      {project ? (
+      {project && !elsewhere ? (
         <>
           <ProjectTabs projectId={project.id} tab={tab} />
           <ProjectPanel projectId={project.id} tab="sessions" shown={tab === 'sessions'}>
@@ -99,7 +108,10 @@ export function ListPage({ view, workspace }: { view: Exclude<View, { kind: 'ove
           )}
         </>
       ) : (
-        sessions
+        <>
+          {elsewhere && <ProjectElsewhereAdd project={elsewhere} />}
+          {sessions}
+        </>
       )}
     </div>
   );
@@ -108,6 +120,7 @@ export function ListPage({ view, workspace }: { view: Exclude<View, { kind: 'ove
       <ScopePage
         scope={{ kind: 'project', id: project.id }}
         noDirectory={project.folders.length === 0}
+        {...(elsewhere ? { elsewhere: notHere.noFolder(elsewhere) } : {})}
         bar={
           <>
             <span className="bar-item bar-project" title={project.name}>
@@ -115,7 +128,7 @@ export function ListPage({ view, workspace }: { view: Exclude<View, { kind: 'ove
             </span>
           </>
         }
-        changes={<ProjectChanges projectId={project.id} />}
+        changes={elsewhere ? undefined : <ProjectChanges projectId={project.id} />}
         context={<ProjectContext project={project} sessions={inScope.length} />}
       >
         {page}

@@ -20,6 +20,11 @@ import { afterUserMessage, archiveRefusal, removeRefusal, childGroupId, delegate
 import { nameTakenBy, projectRecord, type NewProject } from './project-record.ts';
 import { Refused } from './refused.ts';
 import { SeenStore } from './seen.ts';
+import { AccountReplica, machineCards } from './account-replica.ts';
+import { withRemote } from './account-view.ts';
+import { AccountProjects, heldProjects } from './account-projects.ts';
+import { AccountOffers } from './account-offers.ts';
+import { RepoKeys } from './repo-keys.ts';
 import { deriveState, trailFor, withoutArchived } from './workspace-derive.ts';
 import { checkLimits, checkLive, copyTags, EMPTY_DETAIL, insertSession, projectNamer, refuseWhileWorking, type DelegateTask, type NewSession } from './workspace-records.ts';
 import * as settings from './workspace-settings.ts';
@@ -36,6 +41,16 @@ export class Workspace {
   readonly limits: DelegationLimitsPrefs;
   /** The one record of what the user has looked at, for every window and a paired phone (seen.ts). */
   readonly seen: SeenStore;
+  /** What this computer keeps of the account's other machines' sessions (account-replica.ts). */
+  readonly account: AccountReplica;
+  /** What this computer keeps of the projects the account's other machines have (account-projects.ts). */
+  readonly accountProjects: AccountProjects;
+  /** What the account's other machines offer for a new session (account-offers.ts), pushed to the windows. */
+  readonly accountOffers: AccountOffers;
+  /** Which repositories each project is, as every computer of the account names them. */
+  readonly repos = new RepoKeys();
+  private viewCache: WorkspaceState | null = null;
+  private viewLoading: Promise<WorkspaceState> | null = null;
   private cache: WorkspaceState | null = null;
   private loading: Promise<WorkspaceState> | null = null;
   private version = 0;
@@ -47,12 +62,17 @@ export class Workspace {
   ) {
     this.onboarding = new Onboarding(db);
     this.limits = new DelegationLimitsPrefs({ settings: db });
+    this.account = new AccountReplica(db, () => this.changed());
+    this.accountProjects = new AccountProjects(db, () => this.changed());
+    this.accountOffers = new AccountOffers(db);
     this.seen = new SeenStore({
       settings: db,
+      // What is drawn is what can be looked at: another computer's sessions are marked seen here too.
       sessions: async () => {
-        const state = await this.state();
+        const state = await this.view();
         return [...state.sessions, ...state.archived.sessions];
       },
+      now: clock,
     });
   }
 
@@ -66,6 +86,8 @@ export class Workspace {
     this.version++;
     this.cache = null;
     this.loading = null;
+    this.viewCache = null;
+    this.viewLoading = null;
     for (const listener of this.listeners) listener();
   }
 
@@ -91,6 +113,28 @@ export class Workspace {
       return state;
     });
     this.loading = load;
+    return load;
+  }
+
+  /**
+   * What a window draws: this computer's state with the sessions the account's other computers run
+   * (shared/machines.ts, `runsOn`) and the projects they have that this computer does not. Computed once per change and shared, as `state()` is. Everything that
+   * runs, files, counts or acts on sessions reads `state()`, which holds this computer's own and no other;
+   * with no account, or no other computer, this is that same object.
+   */
+  view(): Promise<WorkspaceState> {
+    if (this.viewCache) return Promise.resolve(this.viewCache);
+    if (this.viewLoading) return this.viewLoading;
+    const version = this.version;
+    const load = Promise.all([this.state(), this.db.listAccountSessions(), this.db.listAccountRecords()]).then(async ([state, heads, records]) => {
+      const projects = heldProjects(records).map((h) => h.project);
+      const keys = heads.length > 0 || projects.length > 0 ? new Map(await Promise.all(state.projects.map(async (p) => [p.id, await this.repos.ofProject(p)] as const))) : new Map<string, string[]>();
+      const view = withRemote(state, heads, machineCards(records), keys, projects);
+      if (version === this.version) this.viewCache = view;
+      if (this.viewLoading === load) this.viewLoading = null;
+      return view;
+    });
+    this.viewLoading = load;
     return load;
   }
 
@@ -374,6 +418,14 @@ export class Workspace {
   }
   async setUiState(json: string): Promise<void> {
     await this.db.putSetting('ui-state', json);
+    for (const listener of this.uiStateListeners) listener();
+  }
+
+  private readonly uiStateListeners = new Set<() => void>();
+  /** Told after each write of the UI state (where the New session box's choices are remembered). Returns the undo. */
+  onUiState(listener: () => void): () => void {
+    this.uiStateListeners.add(listener);
+    return () => void this.uiStateListeners.delete(listener);
   }
 
   /** A group in the Sessions list, or in a project when `projectId` is given (shared/project-groups.ts). */

@@ -10,6 +10,7 @@ import { Refused } from '../refused.ts';
 import { remoteStartPermission, type PermissionLevel } from '../shared/permissions.ts';
 import { choicesFor, startControls, storedRemembered } from '../shared/sticky-controls.ts';
 import type { ModelPreset } from '../shared/who-does-what.ts';
+import type { RemoteStartChoices, RemoteStartModel, RemoteStartProject, RemoteStartProvider } from '../shared/machine-offers.ts';
 
 /** The modes another device may start a session in: Manual and Auto. Bypass is chosen at the machine. */
 export const REMOTE_START_MODES = ['ask', 'auto'] as const satisfies readonly PermissionLevel[];
@@ -36,44 +37,7 @@ export interface RemoteStartRun {
   modelChosen?: true;
 }
 
-/** What a device is offered to start a session on this computer with (`session.startChoices`). Projects come from `state.read`. */
-export interface RemoteStartChoices {
-  /** This computer, as refusals name it. */
-  here: string;
-  /** Settings → Workflow → "Other devices may start sessions on this computer". Off: `refusal` says so, and `session.start` is refused with it. */
-  allowed: boolean;
-  refusal?: string;
-  agents: Agent[];
-  presets: ModelPreset[];
-  /** What the New session box here starts with: preselected on the phone. */
-  start: { agent: Agent; model: string; effort: string; fast: boolean; permission: PermissionLevel };
-  /** The agents that can start a session here now, each with the desk's own model menu (Matt, 2026-11-25). */
-  providers: RemoteStartProvider[];
-  /** The agents left out of `providers`, and why, in words a phone shows. */
-  missing: RemoteStartMissing[];
-}
-
-/** One row of the desk's model menu, as a phone shows it: send back `id` ('' is the agent's own default), show `name`. */
-export interface RemoteStartModel {
-  id: string;
-  name: string;
-  /** Listed under "More models" at the desk. */
-  more?: true;
-}
-
-export interface RemoteStartProvider {
-  agent: Agent;
-  name: string;
-  models: RemoteStartModel[];
-  /** The row the desk's box starts this agent on; always one of `models`. */
-  default: string;
-}
-
-export interface RemoteStartMissing {
-  agent: Agent;
-  name: string;
-  reason: string;
-}
+export type { RemoteStartChoices, RemoteStartMissing, RemoteStartModel, RemoteStartProject, RemoteStartProvider } from '../shared/machine-offers.ts';
 
 /** What the desk knows of one agent: whether it can start now (and why not), and the one model list it keeps for it. */
 export interface AgentModels {
@@ -106,6 +70,9 @@ function remembered(uiState: string | null) {
   return storedRemembered(stored);
 }
 
+/** What of the UI state the New session box's choices come from, as text: the same for a write that only moved tabs. */
+export const rememberedSignature = (uiState: string | null): string => JSON.stringify(remembered(uiState));
+
 const filled = (model: string, effort: string, fast: boolean) => ({ ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(fast ? { fast: true } : {}) });
 
 /** The New session box's choices here, as a phone is shown them; the mode never Bypass. */
@@ -114,7 +81,7 @@ export function deskStart(uiState: string | null): RemoteStartChoices['start'] {
   return { agent: c.agent, model: c.model ?? '', effort: c.effort ?? '', fast: c.fast === true, permission: remoteStartPermission(c.permission) };
 }
 
-export function remoteStartChoices(here: string, allowed: boolean, refusal: string, presets: ModelPreset[], uiState: string | null, agents: readonly AgentModels[]): RemoteStartChoices {
+export function remoteStartChoices(here: string, allowed: boolean, refusal: string, presets: ModelPreset[], uiState: string | null, agents: readonly AgentModels[], projects: RemoteStartProject[] = []): RemoteStartChoices {
   const r = remembered(uiState);
   return {
     here,
@@ -125,6 +92,7 @@ export function remoteStartChoices(here: string, allowed: boolean, refusal: stri
     start: deskStart(uiState),
     providers: agents.filter((a) => a.available).map((a) => providerOf(a, r)),
     missing: agents.filter((a) => !a.available).map((a) => ({ agent: a.agent, name: AGENT_LABEL[a.agent], reason: cannotStart(a, here) })),
+    projects,
   };
 }
 

@@ -90,7 +90,7 @@ describe('over real sockets', () => {
     const settings = memorySettings();
     await settings.putSetting(CONNECT_PREFS_KEY, JSON.stringify({ enabled: true }));
     const service = new HttpConnectService(relay.url);
-    const desk = new KestrelConnect({ vault: memoryVault({ tokens: tokensFor(0, Date.now()), device: null }), identity: new FakeIdentity(), service, settings, computerName: 'Desk', listen: fakeListener().listen, here: 'your Mac', dispatch: (deviceId, send) => new ConnectDispatcher({ workspace, runtime, deviceId, here: 'your Mac', send }) });
+    const desk = new KestrelConnect({ vault: memoryVault({ tokens: tokensFor(0, Date.now()), device: null }), identity: new FakeIdentity(), service, settings, computerName: 'Desk', listen: fakeListener().listen, here: 'your Mac', dispatch: (deviceId, send) => new ConnectDispatcher({ workspace, runtime, deviceId, here: 'your Mac', send, keptOff: () => [] }) });
     cleanup.push(() => desk.close());
     await desk.start();
     await until(() => desk.view().link.state === 'connected', 'the desk connects');

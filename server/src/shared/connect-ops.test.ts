@@ -1,6 +1,6 @@
 // The closed list of what a phone may ask, and the envelope its frames travel in (shared/connect-ops.ts).
 import { describe, expect, it } from 'vitest';
-import { checkEnvelope, checkRequest, CONNECT_OP_NAMES, CONNECT_OPS, CONNECT_PROTOCOL_VERSION, NEVER_REMOTE, PAGE_MAX, versionRefusal, BYPASS_FROM_ELSEWHERE } from './connect-ops.ts';
+import { checkEnvelope, checkRequest, CONNECT_OP_NAMES, CONNECT_OPS, deskOnly, CONNECT_PROTOCOL_VERSION, NEVER_REMOTE, PAGE_MAX, versionRefusal, BYPASS_FROM_ELSEWHERE } from './connect-ops.ts';
 
 const frame = (over: Record<string, unknown> = {}) => ({ v: CONNECT_PROTOCOL_VERSION, from: 'phone-1', to: 'mac-1', kind: 'request', id: 'f1', body: 'ciphertext', ...over });
 
@@ -74,6 +74,8 @@ const GOOD: Record<string, Record<string, unknown>> = {
   'pullRequests.read': {},
   'findings.act': { sessionId: 's1', cardId: 'c1', findingId: 'f1', action: 'answer', text: 'Yes, on purpose.' },
   'reviewEnd.act': { sessionId: 's1', cardId: 'c1', action: 'fix', findingIds: ['f1', 'f2'] },
+  'setup.values': { requestId: 'r1', line: 'mcp:home-assistant', names: ['HOMEASSISTANT_URL', 'HOMEASSISTANT_TOKEN'] },
+  'setup.values.withdraw': { requestId: 'r1' },
 };
 
 describe('the operations', () => {
@@ -174,6 +176,23 @@ describe('session.start: a new session from a blank page (A8, Matt 2026-11-24)',
     const checked = checkRequest({ op, args: {} });
     expect(checked.ok).toBe(false);
     if (!checked.ok) expect(checked.reason).toMatch(/not something Kestrel Connect does/);
+  });
+
+  it('marks only the copying of set-up values desk-only (onboarding.md 19.6)', () => {
+    expect(CONNECT_OP_NAMES.filter(deskOnly).sort()).toEqual(['setup.values', 'setup.values.withdraw']);
+  });
+
+  it.each([
+    [{ requestId: 'r1', line: 'agent:claude', names: ['A'] }, /line must name an MCP server's or a settings file's line/],
+    [{ requestId: 'r1', line: 'mcp:x', names: [] }, /names must list 1 to 32/],
+    [{ requestId: 'r1', line: 'mcp:x', names: ['A', 'A'] }, /names must list 1 to 32 different/],
+    [{ requestId: 'r1', line: 'mcp:x', names: ['not a name'] }, /names must list/],
+    [{ requestId: 'r1', line: 'mcp:x', names: Array.from({ length: 33 }, (_, i) => `N${i}`) }, /names must list 1 to 32/],
+    [{ requestId: '../r', line: 'mcp:x', names: ['A'] }, /requestId must be an id/],
+  ])('setup.values refuses %j', (args, reason) => {
+    const checked = checkRequest({ op: 'setup.values', args });
+    expect(checked.ok).toBe(false);
+    expect(checked.ok ? '' : checked.reason).toMatch(reason);
   });
 
   it('refuses a body that is no request', () => {

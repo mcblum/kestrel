@@ -4,6 +4,7 @@
 import { execFile } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { readFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { ChangedFile, ProjectChanges, ProjectFolder } from './model.ts';
@@ -365,6 +366,31 @@ export async function isAncestor(cwd: string, commit: string, ref: string): Prom
 export async function originUrl(path: string): Promise<string | null> {
   const out = (await git(path, ['remote', 'get-url', 'origin'], { allowFail: true })).trim();
   return out || null;
+}
+
+/** The remote addresses a git config file names, `origin` first. Pure. */
+export function remotesOfConfig(config: string): string[] {
+  const found = [...config.matchAll(/\[remote "([^"]+)"\][^\[]*?^\s*url\s*=\s*(\S+)\s*$/gm)].map((m) => ({ name: m[1]!, url: m[2]! }));
+  return [...found.filter((r) => r.name === 'origin'), ...found.filter((r) => r.name !== 'origin')].map((r) => r.url);
+}
+
+/**
+ * Every remote's address, `origin` first: a clone made from a mirror is still the same repository. Read from
+ * the folder's own config file, which needs no program; git is asked only where there is none to read (a
+ * worktree, a submodule), and then `origin` alone if that names nothing. Asking git for all of them was seen to
+ * answer nothing in an installed app where the file plainly names a remote (0.0.33-beta.6).
+ */
+export async function remoteUrls(path: string): Promise<string[]> {
+  const config = await readFile(join(path, '.git', 'config'), 'utf8').catch(() => null);
+  if (config !== null) return remotesOfConfig(config);
+  const out = await git(path, ['config', '--get-regexp', '^remote\\..*\\.url$'], { allowFail: true });
+  const found = out.split('\n').flatMap((line) => {
+    const at = line.indexOf(' ');
+    return at > 0 && line.slice(at + 1).trim() ? [{ origin: line.slice(0, at) === 'remote.origin.url', url: line.slice(at + 1).trim() }] : [];
+  });
+  if (found.length > 0) return [...found.filter((r) => r.origin), ...found.filter((r) => !r.origin)].map((r) => r.url);
+  const origin = await originUrl(path);
+  return origin ? [origin] : [];
 }
 
 /**

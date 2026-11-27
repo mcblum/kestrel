@@ -125,7 +125,7 @@ export function asideBrief(of: AsideOf, about: string): string {
 }
 
 /** The Kestrel tools a sidebar keeps: the ones that only read or show. Every other call is refused (`ASIDE_TOOL_REFUSAL`). */
-export const ASIDE_TOOLS: readonly string[] = ['listProjects', 'showWidget', 'ticketRead', 'browserRead', 'browserScreenshot', 'browserConsole', 'simList', 'simScreenshot'];
+export const ASIDE_TOOLS: readonly string[] = ['listProjects', 'showWidget', 'ticketRead', 'knowledgeSearch', 'knowledgeRead', 'browserRead', 'browserScreenshot', 'browserConsole', 'simList', 'simScreenshot'];
 export const ASIDE_TOOL_REFUSAL = `This is a ${ASIDE_WORD}: it only talks. It cannot start, change or message anything. Tell the user what you would do; they decide in the main conversation.`;
 
 /** The text "Use in the conversation" puts into the main message box: the sidebar's last answer, named. */

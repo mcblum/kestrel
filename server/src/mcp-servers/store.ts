@@ -9,7 +9,7 @@
 import type { Persistence } from '../persistence/types.ts';
 import { Refused } from '../refused.ts';
 import type { McpConfig } from '../shared/setup.ts';
-import { asServerDefs, kestrelServersFor, mergeServers, nextSecrets, parseServerInput, serverConfig, serverView, type HandedServer, type McpServerDef, type McpServerView } from '../shared/mcp-servers.ts';
+import { asServerDefs, kestrelServersFor, mergeServers, nextSecrets, parseServerInput, secretSlots, serverConfig, serverView, slotOf, type HandedServer, type McpServerDef, type McpServerView } from '../shared/mcp-servers.ts';
 import { switchServerEverywhere } from '../workspace-settings.ts';
 import type { McpSecretStore } from './secrets.ts';
 
@@ -101,6 +101,35 @@ export class McpServerStore {
   async forSession(switchedOn: readonly string[], projectId: string | null, found: Record<string, McpConfig>): Promise<{ mcpServers: Record<string, McpConfig>; handed: HandedServer[] }> {
     const defs = kestrelServersFor(await this.defs(), switchedOn, projectId);
     return mergeServers(found, defs, defs.length ? await this.secrets.read() : {});
+  }
+
+  /**
+   * Values copied from another computer (onboarding.md section 19) into a server's secret slots that have
+   * no value here, by name: its environment variable of that name, else its header. Never over a value set
+   * here. Answers the names written, never a value.
+   */
+  async fillValues(name: string, values: Readonly<Record<string, string>>): Promise<string[]> {
+    const def = (await this.defs()).find((d) => d.name === name);
+    if (!def) throw new Refused(`No MCP server named ${name}.`);
+    const slots = secretSlots(def);
+    const slotFor = (before: Readonly<Record<string, string>>, key: string) => [slotOf('env', key), slotOf('header', key)].find((slot) => slots.includes(slot) && !before[slot]);
+    let written: string[] = [];
+    await this.writeSecrets((all) => {
+      const before = all[name] ?? {};
+      const filled = Object.entries(values).flatMap(([key, value]) => {
+        const slot = slotFor(before, key);
+        return slot && value ? [[slot, value, key] as const] : [];
+      });
+      written = filled.map(([, , key]) => key);
+      return { ...all, [name]: { ...before, ...Object.fromEntries(filled.map(([slot, value]) => [slot, value])) } };
+    });
+    return written;
+  }
+
+  /** Undo of `fillValues`: those names' secret values here are cleared again. */
+  async clearValues(name: string, keys: readonly string[]): Promise<void> {
+    const gone = new Set(keys.flatMap((key) => [slotOf('env', key), slotOf('header', key)]));
+    await this.writeSecrets((all) => (all[name] ? { ...all, [name]: Object.fromEntries(Object.entries(all[name]!).filter(([slot]) => !gone.has(slot))) } : all));
   }
 
   /** One server's configuration with its values, for Settings' Test only (probe.ts). */

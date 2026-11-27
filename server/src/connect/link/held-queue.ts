@@ -40,6 +40,8 @@ export interface QueueState {
   deleteRecords: string[];
   held: Record<string, HeldSession>;
   indexHash: string | null;
+  /** Per session, the hash of the head last sent (one record a session, in the change feed): sent again only when it differs. */
+  heads: Record<string, string>;
   /** Waiting messages taken from the service: never delivered twice. */
   taken: string[];
   deliveries: Delivery[];
@@ -49,7 +51,7 @@ export interface QueueState {
   listHashes: { reviews?: string; tickets?: string; 'pull-requests'?: string };
 }
 
-export const EMPTY_QUEUE: QueueState = { v: 1, scope: null, dirty: [], deleteSessions: [], deleteProjects: [], deleteRecords: [], held: {}, indexHash: null, taken: [], deliveries: [], contexts: {}, listHashes: {} };
+export const EMPTY_QUEUE: QueueState = { v: 1, scope: null, dirty: [], deleteSessions: [], deleteProjects: [], deleteRecords: [], held: {}, indexHash: null, heads: {}, taken: [], deliveries: [], contexts: {}, listHashes: {} };
 
 const ROW_KINDS: readonly ContextRow['kind'][] = ['used', 'free', 'buffer', 'deferred'];
 const count = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
@@ -90,6 +92,7 @@ function asQueue(raw: unknown): QueueState {
     deleteRecords: strings(q.deleteRecords),
     held,
     indexHash: typeof q.indexHash === 'string' ? q.indexHash : null,
+    heads: Object.fromEntries(Object.entries(q.heads ?? {}).filter((e): e is [string, string] => typeof e[1] === 'string')),
     taken: strings(q.taken),
     deliveries: Array.isArray(q.deliveries) ? q.deliveries.filter((d): d is Delivery => typeof d?.id === 'string' && typeof d.ok === 'boolean' && typeof d.at === 'number') : [],
     contexts,

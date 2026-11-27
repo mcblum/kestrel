@@ -4,6 +4,7 @@
 import { setupListOf, type SetupList } from './shared/setup-list.ts';
 import { SETUP_RECORD_VERSION, type SetupRecord } from './shared/setup-record.ts';
 import type { Platform } from './shared/platform.ts';
+import { SETUP_ANSWERS } from './shared/setup-values.ts';
 
 const base = (id: string, name: string, platform: Platform, readAt: number): SetupRecord => ({
   v: SETUP_RECORD_VERSION,
@@ -22,8 +23,11 @@ const base = (id: string, name: string, platform: Platform, readAt: number): Set
 });
 
 export function sampleLaptop(now: number): SetupRecord {
+  const laptop = base('sample-laptop', 'MacBook Pro', 'mac', now - 3 * 60 * 60_000);
   return {
-    ...base('sample-laptop', 'MacBook Pro', 'mac', now - 3 * 60 * 60_000),
+    ...laptop,
+    // A current Kestrel: it answers a request for set-up values (onboarding.md 19.8).
+    machine: { ...laptop.machine, answers: [...SETUP_ANSWERS] },
     agents: [
       { agent: 'claude', state: 'ready' },
       { agent: 'codex', state: 'ready' },
@@ -78,6 +82,33 @@ export function sampleHere(now: number): SetupRecord {
     files: [{ agent: 'claude', kind: 'instructions', path: '~/.claude/CLAUDE.md', files: 1, keyAt: null, env: [], plugins: [] }],
     problems: [{ part: 'hosts', reason: 'glab is not installed.' }],
   };
+}
+
+/**
+ * A new Mac as it reads before anything is set up: Claude and Codex ready, no OpenCode, no `gh` or `glab`,
+ * nothing else. What the set-up list is checked against when this computer's own record is previewed.
+ */
+export function newMac(now: number): SetupRecord {
+  return {
+    ...base('preview-new-mac', 'Mac mini', 'mac', now),
+    agents: [
+      { agent: 'claude', state: 'ready' },
+      { agent: 'codex', state: 'ready' },
+      { agent: 'opencode', state: 'missing' },
+    ],
+    problems: [
+      { part: 'hosts', reason: 'gh is not installed.' },
+      { part: 'hosts', reason: 'glab is not installed.' },
+    ],
+  };
+}
+
+/**
+ * The list a new Mac would be shown for this computer's real record: for looking at the page with real
+ * amounts of data from a checkout, with no account and no second computer (`KESTREL_SETUP_PREVIEW=1`).
+ */
+export function previewSetupList(source: SetupRecord, now: number): SetupList {
+  return setupListOf(newMac(now), [source], { tool: () => false });
 }
 
 export function sampleSetupList(now: number): SetupList {

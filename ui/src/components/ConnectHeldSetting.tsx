@@ -6,7 +6,7 @@ import { KeyRound } from 'lucide-react';
 import { keptOffWith, type ConnectView } from '@kestrel/server/connect';
 import { connectActions, useConnect } from '../connectStore.ts';
 import { opener, openView } from '../route.ts';
-import { useApp } from '../store.ts';
+import { useHereProjects } from '../awayProjects.ts';
 
 /** Stands for sessions with no project in the kept-off list (server/src/connect/link/held.ts). */
 const NO_PROJECT = 'none';
@@ -90,7 +90,7 @@ export function ConnectKeepOffSwitch({ projectId, projectName }: { projectId: st
 }
 
 export function ConnectHeldSetting({ view }: { view: ConnectView }) {
-  const projects = useApp((s) => s.workspace?.projects);
+  const projects = useHereProjects();
   const { held } = view;
   const keptOff = new Set(held.keptOff);
   const toggle = (id: string, off: boolean) => keepOff(held.keptOff, id, off);

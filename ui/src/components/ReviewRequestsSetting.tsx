@@ -12,8 +12,9 @@ import { AFTER_APPROVAL, AFTER_APPROVAL_LABEL, type AfterApproval } from '@kestr
 import { useResource } from '../data/resources.ts';
 import { openView } from '../route.ts';
 import { asReviewSettings as asSettings, REVIEW_SETTINGS_PATH, saveReviewSettings as save } from '../reviewSettings.ts';
-import { OLDER_SERVER, RESTART_REASON, useApp } from '../store.ts';
+import { OLDER_SERVER, RESTART_REASON } from '../store.ts';
 import { SettingSection } from './SettingHelp.tsx';
+import { useHereProjects } from '../awayProjects.ts';
 
 const MODE_NOTE: Record<ReviewMode, string> = {
   off: 'GitHub and GitLab are not asked, and nothing is listed.',
@@ -29,9 +30,8 @@ const HELP = (
   </p>
 );
 
-const NO_PROJECTS: readonly { id: string; name: string }[] = [];
 /** The registered projects, as the store holds them: the same array until a project changes. */
-const useProjects = (): readonly { id: string; name: string }[] => useApp((s) => s.workspace?.projects ?? NO_PROJECTS);
+const useProjects = (): readonly { id: string; name: string }[] => useHereProjects();
 
 function Projects({ projects, registered }: { projects: ReviewProjects; registered: readonly { id: string; name: string }[] }) {
   const ids = registered.map((p) => p.id);

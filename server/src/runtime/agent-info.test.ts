@@ -47,4 +47,20 @@ describe('the models an agent offers', () => {
     clock.at += MODELS_TTL_MS;
     expect(await runtime.models('codex')).toEqual({ models: LISTED, fromSdk: true });
   });
+
+  it('tells when an agent answers differently, and only then (what a computer offers is written again)', async () => {
+    const CHANGED: ModelOption[] = [...DEFAULT_ONLY, { id: 'gpt-6.1-terra', label: 'GPT-6.1 Terra' }];
+    const { runtime, clock } = world([LISTED, LISTED, CHANGED]);
+    let told = 0;
+    runtime.onAgentsChange(() => told++);
+    await runtime.models('codex');
+    await runtime.agentAvailability();
+    await runtime.agentAvailability();
+    clock.at += MODELS_TTL_MS;
+    await runtime.models('codex');
+    expect(told).toBe(0);
+    clock.at += MODELS_TTL_MS;
+    await runtime.models('codex');
+    expect(told).toBe(1);
+  });
 });

@@ -11,7 +11,10 @@
 // named blank. A file in which a key is found is not carried at all, and says where (O11). Pure.
 import type { Agent } from '../model.ts';
 import type { McpScope } from './setup.ts';
+import { repositoryKey } from './knowledge.ts';
+import { SETUP_ANSWERS } from './setup-values.ts';
 import type { Platform } from './platform.ts';
+import { sanitizeWhoDoesWhat, type WhoDoesWhat } from './who-does-what.ts';
 
 export const SETUP_RECORD_VERSION = 1;
 
@@ -261,7 +264,8 @@ export type SetupPart = 'agents' | 'hosts' | 'git' | 'ssh' | 'mcp' | 'files' | '
 export interface SetupRecord {
   v: typeof SETUP_RECORD_VERSION;
   kind: 'setup';
-  machine: { id: string; name: string; platform: Platform };
+  /** `answers`: the desk-only operations its Kestrel answers (onboarding.md 19.8); absent in older records. Never a value. */
+  machine: { id: string; name: string; platform: Platform; answers?: readonly string[] };
   /** When this machine last read itself. */
   readAt: number;
   agents: SetupAgent[];
@@ -272,6 +276,10 @@ export interface SetupRecord {
   files: SetupFile[];
   tools: SetupTool[];
   projects: SetupProject[];
+  /** The knowledge base this machine uses (onboarding.md 18.15): its repository key and name only. Absent in older records. */
+  knowledge?: SetupKnowledge | null;
+  /** Settings → Models & roles: the model presets and the Who does what table, as configuration. Absent in older records. */
+  models?: SetupModels | null;
   /** A part that could not be read, and why ("gh is not installed"). Never a value. */
   problems: { part: SetupPart; reason: string }[];
 }
@@ -300,7 +308,28 @@ export interface MachineInventory {
   files: FoundFile[];
   tools: SetupTool[];
   projects: { name: string; folders: { name: string; path: string; origin: string | null }[] }[];
+  /** The knowledge base in use: its repository key (`repositoryKey`) or remote, and its name, before the split. */
+  knowledge?: { repo: string | null; name: string } | null;
+  /** The model presets and Who does what as stored here, before the split. */
+  whoDoesWhat?: WhoDoesWhat | null;
   problems: { part: SetupPart; reason: string }[];
+}
+
+/**
+ * The model presets and the Who does what table (onboarding.md 19): names, agents, model ids, efforts and
+ * which preset does what. Nothing in it grants access. The user's own note on who does what is free text,
+ * so it is carried only when no key shape is found in it.
+ */
+export interface SetupModels {
+  who: WhoDoesWhat;
+  /** The note on who does what was left out: something in it looks like a key. */
+  instructionLeftOut: boolean;
+}
+
+export interface SetupKnowledge {
+  /** `host/owner/name` (`repositoryKey`): never a path, a user or a password. */
+  repo: string;
+  name: string;
 }
 
 const record = (v: unknown): Record<string, unknown> => (typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
@@ -402,7 +431,7 @@ export function setupRecordOf(found: MachineInventory): SetupRecord {
   return {
     v: SETUP_RECORD_VERSION,
     kind: 'setup',
-    machine: found.machine,
+    machine: { ...found.machine, answers: [...SETUP_ANSWERS] },
     readAt: found.readAt,
     agents: found.agents.map((a) => ({ agent: a.agent, state: a.state })),
     hosts: found.hosts.flatMap((h) => (safe(h.host) ? [{ tool: h.tool, host: h.host, user: safe(h.user), protocol: h.protocol === 'ssh' || h.protocol === 'https' ? h.protocol : null, signedIn: h.signedIn }] : [])),
@@ -412,8 +441,42 @@ export function setupRecordOf(found: MachineInventory): SetupRecord {
     files: found.files.map((f) => splitFile(f, home)),
     tools: found.tools.filter((t) => t.name.length <= 64 && !looksLikeKey(t.name)).map((t) => ({ name: t.name, why: t.why.map((w) => homePath(w, home)), found: t.found })),
     projects: found.projects.map((p) => ({ name: p.name, folders: p.folders.map((f) => ({ name: f.name, path: homePath(f.path, home), origin: f.origin ? splitRemote(f.origin) : null })) })),
+    knowledge: knowledgeOf(found.knowledge),
+    models: modelsOf(found.whoDoesWhat),
     problems: found.problems,
   };
+}
+
+/** The knowledge base as the record carries it: the repository key and the name, or nothing. */
+function knowledgeOf(found: MachineInventory['knowledge']): SetupKnowledge | null {
+  // A key (`host/owner/name`) as it is, or a remote turned into one; anything with a user or password is not.
+  const raw = found?.repo ?? null;
+  const repo = raw && /^[a-z0-9.-]+\/[^\s@:]+$/.test(raw) ? raw : repositoryKey(raw);
+  const name = safe(found?.name);
+  return repo && name && !looksLikeKey(repo) ? { repo, name } : null;
+}
+
+/** Free text in which something looks like a key: a known shape anywhere, or a random-looking word. */
+const textHasKey = (text: string): boolean => keyShapeIn(text) !== null || text.split(/\s+/).some(looksRandom);
+
+/** The most of a record's models part read back; a bigger one is not read at all. */
+export const MAX_MODELS_JSON = 64_000;
+
+/** The presets and roles as the record carries them: a preset with anything key-like in it is left out, and so is such a note. Null with no preset. */
+export function modelsOf(who: WhoDoesWhat | null | undefined): SetupModels | null {
+  if (!who) return null;
+  const clean = sanitizeWhoDoesWhat({ ...who, presets: who.presets.filter((p) => ![p.name, p.model, p.effort].some(textHasKey)) });
+  if (clean.presets.length === 0) return null;
+  const leftOut = textHasKey(clean.instruction);
+  return { who: leftOut ? { ...clean, instruction: '' } : clean, instructionLeftOut: leftOut };
+}
+
+/** A record's models part read back: only through `sanitizeWhoDoesWhat` and the same key check, and only up to a size. */
+function readModels(value: unknown): SetupModels | null {
+  const m = record(value);
+  if (!m.who || JSON.stringify(m.who).length > MAX_MODELS_JSON) return null;
+  const read = modelsOf(sanitizeWhoDoesWhat(m.who));
+  return read && { ...read, instructionLeftOut: read.instructionLeftOut || m.instructionLeftOut === true };
 }
 
 /** A record read back from the service, checked for shape; anything else is null. */
@@ -423,5 +486,9 @@ export function asSetupRecord(value: unknown): SetupRecord | null {
   if (r.v !== SETUP_RECORD_VERSION || r.kind !== 'setup' || typeof machine.id !== 'string' || typeof machine.name !== 'string') return null;
   const lists = ['agents', 'hosts', 'mcp', 'files', 'tools', 'projects', 'problems'] as const;
   if (lists.some((k) => !Array.isArray(r[k])) || typeof r.git !== 'object' || typeof r.ssh !== 'object') return null;
-  return value as SetupRecord;
+  const k = r.knowledge as Record<string, unknown> | null | undefined;
+  const knowledge = k && typeof k === 'object' && typeof k.repo === 'string' && typeof k.name === 'string' ? { repo: k.repo, name: k.name } : null;
+  const answers = Array.isArray(machine.answers) ? machine.answers.filter((a): a is string => typeof a === 'string') : undefined;
+  const base = value as SetupRecord;
+  return { ...base, machine: { id: machine.id, name: machine.name, platform: base.machine.platform, ...(answers ? { answers } : {}) }, knowledge, models: readModels(r.models) };
 }

@@ -52,6 +52,19 @@ The server makes a new access token every time it starts and writes it to
 to the page; in the app the Electron shell makes the token and hands it over itself. If the
 server restarts, an open page fetches the new token by itself.
 
+### Sessions from another computer, without a second computer
+
+```bash
+KESTREL_DATA_DIR=~/.kestrel-remote-sessions-preview pnpm --filter @kestrel/server exec tsx scripts/seed-remote-sessions.ts
+```
+
+Puts four sessions of a pretend "Studio Laptop" into that store's replica (`server/scripts/seed-remote-sessions.ts`):
+a short one, a long one of 320 messages with attachments and a tool's picture, one running, and one whose copy is
+behind its head (the page asks the laptop, which is never there, and says it did not answer). It needs
+`KESTREL_DATA_DIR` and refuses the installed app's store; run it with the server stopped, then start the server and
+UI on that store (the `kestrel-remote-sessions` entry of `.claude/launch.json` does both, on ports 4387 and 5243).
+Nothing in the app runs it.
+
 ### The demo workspace
 
 ```bash
@@ -93,6 +106,8 @@ To start again from clean fake data, run with `KESTREL_FAKE=1` and delete
 | `KESTREL_DATA_DIR` | `~/.kestrel-dev` from this checkout, `~/.kestrel` in an installed app | Database, launch file, worktrees |
 | `KESTREL_FAKE` | off | `1` opens a separate seeded fake store instead of the real one. Real sessions work in both |
 | `KESTREL_DEMO` | off | `1` opens the demo workspace (`pnpm demo`): fake data with the rest of the app filled in, the scripted agent, a store of its own |
+| `KESTREL_SETUP_PREVIEW` | off | `1` in a checkout: Set up this computer shows the list a new Mac would be shown for this computer's real set-up, with no account and no second computer. Nothing is uploaded |
+| `KESTREL_ACCOUNT_PREVIEW` | off | `1` in a checkout: a second computer, Studio Mac, is put into this store's replica with its projects and sessions (`server/src/seed-account.ts`): one project this computer also has (by the repository key of its first project with an `origin`; none is shown when there is no such project), one it does not have with two sessions, one with none, and a plain folder. No account is needed and nothing is uploaded. Never active in the installed app |
 | `KESTREL_SAMPLE_REVIEWS` | 9 | With fake data, how many sample review requests wait in CODE REVIEWS (up to 1000) |
 | `KESTREL_SAMPLE_UNREAD` | all | With fake data, how many of those are unread (the most recent ones); the rest are marked read |
 | `KESTREL_SAMPLE_TICKETS` | 6 | With fake data or the demo, how many tickets the sample tracker holds (up to 1000), to see a long list |

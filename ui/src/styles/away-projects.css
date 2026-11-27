@@ -1,0 +1,14 @@
+/* A project only another computer of the account has: a missing-folder mark on its sidebar row, in the
+   yellow of "waiting on you" (Matt, 2026-11-26), which gives way to the row's actions on hover; and a quiet
+   line on its page (account-sessions.md, 10.2). */
+.kestrel .side-link .row-elsewhere { flex: none; display: inline-flex; margin-left: auto; margin-right: 3px; color: var(--s-amber); }
+.kestrel .side-link .row-elsewhere svg { width: 13px; height: 13px; }
+.kestrel .side-link .row-elsewhere + .row-dot { margin-left: 0; }
+.kestrel .fold-row:hover .row-elsewhere, .kestrel .fold-row:focus-within .row-elsewhere { display: none; }
+.kestrel .project-elsewhere { color: var(--s-muted); }
+.kestrel .project-elsewhere code { font-size: 0.95em; }
+/* The way to get it here, plain at the top of its page: a bordered block, the icon in the sidebar mark's yellow. */
+.kestrel .project-elsewhere-add { display: flex; gap: 12px; align-items: flex-start; margin: 4px 0 18px; padding: 14px 16px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-soft); }
+.kestrel .project-elsewhere-icon { width: 18px; height: 18px; flex: none; margin-top: 1px; color: var(--s-amber); }
+.kestrel .project-elsewhere-body { display: grid; gap: 10px; min-width: 0; flex: 1; }
+.kestrel .project-elsewhere-title { margin: 0; font-size: 13px; line-height: 1.5; color: var(--s-ink); }

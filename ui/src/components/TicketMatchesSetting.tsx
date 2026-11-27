@@ -4,8 +4,9 @@
 import { MAX_TICKET_MATCHES, plainName, type TicketMatches } from '@kestrel/server/tickets';
 import { useEffect, useState } from 'react';
 import { useDraft } from '../unsaved.ts';
-import { actions, useApp } from '../store.ts';
+import { actions } from '../store.ts';
 import { SettingSection } from './SettingHelp.tsx';
+import { useHereProjects } from '../awayProjects.ts';
 
 const HELP = (
   <p className="settings-help">
@@ -37,7 +38,7 @@ function problemOf(matches: TicketMatches, nameOf: (id: string) => string): stri
 
 /** The tracker projects or teams matched to each Kestrel project. */
 export function TicketMatchesSetting({ stored = NO_MATCHES, on }: { stored?: TicketMatches; on: boolean }) {
-  const projects = useApp((s) => s.workspace?.projects) ?? [];
+  const projects = useHereProjects();
   const [text, setText] = useState(() => textOf(stored));
   useEffect(() => setText(textOf(stored)), [stored]);
   const next = matchesOf(text);

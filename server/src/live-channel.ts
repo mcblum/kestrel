@@ -22,14 +22,20 @@ export class LiveChannel {
   private readonly pending = new Map<string, LivePatch>();
   private timer: NodeJS.Timeout | null = null;
 
+  /** `watchers`: told when a session gets its first watching window, and when it loses its last. */
+  constructor(private readonly watchers?: (sessionId: string, watched: boolean) => void) {}
+
   watch(ws: WebSocket, sessionId: string): void {
+    const first = !this.isWatched(sessionId);
     const set = this.watching.get(ws) ?? new Set<string>();
     set.add(sessionId);
     this.watching.set(ws, set);
+    if (first) this.watchers?.(sessionId, true);
   }
 
   unwatch(ws: WebSocket, sessionId: string): void {
-    this.watching.get(ws)?.delete(sessionId);
+    if (!this.watching.get(ws)?.delete(sessionId)) return;
+    if (!this.isWatched(sessionId)) this.watchers?.(sessionId, false);
   }
 
   /** Some window has this session open. */
@@ -39,7 +45,9 @@ export class LiveChannel {
   }
 
   forget(ws: WebSocket): void {
+    const ids = this.watching.get(ws);
     this.watching.delete(ws);
+    for (const id of ids ?? []) if (!this.isWatched(id)) this.watchers?.(id, false);
   }
 
   /** Send one patch right away to one socket (the snapshot when it starts watching). */

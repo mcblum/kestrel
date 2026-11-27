@@ -3,11 +3,14 @@
 // edits them reads this entry, and a save writes back what the server stored.
 import { NOBODY, type WhoDoesWhat } from '@kestrel/server/who-does-what';
 import { ready, type Sourced } from '@kestrel/server/sourced';
-import { useResource } from './data/resources.ts';
+import { fetchResource, useResource } from './data/resources.ts';
 import { act, call, putResource } from './store.ts';
 
 export const WHO_DOES_WHAT_PATH = '/api/who-does-what';
 const asWho = (raw: unknown): Sourced<WhoDoesWhat> => ready({ ...NOBODY, ...(raw as Partial<WhoDoesWhat>) });
+
+/** Asks for the record again: something other than this page changed it (a set-up step brought presets over). */
+export const refreshWhoDoesWhat = (): Promise<void> => fetchResource(WHO_DOES_WHAT_PATH, asWho);
 
 /** The record, loading or not. */
 export const useWhoDoesWhatResource = () => useResource(WHO_DOES_WHAT_PATH, asWho).value;

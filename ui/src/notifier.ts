@@ -7,13 +7,15 @@
 // previous list to compare with. A click on a banner brings the window forward and opens the session.
 import { platform } from './platform.ts';
 import { useSyncExternalStore } from 'react';
-import { bannerProblem, DEFAULT_NOTIFY, NOTHING_SEEN, sanitizeNotify, notifies, notificationsOf, parseTarget, targetOf, type NotifyEvent, type NotifyPrefs, type NotifySeen } from '@kestrel/server/notifications';
+import { bannerProblem, DEFAULT_NOTIFY, deskOnlyEvent, NOTHING_SEEN, sanitizeNotify, notifies, notificationsOf, parseTarget, targetOf, type NotifyEvent, type NotifyPrefs, type NotifySeen } from '@kestrel/server/notifications';
 import { ready, type Sourced } from '@kestrel/server/sourced';
 import { openSession, openView } from './route.ts';
 import { playSound } from './sounds.ts';
 import { heldAttentionPrefs } from './attentionPrefs.ts';
 import { appStore, call, putResource } from './store.ts';
 import { activeTab, tabsView } from './tabsStore.ts';
+// Registers the `setup-` socket handler, which fills the set-up value requests this watches, from the start.
+import './setupSteps.ts';
 
 export const NOTIFICATIONS_PATH = '/api/notifications';
 export type NotifyAnswer = { prefs: NotifyPrefs };
@@ -68,13 +70,15 @@ export async function sendTestBanner(): Promise<'shown' | 'refused' | 'blocked'>
 function openTarget(target: string): void {
   const named = parseTarget(target);
   if (!named) return;
-  if ('requestKey' in named) openView({ kind: 'review-request', id: named.requestKey });
+  if ('setupRequestId' in named) openView({ kind: 'settings', section: 'connections/setup' });
+  else if ('requestKey' in named) openView({ kind: 'review-request', id: named.requestKey });
   else if ('ticketKey' in named) openView({ kind: 'ticket', id: named.ticketKey });
   else openSession(named.sessionId);
 }
 
 function show(event: NotifyEvent, prefs: NotifyPrefs): void {
-  if (!prefs.banner) return;
+  // A desk-only kind (another computer asking for set-up values) shows whatever the settings say (onboarding.md 19.13).
+  if (!prefs.banner && !deskOnlyEvent(event)) return;
   // The shell hands back what it was given as `sessionId` when the banner is clicked: the target.
   if (shellShowsBanners()) return void shellBanner({ title: event.title, body: event.body, sessionId: targetOf(event) });
   if (bannerPermission() === 'granted') {
@@ -89,7 +93,7 @@ function show(event: NotifyEvent, prefs: NotifyPrefs): void {
 }
 
 /** What the last look saw (shared/notifications.ts); nothing until the server's first push, so what was already there is never news. */
-let seen: { rule: NotifySeen; sessions: unknown; reviewRequests: unknown; tickets: unknown; pullRequests: unknown } = { rule: NOTHING_SEEN, sessions: null, reviewRequests: null, tickets: null, pullRequests: null };
+let seen: { rule: NotifySeen; sessions: unknown; reviewRequests: unknown; tickets: unknown; pullRequests: unknown; setupRequests: unknown } = { rule: NOTHING_SEEN, sessions: null, reviewRequests: null, tickets: null, pullRequests: null, setupRequests: null };
 let asked = false;
 
 function check(): void {
@@ -101,14 +105,15 @@ function check(): void {
     asked = true;
     void call<NotifyAnswer>(NOTIFICATIONS_PATH).then((answer) => putResource(NOTIFICATIONS_PATH, asNotifyPrefs(answer)), () => void (asked = false));
   }
-  if (seen.sessions === ws.sessions && seen.reviewRequests === state.reviewRequests && seen.tickets === state.tickets && seen.pullRequests === state.pullRequests) return;
+  if (seen.sessions === ws.sessions && seen.reviewRequests === state.reviewRequests && seen.tickets === state.tickets && seen.pullRequests === state.pullRequests && seen.setupRequests === state.setupValueRequests) return;
   const prefs = heldPrefs();
   const tab = tabsView().loaded ? activeTab(tabsView()) : undefined;
   // The one rule, which the desk's push sender also runs (server/src/connect/link/push.ts).
-  const next = notificationsOf(seen.rule, { sessions: ws.sessions, links: ws.links, pullRequests: state.pullRequests, attention: heldAttentionPrefs(), reviewRequests: state.reviewRequests, tickets: state.tickets }, prefs, { focused: document.hasFocus(), openSessionId: tab?.kind === 'session' ? tab.sessionId : null });
-  seen = { rule: next.seen, sessions: ws.sessions, reviewRequests: state.reviewRequests, tickets: state.tickets, pullRequests: state.pullRequests };
-  if (!notifies(prefs) || next.events.length === 0) return;
-  next.events.forEach((event) => show(event, prefs));
+  const next = notificationsOf(seen.rule, { sessions: ws.sessions, links: ws.links, pullRequests: state.pullRequests, attention: heldAttentionPrefs(), reviewRequests: state.reviewRequests, tickets: state.tickets, setupRequests: state.setupValueRequests }, prefs, { focused: document.hasFocus(), openSessionId: tab?.kind === 'session' ? tab.sessionId : null });
+  seen = { rule: next.seen, sessions: ws.sessions, reviewRequests: state.reviewRequests, tickets: state.tickets, pullRequests: state.pullRequests, setupRequests: state.setupValueRequests };
+  const told = notifies(prefs) ? next.events : next.events.filter(deskOnlyEvent);
+  if (told.length === 0) return;
+  told.forEach((event) => show(event, prefs));
   playSound(prefs.sound); // once, however many things changed in this push
 }
 

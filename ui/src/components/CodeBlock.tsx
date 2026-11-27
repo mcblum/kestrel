@@ -84,11 +84,16 @@ function CodeHead({ lang, text, source, children }: { lang: string | null; text:
   );
 }
 
-/** A fenced block from plain text (the user's own message): the same frame, Copy and Open, no Run. */
-export function CodeFrame({ lang, code, source }: { lang: string | null; code: string; source?: CodeSource & { at: number } }) {
+/**
+ * A fenced block from plain text (the user's own message): the same frame, Copy and Open, no Run of its
+ * own. `tools` are more buttons for the head's row, after Copy (Set up this computer's Run).
+ */
+export function CodeFrame({ lang, code, source, tools }: { lang: string | null; code: string; source?: CodeSource & { at: number }; tools?: ReactNode }) {
   return (
     <div className="code-block">
-      <CodeHead lang={lang} text={code} source={source} />
+      <CodeHead lang={lang} text={code} source={source}>
+        {tools}
+      </CodeHead>
       <pre>
         <HighlightedCode lang={lang} code={code} />
       </pre>

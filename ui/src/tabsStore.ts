@@ -195,7 +195,7 @@ function openNewNow(prefill: Partial<Controls>, choice: Preselect, newTab: boole
   const restore = newTab ? null : parked();
   const scoped = restore?.controls ?? withScope(startingControls(tabsView()), prefill);
   // Whether it will be pinned is this request's, never a remembered or parked choice.
-  const { pinned: _was, ...plain } = scoped;
+  const { pinned: _was, purpose: _purpose, ...plain } = scoped;
   const controls: Controls = prefill.pinned ? { ...plain, pinned: true } : plain;
   const id = newId();
   // The parked text moves to the screen made for it before it renders (it reads its draft once).
@@ -207,7 +207,18 @@ function openNewNow(prefill: Partial<Controls>, choice: Preselect, newTab: boole
   show({ kind: 'new', controls, preselect: choice }, newTab, id);
 }
 
+/** Ask the agent (onboarding.md 18.12): a New session screen of its own, with no project, its message filled in and not sent. */
+function openSetupAskNow(text: string): void {
+  const { pinned: _was, purpose: _purpose, ...plain } = withScope(startingControls(tabsView()), { projectId: null, groupId: null });
+  const id = newId();
+  // The screen reads its draft once, as it renders: the text is put there first.
+  drafts.set(`tab:${id}`, text);
+  show({ kind: 'new', controls: { ...plain, purpose: 'setup' }, preselect: { projectId: null } }, true, id);
+}
+
 export const tabActions = {
+  /** Ask the agent about a Set up this computer step: nothing is sent until the person presses send. */
+  openSetupAsk: (text: string): void => guardLeave(() => openSetupAskNow(text)),
   /** Show a session or page: in the tab in front, in the tab already showing it, or in a new tab. */
   open(target: Extract<OpenTarget, { kind: 'session' | 'page' }>, newTab = false): void {
     guardLeave(() => show(target, newTab));
@@ -252,11 +263,15 @@ export const tabActions = {
   expect(sessionId: string) {
     awaited.add(sessionId);
   },
-  /** The first message was sent: this tab is now that session, in place. Remember the choices. */
-  becomeSession(id: string, sessionId: string, controls: Controls) {
+  /**
+   * The first message was sent: this tab is now that session, in place. Remember the choices, unless they were
+   * another computer's (`controls` null: a session started there, issue 52), which are not this computer's to keep.
+   */
+  becomeSession(id: string, sessionId: string, controls: Controls | null) {
     drafts.set(`tab:${id}`, '');
     awaited.add(sessionId);
-    update({ state: becomeSession(tabsView().state, id, sessionId), remembered: remembered(controls) });
+    const state = becomeSession(tabsView().state, id, sessionId);
+    update(controls ? { state, remembered: remembered(controls) } : { state });
   },
   /**
    * The user picked a model, effort, fast mode or mode by hand (a session's controls, a new-session

@@ -7,18 +7,21 @@ import { readFile } from 'node:fs/promises';
 import { draftRefs, servedType } from '../attachments/api.ts';
 import { LIVE_FLUSH_MS, mergePatch } from '../live-channel.ts';
 import type { ChatMessage, LivePatch, Session } from '../model.ts';
+import { isSetupRunTool, SETUP_AT_DESK } from '../shared/setup-agent.ts';
 import { Refused } from '../refused.ts';
 import type { SessionRuntime } from '../runtime.ts';
 import { setAutopilot } from '../pull-requests/autopilot-api.ts';
-import { checkEnvelope, checkRequest, CONNECT_PROTOCOL_VERSION, isConnectId, versionRefusal, type ConnectOpArgs, type ConnectRequest, type ConnectResponse, type Envelope } from '../shared/connect-ops.ts';
+import { checkEnvelope, checkRequest, CONNECT_PROTOCOL_VERSION, deskOnly, NEVER_REMOTE, isConnectId, versionRefusal, type ConnectOpArgs, type ConnectRequest, type ConnectResponse, type Envelope } from '../shared/connect-ops.ts';
 import { pageRefusal, transcriptPage } from '../shared/transcript-page.ts';
 import type { PullRequestsAnswer, ReviewsAnswer, TicketsAnswer } from '../shared/connect-lists.ts';
 import { ASIDE_REFUSAL } from '../shared/connect-ops.ts';
 import type { Workspace } from '../workspace.ts';
+import type { ValueRequests } from '../setup-values/requests.ts';
 import { connectLists, type ConnectLists, type ListKind } from './lists.ts';
 import { deskLeadChoices } from '../remote-starts/choices.ts';
 import { remoteStartsOff } from '../remote-starts/prefs.ts';
-import { remoteStartChoices, remoteStartRun, type AgentModels } from '../remote-starts/session-start.ts';
+import { agentModels, offersNow, offersSource } from '../remote-starts/offers.ts';
+import { remoteStartRun } from '../remote-starts/session-start.ts';
 import { startRequestedReview } from '../review-requests/start-requested.ts';
 import type { ReviewRequestStore } from '../review-requests/store.ts';
 import { ticketsRoute, type TicketsApi } from '../tickets/api.ts';
@@ -46,6 +49,17 @@ export interface ConnectDeps {
   reviewRequests?: ReviewRequestStore | null;
   /** The Tickets routes the pages' buttons call (`tickets/api.ts`); absent where there are none. */
   tickets?: TicketsApi | null;
+  /** What only another desktop may ask (`who: 'desk'`); absent: every such operation is refused. */
+  desk?: DeskOps | null;
+  /** Projects kept off Kestrel Connect: left out of what this computer offers, as its record leaves them out. */
+  keptOff: () => readonly string[];
+}
+
+/** The desk-only operations' part: who a device is, by this computer's keyring, and the set-up value requests. */
+export interface DeskOps {
+  /** What the keyring this computer accepted says a device is; null when it is not in it. */
+  kindOf(device: string): 'desktop' | 'phone' | null;
+  values?: Pick<ValueRequests, 'ask' | 'withdraw' | 'dropDevice' | 'close'> | null;
 }
 
 /** What of a live patch a phone is sent: the conversation as the window shows it, cards and all, and where it stands; never the terminal-side panes. */
@@ -113,6 +127,8 @@ export class ConnectDispatcher {
   async answer(device: string, body: unknown): Promise<ConnectResponse> {
     const request = checkRequest(body);
     if (!request.ok) return { ok: false, reason: request.reason };
+    // A desk-only operation from anything but a desktop of this computer's keyring is refused (onboarding.md 19.6).
+    if (deskOnly(request.value.op) && this.deps.desk?.kindOf(device) !== 'desktop') return { ok: false, reason: NEVER_REMOTE.setup! };
     try {
       return { ok: true, result: await this.run(device, request.value) };
     } catch (error) {
@@ -124,11 +140,13 @@ export class ConnectDispatcher {
 
   /** A device went away: it watches nothing any more. */
   forget(device: string): void {
+    this.deps.desk?.values?.dropDevice(device);
     this.watching.delete(device);
     this.reading.delete(device);
   }
 
   close(): void {
+    this.deps.desk?.values?.close();
     this.unsubscribe();
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
@@ -223,6 +241,27 @@ export class ConnectDispatcher {
         return this.findingAct(request.args);
       case 'reviewEnd.act':
         return this.reviewEndAct(request.args);
+      // Desk only, checked in `answer` against this computer's keyring (onboarding.md 19.6).
+      case 'setup.values':
+        return this.setupValues(device, request.args);
+      case 'setup.values.withdraw':
+        this.deps.desk?.values?.withdraw(device, request.args.requestId);
+        return {};
+    }
+  }
+
+  /**
+   * Another computer asks for a set-up step's values: answered only after the person here says Allow
+   * (setup-values/requests.ts). What comes back is put in this reply alone, which the channel seals; it is
+   * never logged, so every failure here is a refusal in fixed words.
+   */
+  private async setupValues(device: string, args: ConnectOpArgs['setup.values']): Promise<unknown> {
+    const values = this.deps.desk?.values;
+    if (!values) throw new Refused(`${this.deps.here} cannot copy set-up values: Set up this computer is not available there.`);
+    try {
+      return await values.ask(device, args);
+    } catch (error) {
+      throw error instanceof Refused ? error : new Refused(`${this.deps.here} could not answer.`);
     }
   }
 
@@ -283,6 +322,8 @@ export class ConnectDispatcher {
     const { messages } = await this.messages(sessionId);
     const card = messages.find((m) => m.input?.id === requestId)?.input;
     if (!card || card.resolved) throw new Refused('That card is no longer waiting for an answer.');
+    // A set-up command runs on this computer only on the word of the person at it (onboarding.md 18.14).
+    if (isSetupRunTool(card.tool)) throw new Refused(SETUP_AT_DESK);
     if (optionId !== undefined && !card.options.some((o) => o.id === optionId)) throw new Refused('That is not one of the card\'s choices.');
     await this.deps.runtime.answer(sessionId, requestId, { ...(optionId !== undefined ? { optionId } : {}), ...(text !== undefined ? { text } : {}), ...(answers ? { answers } : {}) });
     return { answered: true };
@@ -382,24 +423,14 @@ export class ConnectDispatcher {
     return new Set((await this.deps.workspace.state()).sessions.map((s) => s.id));
   }
 
-  /** What a phone may start a session here with: the switch, the agents, the presets and the New session box's choices. */
-  private async startChoices() {
-    const { allowed } = await this.deps.runtime.remoteStarts.prefs();
-    const { presets } = await this.deps.runtime.whoDoesWhat.current();
-    return remoteStartChoices(this.deps.here, allowed, remoteStartsOff(this.deps.here), presets, await this.deps.workspace.getUiState(), await this.agentModels());
+  /** What a phone may start a session here with: the same value this computer holds as its `offers` record (remote-starts/offers.ts). */
+  private startChoices() {
+    return offersNow(offersSource(this.deps.runtime, this.deps.workspace, this.deps.here), this.deps.keptOff());
   }
 
-  /** Each agent here: whether it can start now, as the New session box judges it, and the one model list kept for it. */
-  private async agentModels(): Promise<AgentModels[]> {
-    const { runtime } = this.deps;
-    const { available, notes } = await runtime.agentAvailability();
-    return Promise.all(
-      runtime.availableAgents().map(async (agent): Promise<AgentModels> => {
-        if (!available.includes(agent)) return { agent, available: false, models: [], ...(notes[agent] ? { reason: notes[agent] } : {}) };
-        const { models } = await runtime.models(agent).catch(() => ({ models: [] }));
-        return { agent, available: true, models };
-      }),
-    );
+  /** Each agent here: whether it can start now, and the one model list kept for it. */
+  private agentModels() {
+    return agentModels(this.deps.runtime);
   }
 
   /**
@@ -415,7 +446,8 @@ export class ConnectDispatcher {
     const pick = { ...(presetId !== undefined ? { presetId } : {}), ...(agent !== undefined ? { agent } : {}), ...(model !== undefined ? { model } : {}), ...(mode !== undefined ? { mode } : {}) };
     const run = remoteStartRun(pick, presets, await this.deps.workspace.getUiState(), this.deps.here, agents);
     const session = await this.deps.runtime.start({ ...run, projectId: projectId ?? null, folderId: folderId ?? null, prompt: text, draft: draftRefs({ draftId, attachments }), byUser: true });
-    return { sessionId: session.id };
+    // The title and agent are for a desktop that started it, to draw its row before the head arrives (issue 52).
+    return { sessionId: session.id, title: session.title, agent: session.agent };
   }
 
   /** The request's Start review button: restored, read, and its review started (or given back), never in Bypass. */

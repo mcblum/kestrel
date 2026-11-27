@@ -2,7 +2,8 @@ import { bindingFor, formatBinding } from '@kestrel/server/shortcuts';
 import { TicketsLink } from './TicketsLink.tsx';
 import { isMac, useShortcuts } from '../shortcuts.ts';
 import { memo, createContext, useContext, useMemo, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
-import { Settings, Folder, FolderOpen, GitPullRequest, LayoutDashboard, Search, Plus } from 'lucide-react';
+import { setupLeftText, useSetupLeft } from '../setupList.ts';
+import { Settings, Folder, FolderOpen, FolderX, GitPullRequest, LayoutDashboard, Search, Plus } from 'lucide-react';
 import type { Group, Project, SessionView, TreeNode, WorkspaceState } from '@kestrel/server/model';
 import { emptyListKind, nestedIds, projectRowIds, sidebarHomes, type PinnedRow, type SidebarHomes } from '@kestrel/server/pinned-homes';
 import { EmptyList, RowPlus } from './SidebarCreate.tsx';
@@ -17,6 +18,9 @@ import { summaryDot } from '@kestrel/server/unread';
 import { dotFor, rollupLabel, rowDotClass, useRowDot } from './useRowDot.ts';
 import { offersArchive } from '@kestrel/server/row-slot';
 import { RowIcons } from './RowIcons.tsx';
+import { useMachineName } from '../machines.ts';
+import '../styles/machines.css';
+import '../styles/away-projects.css';
 import { RowArchive } from './RowArchive.tsx';
 import { dropGroup, dropProject, dropSession, draggedGroupProject, draggedSessionIsHere, joinGroup, unpinIfPinned } from './sidebarDrops.ts';
 import { carries, draggingId, InPinned, InReviews, InTag, InWorkstream, lowerHalf, startDrag, useDragHighlight, useReorderTarget, type Edge } from './sidebarDrag.ts';
@@ -46,6 +50,7 @@ import { opener, openSession, openView, type Route, type View } from '../route.t
 import { selectsRow } from '@kestrel/server/routes';
 import { useProjectTint, useSessionTint } from '../colours.ts';
 import { actions, appStore, useApp } from '../store.ts';
+import { notHere } from '../awayProjects.ts';
 import { tabActions, useSessionOrder, useTabs } from '../tabsStore.ts';
 import { isTypedText } from '../typed-text.ts';
 
@@ -101,6 +106,7 @@ const TreeRow = memo(function TreeRow({ node, depth, activeId, rootId, groupId, 
   const relatedId = node.movedFrom ?? (node.via ? parentId : undefined);
   const relatedTitle = useApp((s) => (relatedId ? s.sessionsById.get(relatedId)?.title : undefined));
   const dot = useRowDot(session);
+  const machine = useMachineName(session?.runsOn);
   const renaming = useApp((s) => s.renaming === node.sessionId);
   const inPinned = useContext(InPinned);
   const inProject = useContext(InProject);
@@ -195,6 +201,7 @@ const TreeRow = memo(function TreeRow({ node, depth, activeId, rootId, groupId, 
               )}
             </span>
           )}
+          {machine && <span className="row-machine" title={`Runs on ${machine}`}>{machine}</span>}
           {dot.className !== 'none' && <span className={`status-dot row-dot ${dot.className}`} aria-label={dot.label || undefined} title={dot.label || undefined} />}
           {/* A review always says where it stands: with nothing new and nothing waiting, a quiet ring with its status. */}
           {dot.className === 'none' && session.review && !inWorkstream ? <span className="status-dot row-dot idle" role="img" aria-label={statusText(session)} title={statusText(session)} /> : <RowIcons session={session} hasDot={dot.className !== 'none'} />}
@@ -517,7 +524,10 @@ function ProjectBlock({ project, workspace, homes, leaveOut, route, activeId, on
   // It also takes a Sessions-list group (which moves into the project), and one of its own
   // sessions dragged out of one of its groups (which leaves the group).
   const [over, setOver] = useDragHighlight(false);
+  // Only another computer has it: listed, opened, never dropped into, renamed or started in here.
+  const elsewhere = project.away ? notHere.mark(project) : null;
   const takes = (event: DragEvent): boolean => {
+    if (elsewhere) return false;
     if (carries(event, GROUP_MIME)) return draggedGroupProject() === null;
     if (!carries(event, SESSION_MIME)) return false;
     const id = draggingId(SESSION_MIME);
@@ -565,16 +575,21 @@ function ProjectBlock({ project, workspace, homes, leaveOut, route, activeId, on
           draggable={!renaming}
           onDragStart={startDrag(PROJECT_MIME, project.id)}
           {...foldClick(view, () => tabActions.toggleCollapsed(key))}
-          onDoubleClick={() => actions.startRename(project.id)}
+          onDoubleClick={() => !elsewhere && actions.startRename(project.id)}
         >
           <span className="repo-icon">{project.name[0]}</span>
           <span className="fold-label">{renaming ? <RenameInput label="Project name" value={project.name} onDone={(name) => name !== project.name && void actions.renameProject(project.id, name)} /> : project.name}</span>
           <FoldChevron open={open} />
+          {elsewhere && (
+            <span className="row-elsewhere" role="img" aria-label={elsewhere} title={elsewhere}>
+              <FolderX aria-hidden />
+            </span>
+          )}
           {dot !== 'none' && <span className={`status-dot row-dot ${dot}`} title={rollupLabel(dot)} />}
         </button>
         {!renaming && <RowOpen view={view} name={project.name} what="project" />}
         {!renaming && <RowMore kind="project" id={project.id} name={project.name} />}
-        {!renaming && <RowPlus container={{ projectId: project.id }} name={project.name} />}
+        {!renaming && !elsewhere && <RowPlus container={{ projectId: project.id }} name={project.name} />}
       </div>
       {open && groups.map((group) => <FolderBlock key={group.id} group={group} tree={orderTree(homes.trees[group.id] ?? [], lookup, mode, order)} route={route} activeId={activeId} />)}
       {!open && activeId && <KeptInProject activeId={activeId} rows={rows} groups={groups} homes={homes} route={route} />}
@@ -739,6 +754,17 @@ function KeptInSection({ section, workspace, homes, route, activeId }: { section
   return group ? <FolderBlock group={group} tree={homes.trees[group.id] ?? []} route={route} activeId={activeId} only={activeId} /> : <KeptRow id={activeId} />;
 }
 
+/** What is left of Set up this computer, as a number at the far right of the Settings row; nothing when nothing is. */
+function SetupLeft() {
+  const left = useSetupLeft();
+  if (left === 0) return null;
+  return (
+    <span className="setup-left" aria-label={setupLeftText(left)} title={setupLeftText(left)}>
+      {left}
+    </span>
+  );
+}
+
 export function Sidebar({ route, activeId, onSwitch }: { route: Route | null; activeId: string | null; onSwitch: () => void }) {
   const workspace = useApp((s) => s.workspace);
   const collapsed = useTabs((v) => v.sidebar.collapsed);
@@ -841,6 +867,7 @@ function SidebarBody({ workspace, homes, collapsed, route, activeId, onSwitch }:
       <UpdateNotice />
       <button className={`side-link settings-link${route?.view.kind === 'settings' ? ' active' : ''}`} {...opener((newTab) => openView({ kind: 'settings' }, newTab))}>
         <Settings aria-hidden /> Settings…
+        <SetupLeft />
       </button>
       <ResizeHandle />
       <HoverCardHost />

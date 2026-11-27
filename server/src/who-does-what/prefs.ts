@@ -9,6 +9,13 @@ export const WHO_DOES_WHAT_KEY = 'who-does-what';
 export class WhoDoesWhatPrefs {
   private writes: Promise<unknown> = Promise.resolve();
   private readonly store: SettingStore;
+  private readonly listeners = new Set<() => void>();
+
+  /** Told after each change (a preset added, changed or removed, a role given another). Returns the undo. */
+  onChange(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => void this.listeners.delete(listener);
+  }
 
   constructor(opts: { settings?: SettingStore } = {}) {
     this.store = opts.settings ?? memorySettings();
@@ -29,6 +36,7 @@ export class WhoDoesWhatPrefs {
     const work = this.writes.then(async () => {
       const updated = cleanWhoDoesWhat(value, () => randomUUID().slice(0, 8));
       await this.store.putSetting(WHO_DOES_WHAT_KEY, JSON.stringify(updated));
+      for (const listener of this.listeners) listener();
       return updated;
     });
     this.writes = work.catch(() => undefined);

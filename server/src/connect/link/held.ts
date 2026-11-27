@@ -20,11 +20,13 @@ import type { ContextUsage } from '../../shared/context-usage.ts';
 import type { Attachment } from '../../shared/attachments.ts';
 import type { ConnectHeld } from '../../shared/connect.ts';
 import { projectOfSession } from '../../shared/project-groups.ts';
+import { headLabel, HEADS_LIST } from '../../shared/machines.ts';
 import type { Workspace } from '../../workspace.ts';
 import { openRecord, sealRecord, tagOf } from '../account-key.ts';
 import type { ReadyKey } from './account-keys.ts';
 import type { HeldApi, HeldUsage } from './held-api.ts';
 import { EMPTY_QUEUE, type Delivery, type HeldSession, type QueueState, type QueueStore } from './held-queue.ts';
+import type { ProjectUploader } from './project-sync.ts';
 import { ServiceRefusal } from './service.ts';
 
 export const CHUNK_MESSAGES = 50;
@@ -64,6 +66,8 @@ export interface HeldSource {
   reply(sessionId: string, text: string, files: { name: string; mediaType: string; data: Buffer }[], draftId: string): Promise<void>;
   /** The Code reviews and Tickets lists, as a phone reads them (`connect/lists.ts`). */
   lists: ConnectLists;
+  /** The repository keys of a project (repo-keys.ts), for its sessions' heads; none when left out. */
+  repos?(projectId: string): Promise<string[]>;
 }
 
 export function heldSource(workspace: Workspace, runtime: SessionRuntime, lists: ConnectLists): HeldSource {
@@ -84,6 +88,10 @@ export function heldSource(workspace: Workspace, runtime: SessionRuntime, lists:
     onLive: (listener) => runtime.onLive((sessionId, patch) => {
       if (patch.messages || patch.removedMessages) listener(sessionId, true);
     }),
+    async repos(projectId) {
+      const project = (await workspace.state()).projects.find((p) => p.id === projectId);
+      return project ? workspace.repos.ofProject(project) : [];
+    },
     onContext: (listener) => runtime.onLive((_sessionId, patch) => {
       if (patch.context) listener();
     }),
@@ -112,6 +120,19 @@ export interface HeldDeps {
   now?(): number;
   settleMs?: number;
   streamMs?: number;
+  /** Writes this computer's project records (project-sync.ts); none in tests of conversations alone. */
+  projects?: ProjectUploader;
+}
+
+/** One held session as the index and its head say it. */
+interface HeldEntry {
+  id: string;
+  project: { id: string; name: string } | null;
+  [field: string]: unknown;
+}
+interface HeldEntries {
+  sessions: HeldEntry[];
+  contexts: Record<string, ContextUsage>;
 }
 
 const hash = (text: string) => createHash('sha256').update(text).digest('base64url').slice(0, 22);
@@ -143,6 +164,8 @@ export class HeldConversations {
   private usage: HeldUsage | null = null;
   private lastUploadAt: number | null = null;
   private closed = false;
+  /** The service refused a head as a request it does not know (it predates the change feed): not tried again this run. */
+  private headsRefused = false;
   private readonly unsubscribe: (() => void)[];
 
   constructor(private readonly deps: HeldDeps) {
@@ -242,7 +265,8 @@ export class HeldConversations {
     if (!before.attachments && after.attachments) for (const id of Object.keys(this.q.held)) this.dirty.add(id);
     // Dropped from `held` so a project switched back on is sent again in full.
     const held = Object.fromEntries(Object.entries(this.q.held).filter(([, h]) => !newlyOff.some((p) => h.project === this.projectTag(p))));
-    this.q = { ...this.q, held };
+    // Their heads went from the service with the project's records: sent again with the rest.
+    this.q = { ...this.q, held, heads: Object.fromEntries(Object.entries(this.q.heads).filter(([id]) => id in held)) };
     await this.save();
     this.kick();
   }
@@ -272,6 +296,8 @@ export class HeldConversations {
 
     const prefs = this.deps.prefs();
     const state = await this.deps.source.state();
+    // Projects first, so another computer lists a project before its sessions arrive.
+    await this.deps.projects?.pass({ api, key, desk, projects: state.projects, keptOff: prefs.keptOff, repos: (id) => this.deps.source.repos?.(id) ?? Promise.resolve([]) });
     const keptOff = new Set(prefs.keptOff);
     // A sidebar is listed nowhere and drawn only in its pane at the desk: never held (kestrel-connect.md, "Sidebars").
     const want = state.sessions.filter((s) => !s.aside && !keptOff.has(projectOfSession(s) ?? NO_PROJECT));
@@ -281,7 +307,8 @@ export class HeldConversations {
       // Deleted, archived, or kept off: its records go.
       await api.deleteRecords({ session: tag(`session|${desk.id}|${id}`) });
       const { [id]: _gone, ...rest } = this.q.held;
-      this.q = { ...this.q, held: rest };
+      const { [id]: _head, ...heads } = this.q.heads;
+      this.q = { ...this.q, held: rest, heads };
       this.dirty.delete(id);
       await this.save();
     }
@@ -293,7 +320,9 @@ export class HeldConversations {
       this.q = { ...this.q, held: { ...this.q.held, [session.id]: after } };
       await this.save();
     }
-    await this.uploadIndex(api, key, desk, state, want, tag);
+    const entries = await this.entries(state, want);
+    await this.uploadHeads(api, key, desk, entries.sessions, tag);
+    await this.uploadIndex(api, key, desk, entries, tag);
     await this.uploadLists(api, key, desk.id, state, want, prefs.keptOff, tag);
     this.problem = null;
     this.deps.changed();
@@ -314,9 +343,9 @@ export class HeldConversations {
     }
   }
 
-  private async put(api: HeldApi, key: ReadyKey, id: string, value: unknown, session: string | null, project: string | null): Promise<boolean> {
+  private async put(api: HeldApi, key: ReadyKey, id: string, value: unknown, session: string | null, project: string | null, list: string | null = null): Promise<boolean> {
     try {
-      this.usage = (await api.putRecord(id, { generation: key.generation, session, project, body: sealRecord(key.adk, 'record', id, key.generation, value) })) ?? this.usage;
+      this.usage = (await api.putRecord(id, { generation: key.generation, session, project, ...(list ? { list } : {}), body: sealRecord(key.adk, 'record', id, key.generation, value) })) ?? this.usage;
       this.lastUploadAt = this.now();
       return true;
     } catch (error) {
@@ -379,14 +408,53 @@ export class HeldConversations {
     return out;
   }
 
-  private async uploadIndex(api: HeldApi, key: ReadyKey, desk: { id: string; name: string }, state: WorkspaceState, want: readonly SessionView[], tag: (label: string) => string): Promise<void> {
+  /** What is said of each held session, to the index and to its head alike, and the measurements carried. */
+  private async entries(state: WorkspaceState, want: readonly SessionView[]): Promise<HeldEntries> {
     const projects = new Map(state.projects.map((p) => [p.id, p.name]));
     const contexts: Record<string, ContextUsage> = {};
+    const repos = new Map<string, string[]>();
+    for (const id of new Set(want.flatMap((s) => projectOfSession(s) ?? []))) repos.set(id, (await this.deps.source.repos?.(id)) ?? []);
     const sessions = want.map((s) => {
       const projectId = projectOfSession(s);
       const count = this.q.held[s.id]?.count ?? 0;
-      return { id: s.id, title: s.title, agent: s.agent, state: s.state, note: s.note, project: projectId ? { id: projectId, name: projects.get(projectId) ?? '' } : null, ...(s.hostId ? { hostId: s.hostId } : {}), createdAt: s.createdAt, updatedAt: s.updatedAt, lastActivityAt: s.lastActivityAt ?? s.updatedAt, messages: count, chunks: Math.ceil(count / CHUNK_MESSAGES), ...this.contextOf(s, contexts) };
+      return { id: s.id, title: s.title, agent: s.agent, state: s.state, note: s.note, project: projectId ? { id: projectId, name: projects.get(projectId) ?? '' } : null, ...(s.hostId ? { hostId: s.hostId } : {}), repos: projectId ? (repos.get(projectId) ?? []) : [], filing: s.filing.status, branch: s.branch, request: s.request, ...(s.stopped ? { stopped: true } : {}), ...(s.completedAt !== undefined ? { completedAt: s.completedAt } : {}), createdAt: s.createdAt, updatedAt: s.updatedAt, lastActivityAt: s.lastActivityAt ?? s.updatedAt, messages: count, chunks: Math.ceil(count / CHUNK_MESSAGES), ...this.contextOf(s, contexts) };
     });
+    return { sessions, contexts };
+  }
+
+  /**
+   * One sealed head per session, in the list every device of the account reads the change feed of
+   * (account-sessions.md, section 5.2): written when what it says changed, so a change costs one small
+   * record and the other devices hear of it at once. It carries the session's and the project's tags,
+   * so it goes with them when the session is deleted or its project is kept off.
+   */
+  private async uploadHeads(api: HeldApi, key: ReadyKey, desk: { id: string; name: string }, sessions: HeldEntries['sessions'], tag: (label: string) => string): Promise<void> {
+    // A service from before the change feed refuses a record with a list: heads wait for it, and the rest of the
+    // pass (the index a phone reads) goes on as it did.
+    if (this.headsRefused) return;
+    const list = tag(HEADS_LIST);
+    for (const session of sessions) {
+      const content = { v: 1, kind: 'head', machine: desk, session };
+      const h = hash(JSON.stringify(content));
+      if (this.q.heads[session.id] === h) continue;
+      const project = tag(`project|${desk.id}|${session.project?.id ?? NO_PROJECT}`);
+      let sent: boolean;
+      try {
+        sent = await this.put(api, key, tag(headLabel(session.id)), content, tag(`session|${desk.id}|${session.id}`), project, list);
+      } catch (error) {
+        if (!(error instanceof ServiceRefusal && error.status === 400)) throw error;
+        this.headsRefused = true;
+        console.error(`[kestrel] Kestrel Connect does not take session heads yet, so other computers will not list this one's sessions: ${message(error)}`);
+        return;
+      }
+      if (!sent) continue;
+      this.q = { ...this.q, heads: { ...this.q.heads, [session.id]: h } };
+      await this.save();
+    }
+  }
+
+  /** The whole list in one record, which the iPhone app reads until it reads heads. */
+  private async uploadIndex(api: HeldApi, key: ReadyKey, desk: { id: string; name: string }, { sessions, contexts }: HeldEntries, tag: (label: string) => string): Promise<void> {
     const content = { v: 1, kind: 'index', desk, sessions, deliveries: this.q.deliveries };
     const h = hash(JSON.stringify(content));
     if (h === this.q.indexHash) return;

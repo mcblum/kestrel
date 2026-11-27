@@ -14,6 +14,7 @@ import { openProjectPage } from '../projectNav.ts';
 import { useApp } from '../store.ts';
 import { scopeKey } from '@kestrel/server/scope';
 import { CardOpenIn } from './CardOpenIn.tsx';
+import { notHere } from '../awayProjects.ts';
 import { PathDetail } from './PathDetail.tsx';
 
 const run = (action: MenuAction, newTab = false) => (hoverCard.close(), void runMenuAction(action, newTab));
@@ -28,16 +29,22 @@ export function ProjectCardBody({ project, pinned }: { project: Project; pinned:
       <div className="card-line card-head">
         <Folder aria-hidden />
         <strong>{project.name}</strong>
-        <button type="button" className={`icon-button card-pin${pinned ? ' pinned' : ''}`} aria-pressed={pinned} aria-label={pinLabel} title={pinLabel} onClick={() => void runMenuAction({ type: 'pin', kind: 'project', id: project.id, pinned: !pinned })}>
+        {!project.away && <button type="button" className={`icon-button card-pin${pinned ? ' pinned' : ''}`} aria-pressed={pinned} aria-label={pinLabel} title={pinLabel} onClick={() => void runMenuAction({ type: 'pin', kind: 'project', id: project.id, pinned: !pinned })}>
           <Pin aria-hidden />
-        </button>
+        </button>}
       </div>
       <div className="card-line">
         <MessageSquare aria-hidden />
         <span>{lines.sessions}</span>
       </div>
       <div className="menu-sep" role="separator" />
-      {lines.noFolder && (
+      {project.away && (
+        <div className="card-line card-muted">
+          <Folder aria-hidden />
+          <span>{notHere.mark(project)} · on {project.elsewhere?.machines.map((m) => m.name).join(' and ') || 'another computer'}</span>
+        </div>
+      )}
+      {lines.noFolder && !project.away && (
         <div className="card-line card-muted">
           <Folder aria-hidden />
           <span>{lines.noFolder}</span>
@@ -56,10 +63,12 @@ export function ProjectCardBody({ project, pinned }: { project: Project; pinned:
         <Settings aria-hidden />
         <span>Open project page</span>
       </button>
-      <button type="button" className="menu-item card-line" onClick={() => run({ type: 'add-folder', projectId: project.id })}>
-        <FolderPlus aria-hidden />
-        <span>Add folder…</span>
-      </button>
+      {!project.away && (
+        <button type="button" className="menu-item card-line" onClick={() => run({ type: 'add-folder', projectId: project.id })}>
+          <FolderPlus aria-hidden />
+          <span>Add folder…</span>
+        </button>
+      )}
     </>
   );
 }

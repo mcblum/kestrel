@@ -109,6 +109,11 @@ export const SuggestionLine = memo(function SuggestionLine({ sessionId, suggesti
           Open it
         </button>
       )}
+      {suggestion.link && /^https?:\/\//.test(suggestion.link) && (
+        <a className="suggestion-undo" href={suggestion.link} target="_blank" rel="noreferrer">
+          Open it
+        </a>
+      )}
       {suggestion.undo && (
         <button type="button" className="suggestion-undo" disabled={busy} onClick={() => void undo()}>
           Undo

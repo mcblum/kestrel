@@ -1,4 +1,7 @@
 // Kestrel server entry point.
+import { createProject } from './project-store.ts';
+import { AdoptHere } from './account-adopt.ts';
+import { folderHere, lookReport } from './account-project-here.ts';
 import { fileURLToPath } from 'node:url';
 import { notesSource } from './whats-new/notes.ts';
 import { WhatsNew } from './whats-new/store.ts';
@@ -52,6 +55,7 @@ import { seedStory } from './seed-story.ts';
 import { seedSidebar } from './seed-sidebar.ts';
 import { LOOPBACK_HOST, newLaunchToken, sessionToken } from './security.ts';
 import { mcpUrl } from './kestrel-mcp.ts';
+import { previewStartComputers, seedAccountPreview } from './seed-account.ts';
 import { Workspace } from './workspace.ts';
 import { githubLoginLookup, sampleUsername } from './git-settings/github-login.ts';
 
@@ -102,7 +106,7 @@ const titles = titleProviders(scripted ? 'scripted' : fake ? 'none' : 'real');
 const vaultKey = readVaultKey();
 // Kestrel's own MCP servers: definitions in the database, secret values sealed like the tracker keys (mcp-servers/).
 const mcpServers = new McpServerStore(db, vaultKey ? sealedSecrets(join(dataDir, PROTECTED_FILES.mcpSealed), vaultKey) : plainSecrets(join(dataDir, PROTECTED_FILES.mcpPlain)));
-const runtime = new SessionRuntime(workspace, scripted ? { claude: scriptedAdapter() } : { claude: claudeAdapter(), codex: codexAdapter(), opencode: opencodeAdapter() }, dataDir, { titleProviders: titles, suggestions: { settings: db, testKinds: scripted }, git: { settings: db, username: fake ? sampleUsername : undefined }, projectEdits: { settings: db }, remoteStarts: { settings: db }, startBase: { settings: db }, projectScripts: { settings: db }, projectEnv: { settings: db }, mcpServers, savedActions: { settings: db }, gitDefaults: { settings: db }, notifications: { settings: db }, cleanup: { settings: db }, whoDoesWhat: { settings: db }, keepAwake: { settings: db }, commandsKept: { settings: db }, openIn: { settings: db }, sandboxAllow: { settings: db }, commitSigning: { settings: db }, crashReports: { settings: db }, reviewPrefs: { settings: db }, colours: { settings: db }, reviewing: fake ? null : reviewingComments(), ...(fake ? { reviewRunner: async () => ({ stdout: '' }) } : {}) });
+const runtime = new SessionRuntime(workspace, scripted ? { claude: scriptedAdapter() } : { claude: claudeAdapter(), codex: codexAdapter(), opencode: opencodeAdapter() }, dataDir, { titleProviders: titles, suggestions: { settings: db, testKinds: scripted }, git: { settings: db, username: fake ? sampleUsername : undefined }, projectEdits: { settings: db }, knowledge: { settings: db }, remoteStarts: { settings: db }, startBase: { settings: db }, projectScripts: { settings: db }, projectEnv: { settings: db }, mcpServers, savedActions: { settings: db }, gitDefaults: { settings: db }, notifications: { settings: db }, cleanup: { settings: db }, whoDoesWhat: { settings: db }, keepAwake: { settings: db }, commandsKept: { settings: db }, openIn: { settings: db }, sandboxAllow: { settings: db }, commitSigning: { settings: db }, crashReports: { settings: db }, reviewPrefs: { settings: db }, colours: { settings: db }, reviewing: fake ? null : reviewingComments(), ...(fake ? { reviewRunner: async () => ({ stdout: '' }) } : {}) });
 if (demo && seeded && !story && !sidebarDemo) await seedDemoExtras(workspace, runtime.savedActions);
 // SAMPLE: with fake data, one running session shows background work left running (seed.ts).
 if (fake && !story && !sidebarDemo) {
@@ -111,6 +115,23 @@ if (fake && !story && !sidebarDemo) {
   const commands = sampleCommands(Date.now());
   runtime.commands.showSample(commands.sessionId, commands.commands, commands.outputs);
 }
+// KESTREL_ACCOUNT_PREVIEW=1, in a checkout only: a second computer's projects and sessions in the replica (seed-account.ts).
+if (process.env.KESTREL_ACCOUNT_PREVIEW === '1' && process.env.KESTREL_PACKAGED !== '1') {
+  for (const note of await seedAccountPreview(workspace)) console.log(`[kestrel] account preview: ${note}`);
+}
+// A project another computer lists whose folder is already on this disk is added by itself, at start and
+// when such a project first shows up (account-adopt.ts).
+const adoptHere = new AdoptHere({
+  view: () => workspace.view(),
+  find: async (project) => folderHere(project, (await workspace.state()).projects.flatMap((p) => p.folders.map((f) => f.path))),
+  create: (name, path) => createProject(workspace, { name, folders: [path] }),
+  report: (project) => lookReport(project),
+  settings: db,
+  log: (text) => console.error(`[kestrel] ${text}`),
+});
+const adoptNow = () => void adoptHere.check().catch((error) => console.error('[kestrel] could not look for projects already on this computer', error));
+workspace.onChange(adoptNow);
+adoptNow();
 const interrupted = await runtime.recoverAfterRestart();
 // Worktree folders removed by hand since the last run: their sessions say so, then their
 // repositories forget them. Not waited for.
@@ -222,7 +243,9 @@ runtime.useTickets(
 // The Tickets routes, for the window and a phone of the account alike (tickets/api.ts).
 const ticketsApi = { store: tickets, sync: ticketSync, work: ticketWork, jira, linear, sources: () => sourcesOfTickets.status() };
 // Kestrel Connect (connect/link/): signed in and switched on in Settings, it links to the relay.
-const connect = await startConnect({ dataDir, settings: db, fake, workspace, runtime, reviewRequests, tickets, ticketsApi, pullRequests: details.store, vaultKey });
+const connect = await startConnect({ dataDir, settings: db, fake, workspace, runtime, reviewRequests, tickets, ticketsApi, pullRequests: details.store, mcpServers, vaultKey });
+// The agent's set-up tools read and run the same checklist as the page (onboarding.md 18.14).
+runtime.useSetupSteps(connect.steps);
 // What's new: the notes shipped with this copy (the repository's whats-new/ from a checkout; the shell
 // names the installed app's copy), and the record of what was shown. Only the installed app opens
 // them by itself; KESTREL_WHATS_NEW_AS_INSTALLED=1 lets a checkout behave as one, to try it.
@@ -237,12 +260,16 @@ function checkoutVersion(): string {
 const whatsNewNotes = notesSource(process.env.KESTREL_WHATS_NEW_DIR || fileURLToPath(new URL('../../whats-new', import.meta.url)));
 const whatsNew = { notes: whatsNewNotes, store: new WhatsNew({ settings: db, notes: whatsNewNotes, version: process.env.KESTREL_APP_VERSION || checkoutVersion(), packaged: process.env.KESTREL_PACKAGED === '1' || process.env.KESTREL_WHATS_NEW_AS_INSTALLED === '1' }) };
 await whatsNew.store.view().catch((error: unknown) => console.error('[kestrel] could not read what is new', error));
-const app = createKestrelServer(workspace, { token, allowedOrigins: uiOrigins, port }, runtime, { details: { sources: details, sample: fake }, writers: titles, reviewRequests, tickets: ticketsApi, crashReporting, connect, whatsNew });
+// The account preview's computers for New session (seed-account.ts), in a checkout only.
+const startComputers = process.env.KESTREL_ACCOUNT_PREVIEW === '1' && process.env.KESTREL_PACKAGED !== '1' ? previewStartComputers() : undefined;
+const app = createKestrelServer(workspace, { token, allowedOrigins: uiOrigins, port }, runtime, { details: { sources: details, sample: fake }, writers: titles, reviewRequests, tickets: ticketsApi, crashReporting, connect, whatsNew, ...(startComputers ? { startComputers } : {}) });
 watchedNow = () => app.watched();
 checkTickets = () => void ticketSync.check();
 await app.listen();
 // The one copy of every session's pull requests, kept current and pushed to every window.
 // Autopilot keeps it current with no window open too: it acts on what the store sees.
+// The knowledge base in use is fetched on the user's interval; the demo and scripted servers reach no network.
+if (!fake && !scripted) runtime.knowledge.start();
 const pullRequestSync = syncPullRequests(workspace, details, fake, () => app.watched() || (runtime.autopilot?.anyOn() ?? false), (sessionId) => app.watching(sessionId));
 // The cards about a pull request that needs the user, from the same store (suggestions/request-kind.ts).
 runtime.watchRequestAttention(details.store, fake);

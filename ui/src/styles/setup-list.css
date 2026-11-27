@@ -1,24 +1,121 @@
-/* Set up this computer (SetupThisComputerPage.tsx). Grey chrome: the done mark is ink, not green. */
-.kestrel .settings-connections-setup .setup-group { gap: 10px; margin-top: 24px; }
-.kestrel .setup-group-heading { display: flex; align-items: center; gap: 8px; }
-.kestrel .setup-group-heading h2 { margin: 0; }
-.kestrel .setup-lines { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
-.kestrel .setup-line { display: flex; align-items: flex-start; gap: 12px; padding: 12px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-paper); }
+/* Set up this computer (SetupThisComputerPage.tsx). */
+.kestrel .setup-groups { display: grid; gap: 10px; max-width: 680px; margin-top: 20px; }
+.kestrel .setup-already .setup-groups { margin-top: 0; }
+.kestrel .setup-group { min-width: 0; border: 1px solid var(--s-line); border-radius: 10px; background: var(--s-paper); }
+.kestrel .setup-group-header { display: flex; align-items: center; gap: 12px; padding: 12px; }
+.kestrel .setup-group h2.setup-group-heading { flex: 1; min-width: 0; margin: 0; }
+.kestrel .setup-group-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 4px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--s-ink);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.kestrel .setup-group-toggle:hover { background: var(--s-soft); }
+.kestrel .setup-group-toggle > svg { flex: none; width: 16px; height: 16px; margin-top: 3px; color: var(--s-label); }
+.kestrel .setup-group-toggle[aria-expanded='true'] > svg { transform: rotate(90deg); }
+.kestrel .setup-group-overview { display: grid; gap: 4px; min-width: 0; }
+.kestrel .setup-group-title { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; font-size: 14px; font-weight: 650; }
+.kestrel .setup-group-overview .settings-help, .kestrel .setup-group-title .settings-status { font-weight: 400; }
+.kestrel .setup-group-overview .settings-help { overflow-wrap: anywhere; }
+.kestrel .setup-group-actions { flex: none; }
+.kestrel .setup-group-confirm:not([hidden]) {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--s-line);
+  background: var(--s-soft);
+}
+.kestrel .setup-group-confirm p { margin: 0; }
+.kestrel .setup-group-steps { border-top: 1px solid var(--s-line); }
+.kestrel .setup-group-steps > .setup-already { padding: 12px 16px; }
+.kestrel .setup-lines + .setup-already { border-top: 1px solid var(--s-line); }
+.kestrel .setup-lines { list-style: none; margin: 0; padding: 0 16px; }
+.kestrel .settings-section.setup-already > .setup-lines { padding: 0; }
+.kestrel .setup-line { display: flex; align-items: flex-start; gap: 10px; padding: 12px 0; }
+.kestrel .setup-line + .setup-line { border-top: 1px solid var(--s-line); }
 .kestrel .setup-line-mark { width: 16px; height: 16px; flex: none; margin-top: 2px; color: var(--s-label); }
 .kestrel .setup-line.is-done .setup-line-mark { color: var(--s-accent); }
-.kestrel .setup-line-detail { display: grid; gap: 4px; min-width: 0; flex: 1; }
+.kestrel .setup-line-detail { display: grid; gap: 4px; min-width: 0; flex: 1; grid-template-columns: minmax(0, 1fr); }
+.kestrel .setup-line-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px; }
 .kestrel .setup-line-title { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
 .kestrel .setup-line-detail .settings-help { overflow-wrap: anywhere; }
 .kestrel .setup-line-detail code { font-family: var(--mono); font-size: 12px; }
 .kestrel .setup-line-from { font-size: 11px; color: var(--s-label); }
 .kestrel .setup-line-detail .sign-in { margin-top: 4px; }
-.kestrel .setup-line-kind { white-space: nowrap; }
-.kestrel .setup-already > summary { cursor: pointer; font-size: 12px; color: var(--s-label); padding: 2px 0; }
+.kestrel :is(.setup-items, .setup-command, .setup-already) > summary { cursor: pointer; font-size: 12px; color: var(--s-label); }
+.kestrel :is(.setup-items, .setup-command, .setup-already) > summary:hover { color: var(--s-ink); }
+.kestrel .setup-items ul { margin: 6px 0 0; padding-left: 16px; display: grid; gap: 2px; font-size: 12px; max-height: 240px; overflow-y: auto; }
+.kestrel .setup-items li.is-done, .kestrel .setup-items-here { color: var(--s-label); }
+.kestrel .setup-already > summary { padding: 2px 0; }
 .kestrel .setup-already[open] > summary { margin-bottom: 8px; }
 .kestrel .setup-summary-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .kestrel .connect-setup-offer { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-paper); }
 .kestrel .connect-setup-offer p { margin: 0; }
 
-@media (max-width: 640px) {
-  .kestrel .setup-line { flex-wrap: wrap; }
+.kestrel .setup-group-actions, .kestrel .setup-line-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.kestrel .setup-line-detail > .setup-line-actions { margin-top: 4px; }
+.kestrel .setup-group-command { padding: 0 12px 12px 40px; }
+.kestrel .setup-command .code-tools { display: inline-flex; align-items: center; gap: 4px; }
+.kestrel .setup-command .code-run.is-running svg { animation: setup-spin 1s linear infinite; }
+.kestrel .setup-command .code-block { margin-top: 6px; border: 1px solid var(--s-line); border-radius: 6px; background: var(--s-bg); }
+.kestrel .setup-command .code-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px 0; color: var(--s-label); font: 11px var(--mono); }
+.kestrel .setup-command pre { margin: 0; padding: 4px 8px 8px; overflow-x: auto; }
+.kestrel :is(.setup-line-mark, .setup-group-actions svg).is-running { animation: setup-spin 1s linear infinite; }
+.kestrel .setup-line-mark.is-failed { color: var(--s-red); }
+.kestrel .setup-line-failed { display: grid; gap: 4px; }
+.kestrel .setup-line-output { margin: 0; padding: 8px; max-height: 200px; overflow: auto; border-radius: 6px; background: var(--s-soft); font-family: var(--mono); font-size: 11px; white-space: pre-wrap; }
+.kestrel .setup-token { display: flex; flex-direction: column; gap: 6px; margin: 2px 0; padding: 10px; border: 1px solid var(--s-line); border-radius: 6px; background: var(--s-soft); }
+.kestrel .setup-token-label { font-size: 12px; font-weight: 600; color: var(--s-ink); }
+.kestrel .setup-token-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.kestrel .setup-token-row input { min-width: 0; flex: 1 1 220px; max-width: 360px; }
+.kestrel .setup-token svg.is-running { animation: setup-spin 1s linear infinite; }
+.kestrel .setup-item-dismiss { margin-left: 8px; }
+@keyframes setup-spin { to { transform: rotate(360deg); } }
+
+@container (max-width: 480px) {
+  .kestrel .setup-group-header { align-items: stretch; flex-direction: column; gap: 8px; }
+  .kestrel .setup-group-header > .setup-group-actions { padding-inline-start: 28px; }
 }
+/* What stands between a step and done (a step to do first, values to type here): set apart from the
+   description, in ink, with a mark; grey like the rest, never a status colour. */
+.kestrel .setup-line-needs { display: flex; align-items: flex-start; gap: 8px; margin: 2px 0; padding: 6px 8px; border: 1px solid var(--s-line); border-radius: 6px; background: var(--s-soft); font-size: 12px; line-height: 1.45; color: var(--s-ink); }
+.kestrel .setup-line-needs svg { flex: none; width: 13px; height: 13px; margin-top: 2px; color: var(--s-label); }
+.kestrel .setup-line-needs strong { font-weight: 600; }
+.kestrel .setup-line-needs code { font: 11px var(--mono); }
+/* The heading on a line of its own, then what it lists, then (for values) what to do about it. */
+.kestrel .setup-line-needs > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.kestrel .setup-line-needs-list { overflow-wrap: anywhere; }
+.kestrel .setup-line-needs-note { color: var(--s-label); }
+.kestrel .setup-group-uncovered { margin: 6px 0 0; }
+.kestrel .setup-code-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 2px 0; }
+.kestrel .setup-line-needs code.setup-code { font: 600 16px var(--mono); letter-spacing: 0.06em; user-select: all; }
+
+/* Copying values from another computer (onboarding.md 19): the button under the missing-values row, the request card, and the names-only list of what was sent. Neutral chrome. */
+.kestrel .setup-line-needs .setup-copy-values { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
+.kestrel .setup-value-requests { display: flex; flex-direction: column; gap: 10px; flex: none; padding: 12px 16px; border-bottom: 1px solid var(--s-line); }
+/* Waiting on you: the key in the yellow that means so. */
+.kestrel .setup-value-request-heading svg { color: var(--s-amber); }
+/* A button of this page at work: its icon turns. */
+.kestrel :is(.primary-button, .secondary-button) svg.is-running { animation: setup-spin 1s linear infinite; }
+.kestrel .setup-value-request { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-soft); }
+.kestrel .setup-value-request p { margin: 0; }
+.kestrel .setup-value-request-heading { display: flex; align-items: center; gap: 8px; }
+.kestrel .setup-value-request-heading svg { flex: none; width: 14px; height: 14px; }
+.kestrel .setup-value-request-heading h2 { flex: 1; margin: 0; font-size: 13px; font-weight: 600; }
+.kestrel .setup-value-request-names { margin: 0; padding: 0 0 0 22px; list-style: none; }
+.kestrel .setup-value-request-names code { font: 12px var(--mono); }
+.kestrel .setup-values-sent-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.kestrel .setup-values-sent-list { margin: 6px 0 0; padding: 0; list-style: none; font-size: 12px; line-height: 1.6; color: var(--s-ink); overflow-wrap: anywhere; }
+.kestrel .setup-summary-actions { align-items: center; }
+.kestrel .setup-summary-actions svg.is-running { animation: setup-spin 1s linear infinite; }

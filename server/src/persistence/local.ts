@@ -50,6 +50,15 @@ const DATA_METHODS = [
   'listAllRequestLinks',
   'insertRequestLink',
   'setRequestState',
+  'listAccountSessions',
+  'putAccountSessions',
+  'deleteAccountSessions',
+  'listAccountDetails',
+  'putAccountDetails',
+  'deleteAccountDetails',
+  'listAccountRecords',
+  'putAccountRecord',
+  'deleteAccountRecord',
 ] as const satisfies readonly (keyof LocalDriver & keyof Persistence)[];
 
 export function createLocalPersistence(driver: LocalDriver): Persistence {

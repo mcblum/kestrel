@@ -22,6 +22,13 @@ export function sanitizeRemoteStartPrefs(value: unknown): RemoteStartPrefs {
 export class RemoteStarts {
   private writes: Promise<unknown> = Promise.resolve();
   private readonly store: SettingStore;
+  private readonly listeners = new Set<() => void>();
+
+  /** Told after each change of the switch. Returns the undo. */
+  onChange(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => void this.listeners.delete(listener);
+  }
 
   constructor(opts: { settings?: SettingStore } = {}) {
     this.store = opts.settings ?? memorySettings();
@@ -41,6 +48,7 @@ export class RemoteStarts {
     const work = this.writes.then(async () => {
       const updated: RemoteStartPrefs = { ...(await this.prefs()), allowed };
       await this.store.putSetting(REMOTE_STARTS_KEY, JSON.stringify(updated));
+      for (const listener of this.listeners) listener();
       return updated;
     });
     this.writes = work.catch(() => undefined);

@@ -22,7 +22,7 @@ describe('Claude event mapping, from a recorded run', () => {
 
   it('starts with the agent session id; this older recording only had list_projects, so the rest are named as missing', () => {
     const started = events[0]!;
-    expect(started).toMatchObject({ type: 'started', kestrelTools: 'missing', missing: ['add_project', 'handoff', 'move_to_project', 'delegate', 'spawn', 'session_status', 'ask_session', 'send_note', 'complete_workstream', 'wait_for', 'archive_session', 'show_widget', 'send_file', 'next_step', 'post_review', 'start_review', 'suggest', 'ticket_read', 'ticket_update', 'browser_navigate', 'browser_read', 'browser_click', 'browser_type', 'browser_screenshot', 'browser_console', 'sim_list', 'sim_boot', 'sim_launch', 'sim_screenshot', 'sim_tap', 'sim_swipe', 'sim_pinch', 'sim_type', 'sim_key', 'sim_button', 'sim_open_url', 'sim_appearance'], model: 'claude-haiku-5-5' });
+    expect(started).toMatchObject({ type: 'started', kestrelTools: 'missing', missing: ['add_project', 'handoff', 'move_to_project', 'delegate', 'spawn', 'session_status', 'ask_session', 'send_note', 'complete_workstream', 'wait_for', 'archive_session', 'show_widget', 'send_file', 'next_step', 'post_review', 'start_review', 'suggest', 'ticket_read', 'ticket_update', 'knowledge_search', 'knowledge_read', 'knowledge_propose', 'setup_list', 'setup_run_step', 'setup_run_command', 'browser_navigate', 'browser_read', 'browser_click', 'browser_type', 'browser_screenshot', 'browser_console', 'sim_list', 'sim_boot', 'sim_launch', 'sim_screenshot', 'sim_tap', 'sim_swipe', 'sim_pinch', 'sim_type', 'sim_key', 'sim_button', 'sim_open_url', 'sim_appearance'], model: 'claude-haiku-5-5' });
     expect((started as any).agentSessionId).toBe((messages[0] as any).session_id);
   });
 

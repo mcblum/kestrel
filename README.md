@@ -40,6 +40,7 @@ A **workstream** keeps those conversations connected. Follow the whole task, see
 - **Review where you work.** Inspect diffs, open a terminal or browser beside the conversation, and manage GitHub and GitLab pull requests.
 - **Reviews you were asked for.** Pull requests where you were asked to review by name are listed for you. An agent reads the change and hands you its findings as cards to edit, dismiss, and post. Nothing is posted until you say so.
 - **From ticket to pull request.** Turn on Tickets to see what is assigned to you in GitHub, GitLab, Jira Cloud, or Linear. One click starts the work across the projects a ticket touches, and Kestrel asks before it changes a ticket.
+- **What your team knows, in every session.** Point Kestrel at the repository where your team writes down how its platform works. Each session gets a short index of it and reads an entry when it needs one. When an agent learns something that is written down nowhere, Kestrel shows you the text and, on your yes, opens the pull request.
 - **A local workspace.** Kestrel runs on your Mac. Your chosen agents connect to their providers using their own accounts, and permission controls let you decide how much they can do without asking. The only thing Kestrel sends us is a crash report when the app itself fails, with none of your code or conversations in it, and a switch in Settings turns that off.
 
 ## Get started

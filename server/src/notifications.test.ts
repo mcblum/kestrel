@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { notificationsRoute } from './notifications/api.ts';
 import { NotifyPrefsStore } from './notifications/prefs.ts';
-import { NOTHING_SEEN, notificationsOf, silentReason, tellsSomehow, bannerProblem, DEFAULT_NOTIFY, NOTIFY_KIND_LABEL, notifies, notifyEvents, notifyProblem, parseTarget, reviewNotifyEvents, sanitizeNotify, targetOf, ticketNotifyEvents, ticketsBefore, type Looking } from './shared/notifications.ts';
+import { deskOnlyEvent, NOTHING_SEEN, notificationsOf, silentReason, tellsSomehow, bannerProblem, DEFAULT_NOTIFY, NOTIFY_KIND_LABEL, notifies, notifyEvents, notifyProblem, parseTarget, reviewNotifyEvents, sanitizeNotify, targetOf, ticketNotifyEvents, ticketsBefore, type Looking } from './shared/notifications.ts';
 
 type S = Parameters<typeof notifyEvents>[1][number];
 const session = (id: string, state: S['state'], note = '', extra: Partial<S> = {}): S => ({ id, title: `Session ${id}`, state, note, ...extra });
@@ -243,5 +243,20 @@ describe('one rule for the window and for push (Kestrel Connect phase 6)', () =>
     const second = notificationsOf(first.seen, now([session('a', 'done')], ['r1'], []), off, AWAY);
     expect(second.events).toEqual([]);
     expect(notificationsOf(second.seen, now([session('a', 'done')], ['r1'], []), DEFAULT_NOTIFY, AWAY).events).toEqual([]);
+  });
+
+  it("tells of another computer's request for set-up values at once, even on the first look and with everything off, and once (onboarding.md 19.7)", () => {
+    const off = { ...DEFAULT_NOTIFY, enabled: false, banner: false };
+    const asking = { id: 'q1', from: { id: 'mini', name: 'Mac mini' }, step: 'MCP server home-assistant', names: ['A', 'B'] };
+    const first = notificationsOf(NOTHING_SEEN, { ...now([], [], []), setupRequests: [asking] }, off, AWAY);
+    expect(first.events).toEqual([{ kind: 'setup-values', sessionId: '', setupRequestId: 'q1', title: 'Mac mini asks for values from this computer', body: '2 values for MCP server home-assistant. Allow or Deny within 2 minutes.' }]);
+    expect(deskOnlyEvent(first.events[0]!)).toBe(true);
+    expect(notificationsOf(first.seen, { ...now([], [], []), setupRequests: [asking] }, off, AWAY).events).toEqual([]);
+    expect(parseTarget(targetOf(first.events[0]!))).toEqual({ setupRequestId: 'q1' });
+  });
+
+  it('never makes one where no requests are handed in, as the push sender hands none', () => {
+    const first = notificationsOf(NOTHING_SEEN, now([], [], []), DEFAULT_NOTIFY, AWAY);
+    expect(notificationsOf(first.seen, now([], [], []), DEFAULT_NOTIFY, AWAY).events.some((e) => e.kind === 'setup-values')).toBe(false);
   });
 });

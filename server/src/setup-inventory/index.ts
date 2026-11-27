@@ -10,7 +10,9 @@ import { SELECTABLE_AGENTS } from '../model.ts';
 import type { Platform } from '../shared/platform.ts';
 import type { DiscoveredServer } from '../shared/setup.ts';
 import { setupRecordOf, type MachineInventory, type SetupAgent, type SetupRecord } from '../shared/setup-record.ts';
+import type { WhoDoesWhat } from '../shared/who-does-what.ts';
 import { readAgentFiles } from './files.ts';
+import { fileRecordsOf, type SetupFileRecord } from '../shared/setup-files.ts';
 import { readGit, readSsh } from './git.ts';
 import { readHosts } from './hosts.ts';
 import { nodeFs, nodeRun, type FsRead, type Run } from './io.ts';
@@ -37,6 +39,10 @@ export interface InventoryDeps {
   mcpServers(projectPaths: readonly string[]): DiscoveredServer[];
   fs?: FsRead;
   run?: Run;
+  /** The knowledge base in use: its repository key and name; null when none is (onboarding.md 18.15). */
+  knowledge?(): Promise<{ repo: string | null; name: string } | null>;
+  /** The model presets and Who does what as stored here (onboarding.md 19). */
+  whoDoesWhat?(): Promise<WhoDoesWhat>;
 }
 
 /** Each agent as ready, signed out (Kestrel can say so), or missing, from Kestrel's existing check. Pure. */
@@ -62,7 +68,7 @@ export async function readInventory(deps: InventoryDeps): Promise<MachineInvento
   const program = (name: string) => findIn(dirs, name, deps.platform, fs.exists);
   const problems: MachineInventory['problems'] = [];
 
-  const [availability, projects] = await Promise.all([deps.agents().catch(() => null), deps.projects()]);
+  const [availability, projects, knowledge, whoDoesWhat] = await Promise.all([deps.agents().catch(() => null), deps.projects(), deps.knowledge?.().catch(() => null) ?? null, deps.whoDoesWhat?.().catch(() => null) ?? null]);
   if (!availability) problems.push({ part: 'agents', reason: 'Kestrel could not ask which agents are ready.' });
   const folders = projects.flatMap((p) => p.folders.map((f) => ({ project: p.name, ...f })));
   const [hosts, git, origins] = await Promise.all([readHosts(run, program('gh'), program('glab')), readGit(run, deps.home), Promise.all(folders.map((f) => origin(run, f.path)))]);
@@ -94,6 +100,8 @@ export async function readInventory(deps: InventoryDeps): Promise<MachineInvento
     files,
     tools: toolsOf(needs, deps.platform, (name) => program(name) !== null, fs),
     projects: projects.map((p) => ({ name: p.name, folders: p.folders.map((f) => ({ name: f.name, path: f.path, origin: origins[i++] ?? null })) })),
+    knowledge,
+    whoDoesWhat,
     problems,
   };
 }
@@ -101,4 +109,10 @@ export async function readInventory(deps: InventoryDeps): Promise<MachineInvento
 /** This machine's set-up record: the inventory, split. */
 export async function readSetupRecord(deps: InventoryDeps): Promise<SetupRecord> {
   return setupRecordOf(await readInventory(deps));
+}
+
+/** The record and the file records (18.3) from one read of the machine. */
+export async function readSetupRecordAndFiles(deps: InventoryDeps): Promise<{ record: SetupRecord; files: SetupFileRecord[] }> {
+  const found = await readInventory(deps);
+  return { record: setupRecordOf(found), files: fileRecordsOf(found) };
 }

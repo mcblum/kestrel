@@ -107,6 +107,16 @@ export class AccountKeys {
     return devices.find((d) => d.id === deviceId)?.signing ?? null;
   }
 
+  /**
+   * What the current keyring, signed by the device that let it in, says a device is: its kind and its name;
+   * null when it is not in it or the key is not open yet. What a desk-only operation is checked against
+   * (onboarding.md 19.6), never the account's device list or a request.
+   */
+  device(deviceId: string): { kind: 'desktop' | 'phone'; name: string } | null {
+    const found = this.current?.keyring.devices.find((d) => d.id === deviceId);
+    return found ? { kind: found.kind, name: found.name } : null;
+  }
+
   /** The ids of the devices in the current keyring. */
   memberIds(): string[] {
     return this.current?.keyring.devices.map((d) => d.id) ?? [];

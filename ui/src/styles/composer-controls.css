@@ -13,17 +13,16 @@
 
 /* ---- the row: left-justified, one line; labels shorten before anything wraps ---------------- */
 .kestrel .composer-under { justify-content: flex-start; flex-wrap: nowrap; min-width: 0; container-type: inline-size; }
-/* What gives way as the row narrows, in order: the note after the controls, then where it works
-   (project, folder), then the effort word; the provider, model and mode keep their size. */
-.kestrel .composer-under .ctl-note { flex: 0 1000 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-/* Two groups on one line: the provider and where it works (project, folder) on the left; the
-   model with its effort, the mode and the context ring on the right. The row's own note, when
-   there is one, sits between them. */
+/* Two groups on one line: who runs it and where (computer, provider, project, folder, group) on the left; the
+   preset, model with its effort, mode and context ring on the right. The row's own note, when there is one (a running
+   session's), sits between them. The groups are not boxes of their own: every control is a flex item of the row, so
+   each one's floor below holds. */
 .kestrel .ctl-set { display: contents; }
 .kestrel .ctl-right { display: inline-flex; align-items: center; flex: none; gap: 0 2px; margin-left: auto; order: 2; }
-.kestrel .composer-under .ctl-note { order: 1; }
-.kestrel .ctl-right > .ctl { flex-shrink: 0; }
-.kestrel .ctl-set > .ctl { flex-shrink: 0; }
+.kestrel .composer-under :is(.ctl-where, .ctl-right) { display: contents; }
+.kestrel .composer-under .ctl-right > * { order: 2; }
+.kestrel .composer-under .ctl-right > :first-child { margin-left: auto; }
+.kestrel .composer-under .ctl-note { order: 1; flex: 0 1000 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .kestrel .ctl-set .picker { min-width: 0; }
 .kestrel .ctl-set .ctl::after { content: none; }
 .kestrel .ctl-set .picker-button, .kestrel .ctl-set .ctl-button { max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -31,10 +30,37 @@
 .kestrel .ctl-where { display: inline-flex; align-items: center; min-width: 52px; flex-shrink: 1; gap: 2px; }
 .kestrel .ctl-where .ctl { min-width: 0; flex-shrink: 1; }
 
+/* ---- how long each control's label may be, and how far and in what order it gives way ---------
+   The one rule for the row (Matt, 2026-11-26: "I don't want them to collide, so let's truncate where we need to").
+   --cap: the longest a label is drawn, in ch, cut with an ellipsis; the full text stays in the control's title and
+   accessible name. --floor: as far as it shrinks when the row is narrow. --give: the order it shrinks in, largest
+   first (project and model, then folder and group, then preset, then computer); provider, effort and mode do not. */
+.kestrel .composer-under {
+  --cap-computer: 16ch; --cap-provider: 12ch; --cap-project: 22ch; --cap-folder: 16ch; --cap-group: 14ch;
+  --cap-preset: 18ch; --cap-model: 22ch; --cap-effort: 10ch; --cap-mode: 12ch;
+}
+.kestrel .composer-under .ctl-computer { --cap: var(--cap-computer); --floor: 6ch; --give: 10; }
+.kestrel .composer-under .ctl-provider { --cap: var(--cap-provider); }
+.kestrel .composer-under .ctl-project { --cap: var(--cap-project); --floor: 5ch; --give: 1000; }
+.kestrel .composer-under .ctl-folder { --cap: var(--cap-folder); --floor: 5ch; --give: 300; }
+.kestrel .composer-under .ctl-group { --cap: var(--cap-group); --floor: 5ch; --give: 300; }
+.kestrel .composer-under .ctl-preset { --cap: var(--cap-preset); --floor: 5ch; --give: 100; }
+.kestrel .composer-under .ctl-model { --cap: var(--cap-model); --floor: 7ch; --give: 1000; }
+.kestrel .composer-under .ctl-model .ctl-effort { --cap: var(--cap-effort); }
+.kestrel .composer-under .ctl-mode { --cap: var(--cap-mode); }
+.kestrel .composer-under .ctl { flex: 0 var(--give, 0) auto; min-width: var(--floor, auto); }
+.kestrel .composer-under .ctl > :is(button, .picker) { min-width: 0; max-width: 100%; }
+.kestrel .composer-under .ctl select { min-width: 0; max-width: calc(var(--cap, 14ch) + 20px); text-overflow: ellipsis; }
+.kestrel .composer-under :is(.ctl-label, .picker-value, .ctl-model-name, .ctl-effort, .ctl-project .ctl-fixed) {
+  display: block; min-width: 0; max-width: var(--cap, 20ch); overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+/* The model's name gives way before its effort word. */
+.kestrel .composer-under .ctl-model-name { flex: 0 1 auto; }
+.kestrel .composer-under .ctl-model .ctl-effort { flex: none; }
+
 .kestrel .ctl-button { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; margin: 0; padding: 3px 6px; font: inherit; font-size: 11px; color: var(--s-label); background: transparent; border: 0; border-radius: 5px; cursor: pointer; }
 .kestrel .ctl-button:hover { color: var(--s-ink); background: var(--s-soft); }
 .kestrel .ctl-set .ctl-button:focus-visible, .kestrel .ctl-set .picker-button:focus-visible { outline: 2px solid color-mix(in srgb, var(--s-accent) 60%, transparent); outline-offset: -1px; }
-.kestrel .ctl-model-name { overflow: hidden; text-overflow: ellipsis; }
 .kestrel .ctl-effort { flex: none; color: var(--s-muted); }
 
 .kestrel .ctl-provider { flex-shrink: 0 !important; font-weight: 500; }
@@ -48,7 +74,7 @@
   .kestrel .composer-under .ctl-note { display: none; }
 }
 @container (max-width: 400px) {
-  .kestrel .ctl-effort { display: none; }
+  .kestrel .composer-under .ctl-effort { display: none; }
 }
 
 /* ---- the context ring and its popup ----------------------------------------------------------- */

@@ -170,7 +170,7 @@ function stubSource(initial: { sessions: { id: string; project: string | null; m
       counts.passes++;
       return {
         projects: [{ id: 'p1', name: 'Shop', folders: [] }, { id: 'p2', name: 'Secret', folders: [] }],
-        sessions: sessions.map((s) => ({ id: s.id, title: `t-${s.id}`, agent: 'claude', state: 'done', note: '', startedIn: s.project, landedIn: s.project, createdAt: 1, updatedAt: stamp, lastActivityAt: stamp, ...s.extra })),
+        sessions: sessions.map((s) => ({ id: s.id, title: `t-${s.id}`, agent: 'claude', state: 'done', note: '', startedIn: s.project, landedIn: s.project, branch: null, request: null, filing: { projectId: s.project, status: s.project ? 'landed' : 'unscoped', discarded: false }, createdAt: 1, updatedAt: stamp, lastActivityAt: stamp, ...s.extra })),
         archived: { sessions: [] },
       } as unknown as WorkspaceState;
     },
@@ -323,11 +323,11 @@ describe('what is sent, and when', () => {
     const s = stubSource({ sessions: [{ id: 's1', project: 'p1', messages: msgs(CHUNK_MESSAGES + 10) }] });
     const held = uploader(service, keys, s.source);
     await held.run();
-    expect(puts(service)).toBe(6); // two chunks, the index, and the Code reviews, Tickets and pull-request lists
+    expect(puts(service)).toBe(7); // two chunks, the session's head, the index, and the Code reviews, Tickets and pull-request lists
     s.set([{ id: 's1', project: 'p1', messages: msgs(CHUNK_MESSAGES + 11) }]);
     service.calls = [];
     await held.run();
-    expect(service.calls.filter((c) => c.startsWith('PUT'))).toHaveLength(2); // the second chunk and the index
+    expect(service.calls.filter((c) => c.startsWith('PUT'))).toHaveLength(3); // the second chunk, the session's head (its message count moved) and the index
     expect(opened(service, keys, `chunk|${MAC}|s1|1`).messages).toHaveLength(11);
   });
 
@@ -344,7 +344,7 @@ describe('what is sent, and when', () => {
     await vi.advanceTimersByTimeAsync(999);
     expect(service.calls).toEqual([]);
     await vi.advanceTimersByTimeAsync(10);
-    expect(puts(service)).toBe(5); // the chunk, the index and the three lists
+    expect(puts(service)).toBe(6); // the chunk, the session's head, the index and the three lists
     const passes = s.counts.passes;
     for (let i = 0; i < 20; i++) {
       s.live('s1');
@@ -416,7 +416,7 @@ describe('what is sent, and when', () => {
     expect(service.records.size).toBe(0);
     online = true;
     await first.run();
-    expect(service.records.size).toBe(5);
+    expect(service.records.size).toBe(6);
     await first.close();
     // Restarted: nothing changed, nothing is sent again.
     service.calls = [];

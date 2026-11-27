@@ -11,6 +11,7 @@ import type { ProcessSystem } from './kill-task.ts';
 import type { CommitSigningOptions } from '../commit-signing/prefs.ts';
 import type { CrashReportsOptions } from '../crash-reports/prefs.ts';
 import type { SettingStore } from '../suggestions/prefs.ts';
+import type { KnowledgeOptions } from '../knowledge/service.ts';
 import type { CommandRunner } from '../pull-requests/types.ts';
 import type { TitleProvider } from '../agents/title-providers.ts';
 import type { BaseNotice, FetchRunner, FreshStart } from '../base-refresh.ts';
@@ -40,6 +41,8 @@ export interface RuntimeOptions {
   now?: () => number;
   /** Where Settings → Git is kept, and who gh is signed in as (git-settings/prefs.ts). */
   git?: GitSettingsOptions;
+  /** Where the knowledge base in use is kept, and how its remote is fetched (knowledge/service.ts). */
+  knowledge?: KnowledgeOptions;
   /** Where "Keep each project's edits in its own session" is kept (project-edits/prefs.ts). */
   projectEdits?: { settings?: SettingStore };
   /** Where "Other devices may start sessions on this computer" is kept (remote-starts/prefs.ts). */

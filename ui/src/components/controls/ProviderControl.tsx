@@ -1,12 +1,13 @@
 // The agent a session runs on (Claude, Codex), first in the row, in that provider's own colour
 // (styles/composer-controls.css, --provider-*): the one place brand colour is used. In a new
 // session it opens a menu of the agents; in a running session it cannot change, so it is plain text.
-// An agent that cannot start (not installed, signed out) is in the menu greyed, with the reason in
-// a few words (the server's full reason, with what to run, is in Settings' connections); a new session that remembered such an agent moves to the first one that can start.
+// An agent that cannot start (not installed, signed out) is in the menu dimmed and says nothing more
+// (Matt, 2026-11-26: "just dim the provider if not available"); the reason, with what to run, is in
+// Settings' connections. A new session that remembered such an agent moves to the first one that can start.
 import { useEffect, useRef } from 'react';
 import type { MenuItem } from '@kestrel/server/menu';
 import type { Agent } from '@kestrel/server/model';
-import { AGENT_LABEL, AGENTS, unavailableWords, type AgentStatus } from '../../labels.ts';
+import { AGENT_LABEL, AGENTS, type AgentStatus } from '../../labels.ts';
 import { useAgentStatus } from '../useAgents.ts';
 import { menuOpenFrom, openFrom } from './anchor.ts';
 
@@ -18,7 +19,7 @@ export function agentMenu(value: Agent, status: AgentStatus): MenuItem[] {
     id: a,
     label: AGENT_LABEL[a],
     checked: a === value,
-    ...(status.available.includes(a) ? {} : { disabled: true, hint: unavailableWords(status.notes[a]) }),
+    ...(status.available.includes(a) ? {} : { disabled: true }),
   }));
 }
 
@@ -39,7 +40,7 @@ export function ProviderControl({ value, fixed, onChange }: { value: Agent; fixe
   if (fixed) {
     return (
       <span className={`ctl ${className} ctl-fixed`} title={`Agent: ${AGENT_LABEL[value]}. A session keeps the agent it started with.`}>
-        {AGENT_LABEL[value]}
+        <span className="ctl-label">{AGENT_LABEL[value]}</span>
       </span>
     );
   }
@@ -50,14 +51,14 @@ export function ProviderControl({ value, fixed, onChange }: { value: Agent; fixe
         type="button"
         className="ctl-button"
         aria-haspopup="menu"
-        title="Agent: who works on this session"
+        title={`Agent: ${AGENT_LABEL[value]}. Who works on this session`}
         onPointerDown={() => void (wasOpen.current = menuOpenFrom(button.current))}
         onClick={() => {
           if (wasOpen.current) return void (wasOpen.current = false);
           openFrom(button.current!, agentMenu(value, status), (item) => item.id !== value && onChange(item.id as Agent));
         }}
       >
-        {AGENT_LABEL[value]}
+        <span className="ctl-label">{AGENT_LABEL[value]}</span>
       </button>
     </span>
   );

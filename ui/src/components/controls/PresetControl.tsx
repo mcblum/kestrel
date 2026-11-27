@@ -74,7 +74,7 @@ export function PresetControl({ value, running, onChange }: { value: Controls; r
         title={current ? `Preset: ${current.name} (${describe(current)})` : 'Preset: pick a saved agent, model and effort'}
         onClick={() => (open ? close(true) : (setFocus(Math.max(0, presets.findIndex((p) => p.id === current?.id))), setOpen(true)))}
       >
-        {current ? current.name : 'Preset'}
+        <span className="ctl-label">{current ? current.name : 'Preset'}</span>
       </button>
       {open && (
         <Popup anchor={button} align="end" className="context-menu preset-menu" role="menu" aria-label="Model presets" onKeyDown={onKeys}>

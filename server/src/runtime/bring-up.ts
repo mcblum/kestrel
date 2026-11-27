@@ -54,6 +54,8 @@ export interface StartRequest {
   start?: WorktreeStart;
   /** A review of somebody else's request (shared/review-requests.ts). */
   review?: ReviewMark;
+  /** Started from Set up this computer's Ask the agent (Session.purpose): with no project only. */
+  purpose?: 'setup';
   /** What the agent is told before the prompt, not shown as the user's (a ticket the message named). */
   context?: string;
   /** The user typed the prompt (the New session box, a phone): a ticket it names is taken up (shared/ticket-mention.ts). */
@@ -90,7 +92,8 @@ export async function startSession(host: BringUpHost, req: StartRequest): Promis
   const id = randomUUID();
   const attachments = host.attachments.claim(id, req.draft);
   const title = req.title ?? titleFrom(prompt || attachmentsLabel(attachments)); // files alone: titled by their names
-  const session = await host.workspace.addSession({ id, title, agent: req.agent, startedIn: project?.id ?? null, startedFolderId: source?.id ?? null, groupId: req.groupId ?? null, state: 'running', note: 'Starting…', ...(req.review ? { review: req.review } : {}) });
+  if (req.purpose && project) throw new Refused('A session from Set up this computer starts with no project.');
+  const session = await host.workspace.addSession({ id, title, agent: req.agent, startedIn: project?.id ?? null, startedFolderId: source?.id ?? null, groupId: req.groupId ?? null, state: 'running', note: 'Starting…', ...(req.review ? { review: req.review } : {}), ...(req.purpose ? { purpose: req.purpose } : {}) });
   const settings: SessionSettings = { model: req.model ?? '', permission: req.permission ?? DEFAULT_PERMISSION, ...(req.effort ? { effort: req.effort } : {}), ...(req.fast !== undefined ? { fast: req.fast } : {}) };
   const rec = newRecord({ settings, modelChosen: req.modelChosen === true }, null);
   host.records.set(id, rec);

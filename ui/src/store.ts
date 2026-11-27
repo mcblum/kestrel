@@ -2,6 +2,8 @@
 // slice it uses changes. The server is the source of truth: it pushes the whole derived
 // workspace on change, and unchanged objects keep their identity here (structural sharing),
 // so memoized rows do not re-render when something unrelated moves.
+import type { SetupRuns } from '@kestrel/server/setup-sections';
+import type { ValueRequestView } from '@kestrel/server/setup-values';
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import type { CommandOutput } from '@kestrel/server/commands';
@@ -15,6 +17,7 @@ import { normalizeProject } from '@kestrel/server/project-folders';
 import { isPullRequestLookup, type PullRequestLookup } from '@kestrel/server/details';
 import { asSourced, type Sourced } from '@kestrel/server/sourced';
 import { sanitizeSeen, type Seen } from '@kestrel/server/unread';
+import { asMachineOffersView, type MachineOffersView } from '@kestrel/server/machine-offers';
 import type { WhatsNewView } from '@kestrel/server/whats-new';
 import { asReviewRequestsView, NO_REVIEW_REQUESTS, type ReviewRequestsView } from '@kestrel/server/review-requests';
 import { asTicketsView, NO_TICKETS, type TicketsView } from '@kestrel/server/tickets';
@@ -114,6 +117,8 @@ export interface AppState {
   resources: ReadonlyMap<string, Sourced<unknown>>;
   /** When each session was last looked at, as the server pushes it (server/src/seen.ts); null until the first push. */
   seen: Seen | null;
+  /** What each of the account's other computers offers for a new session, by machine id, as read from its record on Kestrel Connect (server/src/account-offers.ts); empty until the first push. */
+  machineOffers: MachineOffersView;
   /** What's new, as the server pushes it (server/src/whats-new/store.ts): the releases with notes, the switch, notes due to open; null until the first push. */
   whatsNew: WhatsNewView | null;
   /** Open tabs, the composer's last choices and the sidebar's layout, kept on the server (tabsStore.ts owns the writes). */
@@ -124,6 +129,10 @@ export interface AppState {
   signIn: Readonly<Partial<Record<Agent, SignInProgress>>>;
   /** Kestrel Connect's sign-in, switch and link, as the server pushes it (connectStore.ts owns the writes); null until the first push. */
   connect: ConnectView | null;
+  /** Set up this computer's runs, as the server pushes them (setupSteps.ts owns the writes). */
+  setupRuns: SetupRuns;
+  /** Other computers' requests for set-up values waiting on this computer's person, names only, as the server pushes them (setupValues.ts owns the writes). */
+  setupValueRequests: readonly ValueRequestView[];
   /** The shell's update channel (Settings → General → Get beta versions; UpdateChannelSetting.tsx owns the writes); null in a browser or an older shell. */
   updateChannel: UpdateChannel | null;
   error: string | null;
@@ -153,7 +162,7 @@ async function refreshLaunch(): Promise<boolean> {
   }
 }
 
-const initialState: AppState = { connection: launch ? 'connecting' : 'no-server', live: new Map(), renaming: null, tagging: null, openedFromReference: null, workspace: null, sessionsById: new Map(), details: new Map(), pullRequests: new Map(), reviewRequests: NO_REVIEW_REQUESTS, tickets: NO_TICKETS, seen: null, whatsNew: null, pullRequestsVersion: 0, resources: new Map(), tabs: { loaded: false, state: initialTabs(), remembered: DEFAULT_REMEMBERED, sidebar: EMPTY_SIDEBAR }, simulator: { devices: { loaded: false, devices: [], unavailable: null }, infos: new Map(), chosen: new Map(), errors: new Map() }, signIn: {}, connect: null, updateChannel: window.kestrelShell?.app?.updateChannel ?? null, error: null };
+const initialState: AppState = { connection: launch ? 'connecting' : 'no-server', live: new Map(), renaming: null, tagging: null, openedFromReference: null, workspace: null, sessionsById: new Map(), details: new Map(), pullRequests: new Map(), reviewRequests: NO_REVIEW_REQUESTS, tickets: NO_TICKETS, seen: null, machineOffers: {}, whatsNew: null, pullRequestsVersion: 0, resources: new Map(), tabs: { loaded: false, state: initialTabs(), remembered: DEFAULT_REMEMBERED, sidebar: EMPTY_SIDEBAR }, simulator: { devices: { loaded: false, devices: [], unavailable: null }, infos: new Map(), chosen: new Map(), errors: new Map() }, signIn: {}, connect: null, setupRuns: {}, setupValueRequests: [], updateChannel: window.kestrelShell?.app?.updateChannel ?? null, error: null };
 
 /** The one store (Zustand). Everything the app knows about the server lives here, once. */
 const appStoreApi = createStore<AppState>()(() => initialState);
@@ -165,7 +174,7 @@ function set(patch: Partial<AppState>) {
 }
 
 /** For the modules that own a slice's writes: the tabs (tabsStore.ts), the simulator (simulatorStore.ts) and agent sign-ins (signIn.ts). */
-export function setApp(patch: Pick<Partial<AppState>, 'tabs' | 'simulator' | 'signIn' | 'connect' | 'updateChannel'>) {
+export function setApp(patch: Pick<Partial<AppState>, 'tabs' | 'simulator' | 'signIn' | 'connect' | 'setupRuns' | 'setupValueRequests' | 'updateChannel'>) {
   set(patch);
 }
 
@@ -248,6 +257,8 @@ function applyWorkspace(next: WorkspaceState) {
     archivedWorkstreams: shareJson(prev?.archivedWorkstreams, next.archivedWorkstreams ?? []),
     // A server from before waits between sessions sends none.
     waits: shareJson(prev?.waits, next.waits ?? []),
+    // The account's other computers whose sessions are listed; none without Kestrel Connect.
+    ...(next.machines ? { machines: shareJson(prev?.machines, next.machines) } : {}),
   };
   const sessionsById = sessions === prev?.sessions ? current().sessionsById : new Map(sessions.map((s) => [s.id, s]));
   // A cached detail is stale once its session changed; drop it so the next read refetches.
@@ -432,7 +443,8 @@ function pinName(kind: PinKind, id: string): string {
 }
 
 /** Messages with the same id replace each other; others are appended. Unchanged ones keep identity. */
-function mergeMessages(prev: readonly ChatMessage[], changed: readonly ChatMessage[]): ChatMessage[] {
+/** `prev` with each changed message in its place (by id), and the new ones at the end. */
+export function mergeMessages(prev: readonly ChatMessage[], changed: readonly ChatMessage[]): ChatMessage[] {
   const next = [...prev];
   for (const m of changed) {
     const i = m.id === undefined ? -1 : next.findIndex((x) => x.id === m.id);
@@ -512,6 +524,8 @@ function featureSocket(prefix: string) {
 export const terminalSocket = featureSocket('term-');
 export const browserSocket = featureSocket('browser-');
 export const connectSocket = featureSocket('connect-');
+/** Set up this computer's run states (`setup-runs`). Its own prefix: a prefix holds one handler, and a second registration replaces the first. */
+export const setupSocket = featureSocket('setup-');
 export const simulatorSocket = featureSocket('sim-');
 const handlerFor = (type: unknown) => (typeof type === 'string' ? [...socketHandlers].find(([prefix]) => type.startsWith(prefix))?.[1] : undefined);
 function sendWatch(type: 'watch' | 'unwatch', sessionId: string) {
@@ -541,6 +555,7 @@ function connect() {
     else if (message.type === 'review-requests') applyReviewRequests(message.view);
     else if (message.type === 'tickets') applyTickets(message.view);
     else if (message.type === 'seen') applySeen(message.seen);
+    else if (message.type === 'machine-offers') set({ machineOffers: asMachineOffersView(message.offers) });
     else if (message.type === 'whats-new') set({ whatsNew: message.view as WhatsNewView });
     else handlerFor(message.type)?.message(message);
   };
@@ -571,11 +586,13 @@ export const actions = {
 
   /**
    * Fetch a session's detail unless a current copy is cached or already on its way. `again` fetches
-   * even over a cached copy, for a change the session row does not show (one of two cards answered).
+   * even over a cached copy, for a change the session row does not show (one of two cards answered, or a
+   * remote conversation whose copy was behind).
    */
-  loadDetail(id: string, again = false): void {
+  loadDetail(id: string, again = false, tryAgain = false): void {
     if ((current().details.has(id) && !again) || inFlight.has(id)) return;
-    const request = call<SessionDetail>(`/api/sessions/${encodeURIComponent(id)}`)
+    // `tryAgain`: the person pressed Try again on a session another computer runs, so that computer is asked afresh.
+    const request = call<SessionDetail>(`/api/sessions/${encodeURIComponent(id)}${tryAgain ? '?again=1' : ''}`)
       .then((detail) => {
         // Reuse the store's session object so the cache check in applyWorkspace is by identity.
         const session = current().sessionsById.get(id) ?? detail.session;
@@ -659,7 +676,7 @@ export const actions = {
     return announced(() => call(`/api/groups/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ name }) }), quiet || !was || was === name, () => `Renamed the group to “${name}”`, () => actions.renameGroup(id, was!, true));
   },
   deleteGroup: (id: string) => act(() => call(`/api/groups/${encodeURIComponent(id)}`, { method: 'DELETE' })),
-  createSession: (input: { prompt: string; agent: Agent; projectId: string | null; groupId: string | null; folderId?: string | null; model?: string; effort?: string; fast?: boolean; modelChosen?: boolean; permission?: PermissionLevel; base?: BaseChoice; rememberBase?: boolean } & Partial<AttachmentRefs>) => act(() => call<{ id: string }>('/api/sessions', { method: 'POST', body: JSON.stringify(input) })),
+  createSession: (input: { prompt: string; agent: Agent; projectId: string | null; groupId: string | null; folderId?: string | null; model?: string; effort?: string; fast?: boolean; modelChosen?: boolean; permission?: PermissionLevel; base?: BaseChoice; rememberBase?: boolean; purpose?: 'setup'; machine?: string | null } & Partial<AttachmentRefs>) => act(() => call<{ id: string }>('/api/sessions', { method: 'POST', body: JSON.stringify(input) })),
   /** Start reviewing a request the user was asked to review, or get the review already started (server review-requests/start.ts). */
   startReview: (key: string) => act(() => call<{ id: string }>('/api/review-requests/start', { method: 'POST', body: JSON.stringify({ key }) })),
   stopFolder: (id: string) => act(() => call<{ stopped: number }>(`/api/groups/${encodeURIComponent(id)}/stop`, { method: 'POST', body: '{}' })),

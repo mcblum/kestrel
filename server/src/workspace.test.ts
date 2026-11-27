@@ -42,6 +42,13 @@ describe.each([
     expect((await db.getSession('garden'))!.completedAt).toBe(completedAt);
   });
 
+  test("a session from Set up this computer's Ask the agent keeps its mark; no other session has one", async () => {
+    await add('setup', null, { purpose: 'setup' });
+    await add('plain', null);
+    expect((await db.getSession('setup'))!.purpose).toBe('setup');
+    expect((await db.getSession('plain'))!.purpose).toBeUndefined();
+  });
+
   test('a sidebar keeps what it is about, is filed hidden outside every tree, and goes with its session', async () => {
     await add('main', 'bellbird');
     const of = { sessionId: 'main', at: 'card', key: 'finding:card:f1', name: 'Finding #1', summary: 'It drops the draft.' };
@@ -719,6 +726,49 @@ describe.each([
       await add('c', null);
       await db.insertLink({ id: 'l1', parentId: 'a', childId: 'c', kind: 'handoff' });
       await expect(db.insertLink({ id: 'l2', parentId: 'b', childId: 'c', kind: 'handoff' })).rejects.toThrow();
+    });
+  });
+
+  describe('the replica tables', () => {
+    const head = (id: string, runsOn: string, createdAt: number) => ({ id, runsOn, title: id, agent: 'claude' as const, state: 'done' as const, note: '', project: null, repos: [], filing: 'unscoped' as const, branch: null, request: null, createdAt, updatedAt: createdAt, lastActivityAt: createdAt, messages: 0, chunks: 0 });
+    const chunk = (n: number) => ({ n, messages: [{ author: 'agent' as const, time: '', text: `chunk ${n}` }] });
+
+    test('heads are listed oldest first and replaced by id', async () => {
+      await db.putAccountSessions([head('b', 'mini', 2), head('a', 'mini', 1)]);
+      await db.putAccountSessions([{ ...head('a', 'mini', 1), title: 'renamed' }]);
+      expect((await db.listAccountSessions()).map((h) => [h.id, h.title])).toEqual([['a', 'renamed'], ['b', 'b']]);
+    });
+
+    test('a conversation is read a range of chunks at a time, and goes with its head', async () => {
+      await db.putAccountSessions([head('a', 'mini', 1)]);
+      await db.putAccountDetails('a', [chunk(2), chunk(0), chunk(1), chunk(3)]);
+      await db.putAccountDetails('a', [{ n: 1, messages: [{ author: 'agent', time: '', text: 'again' }] }]);
+      expect((await db.listAccountDetails('a', 1, 3)).map((c) => [c.n, c.messages[0]!.text])).toEqual([[1, 'again'], [2, 'chunk 2']]);
+      await db.deleteAccountDetails('a', 2);
+      expect((await db.listAccountDetails('a', 0, 10)).map((c) => c.n)).toEqual([0, 1]);
+      await db.deleteAccountSessions(['a']);
+      expect(await db.listAccountDetails('a', 0, 10)).toEqual([]);
+    });
+
+    test('records are kept by key, and a failed transaction keeps none of it', async () => {
+      await db.putAccountRecord('machine|mini', 'one');
+      await db.putAccountRecord('machine|mini', 'two');
+      await expect(
+        db.transaction(async (tx) => {
+          await tx.putAccountSessions([head('a', 'mini', 1)]);
+          await tx.deleteAccountRecord('machine|mini');
+          throw new Error('boom');
+        }),
+      ).rejects.toThrow('boom');
+      expect(await db.listAccountSessions()).toEqual([]);
+      expect(await db.listAccountRecords()).toEqual([{ key: 'machine|mini', value: 'two' }]);
+    });
+
+    test('they are no part of this computer’s own sessions', async () => {
+      await db.putAccountSessions([{ ...head('a', 'mini', 1), state: 'running' }]);
+      expect(await db.listSessions()).toEqual([]);
+      expect(await db.markRunningInterrupted()).toBe(0);
+      expect((await ws.state()).sessions).toEqual([]);
     });
   });
 

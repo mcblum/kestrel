@@ -81,6 +81,17 @@ const ENV_KEY = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 const HEADER_KEY = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$/;
 /** Kestrel's own tools' server: no user server may take its name. */
 export const RESERVED_NAME = 'kestrel';
+
+/**
+ * The name a server from somewhere else (an agent's own file on another computer) gets in Kestrel's list,
+ * where a name is letters, digits, - and _ only: "Home Assistant" is `Home-Assistant`. A name that is
+ * already allowed is itself. One rule, so the step that adds it, the check that it is here and the copy of
+ * its values all mean the same server. Pure.
+ */
+export function listNameOf(name: string): string {
+  const made = name.trim().replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64).replace(/-+$/, '') || 'server';
+  return made.toLowerCase() === RESERVED_NAME || made === 'new' ? `${made}-mcp` : made;
+}
 const MAX_VALUE = 8000;
 const MAX_ARGS = 100;
 

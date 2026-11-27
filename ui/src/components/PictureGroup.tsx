@@ -6,6 +6,7 @@ import { Images } from 'lucide-react';
 import { ThumbButton } from './Thumb.tsx';
 import { useViewer } from './PictureViewer.tsx';
 import type { BlobKind, PictureRef } from './useBlobUrl.ts';
+import { HeldElsewhere, useFilesElsewhere } from './HeldElsewhere.tsx';
 
 /** Thumbnails shown before the rest become "+N". */
 export const GROUP_SHOWN = 5;
@@ -17,6 +18,8 @@ export const PictureGroup = memo(
   function PictureGroup({ sessionId, images, captions, kind = 'media' }: { sessionId: string; images: readonly string[]; captions?: readonly string[]; kind?: BlobKind }) {
     const pictures = useMemo<PictureRef[]>(() => images.map((name, i) => ({ sessionId, kind, name, alt: captions?.[i] || undefined })), [sessionId, images, captions, kind]);
     const { open, viewer } = useViewer(pictures);
+    const elsewhere = useFilesElsewhere();
+    if (elsewhere) return <HeldElsewhere names={images.map((name) => name.split('/').pop() || name)} machine={elsewhere} />;
     // Exactly one more than fits would be "+1": show it instead.
     const shown = pictures.length <= GROUP_SHOWN + 1 ? pictures : pictures.slice(0, GROUP_SHOWN);
     const rest = pictures.length - shown.length;

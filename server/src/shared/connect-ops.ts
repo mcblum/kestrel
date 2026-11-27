@@ -6,6 +6,7 @@
 import { ANSWER_MAX, FINDING_ACTIONS, type FindingAction } from './findings.ts';
 import { REVIEW_END_ACTIONS, type ReviewEndAction } from './round-findings.ts';
 import { isPicks } from './suggestions.ts';
+import { VALUE_NAME, VALUE_NAMES_MAX } from './setup-values.ts';
 import type { PageAsk } from './transcript-page.ts';
 import { SELECTABLE_AGENTS, type Agent } from '../model.ts';
 
@@ -128,6 +129,11 @@ export interface ConnectOpArgs {
   'findings.act': { sessionId: string; cardId: string; findingId: string; action: FindingAction; text?: string };
   /** The card left when a review of a session's own work ended with findings open: fix, carry on, or undo that (2026-11-24). */
   'reviewEnd.act': { sessionId: string; cardId: string; action: ReviewEndAction; findingIds?: string[] };
+  // Desk only (`who: 'desk'`): another computer of the keyring, never a phone (onboarding.md section 19; Matt, 2026-11-25).
+  /** A set-up step's missing values, asked of the computer that has them; answered only after its person's Allow there. */
+  'setup.values': { requestId: string; line: string; names: string[] };
+  /** The asking computer took its request back (Cancel, or it gave up waiting). */
+  'setup.values.withdraw': { requestId: string };
 }
 
 /** As many findings as one Fix sends (the review-end route's own limit). */
@@ -197,6 +203,17 @@ function answers(a: Args): Checked<Record<string, string> | undefined> {
   return { ok: true, value: value as Record<string, string> };
 }
 
+/** A set-up line whose values may be copied: an MCP server's or a settings file's (onboarding.md 19.6). */
+const SETUP_LINE_MAX = 300;
+const setupLine = (a: Args, field: string): Checked<string> => {
+  const v = a[field];
+  return typeof v === 'string' && v.length <= SETUP_LINE_MAX && /^(?:mcp|file):[^\u0000-\u001f]+$/.test(v) ? { ok: true, value: v } : fail(`${field} must name an MCP server's or a settings file's line.`);
+};
+const valueNames = (a: Args, field: string): Checked<string[]> => {
+  const v = a[field];
+  return Array.isArray(v) && v.length >= 1 && v.length <= VALUE_NAMES_MAX && new Set(v).size === v.length && v.every((n) => typeof n === 'string' && VALUE_NAME.test(n)) ? { ok: true, value: v as string[] } : fail(`${field} must list 1 to ${VALUE_NAMES_MAX} different names of environment variables or headers.`);
+};
+
 /** Runs field checks in order; the first failure is the answer. */
 const picks = (a: Args, field: string): Checked<string[]> => (isPicks(a[field]) ? { ok: true, value: a[field] } : fail(`${field} must be a short list of names.`));
 
@@ -217,6 +234,8 @@ interface OpSpec {
   /** The fields it takes; anything else is refused. */
   fields: readonly string[];
   check: (a: Args) => Checked<Args>;
+  /** Who may ask it: absent is any device of the keyring; 'desk' is a desktop only, and a phone is refused with `NEVER_REMOTE.setup`'s words. */
+  who?: 'desk';
 }
 
 /** The list (spec section 4). Closed: a request for anything not here is refused. */
@@ -332,7 +351,13 @@ export const CONNECT_OPS: { readonly [K in ConnectOp]: OpSpec } = {
     fields: ['sessionId', 'cardId', 'action', 'findingIds'],
     check: (a) => all({ sessionId: id(a, 'sessionId'), cardId: id(a, 'cardId'), action: oneOf(REVIEW_END_ACTIONS)(a, 'action'), findingIds: optional(a, 'findingIds', ids(FINDING_IDS_MAX)) }),
   },
+  // Copying a set-up step's values (onboarding.md section 19): desk to desk, on a click there and Allow here.
+  'setup.values': { mapsTo: 'the request card on Set up this computer and Connections (setup-values/requests.ts)', who: 'desk', fields: ['requestId', 'line', 'names'], check: (a) => all({ requestId: id(a, 'requestId'), line: setupLine(a, 'line'), names: valueNames(a, 'names') }) },
+  'setup.values.withdraw': { mapsTo: 'the request card goes (setup-values/requests.ts)', who: 'desk', fields: ['requestId'], check: (a) => all({ requestId: id(a, 'requestId') }) },
 };
+
+/** Whether only a desktop of the keyring may ask an operation (a phone is refused). */
+export const deskOnly = (op: ConnectOp): boolean => CONNECT_OPS[op].who === 'desk';
 
 export const CONNECT_OP_NAMES = Object.keys(CONNECT_OPS) as ConnectOp[];
 export const isConnectOp = (value: unknown): value is ConnectOp => typeof value === 'string' && Object.hasOwn(CONNECT_OPS, value);
@@ -347,6 +372,7 @@ export const NEVER_REMOTE: Readonly<Record<string, string>> = {
   simulator: 'The simulator pane is only at the desk.',
   files: 'Files are not read by path from a phone.',
   settings: 'Settings are changed at the desk.',
+  setup: 'Setting up this computer is done at the desk.',
   'sandbox-allow': 'The always-allowed list is edited in Settings at the desk. From a phone, a sandbox card\'s own choices add to it.',
   'project-edits': '"Keep each project\'s edits in its own session" is changed at the desk.',
   'review-mode': 'How reviews start is changed at the desk.',

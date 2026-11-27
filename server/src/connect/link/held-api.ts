@@ -32,6 +32,18 @@ export interface HeldRecord {
   body?: string;
 }
 
+/** One line of the change feed: a record of the list that was written, or one that was deleted. */
+export interface HeldChange {
+  id: string;
+  seq: number;
+  /** The device that wrote it, as the service says; null for a delete. */
+  writer: string | null;
+  deleted: boolean;
+}
+
+/** A feed is read at most this many pages in one go; what is left is read on the next pass. */
+const MAX_FEED_PAGES = 50;
+
 export interface WaitingMessage {
   id: string;
   from: string | null;
@@ -115,9 +127,32 @@ export class HeldApi {
     });
   }
 
-  async putRecord(id: string, body: { generation: number; session: string | null; project: string | null; body: string }): Promise<HeldUsage | null> {
+  /** `list`: the list the record is in (only a listed record is in the change feed). `ifVersion`: write only over that version (null: only when there is none). */
+  async putRecord(id: string, body: { generation: number; session: string | null; project: string | null; list?: string | null; ifVersion?: number | null; body: string }): Promise<HeldUsage | null> {
     const usage = obj(obj(await this.call('PUT', `/held/records/${q(id)}`, body)).usage);
     return num(usage.bytes) !== null && num(usage.limit) !== null ? { bytes: usage.bytes as number, limit: usage.limit as number } : null;
+  }
+
+  /**
+   * What changed in one list after `since` (0: every record in it now), every page of it: ids and
+   * numbers, no bodies. `next` is the number to ask from next time.
+   */
+  async changes(listTag: string, since: number): Promise<{ changes: HeldChange[]; next: number }> {
+    const changes: HeldChange[] = [];
+    let from = since;
+    for (let page = 0; page < MAX_FEED_PAGES; page++) {
+      const answer = obj(await this.call('GET', `/held/changes?list=${q(listTag)}&since=${from}`));
+      for (const raw of list(answer.changes)) {
+        const c = obj(raw);
+        const id = str(c.id);
+        const seq = num(c.seq);
+        if (id && seq !== null) changes.push({ id, seq, writer: str(c.writer), deleted: c.deleted === true });
+      }
+      const next = num(answer.next) ?? from;
+      if (answer.more !== true || next <= from) return { changes, next: Math.max(next, from) };
+      from = next;
+    }
+    return { changes, next: from };
   }
 
   async recordsBelow(generation: number, limit = 50): Promise<HeldRecord[]> {

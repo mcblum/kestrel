@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { Check, Folder, Folders } from 'lucide-react';
-import { useApp } from '../store.ts';
 import { OneProjectForm } from '../pages/CreateProjectPage.tsx';
 import { ProjectsFromFolder } from '../pages/ProjectsFromFolder.tsx';
+import { useHereProjects } from '../awayProjects.ts';
 
 export function ProjectStep({ onBusyChange, onEditingChange }: { onBusyChange: (busy: boolean) => void; onEditingChange: (editing: boolean) => void }) {
   const [way, setWay] = useState<'one' | 'many' | null>(null);
   const [added, setAdded] = useState(false);
-  const projects = useApp((s) => s.workspace?.projects);
+  const projects = useHereProjects();
   const choose = (next: typeof way) => { setWay(next); onEditingChange(next !== null); };
   const done = () => { choose(null); setAdded(true); };
   if (way) return <div className="setup-project-form">

@@ -7,7 +7,8 @@
 // the pull request opens its tab, the session it came from opens, and the time shows in full. Under its
 // pull request, those of the sessions it brought in (CardRequests.tsx).
 import { useMemo } from 'react';
-import { Bot, Clock, CornerDownRight, Folder, GitBranch, Split, Users } from 'lucide-react';
+import { Bot, Clock, CornerDownRight, Folder, GitBranch, Monitor, Split, Users } from 'lucide-react';
+import { useMachineName } from '../machines.ts';
 import { guestWhere } from '@kestrel/server/working-tree';
 import { useWorkingTree } from '../workingTree.ts';
 import { primaryPullRequest } from '@kestrel/server/details';
@@ -121,8 +122,10 @@ export function SessionCardBody({ session, lineage }: { session: SessionView; li
       Date.now(),
     );
   }, [session, projects, group, dot.label, tree]);
-  const hasBranch = !!lines.branch;
-  const broughtIn = useBroughtIn(session.id);
+  const machine = useMachineName(session.runsOn);
+  // A branch's changes and pull request are read from its worktree, which only its own computer has.
+  const hasBranch = !!lines.branch && !machine;
+  const broughtIn = useBroughtIn(session.id) && !machine;
   return (
     <>
       <div className="card-line card-head">
@@ -137,6 +140,12 @@ export function SessionCardBody({ session, lineage }: { session: SessionView; li
         <Bot aria-hidden />
         <span className="card-text">{lines.status}</span>
       </div>
+      {machine && (
+        <div className="card-line">
+          <Monitor aria-hidden />
+          <span className="card-text">Runs on {machine}</span>
+        </div>
+      )}
       {lines.note && (
         <div className="card-line card-muted">
           <CornerDownRight aria-hidden />

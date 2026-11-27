@@ -126,3 +126,16 @@ describe('switchableServers', () => {
     expect(switchableServers(found, defs)).toEqual([{ name: 'n8n', scope: 'kestrel', kind: 'http', where: 'n8n.example' }, { name: 'notes', scope: 'codex', kind: 'stdio', where: 'notes' }]);
   });
 });
+
+describe('the name a server from another computer gets in the list', () => {
+  test('keeps an allowed name and makes any other one allowed', async () => {
+    const { listNameOf } = await import('./mcp-servers.ts');
+    expect(listNameOf('home-assistant')).toBe('home-assistant');
+    expect(listNameOf('Home Assistant')).toBe('Home-Assistant');
+    expect(listNameOf('  n8n (work) / prod  ')).toBe('n8n-work-prod');
+    expect(listNameOf('Kestrel')).toBe('Kestrel-mcp');
+    expect(listNameOf('new')).toBe('new-mcp');
+    expect(listNameOf('***')).toBe('server');
+    expect(listNameOf(`${'a'.repeat(63)} b`)).toBe('a'.repeat(63));
+  });
+});

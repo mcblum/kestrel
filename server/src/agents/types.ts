@@ -182,6 +182,12 @@ export const KESTREL_TOOLS = [
   'suggest',
   'ticket_read',
   'ticket_update',
+  'knowledge_search',
+  'knowledge_read',
+  'knowledge_propose',
+  'setup_list',
+  'setup_run_step',
+  'setup_run_command',
   'browser_navigate',
   'browser_read',
   'browser_click',
@@ -268,6 +274,18 @@ export interface KestrelToolHost {
   ticketRead(args?: { key?: string }): Promise<ToolResult>;
   /** Propose a change to the session's ticket (In progress, In review, a comment), as a `ticket` suggestion: never waits for the user. */
   ticketUpdate(args: { change: string; body?: string; reason?: string }): Promise<ToolResult>;
+  /** The entries of the knowledge base in use that match a query, as index lines. Read only. */
+  knowledgeSearch(args: { query: string }): Promise<ToolResult>;
+  /** One entry of the knowledge base, whole. Read only. */
+  knowledgeRead(args: { id: string }): Promise<ToolResult>;
+  /** Propose an entry, or a correction to one, as a `knowledge` suggestion: never waits for the user, and nothing leaves this computer before they agree. */
+  knowledgePropose(args: { title: string; summary: string; body: string; area?: string; applies_to?: string; updates?: string; reason?: string }): Promise<ToolResult>;
+  /** This computer's Set up this computer checklist, as text: every line, its state and needs. Read only. */
+  setupList(args: Record<string, never>): Promise<ToolResult>;
+  /** Run one checklist step, as the page's Run would, after the person's yes on a card. Ask the agent's sessions only. */
+  setupRunStep(args: { line: string }): Promise<ToolResult>;
+  /** Run one command the agent worked out, as the user, after the person's yes on a card. Ask the agent's sessions only. */
+  setupRunCommand(args: { command: string[]; cwd?: string; why: string }): Promise<ToolResult>;
   /** The session's browser pane, which the user watches. See browser-tools.ts. */
   browserNavigate(args: { url: string }): Promise<ToolResult>;
   browserRead(args: { max_chars?: number }): Promise<ToolResult>;

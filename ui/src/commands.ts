@@ -5,9 +5,12 @@ import { goBack, goForward } from './navHistory.ts';
 import { isMac, shortcuts } from './shortcuts.ts';
 import { openCreateProject, openProjectFolders, openProjectPage, openProjectSettings } from './projectNav.ts';
 import type { MenuAction } from '@kestrel/server/menu';
-import { scopeOfActive, type Controls, type Scope } from '@kestrel/server/tabs';
+import { scopeOfActive, type Controls, type Preselect, type Scope } from '@kestrel/server/tabs';
+import type { Project } from '@kestrel/server/model';
+import { defaultComputer } from '@kestrel/server/start-computer';
 import { currentRoute, openSession, openView } from './route.ts';
 import { appStore, actions } from './store.ts';
+import { awayProject, notHere } from './awayProjects.ts';
 import { tabActions, tabsView } from './tabsStore.ts';
 import { revealSidebar, toggleSidebarOrFloat } from './sidebarRail.ts';
 import { markCopied } from './copied.ts';
@@ -23,9 +26,34 @@ import { setSessionAutopilot } from './autopilotPrefs.ts';
  * Otherwise the last session's choices stand.
  */
 export function openNewSession(scope: Scope = {}, newTab = false, pinned = false): void {
-  const named = scope.projectId || scope.groupId ? scope : null;
-  tabActions.openNew({ ...(named ?? inheritedScope()), ...(pinned ? { pinned: true } : {}) }, named ?? {}, newTab);
+  const projects = appStore.get().workspace?.projects;
+  const named = scope.projectId || scope.groupId ? onItsComputer(projects, scope) : null;
+  // Inherited from a page or a session tab of a project only another computer has: that computer too.
+  const inherited = named ? null : onItsComputer(projects, inheritedScope());
+  // A project only another computer has, and no computer of the account that has it to start on: a named one is
+  // refused with the reason (account-sessions.md, 10.2); an inherited one is left out.
+  const nowhere = awayProject(projects, (named ?? inherited)?.projectId) && !(named ?? inherited)?.machine;
+  if (nowhere && named) return actions.showError(notHere.refusal(awayProject(projects, named.projectId)!));
+  const scoped = inherited && nowhere ? withoutProject(inherited) : inherited;
+  tabActions.openNew({ ...(named ?? scoped), ...(pinned ? { pinned: true } : {}) }, named ? preselectOf(named) : {}, newTab);
   focusComposer();
+}
+
+/**
+ * The scope with the computer the session starts on (issue 52): a project only another computer has opens on the
+ * first computer of the account that has it (`defaultComputer`); any other, on this one.
+ */
+function onItsComputer(projects: readonly Project[] | undefined, scope: Partial<Controls>): Partial<Controls> {
+  const project = awayProject(projects, scope.projectId);
+  if (!project) return scope;
+  const machine = defaultComputer(project);
+  return machine ? { ...scope, machine } : scope;
+}
+
+const preselectOf = ({ projectId, groupId, machine }: Partial<Controls>): Preselect => ({ ...(projectId !== undefined ? { projectId } : {}), ...(groupId !== undefined ? { groupId } : {}), ...(machine !== undefined ? { machine } : {}) });
+
+function withoutProject({ projectId: _gone, ...rest }: Partial<Controls>): Partial<Controls> {
+  return rest;
 }
 
 function inheritedScope(): Partial<Controls> {

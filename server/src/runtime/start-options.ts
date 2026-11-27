@@ -2,6 +2,7 @@
 // what it may do, the tools and instruction Kestrel gives it), the one-editor rule for plain
 // folders, and what a restart does to sessions that were running.
 import type { WhoDoesWhat } from '../shared/who-does-what.ts';
+import type { KnowledgeBrief } from '../knowledge/service.ts';
 import { kestrelToolName } from '../agents/claude/map.ts';
 import { standingInstruction, type InstructionContext } from '../agents/instruction.ts';
 import type { InputRequest, StartOptions } from '../agents/types.ts';
@@ -33,6 +34,8 @@ export interface StartRequestParts {
   browserElement: StartOptions['browserElement'];
   /** The user's "Who does what" table, for the standing instruction (shared/who-does-what.ts). */
   who?: WhoDoesWhat;
+  /** The knowledge base in use, as this session is told of it (knowledge/service.ts `briefFor`); absent or null: none. */
+  knowledge?: KnowledgeBrief | null;
   /** The session's attachments folder (attachments/store.ts): always readable. */
   attachmentsDir?: string;
   /** Kestrel's own list of MCP servers (mcp-servers/); absent: only the servers found in the agents' files. */
@@ -81,6 +84,7 @@ export async function agentStartOptions(workspace: Workspace, req: StartRequestP
       workspace: workspaceKind,
       origin: origin ?? link?.kind,
       ...(req.who ? { who: req.who } : {}),
+      ...(req.knowledge ? { knowledge: req.knowledge } : {}),
       // Most used first: the instruction lists only the first few.
       existingTags: mostUsedTags(state.sessions),
       ...(project && siblings.length ? { siblings: { project: project.name, folders: siblings.map((f) => ({ name: folderName(f), path: f.path })) } } : {}),

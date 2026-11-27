@@ -9,6 +9,7 @@ import { blankText, type SetupRecord } from '../shared/setup-record.ts';
 import { readSetupRecord, type InventoryDeps } from './index.ts';
 import { nodeFs, type FsRead, type Run } from './io.ts';
 import { knownMcpServers } from './mcp.ts';
+import { cleanWhoDoesWhat, NOBODY } from '../shared/who-does-what.ts';
 
 /** Every value that must never reach a record. */
 // Made-up values in the shapes the real ones have. Each is built from two pieces so the
@@ -41,6 +42,8 @@ const SECRETS = [
   'SECRETPATHSEG0025xxAAbbCC11ddEEff2233',
   'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.SecretJwtSignature0026',
   'SECRETPROJECTMCP0027',
+  'sk-' + 'proj-SecretInstruction00000000000028',
+  'glpat' + '-SecretPresetModel0000029',
 ];
 
 /** Files no reader may open. */
@@ -128,6 +131,20 @@ async function readRecord(read: string[] = []): Promise<SetupRecord> {
     agents: async () => ({ available: ['claude'], notes: { codex: 'Codex is not signed in.' }, signIn: ['codex'] }),
     projects: async () => [{ name: 'Wren', folders: [{ name: 'wren', path: wren() }] }],
     mcpServers: (paths) => knownMcpServers(paths, home),
+    // Model presets and Who does what, with a key pasted into the note and one in a preset's model.
+    whoDoesWhat: async () =>
+      cleanWhoDoesWhat(
+        {
+          ...NOBODY,
+          presets: [
+            { id: 'p1', name: 'Everyday', agent: 'claude', model: 'opus', effort: 'high', fast: false },
+            { id: 'p2', name: 'Leaky', agent: 'codex', model: SECRETS[28], effort: '', fast: false },
+          ],
+          roles: { design: 'p1', build: 'p2', review: null },
+          instruction: `Reviews use the key ${SECRETS[27]} please.`,
+        },
+        () => 'x',
+      ),
     fs: watchedFs(read),
     // gh and glab are "installed" in a folder of their own.
     run: (file, args, cwd) => run(file, args, cwd),
@@ -166,6 +183,14 @@ describe('the set-up record', () => {
     expect(server('mail').env).toEqual(['MAIL_PASSWORD', 'MAIL_HOST']);
     expect(server('local').scope).toBe('local');
     expect(server('shared').headers).toEqual(['X-Api-Key']);
+  });
+
+  it('carries the presets and roles, but no preset or note with a key in it', async () => {
+    const record = await readRecord();
+    expect(record.models?.who.presets.map((p) => p.name)).toEqual(['Everyday']);
+    expect(record.models?.who.roles).toEqual({ design: 'p1', build: null, review: null });
+    expect(record.models?.who.instruction).toBe('');
+    expect(record.models?.instructionLeftOut).toBe(true);
   });
 
   it('does not carry a file with a key in it, and says where', async () => {

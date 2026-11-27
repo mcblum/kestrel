@@ -204,6 +204,8 @@ export type MenuTarget =
       onPage?: boolean;
       /** The apps that can open its folder; no Open in items without them. */
       openIn?: OpenInApps;
+      /** Only another computer of the account has it: it can be opened and nothing else (account-sessions.md, 10.2). */
+      away?: boolean;
     }
   | {
       kind: 'folder';
@@ -329,6 +331,8 @@ export function sidebarMenu(target: MenuTarget): MenuItem[] {
         ...(target.onPage ? [] : [{ id: 'open-project', label: 'Open project page', action: { type: 'open-project', projectId: p } } satisfies MenuItem]),
         item.openNewTab({ kind: 'project', id: p }),
       ];
+      // Its name, folders, settings and archive are its computer's; a session in it is started there (issue 52).
+      if (target.away) return open;
       return [
         { ...item.newSession({ projectId: p }), label: `New session in ${target.name}` },
         { ...item.newFolder(p), label: `New group in ${target.name}` },

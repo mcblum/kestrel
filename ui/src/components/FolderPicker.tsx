@@ -2,7 +2,7 @@
 // look. Drawn only when the project has more than one. It starts on the folder the project's
 // newest session used (the default folder before any), so no choice needs storing.
 import type { Controls } from '@kestrel/server/tabs';
-import { folderOf, lastUsedFolder } from '@kestrel/server/project-folders';
+import { folderName, folderOf, lastUsedFolder } from '@kestrel/server/project-folders';
 import { useApp } from '../store.ts';
 import { FolderChoice } from './FolderChoice.tsx';
 
@@ -18,7 +18,7 @@ export function FolderPicker({ controls, onSelect }: { controls: Controls; onSel
   const { project, folder } = useChosenFolder(controls);
   if (!project || !folder) return null;
   return (
-    <span className="ctl" title="Folder: where the session works. The project's other folders stay readable.">
+    <span className="ctl ctl-folder" title={`Folder: ${folderName(folder)}. Where the session works. The project's other folders stay readable.`}>
       <FolderChoice project={project} value={folder} onSelect={onSelect} />
     </span>
   );

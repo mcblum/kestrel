@@ -6,7 +6,10 @@ import { landingRoute, worktreesRoute } from './landing-api.ts';
 // HTTP and WebSocket API. Thin: checks access, validates input, calls the Workspace.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { isSelectableAgent, SELECTABLE_AGENTS, type Agent, type ChatMessage } from './model.ts';
+import { isSelectableAgent, SELECTABLE_AGENTS, type Agent, type ChatMessage, type Project, type SessionView } from './model.ts';
+import { conversationStamp, remoteRefusal, whereIsMachine, type Machine } from './shared/machines.ts';
+import { notChangedHereRefusal, notHereRefusal } from './shared/account-projects.ts';
+import { thisComputer } from './shared/platform.ts';
 import { isPermissionLevel } from './shared/permissions.ts';
 import { sanitize } from './shared/tabs.ts';
 import { existsSync, readFileSync, statSync } from 'node:fs';
@@ -24,6 +27,7 @@ import { organizeRoute } from './organize-api.ts';
 import { suggestionRoute } from './suggestions/api.ts';
 import { gitSettingsRoute } from './git-settings/api.ts';
 import { projectEditsRoute } from './project-edits/api.ts';
+import { knowledgeRoute } from './knowledge/api.ts';
 import { remoteStartsRoute } from './remote-starts/api.ts';
 import { startRequestedReview } from './review-requests/start-requested.ts';
 import { isBaseChoice, type BaseChoice } from './shared/start-base.ts';
@@ -78,7 +82,13 @@ import { publicInfo } from './shared/setup.ts';
 import { switchableServers } from './shared/mcp-servers.ts';
 import { sanitizeSidebar } from './shared/sidebar.ts';
 import { checkPage } from './shared/connect-ops.ts';
-import { pageRefusal, transcriptPage } from './shared/transcript-page.ts';
+import { pageRefusal, transcriptPage, type PageAsk } from './shared/transcript-page.ts';
+import { mayBeAhead, RemoteConversations } from './remote-conversation.ts';
+import { chosenFolderHere, folderHere } from './account-project-here.ts';
+import { createProject, existingFolder } from './project-store.ts';
+import { remoteActionRoute, type ActionAnswer, type RemoteActionDeps } from './remote-actions.ts';
+import { remoteStartRoute, type StartComputers } from './remote-start.ts';
+import { asStartChoices, unreachableStart, type StartComputerAnswer } from './shared/start-computer.ts';
 import { checkAccess, LOOPBACK_HOST, type AccessPolicy } from './security.ts';
 import { mcpSessionOf, serveSessionMcp } from './kestrel-mcp.ts';
 import { LiveChannel } from './live-channel.ts';
@@ -176,6 +186,11 @@ export interface KestrelServerOptions {
   tickets?: TicketsApi;
   /** Kestrel Connect: its Settings routes, and its state pushed to every window (connect/link/). */
   connect?: KestrelConnect;
+  /**
+   * The computers a New session may run on and how they are asked (issue 52). Absent: Kestrel Connect's, the
+   * account's other desktops over the sealed channel. Only the account preview of a checkout passes its own.
+   */
+  startComputers?: StartComputers;
   /** How this copy reports its own failures, or null when it never does (shared/crash-reports.ts). Default: never. */
   crashReporting?: CrashReportSetup | null;
   /** What's new: the notes this copy carries and the record of what was shown, pushed to every window (whats-new/). */
@@ -189,8 +204,10 @@ export interface KestrelServerOptions {
 }
 
 export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, runtime?: SessionRuntime, options: KestrelServerOptions = {}): KestrelServer {
-  const live = new LiveChannel();
+  // A session another computer runs is watched there while some window here watches it (remote-sessions.ts).
+  const live = new LiveChannel((id, watched) => void watchElsewhere(id, watched));
   const unsubscribeLive = runtime?.onLive((id, patch) => live.publish(id, patch));
+  const unsubscribeRemote = options.connect?.remote.onLive((id, patch) => live.publish(id, patch));
   const send = (req: IncomingMessage, res: ServerResponse, status: number, body?: unknown) => {
     const headers: Record<string, string> = { 'Cache-Control': 'no-store' };
     const origin = req.headers.origin;
@@ -237,13 +254,143 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
     platform: options.fileOpen?.platform ?? hostPlatform(),
     launch: options.fileOpen?.launch ?? { openFile: (editor, file) => openers().openFile(editor, file), reveal: (target) => openers().reveal(target), openFolder: (app, folder) => openers().openFolder(app, folder) },
   };
-  const currentStateJson = () => (stateJson ??= workspace.state().then((s) => JSON.stringify(s)));
+  // A window is sent this computer's sessions and the account's other computers' (`Workspace.view`).
+  const currentStateJson = () => (stateJson ??= workspace.view().then((s) => JSON.stringify(s)));
+
+  /** A session that runs on another computer of the account, with that machine; null for this computer's own, and for none. */
+  async function remoteSession(id: string): Promise<{ session: SessionView; machine: Machine } | null> {
+    const view = await workspace.view();
+    if (!view.machines) return null;
+    const session = view.sessions.find((s) => s.id === id && s.runsOn);
+    if (!session?.runsOn) return null;
+    return { session, machine: whereIsMachine(session.runsOn, view.machines) };
+  }
+
+  /** A project another computer of the account has and no folder of this one is (account-view.ts), or null. */
+  async function awayProject(id: unknown): Promise<Project | null> {
+    if (typeof id !== 'string' || id.length === 0) return null;
+    return (await workspace.view()).projects.find((p) => p.id === id && p.away) ?? null;
+  }
+  const here = () => thisComputer(options.fileOpen?.platform ?? hostPlatform());
+
+  /**
+   * Remote conversations: the account's copy at once, the other computer asked only when it may have more, and
+   * what it answers sent on the session's live channel (remote-conversation.ts).
+   */
+  const remoteConversations = new RemoteConversations({
+    read: options.connect ? (machine, id, page, opts) => options.connect!.remote.read(machine, id, page, opts) : null,
+    kept: async (id) => {
+      const kept = await options.connect?.replica?.conversation(id);
+      if (kept) return { messages: kept.messages, current: kept.current, readAt: kept.readAt, stamp: conversationStamp(kept.head) };
+      // No account link here: the copy is whatever was kept, current when it was read whole at its head's stamp.
+      const [head, mark] = await Promise.all([workspace.account.head(id), workspace.account.detailMark(id)]);
+      const stamp = head ? conversationStamp(head) : undefined;
+      return { messages: await workspace.account.messages(id), current: stamp !== undefined && mark?.stamp === stamp, readAt: mark?.readAt ?? null, ...(stamp ? { stamp } : {}) };
+    },
+    publish: (id, messages) => live.publish(id, { messages }),
+  });
+
+  /** Its conversation, whole or a page; `again` when the person pressed Try again. */
+  function remoteRead(found: { session: SessionView; machine: Machine }, ask: PageAsk | null, again: boolean) {
+    return remoteConversations.detail(found.session, found.machine, ask, again);
+  }
+
+  /** How a session on another computer is acted on there, or null with no account to ask through. */
+  function remoteDeps(): RemoteActionDeps | null {
+    const remote = options.connect?.remote;
+    return remote ? { ask: (machine, op, args) => remote.ask(machine, op, args), drafts: runtime?.attachments ?? null } : null;
+  }
+
+  /** The account's other computers a session may be started on from here, and how each is asked; none with no account. */
+  const startSource: StartComputers | null = options.startComputers ?? (options.connect ? { list: () => options.connect!.otherComputers(), ask: (machine, op, args) => options.connect!.remote.ask(machine, op, args) } : null);
+  const otherComputers = (): Machine[] => startSource?.list() ?? [];
+
+  /** A New session sent to another computer of the account (remote-start.ts), or refused with why it cannot go. */
+  async function startElsewhere(body: Record<string, unknown>): Promise<ActionAnswer> {
+    const machine = typeof body.machine === 'string' ? otherComputers().find((m) => m.id === body.machine) : undefined;
+    const deps = startSource ? { ask: startSource.ask, drafts: runtime?.attachments ?? null } : null;
+    if (!machine || !deps) return { status: 409, body: { error: 'That computer is not one of your account’s, or Kestrel Connect is not connected. Start the session here, or try again when it is.' } };
+    return remoteStartRoute(body, machine, {
+      ...deps,
+      projects: (await workspace.view()).projects,
+      reposOf: (project) => workspace.repos.ofProject(project),
+      started: (m, head) => workspace.account.started(m, head),
+      now: Date.now,
+    });
+  }
+
+  /** What another computer offers a New session from here: its published record, else its live `session.startChoices`; or why neither. */
+  async function startChoicesOf(id: string): Promise<StartComputerAnswer> {
+    const machine = otherComputers().find((m) => m.id === id);
+    if (!machine || !startSource) return { ok: false, reason: 'That computer is not one of your account’s any more.' };
+    // What it published on Kestrel Connect, read from this computer's own copy: at once, and whether or not it is
+    // awake. It is asked directly only when it has published nothing (a Kestrel from before it did).
+    const published = (await workspace.accountOffers.view())[machine.id];
+    if (published) return { ok: true, choices: published.offers };
+    const answer = await startSource.ask(machine.id, 'session.startChoices', {});
+    if (!answer.ok) return { ok: false, reason: answer.reached ? answer.reason : unreachableStart(machine.name) };
+    const choices = asStartChoices(answer.result);
+    return choices ? { ok: true, choices } : { ok: false, reason: `${machine.name} answered with something Kestrel cannot read. Update Kestrel there.` };
+  }
+
+  /** Sessions some window watches that run on another computer: their machine is asked to send live output while they may. */
+  const watchedElsewhere = new Set<string>();
+
+  /**
+   * The first window began watching a session, or the last stopped: when another computer runs it, it is told. That
+   * computer is asked only while the session runs or waits on the person (the rule: it is asked only for what only it
+   * has); a finished one is read from the account's copy, and asked again when a turn starts (`rewatchElsewhere`).
+   */
+  async function watchElsewhere(id: string, watched: boolean): Promise<void> {
+    const remote = options.connect?.remote;
+    if (!remote) return;
+    if (!watched) {
+      watchedElsewhere.delete(id);
+      return remote.unwatch(id);
+    }
+    const found = await remoteSession(id);
+    if (!found) return;
+    watchedElsewhere.add(id);
+    // Still watched once found: a window that closed meanwhile asks for nothing.
+    if (live.isWatched(id) && !remote.watching(id) && mayBeAhead(found.session)) remote.watch(found.machine.id, id);
+  }
+
+  /** The account's sessions changed: a watched one whose turn started there is asked for its live output now. */
+  async function rewatchElsewhere(): Promise<void> {
+    for (const id of watchedElsewhere) await watchElsewhere(id, true);
+  }
 
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://localhost');
     const parts = url.pathname.split('/').filter(Boolean); // ['api', 'sessions', ':id', 'move']
     const method = req.method ?? 'GET';
     if (parts[0] !== 'api') return send(req, res, 404, { error: 'Not found' });
+
+    // A session another computer runs is read here and acted on there (remote-actions.ts): a route with an
+    // operation of the closed list is asked of that computer, anything else is refused saying where it runs
+    // (shared/machines.ts), before any route can take its id for one of this computer's.
+    const elsewhere = parts[1] === 'sessions' && parts[2] ? await remoteSession(decodedSegment(parts[2])) : null;
+    if (elsewhere && !(method === 'GET' && parts.length === 3)) {
+      const deps = remoteDeps();
+      if (!deps) return send(req, res, 409, { error: remoteRefusal(elsewhere.machine.name) });
+      const answer = await remoteActionRoute(parts, method, () => readJson(req), elsewhere.session.id, elsewhere.machine, deps);
+      return send(req, res, answer.status, answer.body);
+    }
+
+    // The computers a New session may run on (issue 52): the account's others, and what each offers when asked.
+    if (method === 'GET' && parts[1] === 'start-computers') {
+      if (parts.length === 2) return send(req, res, 200, { computers: otherComputers() });
+      if (parts.length === 3) return send(req, res, 200, await startChoicesOf(decodedSegment(parts[2]!)));
+    }
+
+    // A project not on this computer is listed, and nothing here may act on it as one of its own (account-sessions.md, 10.2).
+    const notHere = parts[1] === 'projects' && parts[2] && method !== 'GET' ? await awayProject(decodedSegment(parts[2])) : null;
+    // The one thing done to it here: the folder of this computer that is its repository becomes a project.
+    if (notHere && method === 'POST' && parts.length === 4 && parts[3] === 'here') {
+      const path = await chosenFolderHere(notHere, existingFolder(str((await readJson(req)).path, 'path', 4096)));
+      return send(req, res, 200, await createProject(workspace, { name: notHere.name, folders: [path] }));
+    }
+    if (notHere) return send(req, res, 409, { error: notChangedHereRefusal(notHere, here()) });
 
     if (method === 'GET' && parts[1] === 'state' && parts.length === 2) return send(req, res, 200, await currentStateJson());
     // The shell's quit check (app/quit-guard.mjs): what quitting would stop, by the one rule (shared/quit-check.ts).
@@ -322,6 +469,8 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
     // Settings → Workflow: keeping each project's edits in its own session (project-edits/api.ts).
     const projectEdits = runtime ? await projectEditsRoute(parts, method, () => readJson(req), runtime.projectEdits) : null;
     if (projectEdits) return send(req, res, projectEdits.status, projectEdits.body);
+    const knowledge = runtime ? await knowledgeRoute(parts, method, () => readJson(req), runtime.knowledge) : null;
+    if (knowledge) return send(req, res, knowledge.status, knowledge.body);
     // Settings → Workflow: whether other devices of the account may start sessions here (remote-starts/api.ts).
     const remoteStarts = runtime ? await remoteStartsRoute(parts, method, () => readJson(req), runtime.remoteStarts) : null;
     if (remoteStarts) return send(req, res, remoteStarts.status, remoteStarts.body);
@@ -408,14 +557,19 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
 
     if (parts[1] === 'sessions') {
       if (method === 'GET' && parts.length === 3) {
+        // `?last=N`, or `?before=<message>&limit=N`: one page of the conversation (shared/transcript-page.ts). Without them, all of it, as before.
+        // `?again=1`: the person pressed Try again on a session another computer runs.
+        const asked = ['last', 'before', 'limit'].filter((k) => url.searchParams.has(k));
+        const ask = asked.length === 0 ? null : checkPage(Object.fromEntries(asked.map((k) => [k, k === 'before' ? url.searchParams.get(k) : Number(url.searchParams.get(k))])));
+        if (ask && !ask.ok) throw new BadRequest(ask.reason);
+        if (elsewhere) {
+          const answer = await remoteRead(elsewhere, ask?.value ?? null, url.searchParams.get('again') === '1');
+          return send(req, res, answer.status, answer.body);
+        }
         const detail = await workspace.detail(parts[2]!);
         if (!detail) return send(req, res, 404, { error: 'No such session' });
         const whole = { ...detail, ...runtime?.overlay(parts[2]!) };
-        // `?last=N`, or `?before=<message>&limit=N`: one page of the conversation (shared/transcript-page.ts). Without them, all of it, as before.
-        const asked = ['last', 'before', 'limit'].filter((k) => url.searchParams.has(k));
-        if (asked.length === 0) return send(req, res, 200, whole);
-        const ask = checkPage(Object.fromEntries(asked.map((k) => [k, k === 'before' ? url.searchParams.get(k) : Number(url.searchParams.get(k))])));
-        if (!ask.ok) throw new BadRequest(ask.reason);
+        if (!ask) return send(req, res, 200, whole);
         const refusal = pageRefusal(whole.messages, ask.value);
         if (refusal) return send(req, res, 404, { error: refusal });
         const page = transcriptPage(whole.messages, ask.value);
@@ -475,6 +629,13 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
       }
       if (method === 'POST' && parts.length === 2) {
         const body = await readJson(req);
+        // The New session box named another computer of the account: started there (remote-start.ts, issue 52).
+        if (body.machine !== undefined && body.machine !== null) {
+          const answer = await startElsewhere(body);
+          return send(req, res, answer.status, answer.body);
+        }
+        const startIn = await awayProject(body.projectId);
+        if (startIn) return send(req, res, 409, { error: notHereRefusal(startIn, here()) });
         const agent = body.agent as Agent;
         if (!isSelectableAgent(agent)) throw new BadRequest(`agent must be ${SELECTABLE_AGENTS.join(', ')}`);
         if (runtime) {
@@ -484,7 +645,7 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
           if (body.base !== undefined && !isBaseChoice(body.base)) throw new BadRequest('base must be "default" or "current"');
           if (body.rememberBase !== undefined && typeof body.rememberBase !== 'boolean') throw new BadRequest('rememberBase must be true or false');
           const base = body.base === undefined ? {} : { base: body.base as BaseChoice, rememberBase: body.rememberBase === true };
-          const session = await runtime.start({ agent, projectId: optionalId(body.projectId, 'projectId'), folderId: optionalId(body.folderId, 'folderId'), prompt: messageText(body.prompt, 'prompt', draft !== null), draft, model, permission: body.permission as never, ...speed(body), ...(body.modelChosen === true ? { modelChosen: true } : {}), groupId: optionalId(body.groupId, 'groupId'), ...base, byUser: true });
+          const session = await runtime.start({ agent, projectId: optionalId(body.projectId, 'projectId'), folderId: optionalId(body.folderId, 'folderId'), prompt: messageText(body.prompt, 'prompt', draft !== null), draft, model, permission: body.permission as never, ...speed(body), ...(body.modelChosen === true ? { modelChosen: true } : {}), groupId: optionalId(body.groupId, 'groupId'), ...base, ...(body.purpose === 'setup' ? { purpose: 'setup' as const } : {}), byUser: true });
           return send(req, res, 201, session);
         }
         const session = await workspace.addSession({
@@ -604,6 +765,13 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
 
     // The Files view of any scope (shared/scope.ts): a session, a project page, a group page.
     if (runtime && parts[1] === 'scopes' && method === 'GET' && parts.length === 4 && (parts[3] === 'files' || parts[3] === 'file')) return files(req, res, runtime, decodedSegment(parts[2]!), parts[3], url);
+    // A project another computer lists: the folder of this computer that is already that repository, if any,
+    // so its page offers to add it (account-project-here.ts).
+    if (method === 'GET' && parts[1] === 'projects' && parts.length === 4 && parts[3] === 'here') {
+      const away = await awayProject(decodedSegment(parts[2]!));
+      const beside = (await workspace.state()).projects.flatMap((p) => p.folders.map((f) => f.path));
+      return send(req, res, 200, { folder: away ? await folderHere(away, beside) : null });
+    }
     // What of the user's Claude Code setup a project's sessions get, and the MCP servers on offer.
     if (parts[1] === 'projects' && parts.length === 4 && parts[3] === 'setup') {
       const project = (await workspace.state()).projects.find((p) => p.id === parts[2]);
@@ -629,6 +797,10 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
       const body = await readJson(req);
       if (!isArchiveKind(body.kind)) throw new BadRequest('kind must be session, project or group');
       const id = str(body.id, 'id', 100);
+      const away = body.kind === 'session' ? await remoteSession(id) : null;
+      if (away) return send(req, res, 409, { error: remoteRefusal(away.machine.name) });
+      const awayP = body.kind === 'project' ? await awayProject(id) : null;
+      if (awayP) return send(req, res, 409, { error: notChangedHereRefusal(awayP, here()) });
       // A session's own archive runs its project's archive script first; a failure stops the archive
       // and says why, and the same request with `skipScript` archives without it.
       if (runtime && body.kind === 'session' && body.archived !== false) {
@@ -677,6 +849,7 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
         const ids = Array.isArray(body.sessionIds) && body.sessionIds.length <= 500 && body.sessionIds.every((x: unknown) => typeof x === 'string' && x.length < 200) ? (body.sessionIds as string[]) : null;
         if (!ids || (body.unread !== undefined && typeof body.unread !== 'boolean') || (body.unread === true && ids.length !== 1)) return send(req, res, 400, { error: 'Give sessionIds, a list of session ids, and unread: true only with one of them.' });
         const seen = body.unread === true ? await workspace.seen.markUnread(ids[0]!) : await workspace.seen.mark(ids);
+        // Another computer's session too: the mark is this computer's, and travels as the account's record (seen-sync.ts).
         return send(req, res, 200, { seen });
       }
     }
@@ -844,7 +1017,10 @@ async function files(req: IncomingMessage, res: ServerResponse, runtime: Session
     if (options.reviewRequests && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'review-requests', view: options.reviewRequests.view() }));
     if (options.tickets && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'tickets', view: options.tickets.store.view() }));
     if (options.connect && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'connect-state', view: options.connect.view() }));
+    if (options.connect?.steps && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'setup-runs', runs: options.connect.steps.runs() }));
+    if (options.connect?.values && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'setup-value-requests', requests: options.connect.values.view() }));
     workspace.seen.view().then((seen) => ws.readyState === ws.OPEN && ws.send(JSON.stringify({ type: 'seen', seen })), (error) => console.error('[kestrel] could not send what was seen', error));
+    workspace.accountOffers.view().then((offers) => ws.readyState === ws.OPEN && ws.send(JSON.stringify({ type: 'machine-offers', offers })), (error) => console.error('[kestrel] could not send what the other computers offer', error));
     options.whatsNew?.store.view().then((view) => ws.readyState === ws.OPEN && ws.send(JSON.stringify({ type: 'whats-new', view })), (error) => console.error('[kestrel] could not send what is new', error));
   });
 
@@ -857,6 +1033,12 @@ async function files(req: IncomingMessage, res: ServerResponse, runtime: Session
   // What was looked at, whole, whenever it changes: from this window, another, or a phone.
   const unsubscribeSeen = workspace.seen.onChange((seen) => {
     const json = JSON.stringify({ type: 'seen', seen });
+    for (const ws of sockets.clients) if (ws.readyState === ws.OPEN) ws.send(json);
+  });
+
+  // What the account's other computers offer for a new session, whole, whenever a reading of their records changed it.
+  const unsubscribeOffers = workspace.accountOffers.onChange((offers) => {
+    const json = JSON.stringify({ type: 'machine-offers', offers });
     for (const ws of sockets.clients) if (ws.readyState === ws.OPEN) ws.send(json);
   });
 
@@ -887,6 +1069,18 @@ async function files(req: IncomingMessage, res: ServerResponse, runtime: Session
     for (const ws of sockets.clients) if (ws.readyState === ws.OPEN) ws.send(json);
   });
 
+  // Set up this computer's runs, whole, whenever one changes: a few lines at most.
+  const unsubscribeSetupRuns = options.connect?.steps?.onChange((runs) => {
+    const json = JSON.stringify({ type: 'setup-runs', runs });
+    for (const ws of sockets.clients) if (ws.readyState === ws.OPEN) ws.send(json);
+  });
+
+  // Other computers' requests for set-up values, waiting on the person here: names only, whole, whenever one comes or goes.
+  const unsubscribeValueRequests = options.connect?.values?.onChange((requests) => {
+    const json = JSON.stringify({ type: 'setup-value-requests', requests });
+    for (const ws of sockets.clients) if (ws.readyState === ws.OPEN) ws.send(json);
+  });
+
   const unsubscribeConnect = options.connect?.onChange((view) => {
     const json = JSON.stringify({ type: 'connect-state', view });
     for (const ws of sockets.clients) if (ws.readyState === ws.OPEN) ws.send(json);
@@ -909,6 +1103,7 @@ async function files(req: IncomingMessage, res: ServerResponse, runtime: Session
   let pending: NodeJS.Timeout | null = null;
   const unsubscribe = workspace.onChange(() => {
     stateJson = null;
+    if (watchedElsewhere.size > 0) void rewatchElsewhere().catch((error: unknown) => console.error('[kestrel] could not watch a session on another computer', error));
     if (pending || sockets.clients.size === 0) return;
     pending = setTimeout(() => {
       pending = null;
@@ -939,11 +1134,15 @@ async function files(req: IncomingMessage, res: ServerResponse, runtime: Session
         unsubscribe();
         unsubscribePullRequests();
         unsubscribeSeen();
+        unsubscribeOffers();
         unsubscribeWhatsNew?.();
         unsubscribeReviewRequests?.();
         unsubscribeTickets?.();
         unsubscribeConnect?.();
+        unsubscribeSetupRuns?.();
+        unsubscribeValueRequests?.();
         unsubscribeLive?.();
+        unsubscribeRemote?.();
         unsubscribeSimShow?.();
         unsubscribeReplaced?.();
         unsubscribeSimChange?.();

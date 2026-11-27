@@ -49,6 +49,8 @@ export interface Pressed {
   undo?: Record<string, unknown>;
   /** A session the line names, drawn as a link to it. */
   opens?: string;
+  /** A web address the line names (`Suggestion.link`). */
+  link?: string;
 }
 
 export interface SuggestionKind {

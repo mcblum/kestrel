@@ -6,6 +6,10 @@
   "exports": {
     "./onboarding": "./src/shared/onboarding.ts",
     "./model": "./src/model.ts",
+    "./machines": "./src/shared/machines.ts",
+    "./account-projects": "./src/shared/account-projects.ts",
+    "./machine-offers": "./src/shared/machine-offers.ts",
+    "./start-computer": "./src/shared/start-computer.ts",
     "./others-said": "./src/shared/others-said.ts",
     "./archive-approved": "./src/shared/archive-approved.ts",
     "./session-archive": "./src/shared/session-archive.ts",
@@ -55,6 +59,7 @@
     "./archived-search": "./src/shared/archived-search.ts",
     "./archived-rows": "./src/shared/archived-rows.ts",
     "./project-edits": "./src/shared/project-edits.ts",
+    "./knowledge": "./src/shared/knowledge.ts",
     "./start-base": "./src/shared/start-base.ts",
     "./project-scripts": "./src/shared/project-scripts.ts",
     "./project-env": "./src/shared/project-env.ts",
@@ -145,6 +150,11 @@
     "./commands": "./src/shared/commands.ts",
     "./connect": "./src/shared/connect.ts",
     "./setup-list": "./src/shared/setup-list.ts",
+    "./setup-values": "./src/shared/setup-values.ts",
+    "./setup-sections": "./src/shared/setup-sections.ts",
+    "./setup-needs": "./src/shared/setup-needs.ts",
+    "./setup-agent": "./src/shared/setup-agent.ts",
+    "./setup-install": "./src/shared/setup-install.ts",
     "./diff-anchors": "./src/shared/diff-anchors.ts"
   },
   "scripts": {

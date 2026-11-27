@@ -17,6 +17,7 @@ import type { Display } from '../display.ts';
 import type { GitPrefs } from '../git-settings/prefs.ts';
 import type { Agent, LivePatch, Project, ProjectFolder, Session, SessionSettings } from '../model.ts';
 import type { ProjectEdits } from '../project-edits/prefs.ts';
+import type { Knowledge } from '../knowledge/service.ts';
 import type { StartBase } from '../start-base/prefs.ts';
 import type { SandboxAllowList } from '../sandbox-allow/store.ts';
 import type { SessionQueue } from '../shared/queue.ts';
@@ -54,6 +55,7 @@ export interface RuntimeHost {
   readonly gitPrefs: GitPrefs;
   readonly baseRefresh: BaseRefresh;
   readonly projectEdits: ProjectEdits;
+  readonly knowledge: Knowledge;
   /** Each project's remembered answer to where a new session starts (start-base/prefs.ts). */
   readonly startBase: StartBase;
   /** Each project's setup and archive scripts, and what runs them (runtime/project-scripts.ts). */

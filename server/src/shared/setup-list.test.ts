@@ -34,6 +34,15 @@ const laptop = rec('a', 'MacBook Pro', 'mac', {
 });
 
 describe('the set-up list', () => {
+  it('the SSH hosts line is done by what the config on this disk holds, whatever this computer’s record says', () => {
+    // A config with a line that looks like a key gives a record with no hosts; the step still reads the file.
+    const mini = rec('b', 'Mac mini', 'mac');
+    const done = (sshHosts?: () => string[]) => setupListOf(mini, [laptop], { tool: () => false, ...(sshHosts ? { sshHosts } : {}) }).lines.find((l) => l.id === 'ssh:config')!.done;
+    expect(done()).toBe(false);
+    expect(done(() => ['forge', 'other'])).toBe(true);
+    expect(done(() => ['other'])).toBe(false);
+  });
+
   it('on a second Mac: sign-ins act, signing cannot come, Already here is done', () => {
     const mini = rec('b', 'Mac mini', 'mac', { agents: [{ agent: 'claude', state: 'ready' }, { agent: 'codex', state: 'signed-out' }, { agent: 'opencode', state: 'missing' }], problems: [{ part: 'hosts', reason: 'glab is not installed.' }] });
     const list = setupListOf(mini, [laptop, mini], { tool: (n) => n === 'uv' });
@@ -42,7 +51,7 @@ describe('the set-up list', () => {
     expect(line('agent:claude')).toMatchObject({ done: true });
     expect(line('agent:codex')).toMatchObject({ kind: 'here', done: false, action: { kind: 'sign-in', agent: 'codex' } });
     expect(list.lines.some((l) => l.id === 'agent:opencode')).toBe(false);
-    expect(line('host:gh:github.com')).toMatchObject({ kind: 'here', title: 'Sign in to gh on github.com as octo', action: null });
+    expect(line('host:gh:github.com')).toMatchObject({ kind: 'here', title: 'Sign in to gh on github.com as octo', action: { kind: 'host-sign-in', tool: 'gh', host: 'github.com', protocol: 'ssh', web: true }, command: { shell: 'sh', text: 'gh auth login --web --hostname github.com --git-protocol ssh' } });
     expect(list.lines.some((l) => l.id === 'host:glab:gitlab.example.com')).toBe(false); // signed out there too
     expect(line('git:signing')).toMatchObject({ kind: 'cannot' });
     expect(line('ssh:config').does).not.toContain('without UseKeychain');
@@ -63,7 +72,29 @@ describe('the set-up list', () => {
     expect(list.lines.find((l) => l.id === 'tool:Xcode')).toMatchObject({ kind: 'cannot' });
     expect(list.lines.find((l) => l.id === 'mcp:shrike')).toMatchObject({ kind: 'cannot' });
     expect(list.lines.find((l) => l.id === 'ssh:config')!.does).toContain('without UseKeychain');
-    expect(list.lines.find((l) => l.id === 'agent:claude')).toMatchObject({ kind: 'install' });
+    expect(list.lines.find((l) => l.id === 'agent:claude:install')).toMatchObject({ kind: 'install', run: 'user', command: { shell: 'sh', text: 'curl -fsSL https://claude.ai/install.sh | bash' } });
+    expect(list.lines.find((l) => l.id === 'agent:claude')!.needs).toEqual(['agent:claude:install']);
+  });
+
+  it('an MCP server already in Kestrel with a value to enter points to its page; one with every value set is done', () => {
+    const mini = rec('b', 'Mac mini', 'mac');
+    const needs = setupListOf(mini, [laptop], { tool: () => false, mcp: () => 'needs-values' }).lines.find((l) => l.id === 'mcp:shrike')!;
+    expect(needs).toMatchObject({ done: false, action: null, page: '#/settings/agent-setup/mcp/shrike' });
+    expect(setupListOf(mini, [laptop], { tool: () => false, mcp: () => 'ready' }).lines.find((l) => l.id === 'mcp:shrike')).toMatchObject({ done: true });
+    expect(setupListOf(mini, [laptop], { tool: () => false, mcp: () => 'missing' }).lines.find((l) => l.id === 'mcp:shrike')).toMatchObject({ done: false, action: { kind: 'mcp' }, page: null });
+  });
+
+  it('an MCP server says what its command needs here, and its runner gets a Tools line (18.11)', () => {
+    const server = (name: string, command: string, args: string[]) => ({ name, scope: 'user' as const, transport: 'stdio' as const, command, args, url: null, env: [], headers: [], blanks: [], appProgram: null });
+    const other = rec('a', 'MacBook Pro', 'mac', { mcp: [server('ha', 'uvx', ['--from', 'x', 'mcp-ha']), server('mine', 'my-mcp', []), server('local', '~/bin/thing', [])] });
+    const list = setupListOf(rec('b', 'Mac mini', 'mac'), [other], { tool: () => false, host: { brew: true, npmUser: false, polkit: false, packager: null }, exists: () => true });
+    const line = (id: string) => list.lines.find((l) => l.id === id)!;
+    expect(line('mcp:ha').does).toContain('Needs uv: brew install uv.');
+    expect(line('mcp:ha').does).toContain('uvx fetches x the first time the server starts.');
+    expect(line('mcp:ha').needs).toContain('tool:uv');
+    expect(line('tool:uv')).toMatchObject({ group: 'tools', does: 'Runs this as you. Needed by the ha MCP server.' });
+    expect(line('mcp:mine').does).toContain('Runs my-mcp. Kestrel does not know how my-mcp was installed on MacBook Pro.');
+    expect(line('mcp:local').does).toContain('thing is here.');
   });
 
   it('one line for the same thing on two machines, naming both', () => {

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Check, Folder, GitBranch, MessageSquare, Terminal } from 'lucide-react';
 import type { OnboardingStep } from '@kestrel/server/onboarding';
 import { reasonOf } from '@kestrel/server/sourced';
-import { useApp } from '../store.ts';
 import { useResource } from '../data/resources.ts';
 import { AGENTS_PATH, asAgentStatus } from '../components/useAgents.ts';
 import { AGENT_LABEL } from '../labels.ts';
@@ -11,6 +10,7 @@ import { AgentStep } from './AgentStep.tsx';
 import { AppearanceStep } from './AppearanceStep.tsx';
 import { NotificationStep } from './NotificationStep.tsx';
 import { ProjectStep } from './ProjectStep.tsx';
+import { useHereProjects } from '../awayProjects.ts';
 
 /** "A", "A and B", "A, B and C". */
 const andList = (names: readonly string[]): string => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
@@ -38,7 +38,7 @@ function Welcome() {
 }
 
 function Ready() {
-  const projects = useApp((s) => s.workspace?.projects ?? []);
+  const projects = useHereProjects();
   const { value } = useResource(AGENTS_PATH, asAgentStatus);
   const available = value.state === 'ready' ? value.value.available : [];
   return <div className="setup-ready">

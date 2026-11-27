@@ -23,30 +23,34 @@ interface Props {
   children: ReactNode;
   /** A project with no directory yet: its terminals open in the home folder. */
   noDirectory?: boolean;
+  /** A project only another computer has: why it has no folder here (awayProjects.ts). Files and Changes are off with it. */
+  elsewhere?: string;
 }
 
 /** Why the Commands icon does nothing on a project or group page. */
 const NO_COMMANDS = 'Commands belong to a session: open one to see what its agent runs';
 
-export function ScopePage({ scope, bar, changes, context, children, noDirectory = false }: Props) {
+export function ScopePage({ scope, bar, changes, context, children, noDirectory = false, elsewhere }: Props) {
   const key = scopeKey(scope);
   const panes = usePanes(key);
   const browserTitle = useBrowserTitle(key);
   const group = scope.kind === 'group';
+  // No folder here at all: as for a group, Files and Changes are shown but off, saying why.
+  const noFolder = group ? NO_FOLDER : (elsewhere ?? null);
   const extras: PaneButtonExtras = {
-    disabled: { commands: NO_COMMANDS, ...(group ? { files: NO_FOLDER, changes: NO_FOLDER } : {}) },
+    disabled: { commands: NO_COMMANDS, ...(noFolder ? { files: noFolder, changes: noFolder } : {}) },
     titles: { browser: browserTitle ? `Browser · ${browserTitle}` : 'Browser', ...(group || noDirectory ? { terminal: 'Terminal · in your home folder' } : {}) },
     labels: { context: group ? 'Group context' : 'Project context' },
   };
   // A group's Files and Changes cannot be turned on, whatever was remembered.
-  const toggle = (pane: PaneId) => pane !== 'commands' && !(group && (pane === 'files' || pane === 'changes')) && panes.toggle(pane);
+  const toggle = (pane: PaneId) => pane !== 'commands' && !(noFolder && (pane === 'files' || pane === 'changes')) && panes.toggle(pane);
   return (
     <div className="scope-page">
       <header className="session-bar scope-bar">
         {bar}
         <PaneToolbar open={panes.state.open} onToggle={toggle} extras={extras} />
       </header>
-      <PaneArea scopeKey={key} state={panes.state} mainLabel={group ? 'Group' : 'Project'} main={children} changes={changes} context={context} terminalNote={group ? GROUP_TERMINAL : noDirectory ? NO_DIRECTORY_TERMINAL : undefined} onClosePane={panes.hide} />
+      <PaneArea scopeKey={key} state={panes.state} mainLabel={group ? 'Group' : 'Project'} main={children} changes={changes} context={context} terminalNote={group ? GROUP_TERMINAL : elsewhere ? `${elsewhere}, so its terminals open in your home folder.` : noDirectory ? NO_DIRECTORY_TERMINAL : undefined} onClosePane={panes.hide} />
     </div>
   );
 }

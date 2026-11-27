@@ -5,6 +5,8 @@ import { CONNECT_OFF, deviceNameOf, type ConnectAccount, type ConnectDevice, typ
 import type { Envelope } from '../../shared/connect-ops.ts';
 import { newIdentity, publicIdentity } from '../keys.ts';
 import { DeskChannel } from './channel.ts';
+import { routeFrame, type DeskCaller } from './caller.ts';
+import { remoteCalls, type RemoteSessions } from './remote-sessions.ts';
 import { AccountJoin } from './join.ts';
 import { asJoinRequest, JoinApi, type ServiceDevice } from './join-api.ts';
 import { Refused } from '../../refused.ts';
@@ -21,8 +23,23 @@ import { DEFAULT_HELD_PREFS, HeldConversations, type HeldPrefs, type HeldSource 
 import type { QueueStore } from './held-queue.ts';
 import type { StoredDevice, StoredTokens, Vault, VaultData } from './vault.ts';
 import { SetupRecords } from './setup-records.ts';
+import type { DeskOps } from '../dispatcher.ts';
+import { copyValues, type CopyDeps, type CopyReport } from '../../setup-values/copy.ts';
+import { readValues, sourceText, type ValueSources } from '../../setup-values/read.ts';
+import { ValueRequests } from '../../setup-values/requests.ts';
+import type { DiscoveredServer } from '../../shared/setup.ts';
+import { ReplicaSync } from './replica-sync.ts';
+import type { AccountReplica } from '../../account-replica.ts';
+import type { AccountProjects } from '../../account-projects.ts';
+import { ProjectSync, ProjectUploader } from './project-sync.ts';
+import { SeenSync, type SeenSource } from './seen-sync.ts';
+import { OffersSync, type OffersSyncDeps } from './offers-sync.ts';
+import type { AccountOffers } from '../../account-offers.ts';
+import type { OffersSource } from '../../remote-starts/offers.ts';
 import type { SetupRecord } from '../../shared/setup-record.ts';
 import { setupListOf, type SetupChecks, type SetupList } from '../../shared/setup-list.ts';
+import { SetupSteps, type Execute } from '../../setup-actions/steps.ts';
+import type { SetupFileRecord } from '../../shared/setup-files.ts';
 
 export const CONNECT_PREFS_KEY = 'kestrel-connect';
 /** The name the user gave this computer, kept here whether or not Connect is on: `{ name, unsent }`. */
@@ -40,8 +57,8 @@ export interface ConnectDeps {
   /** Why Connect cannot be used in this copy (sample data), or null. */
   unavailable?: string | null;
   listen?: typeof listenForCallback;
-  /** Makes the dispatcher for this computer's device id (connect/dispatcher.ts); none in tests of the link alone. */
-  dispatch?: (deviceId: string, send: (frame: Envelope) => void) => Dispatch;
+  /** Makes the dispatcher for this computer's device id (connect/dispatcher.ts); none in tests of the link alone. `desk`: the desk-only operations' part. */
+  dispatch?: (deviceId: string, send: (frame: Envelope) => void, desk: DeskOps) => Dispatch;
   /** "your Mac", in what a phone is told. */
   here?: string;
   /** Held conversations: what they are read from, and where the upload queue is kept. None in tests of the link alone. */
@@ -49,7 +66,30 @@ export interface ConnectDeps {
   /** Push notifications: what the rule reads. None in tests of the link alone. */
   push?: { source: PushSource };
   /** Set-up records (onboarding.md): how this machine is read, given the projects kept off. None in tests of the link alone. */
-  setup?: { inventory(desk: { id: string; name: string }, keptOff: readonly string[]): Promise<SetupRecord>; checks: SetupChecks; sample?: () => SetupList };
+  setup?: {
+    inventory(desk: { id: string; name: string }, keptOff: readonly string[]): Promise<SetupRecord>;
+    checks: SetupChecks;
+    sample?: () => SetupList;
+    preview?: (name: string) => Promise<SetupList>;
+    execute?: Execute;
+    fileRecords?(): readonly SetupFileRecord[];
+    /** Reads what the checks answer from Kestrel itself (its MCP servers) before the list is built. */
+    refresh?(): Promise<void>;
+    /** Where this computer's values are read for another computer, on its person's Allow (onboarding.md 19.5); none: it answers no copy. */
+    values?: Omit<ValueSources, 'mcpServers'> & { mcpServers(keptOff: readonly string[]): DiscoveredServer[] | Promise<DiscoveredServer[]>; /** Tests make the two minutes short. */ requestTtlMs?: number };
+    /** Kestrel's own MCP list, where copied values are written (setup-values/copy.ts). */
+    mcp?: CopyDeps['mcp'];
+  };
+  /** Where the other computers' sessions are kept (account-replica.ts). None in tests of the link alone. */
+  replica?: AccountReplica;
+  /** Where the other computers' projects are kept (account-projects.ts); with it, this computer writes its own. */
+  projects?: AccountProjects;
+  /** What was seen (seen.ts); with it, this computer's marks are one record of the account's (seen-sync.ts). */
+  seen?: SeenSource;
+  /** What this computer offers for a new session, where the other computers' records are kept, and what tells of a change (offers-sync.ts). */
+  offers?: { source: OffersSource; store: AccountOffers; watch: OffersSyncDeps['watch'] };
+  /** How long a call to another computer waits for its answer (caller.ts); tests make it short. */
+  callTimeoutMs?: number;
   now?(): number;
   random?(): number;
 }
@@ -126,11 +166,27 @@ export class KestrelConnect {
   private readonly removedHere = new Set<string>();
   readonly link: RelayLink;
   readonly channel: DeskChannel;
+  /** This computer calling another of the account (caller.ts), and the conversations it reads and watches there. */
+  readonly caller: DeskCaller;
+  readonly remote: RemoteSessions;
   readonly keys: AccountKeys;
   readonly join: AccountJoin;
   readonly held: HeldConversations | null;
   readonly push: PushNotices | null;
   readonly setup: SetupRecords | null;
+  /** Set up this computer's dismissals and runs (setup-actions/); only with set-up records. */
+  readonly steps: SetupSteps | null;
+  /** Other computers' requests for a set-up step's values, waiting on the person here (onboarding.md section 19). */
+  readonly values: ValueRequests | null;
+  private copyCount = 0;
+  /** Reads the account's other computers into the replica. */
+  readonly replica: ReplicaSync | null;
+  /** Reads the account's other computers' projects into the replica (project-sync.ts). */
+  readonly projects: ProjectSync | null;
+  /** Shares what was seen with the account's other computers (seen-sync.ts). */
+  readonly seen: SeenSync | null;
+  /** Shares what this computer offers for a new session, and reads the other computers' (offers-sync.ts). */
+  readonly offers: OffersSync | null;
 
   constructor(private readonly deps: ConnectDeps) {
     this.keys = new AccountKeys({
@@ -160,6 +216,7 @@ export class KestrelConnect {
           changed: () => this.changed(),
           here: deps.here ?? 'this computer',
           now: deps.now,
+          ...(deps.projects ? { projects: new ProjectUploader() } : {}),
         })
       : null;
     this.push = deps.push
@@ -184,9 +241,81 @@ export class KestrelConnect {
           keyFor: (generation) => this.keys.keyFor(generation),
           desk: () => {
             const device = this.data.device;
-            return device && device.subject === this.data.tokens?.subject ? { id: device.id, name: device.name } : null;
+            // The name the user gave this computer, as every other screen calls it.
+            return device && device.subject === this.data.tokens?.subject ? { id: device.id, name: this.name() } : null;
           },
           inventory: (desk) => setup.inventory(desk, this.heldPrefs.keptOff),
+          ...(setup.fileRecords ? { fileRecords: setup.fileRecords } : {}),
+        })
+      : null;
+    this.steps = setup ? new SetupSteps({ list: () => this.setupList(), settings: deps.settings, execute: setup.execute, files: (line, from) => this.setup!.files(line, from), now: deps.now }) : null;
+    const sources = setup?.values;
+    this.values = sources
+      ? new ValueRequests({
+          ownRecord: () => (this.setup ? this.setup.write() : Promise.reject(new Error('no set-up records'))),
+          device: (id) => (this.removedHere.has(id) ? null : this.keys.device(id)),
+          read: (line, names, own) => readValues({ ...sources, mcpServers: () => sources.mcpServers(this.heldPrefs.keptOff) }, line, names, own),
+          source: sourceText,
+          settings: deps.settings,
+          here: () => this.name(),
+          now: deps.now,
+          ...(sources.requestTtlMs ? { ttlMs: sources.requestTtlMs } : {}),
+        })
+      : null;
+    const machines = () => this.accountDevices.filter((d) => d.kind === 'desktop' && !this.removedHere.has(d.id) && this.keys.member(d.id) !== null).map((d) => ({ id: d.id, name: d.name }));
+    this.seen = deps.seen
+      ? new SeenSync({
+          source: deps.seen,
+          api: () => (this.link.link.state === 'connected' ? this.api() : null),
+          key: () => this.keys.ready(),
+          keyFor: (generation) => this.keys.keyFor(generation),
+          desk: () => ((device) => device && { id: device.id, name: this.name() })(this.myDevice()),
+          machines,
+          keptOff: () => this.heldPrefs.keptOff,
+          headsRead: () => this.replica?.headsRead() ?? true,
+          now: deps.now,
+        })
+      : null;
+    const offers = deps.offers;
+    this.offers = offers
+      ? new OffersSync({
+          source: offers.source,
+          store: offers.store,
+          // The projects kept off are this module's: a change of them is a change of the record too.
+          watch: (changed) => {
+            const offs = [offers.watch(changed), this.onKeptOff(() => changed(false))];
+            return () => offs.forEach((off) => off());
+          },
+          api: () => (this.link.link.state === 'connected' ? this.api() : null),
+          key: () => this.keys.ready(),
+          keyFor: (generation) => this.keys.keyFor(generation),
+          desk: () => ((device) => device && { id: device.id, name: this.name() })(this.myDevice()),
+          machines,
+          keptOff: () => this.heldPrefs.keptOff,
+          now: deps.now,
+        })
+      : null;
+    this.replica = deps.replica
+      ? new ReplicaSync({
+          replica: deps.replica,
+          api: () => (this.link.link.state === 'connected' ? this.api() : null),
+          key: () => this.keys.ready(),
+          keyFor: (generation) => this.keys.keyFor(generation),
+          desk: () => this.myDevice(),
+          now: deps.now,
+          machines,
+          ...(this.seen ? { before: () => this.seen!.run() } : {}),
+        })
+      : null;
+    this.projects = deps.projects
+      ? new ProjectSync({
+          store: deps.projects,
+          api: () => (this.link.link.state === 'connected' ? this.api() : null),
+          key: () => this.keys.ready(),
+          keyFor: (generation) => this.keys.keyFor(generation),
+          desk: () => this.myDevice(),
+          now: deps.now,
+          machines: () => this.accountDevices.filter((d) => d.kind === 'desktop' && !this.removedHere.has(d.id) && this.keys.member(d.id) !== null).map((d) => ({ id: d.id, name: d.name })),
         })
       : null;
     this.link = new RelayLink({
@@ -194,8 +323,10 @@ export class KestrelConnect {
       token: (fresh) => this.accessToken(fresh, DIAL_FRESH_FOR_MS),
       deviceId: () => this.deviceId(),
       state: (link) => {
-        if (link.state !== 'connected') this.channel.dropAll();
-        else {
+        if (link.state !== 'connected') {
+          this.channel.dropAll();
+          this.caller.dropAll();
+        } else {
           this.channel.linkBack();
           void this.linkUp();
         }
@@ -206,6 +337,13 @@ export class KestrelConnect {
         if (kind === 'push-devices') void this.push?.refreshPhones();
         // A device of the account was renamed (or added or removed): read the list again.
         if (kind === 'devices-changed') void this.refreshDevices();
+        // A session head was written or deleted somewhere in the account: read the change feed.
+        if (kind === 'changed') {
+          this.seen?.kick();
+          this.offers?.kick();
+          this.replica?.kick();
+          this.projects?.kick();
+        }
         // Another device rotated the key or this one was given a copy: open it now, not at the next reconnect.
         if (kind === 'key-changed') void this.linkUp();
         if (kind === 'join') {
@@ -214,8 +352,11 @@ export class KestrelConnect {
           void this.refreshDevices();
         }
         if (kind === 'join-ended' && typeof notice.id === 'string') this.join.ended(notice.id);
+        // The relay could not carry a frame of this computer's (its device is not connected).
+        if (kind === 'refused' && typeof notice.id === 'string') this.caller.refused(notice.id, typeof notice.reason === 'string' ? notice.reason : 'That computer cannot be reached.');
       },
-      frame: (text) => void this.channel.receive(text),
+      // Answers to this computer's own calls go to the caller, the rest to the channel (caller.ts).
+      frame: (text) => void (routeFrame(text, this.myDevice()?.id ?? null, this.caller) && this.channel.receive(text)),
       signedOut: (reason) => void this.endSignIn(`the sign-in expired or was ended (${reason}). Sign in again.`),
       deviceGone: () => void this.save({ ...this.data, device: null }),
       now: deps.now,
@@ -239,6 +380,13 @@ export class KestrelConnect {
       here: deps.here ?? 'this computer',
       now: deps.now,
     });
+    ({ caller: this.caller, remote: this.remote } = remoteCalls({
+      me: () => ((device) => device && { id: device.id, identity: device })(this.myDevice()),
+      member: (id) => (this.removedHere.has(id) ? null : this.keys.member(id)),
+      send: (text) => this.link.send(text),
+      now: deps.now,
+      timeoutMs: deps.callTimeoutMs,
+    }));
     this.join = new AccountJoin({
       api: () => (this.link.link.state === 'connected' ? new JoinApi(this.call()) : null),
       me: () => {
@@ -297,6 +445,7 @@ export class KestrelConnect {
     await this.sendName();
     void this.refreshDevices();
     this.channel.endStrangers();
+    this.caller.endStrangers();
     if (!this.keys.ready()) {
       // Step 8b: a copy it cannot open, with no join under way (it was closed part-way through one), is deleted, so
       // this computer comes back out of the account, not half in, and asks again.
@@ -306,8 +455,15 @@ export class KestrelConnect {
     }
     await this.join.refresh().catch((error: unknown) => console.error(`[kestrel] could not read requests to join the account: ${message(error)}`));
     this.held?.kick();
+    this.seen?.kick();
+    this.offers?.connected();
+    this.replica?.kick();
+    this.projects?.kick();
     this.setup?.refreshOnce();
     void this.push?.refreshPhones();
+    // What a window watches on another computer is asked for again over a new channel.
+    this.caller.linkBack();
+    this.remote.linkBack();
     await this.held?.deliverWaiting();
     await this.keys.reseal().catch((error: unknown) => console.error(`[kestrel] could not re-seal held conversations under the new key: ${message(error)}`));
   }
@@ -330,6 +486,13 @@ export class KestrelConnect {
     try {
       this.accountDevices = await new JoinApi(this.call()).devices();
       await this.adoptName();
+      // A computer joined or left: its sessions arrive, or go.
+      if (this.keys.ready()) {
+        this.seen?.kick();
+        this.offers?.kick();
+        this.replica?.kick();
+        this.projects?.kick();
+      }
       this.changed();
     } catch (error) {
       console.error(`[kestrel] could not read the account's devices: ${message(error)}`);
@@ -341,7 +504,8 @@ export class KestrelConnect {
     if (!this.deps.dispatch) return null;
     if (this.dispatcher?.deviceId !== deviceId) {
       this.dispatcher?.dispatch.close();
-      this.dispatcher = { deviceId, dispatch: this.deps.dispatch(deviceId, (frame) => this.channel.sendSealed(frame)) };
+      const desk: DeskOps = { kindOf: (id) => (this.removedHere.has(id) ? null : (this.keys.device(id)?.kind ?? null)), values: this.values };
+      this.dispatcher = { deviceId, dispatch: this.deps.dispatch(deviceId, (frame) => this.channel.sendSealed(frame), desk) };
     }
     return this.dispatcher.dispatch;
   }
@@ -442,8 +606,20 @@ export class KestrelConnect {
     await this.savePrefs(this.enabled, after);
     this.heldPrefs = after;
     await this.held?.prefsChanged(before, after);
+    if (after.keptOff.join('|') !== before.keptOff.join('|')) for (const listener of this.keptOffListeners) listener();
     this.changed();
     return this.view();
+  }
+
+  private readonly keptOffListeners = new Set<() => void>();
+  private onKeptOff(listener: () => void): () => void {
+    this.keptOffListeners.add(listener);
+    return () => void this.keptOffListeners.delete(listener);
+  }
+
+  /** The projects kept off Kestrel Connect now (what this computer offers leaves them out, live and held alike). */
+  keptOff(): readonly string[] {
+    return this.heldPrefs.keptOff;
   }
 
   /** Settings → Connections was opened: this computer's set-up record is written again if it changed. */
@@ -456,9 +632,33 @@ export class KestrelConnect {
     if (!this.setup || !this.deps.setup) throw new Refused('Set up this computer is not available in this copy of Kestrel.');
     // Sample data: a sample list, and nothing read from this machine.
     if (this.deps.unavailable && this.deps.setup.sample) return this.deps.setup.sample();
+    // A checkout looking at the page with this computer's real record, as a new Mac would be shown it.
+    if (this.deps.setup.preview) return this.deps.setup.preview(this.name());
     if (this.link.link.state !== 'connected' || !this.keys.ready()) throw new Refused('Set up this computer needs Kestrel Connect on, signed in, connected, and this computer let into your account.');
     const { here, others } = await this.setup.read(await this.api().devices());
+    await this.deps.setup.refresh?.();
     return setupListOf(here, others, this.deps.setup.checks);
+  }
+
+  /**
+   * Copy values from another computer, on the button of a line that names them (onboarding.md 19.4): asked
+   * there over the sealed channel and written here where a typed value would go. Answers names only.
+   */
+  async copyValues(lineId: string, machineId: string): Promise<CopyReport> {
+    const steps = this.steps;
+    if (!steps || !this.setup) throw new Refused('Set up this computer is not available in this copy of Kestrel.');
+    return copyValues(
+      {
+        list: () => steps.list(),
+        ask: (machine, op, args, opts) => this.remote.ask(machine, op, args, opts),
+        runLine: (id, input) => steps.runLine(id, input),
+        mcp: this.deps.setup?.mcp ?? null,
+        keepUndo: (undo) => steps.keepUndo(undo),
+        newId: () => `v${Date.now().toString(36)}${++this.copyCount}`,
+      },
+      lineId,
+      machineId,
+    );
   }
 
   /** The recovery words, shown from this computer because it holds the account key. */
@@ -538,6 +738,10 @@ export class KestrelConnect {
     this.keys.reset();
     this.join.reset();
     this.setup?.reset();
+    await this.seen?.forget();
+    await this.offers?.forget();
+    await this.replica?.forget();
+    await this.projects?.forget();
     // The device keys stay: signing in again to the same account keeps this computer's identity.
     await this.save({ ...this.data, tokens: null });
     this.account = { state: 'signed-out', reason: null };
@@ -580,6 +784,13 @@ export class KestrelConnect {
     this.registering ??= (async () => {
       try {
         const keys = device?.subject === tokens.subject ? device : newIdentity();
+        // Another account than the one this computer was in: nothing of the old one stays.
+        if (device) {
+          await this.seen?.forget();
+          await this.offers?.forget();
+          await this.replica?.forget();
+          await this.projects?.forget();
+        }
         const identity = { signing: keys.signing, agreement: keys.agreement };
         const registered = await this.signedIn((token) => this.deps.service.registerDevice(token, this.name(), 'desktop', publicIdentity(identity)));
         const stored: StoredDevice = { subject: tokens.subject, id: registered.id, name: registered.name, signing: keys.signing, agreement: keys.agreement };
@@ -652,6 +863,15 @@ export class KestrelConnect {
     await this.deps.settings.putSetting(COMPUTER_NAME_KEY, JSON.stringify(given));
   }
 
+  /**
+   * The account's other computers a session may be started on from here (issue 52): every desktop of the keyring
+   * this computer accepted but itself, by name. Empty while not connected or with no account.
+   */
+  otherComputers(): { id: string; name: string }[] {
+    const me = this.myDevice()?.id;
+    return this.accountDevices.filter((d) => d.kind === 'desktop' && d.id !== me && !this.removedHere.has(d.id) && this.keys.member(d.id) !== null).map((d) => ({ id: d.id, name: d.name }));
+  }
+
   /** This computer's registered device on the signed-in account, or null. */
   private myDevice(): StoredDevice | null {
     const device = this.data.device;
@@ -721,7 +941,9 @@ export class KestrelConnect {
     if (deviceId === this.data.device?.id) throw new Refused('This computer cannot remove itself. Sign out, or remove it from another device.');
     if (this.link.link.state === 'connected' && !this.accountDevices.some((d) => d.id === deviceId)) throw new Refused('That device is not on your account.');
     this.removedHere.add(deviceId);
+    this.values?.dropDevice(deviceId);
     this.channel.remove(deviceId);
+    this.caller.remove(deviceId);
     await this.writes;
     if (this.data.tokens) {
       try {
@@ -730,6 +952,10 @@ export class KestrelConnect {
         throw new Refused(`The device can no longer reach this computer, but Kestrel Connect could not remove it from your account: ${message(error)} Remove it again when Connect is back.`);
       }
       this.accountDevices = this.accountDevices.filter((d) => d.id !== deviceId);
+      this.seen?.kick();
+      this.offers?.kick();
+      this.replica?.kick();
+      this.projects?.kick();
       if (this.link.link.state === 'connected') void this.keys.sync().then(() => this.keys.reseal()).catch((error: unknown) => console.error(`[kestrel] could not rotate the account key: ${message(error)}`));
     }
     return this.view();
@@ -738,9 +964,14 @@ export class KestrelConnect {
   async close(): Promise<void> {
     this.cancelSignIn();
     this.link.stop();
+    this.caller.close();
     this.dispatcher?.dispatch.close();
     this.dispatcher = null;
     await this.held?.close();
+    await this.seen?.close();
+    await this.offers?.close();
+    await this.replica?.close();
+    await this.projects?.close();
     this.push?.close();
     this.listeners.clear();
     await this.writes;

@@ -31,7 +31,7 @@ const canReveal = () => Boolean(window.kestrelShell?.reveal);
 function sessionTarget(ws: WorkspaceState, id: string, seen: Seen | null, pinned: boolean): MenuTarget {
   const s = ws.sessions.find((x) => x.id === id);
   if (!s) return { kind: 'empty' };
-  const elsewhere = ws.projects.filter((p) => p.id !== (s.landedIn ?? s.startedIn));
+  const elsewhere = ws.projects.filter((p) => !p.away && p.id !== (s.landedIn ?? s.startedIn));
   // Archived ones too: a session can be taken out of a workstream that is put away.
   const workstream = workstreamOf([...ws.workstreams, ...ws.archivedWorkstreams], id);
   return {
@@ -58,7 +58,7 @@ function projectTarget(ws: WorkspaceState, id: string, pinned: boolean): MenuTar
   const live = ws.sessions.filter(inProject);
   const sessionCount = live.length + ws.archived.sessions.filter(inProject).length;
   const project = ws.projects.find((p) => p.id === id);
-  return { kind: 'project', projectId: id, name: project?.name ?? 'this project', sessionCount, path: projectPathOf(project), running: live.some(busy), pinned, canReveal: canReveal(), ...openIn() };
+  return { kind: 'project', projectId: id, name: project?.name ?? 'this project', sessionCount, path: projectPathOf(project), running: live.some(busy), pinned, canReveal: canReveal(), ...openIn(), ...(project?.away ? { away: true } : {}) };
 }
 
 /** Opened from the item's own page header, the menu has no way to that page. */
@@ -117,7 +117,7 @@ export function menuTargetFor(ws: WorkspaceState, kind: string | undefined, id: 
     const group = ws.groups.find((g) => g.id === id);
     const projectId = group?.projectId ?? null;
     // A project's group stays in its project; a Sessions-list group may move into any project.
-    const where = projectId ? { projectId } : { projects: ws.projects.map((p) => ({ id: p.id, name: p.name })) };
+    const where = projectId ? { projectId } : { projects: ws.projects.filter((p) => !p.away).map((p) => ({ id: p.id, name: p.name })) };
     return { kind: 'folder', groupId: id, name: group?.name ?? 'this group', sessionCount: inFolder.length, running: inFolder.some(busy), pinned: pinned('group'), ...where };
   }
   return { kind: 'empty' };

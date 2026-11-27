@@ -93,7 +93,7 @@ async function desk(extra: (workspace: Workspace, runtime: SessionRuntime) => Pa
   const reviewStore = new FakeStore<ReviewRequestsView>(NO_REVIEW_REQUESTS);
   const ticketStore = new FakeStore<TicketsView>(NO_TICKETS);
   const lists = connectLists(runtime.reviewPrefs, reviewStore, ticketStore);
-  const dispatcher = new ConnectDispatcher({ workspace, runtime, deviceId: MAC, here: 'your Mac', send: (f) => sent.push(f), lists, ...extra(workspace, runtime) });
+  const dispatcher = new ConnectDispatcher({ workspace, runtime, deviceId: MAC, here: 'your Mac', send: (f) => sent.push(f), lists, keptOff: () => [], ...extra(workspace, runtime) });
   open.push(dispatcher);
   let n = 0;
   /** The phone asks; the answer's body comes back. */

@@ -24,7 +24,7 @@ import { agentStartOptions } from './start-options.ts';
 /** The file tools whose target is checked before an edit (Claude's names; Codex's changes are asked as Edit). */
 const EDIT_PATH_KEYS: Record<string, string> = { Write: 'file_path', Edit: 'file_path', MultiEdit: 'file_path', NotebookEdit: 'notebook_path' };
 
-export type OptionsHost = Pick<RuntimeHost, 'workspace' | 'dataDir' | 'browser' | 'attachments' | 'sandboxAllow' | 'commitSigning' | 'projectEdits' | 'projectEnv' | 'mcpServers' | 'whoDoesWhat' | 'records' | 'mcpAccess' | 'toolHost' | 'checkPlainFolderFree'>;
+export type OptionsHost = Pick<RuntimeHost, 'workspace' | 'dataDir' | 'browser' | 'attachments' | 'sandboxAllow' | 'commitSigning' | 'projectEdits' | 'knowledge' | 'projectEnv' | 'mcpServers' | 'whoDoesWhat' | 'records' | 'mcpAccess' | 'toolHost' | 'checkPlainFolderFree'>;
 
 /** Why a session whose worktree cannot be opened cannot go on. */
 function cannotContinue(session: Session, guest: boolean): string {
@@ -56,7 +56,7 @@ export async function optionsFor(host: OptionsHost, session: Session, rec: Live,
 /** Options for an agent (runtime/start-options.ts), with this session's Kestrel tools. */
 export async function startOptions(host: OptionsHost, sessionId: string, directory: string, branch: string | null, project: Project | null, folder: ProjectFolder | null, settings: SessionSettings, origin?: ChildOrigin): Promise<StartOptions> {
   const tools = host.toolHost(sessionId);
-  const options = await agentStartOptions(host.workspace, { sessionId, directory, branch, project, folder, settings, origin, tools, browserElement: (ref) => host.browser.elementName(sessionId, ref), attachmentsDir: host.attachments.readableDir(sessionId), who: await host.whoDoesWhat.current(), mcpServers: host.mcpServers });
+  const options = await agentStartOptions(host.workspace, { sessionId, directory, branch, project, folder, settings, origin, tools, browserElement: (ref) => host.browser.elementName(sessionId, ref), attachmentsDir: host.attachments.readableDir(sessionId), who: await host.whoDoesWhat.current(), mcpServers: host.mcpServers, knowledge: await host.knowledge.briefFor(project).catch(() => null) });
   await host.sandboxAllow.entries();
   const signing = options.confineShell ? await host.commitSigning.accessFor(directory) : undefined;
   const { env } = await resolveEnv(await host.projectEnv.all(), project?.id ?? null, folder?.path ?? null);

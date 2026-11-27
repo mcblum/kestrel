@@ -12,7 +12,7 @@ import { CHANGES_ICON } from './PaneToolbar.tsx';
 import { useRequestSide, useWorkingTree } from '../workingTree.ts';
 import '../styles/pull-request.css';
 
-type Asker = Pick<SessionView, 'id' | 'title' | 'updatedAt' | 'branch' | 'worktreePath' | 'worktreeDiscarded' | 'hostId'>;
+type Asker = Pick<SessionView, 'id' | 'title' | 'updatedAt' | 'branch' | 'worktreePath' | 'worktreeDiscarded' | 'hostId' | 'runsOn'>;
 
 const GLYPH = { changes: CHANGES_ICON, request: GitPullRequest } as const;
 /** Where each kind's tone colours live: row-request.css for changes, pull-request.css for requests. */
@@ -56,6 +56,12 @@ function RequestAndChanges({ session }: { session: Asker }) {
 
 /** The slot's icons for a sidebar row; nothing when the row has a dot (the row draws that). */
 export function RowIcons({ session, hasDot }: { session: Asker; hasDot: boolean }) {
+  // Changes and pull requests are read from a worktree, which only the session's own computer has.
+  if (session.runsOn) return null;
+  return <OwnRowIcons session={session} hasDot={hasDot} />;
+}
+
+function OwnRowIcons({ session, hasDot }: { session: Asker; hasDot: boolean }) {
   // A guest's row shows the worktree it works in: its host's changes and pull request.
   const tree = useWorkingTree(session);
   const side = useRequestSide(session);

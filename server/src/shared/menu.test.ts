@@ -33,6 +33,10 @@ describe('sidebar menu', () => {
     expect(session).not.toContain('Show in Finder');
     expect(session).toContain('Copy path');
   });
+  it('on a project only another computer has: its page and a new tab, and nothing that needs it here', () => {
+    expect(labels(sidebarMenu({ kind: 'project', projectId: 'account|x', name: 'Billing', sessionCount: 1, away: true }))).toEqual(['Open project page', 'Open in new tab']);
+    expect(labels(sidebarMenu({ kind: 'project', projectId: 'account|x', name: 'Billing', sessionCount: 1, away: true, onPage: true }))).toEqual(['Open in new tab']);
+  });
   it('on a project: new session and group in it, its page, a new tab, rename, on disk, settings, archive, remove', () => {
     const empty = sidebarMenu({ kind: 'project', projectId: 'p', name: 'Wren', sessionCount: 0, path: '/code/p' });
     expect(labels(empty)).toEqual(['New session in Wren', 'New group in Wren', 'Open project page', 'Open in new tab', 'Rename Wren', 'Show in Finder', 'Copy path', 'Settings…', 'Archive', 'Remove']);

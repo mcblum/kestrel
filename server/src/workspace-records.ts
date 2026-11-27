@@ -26,6 +26,8 @@ export interface NewSession {
   aside?: AsideOf;
   /** A guest: the session whose worktree it works in (Session.hostId). */
   hostId?: string;
+  /** Started from Set up this computer's Ask the agent (Session.purpose). */
+  purpose?: 'setup';
 }
 
 export interface DelegateTask {
@@ -63,6 +65,7 @@ export async function insertSession(tx: Persistence, s: NewSession, now: number)
     ...(s.review ? { review: s.review } : {}),
     ...(s.aside ? { aside: s.aside } : {}),
     ...(s.hostId ? { hostId: s.hostId } : {}),
+    ...(s.purpose ? { purpose: s.purpose } : {}),
   };
   await tx.insertSession(session);
   return session;

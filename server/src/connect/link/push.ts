@@ -230,13 +230,16 @@ export class PushNotices {
   }
 
   private async send(api: PushApi, key: ReadyKey, desk: { id: string; name: string }, event: NotifyEvent): Promise<void> {
-    const to = (this.phones ?? []).filter((p) => p.events[event.kind]).map((p) => p.deviceId).slice(0, TO_MAX);
+    // A desk-only kind is never handed here (the source passes no set-up requests); were one, it would not leave.
+    const kind = event.kind;
+    if (kind === 'setup-values') return;
+    const to = (this.phones ?? []).filter((p) => p.events[kind]).map((p) => p.deviceId).slice(0, TO_MAX);
     if (to.length === 0) return;
     const id = pushId();
     const payload: PushPayload = {
       v: 1,
       id,
-      kind: event.kind,
+      kind,
       title: clip(event.title, TITLE_MAX),
       body: clip(event.body, BODY_MAX),
       at: this.deps.now?.() ?? Date.now(),

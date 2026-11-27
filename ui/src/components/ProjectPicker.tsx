@@ -9,25 +9,36 @@ import { defaultFolder, NO_FOLDER_YET } from '@kestrel/server/project-folders';
 import type { Project } from '@kestrel/server/model';
 import { PathDetail } from './PathDetail.tsx';
 import { Popup } from './Popup.tsx';
-import { actions, useApp } from '../store.ts';
+import { actions } from '../store.ts';
+import { useHereProjects } from '../awayProjects.ts';
 
 interface Props {
   /** The selected project id, or null for Unscoped. */
   value: string | null;
   onSelect: (projectId: string | null) => void;
+  /** Offer these instead of this computer's: another computer's, when the session runs there. No browsing then. */
+  projects?: readonly Project[];
+  /** Named in the empty search's words and the foot, when the projects are another computer's. */
+  computer?: string;
 }
 
 const looksLikePath = (q: string) => q.trim().startsWith('/');
 
 /** Under a project's name: its default directory, how many it has, or that it has none yet. */
 function PickerDetail({ p }: { p: Project }) {
+  // Another computer's project: its folder there, as that computer told of it.
+  if (p.away) {
+    const there = p.elsewhere?.folders[0];
+    return <small>{there ? (there.path ?? there.name) : `On ${p.elsewhere?.machines.map((m) => m.name).join(' and ') || 'another computer'}`}</small>;
+  }
   const first = defaultFolder(p);
   if (!first) return <small>{NO_FOLDER_YET}</small>;
   return <PathDetail path={first.path} note={p.folders.length > 1 ? ` · ${p.folders.length} folders` : first.isGit ? '' : ' · plain folder'} />;
 }
 
-export function ProjectPicker({ value, onSelect }: Props) {
-  const projects = useApp((s) => s.workspace?.projects) ?? [];
+export function ProjectPicker({ value, onSelect, projects: offered, computer }: Props) {
+  const here = useHereProjects();
+  const projects = offered ?? here;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
@@ -36,7 +47,7 @@ export function ProjectPicker({ value, onSelect }: Props) {
   const matches = useMemo(() => filterProjects(projects, query), [projects, query]);
   const selected = projects.find((p) => p.id === value);
   const showUnscoped = !query.trim() || 'unscoped no repository'.includes(query.trim().toLowerCase());
-  const typedPath = looksLikePath(query) ? query.trim() : null;
+  const typedPath = !computer && looksLikePath(query) ? query.trim() : null;
   // However it closes (a pick, Escape, a click away, the button), the search starts empty next time.
   const close = () => {
     setOpen(false);
@@ -77,7 +88,7 @@ export function ProjectPicker({ value, onSelect }: Props) {
 
   return (
     <div className="picker" ref={host}>
-      <button ref={button} type="button" className="picker-button" aria-haspopup="listbox" aria-expanded={open} aria-label="Project" onClick={() => (open ? close() : setOpen(true))}>
+      <button ref={button} type="button" className="picker-button" aria-haspopup="listbox" aria-expanded={open} aria-label={`Project: ${selected ? selected.name : 'Unscoped'}`} onClick={() => (open ? close() : setOpen(true))}>
         <span className="picker-value">{selected ? selected.name : 'Unscoped'}</span>
         <ChevronDown aria-hidden />
       </button>
@@ -117,7 +128,9 @@ export function ProjectPicker({ value, onSelect }: Props) {
             {!showUnscoped && matches.length === 0 && !typedPath && <p className="picker-none">No project matches “{query.trim()}”.</p>}
           </div>
           <div className="picker-foot">
-            {window.kestrelShell ? (
+            {computer ? (
+              <p className="picker-none">The projects {computer} has. Add one there to start in it.</p>
+            ) : window.kestrelShell ? (
               <button type="button" className="picker-row browse" disabled={busy} onClick={() => void browse()}>
                 <FolderOpen aria-hidden /> <span>Browse for project…</span>
               </button>

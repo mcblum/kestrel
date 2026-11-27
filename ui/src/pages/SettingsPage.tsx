@@ -6,7 +6,7 @@ import { TicketsSettings } from '../components/TicketsSetting.tsx';
 import { SaveBar } from '../components/SaveBar.tsx';
 import { thisComputer } from '../platform.ts';
 import { SettingHeading, SettingSection } from '../components/SettingHelp.tsx';
-import { Archive, Bot, GitBranch, Plug, SlidersHorizontal, Workflow as Workflow2, FolderGit2, Keyboard, Layers, Palette, Bell, TerminalSquare, Shield, Eye, SwatchBook, Ticket } from 'lucide-react';
+import { Archive, Bot, GitBranch, ListChecks, Plug, SlidersHorizontal, Workflow as Workflow2, FolderGit2, Keyboard, Layers, Palette, Bell, TerminalSquare, Shield, Eye, SwatchBook, Ticket } from 'lucide-react';
 import { ArchivedSettings } from './ArchivedSettings.tsx';
 import { SetupSetting } from '../onboarding/SetupSetting.tsx';
 import { CreateProjectPage } from './CreateProjectPage.tsx';
@@ -16,6 +16,7 @@ import { McpServersSetting } from '../components/McpServers.tsx';
 import { McpServerPage } from './McpServerPage.tsx';
 import { TagSuggestionSettings } from '../components/TagSuggestionSettings.tsx';
 import { ProjectEditsSetting } from '../components/ProjectEditsSetting.tsx';
+import { KnowledgeSetting } from '../components/KnowledgeSetting.tsx';
 import { RemoteStartsSetting } from '../components/RemoteStartsSetting.tsx';
 import { CommandsKeptSetting } from '../components/CommandsKeptSetting.tsx';
 import { AppearanceSetting } from '../components/AppearanceSetting.tsx';
@@ -37,7 +38,8 @@ import { WhatsNewSetting } from '../components/WhatsNewSetting.tsx';
 import { KestrelConnectSetting } from '../components/KestrelConnectSetting.tsx';
 import { ConnectRecoveryPage } from '../components/ConnectRecoveryPage.tsx';
 import { SetupThisComputerPage } from '../components/SetupThisComputerPage.tsx';
-import { setupRecordRefresh } from '../setupList.ts';
+import { setupLeftText, setupRecordRefresh, useSetupLeft } from '../setupList.ts';
+import { ValuesSentList } from '../components/SetupValueRequests.tsx';
 import { WorktreesSetting } from '../components/WorktreesSetting.tsx';
 import { SessionOrderSetting } from '../components/SessionOrderSetting.tsx';
 import { BranchPrefixSetting } from '../components/BranchPrefixSetting.tsx';
@@ -66,7 +68,7 @@ function General() {
           ))}
         </div>
         <div className="settings-defaults">
-          <ComposerControls value={defaults} mode="new" onChange={tabActions.setDefaults} />
+          <ComposerControls value={defaults} mode="new" computers={false} onChange={tabActions.setDefaults} />
         </div>
       </SettingSection>
       <SessionOrderSetting />
@@ -124,6 +126,7 @@ function Workflow() {
       <DelegationLimitsSetting />
       <CommandsKeptSetting />
       <TagSuggestionSettings />
+      <KnowledgeSetting />
       <RemoteStartsSetting />
     </>
   );
@@ -141,6 +144,7 @@ function Connections() {
         <h2>Agents & services</h2>
         <ConnectionList rows={rows} />
       </section>
+      <ValuesSentList />
     </>
   );
 }
@@ -170,6 +174,7 @@ const RENAMED: Record<string, string> = { 'tag-suggestions': 'workflow' };
 
 export function SettingsPage({ section: asked = 'general' }: { section?: string }) {
   const section = RENAMED[asked] ?? asked;
+  const setupLeftCount = useSetupLeft();
   const item = (id: SettingsSection) => (
     <button key={id} className={`side-link${section.split('/')[0] === id ? ' active' : ''}`} aria-current={section.split('/')[0] === id ? 'page' : undefined} {...opener((newTab) => openView({ kind: 'settings', section: id }, newTab))}>
       {SECTION_NAV[id].icon}
@@ -180,6 +185,13 @@ export function SettingsPage({ section: asked = 'general' }: { section?: string 
     <div className="settings">
       <nav className="settings-nav" aria-label="Settings sections">
         <div className="settings-nav-title">Settings</div>
+        {setupLeftCount > 0 && (
+          <button className={`side-link${section === 'connections/setup' ? ' active' : ''}`} aria-current={section === 'connections/setup' ? 'page' : undefined} {...opener((newTab) => openView({ kind: 'settings', section: 'connections/setup' }, newTab))}>
+            <ListChecks aria-hidden />
+            <span className="link-label">Finish set up</span>
+            <span className="setup-left" aria-label={setupLeftText(setupLeftCount)} title={setupLeftText(setupLeftCount)}>{setupLeftCount}</span>
+          </button>
+        )}
         <div className="settings-nav-group">Personal</div>
         {item('general')}
         {item('appearance')}

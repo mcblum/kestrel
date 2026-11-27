@@ -92,7 +92,7 @@ async function newDesk(service: FakeService, wires: Relay, name = 'Desk') {
     computerName: name,
     listen: fakeListener().listen,
     here,
-    dispatch: (deviceId, send) => new ConnectDispatcher({ workspace, runtime, deviceId, here, send }),
+    dispatch: (deviceId, send) => new ConnectDispatcher({ workspace, runtime, deviceId, here, send, keptOff: () => [] }),
     held: { source: heldSource(workspace, runtime, connectLists(runtime.reviewPrefs, null, null)), queue: memoryQueueStore() },
     push: { source: pushSource(workspace, runtime, null, null) },
   });

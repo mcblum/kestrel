@@ -74,6 +74,8 @@ export interface Suggestion {
   auto?: boolean;
   /** A session the line names: drawn as a link that opens it. */
   opens?: string;
+  /** A web address the line names (a pull request that was opened): drawn as a link beside the line, not in its text. */
+  link?: string;
 }
 
 /** A suggestion's message id in the conversation. */

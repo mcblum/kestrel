@@ -101,6 +101,23 @@ export class AttachmentStore {
   }
 
   /**
+   * A draft's files with their bytes, in the order given, left where they are: for a message to a session on
+   * another computer, whose files are sent there (remote-actions.ts). Refuses a file that is gone or a message
+   * over the limits, as `claim` does.
+   */
+  draftFiles(refs: DraftRefs): { attachment: Attachment; bytes: Buffer }[] {
+    const draft = this.draftDir(refs.draftId);
+    const found = refs.ids.map((id) => {
+      const meta = isSafeId(id) ? this.readMeta(join(draft, id)) : null;
+      if (!meta || meta.id !== id) throw new Refused(GONE);
+      return meta;
+    });
+    const tooMuch = messageLimitReason(found);
+    if (tooMuch) throw new Refused(tooMuch);
+    return found.map((attachment) => ({ attachment, bytes: readFileSync(join(draft, attachment.id, attachment.name)) }));
+  }
+
+  /**
    * Move a draft's files to a session, for a message being sent or queued, and return them in the
    * order given. Checks them all before moving any. Refuses a file that is gone or a message over the limits.
    */

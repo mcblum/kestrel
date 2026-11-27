@@ -12,8 +12,9 @@ import { asServerList, MCP_SERVERS_PATH, serverSection, useMcpServers } from '..
 import { SettingRow } from '../components/SettingRow.tsx';
 import { SettingHeading } from '../components/SettingHelp.tsx';
 import { opener, openView } from '../route.ts';
-import { act, call, OLDER_SERVER, RESTART_REASON, useApp } from '../store.ts';
+import { act, call, OLDER_SERVER, RESTART_REASON } from '../store.ts';
 import { useDraft } from '../unsaved.ts';
+import { useHereProjects } from '../awayProjects.ts';
 
 interface ValueRow {
   id: number;
@@ -116,7 +117,7 @@ function ValueRows({ draft, setDraft }: { draft: Draft; setDraft: (d: Draft) => 
 }
 
 function Editor({ stored, projectId }: { stored: McpServerView | null; projectId: string }) {
-  const projects = useApp((s) => s.workspace?.projects) ?? [];
+  const projects = useHereProjects();
   const initial = useMemo(() => (stored ? draftOf(stored) : emptyDraft(projectId)), [stored, projectId]);
   const [draft, setDraft] = useState(initial);
   useEffect(() => setDraft(initial), [initial]);

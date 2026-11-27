@@ -55,6 +55,13 @@ import { READ_ONLY_OMITTED, type McpSessions } from './kestrel-mcp.ts';
 import { AGENT_LABEL, type Agent, type LivePatch, type Project, type ProjectFolder, type Session, type SessionDetail, type SessionSettings } from './model.ts';
 import { OpenIn } from './open-in/prefs.ts';
 import { ProjectEdits } from './project-edits/prefs.ts';
+import { Knowledge } from './knowledge/service.ts';
+import { homedir } from 'node:os';
+import { hostPlatform } from './host.ts';
+import { setupToolsFor } from './setup-actions/agent-tools.ts';
+import { nodeRunner } from './setup-actions/io.ts';
+import type { SetupSteps } from './setup-actions/steps.ts';
+import { KNOWLEDGE_KIND, knowledgeKind } from './suggestions/knowledge-kind.ts';
 import { RemoteStarts } from './remote-starts/prefs.ts';
 import { StartBase } from './start-base/prefs.ts';
 import { CommandsKept } from './commands-kept/prefs.ts';
@@ -171,6 +178,8 @@ export class SessionRuntime implements McpSessions {
   private readonly baseRefresh: BaseRefresh;
   /** Settings → Workflow: whether an edit to another project's file is refused (project-edits/prefs.ts). */
   readonly projectEdits: ProjectEdits;
+  /** The knowledge base in use (knowledge/service.ts). */
+  readonly knowledge: Knowledge;
   /** Whether other devices of the account may start sessions here (A8; Settings → Workflow). */
   readonly remoteStarts: RemoteStarts;
   readonly startBase: StartBase;
@@ -332,6 +341,14 @@ export class SessionRuntime implements McpSessions {
           moveBack: (key, to) => this.tickets.moveBack(key, to),
           comment: (key, body) => this.tickets.comment(key, body),
         }),
+        knowledgeKind({
+          check: async (id, draft) => {
+            const checked = await this.knowledge.check(await this.projectOfSession(id), draft);
+            return { ...checked, base: (await this.knowledge.base())?.read.manifest.name ?? 'the knowledge base' };
+          },
+          open: (id, isUpdate, text, reason) => this.knowledge.open(id, isUpdate, text, reason),
+          never: async () => void (await this.knowledge.setSettings({ proposals: 'never' })),
+        }),
         archiveKind({
           answer: async () => (await this.reviewPrefs.current()).afterApproval,
           setAnswer: async (afterApproval) => void (await this.reviewPrefs.set({ afterApproval })),
@@ -384,6 +401,7 @@ export class SessionRuntime implements McpSessions {
     this.gitPrefs = new GitPrefs(opts.git);
     this.baseRefresh = new BaseRefresh({ enabled: () => this.gitPrefs.startFromLatest(), fetch: opts.baseFetch });
     this.projectEdits = new ProjectEdits(opts.projectEdits);
+    this.knowledge = new Knowledge(async () => (await workspace.state()).projects, { ...opts.knowledge, proposing: opts.knowledge?.proposing ?? { workDir: join(dataDir, 'knowledge') } });
     this.remoteStarts = new RemoteStarts(opts.remoteStarts);
     this.startBase = new StartBase(opts.startBase);
     this.projectEnv = new ProjectEnvPrefs(opts.projectEnv);
@@ -443,6 +461,7 @@ export class SessionRuntime implements McpSessions {
       gitPrefs: this.gitPrefs,
       baseRefresh: this.baseRefresh,
       projectEdits: this.projectEdits,
+      knowledge: this.knowledge,
       startBase: this.startBase,
       projectScripts: this.projectScripts,
       projectEnv: this.projectEnv,
@@ -523,6 +542,11 @@ export class SessionRuntime implements McpSessions {
   /** Which agents can start a session now (installed, signed in), and for the others why not. */
   agentAvailability(): Promise<AgentAvailability> {
     return this.info.availability();
+  }
+
+  /** Told when an agent's availability or model list differs from what it answered before (runtime/agent-info.ts). */
+  onAgentsChange(listener: () => void): () => void {
+    return this.info.onAgentsChange(listener);
   }
 
   /** The agent's own sign-in, run from Kestrel (agents/sign-in.ts). Refused for an agent Kestrel cannot sign in. */
@@ -1052,6 +1076,7 @@ export class SessionRuntime implements McpSessions {
     this.stopReviewOffer();
     this.stopMergeCleanup();
     this.keepAwake.stop();
+    this.knowledge.stop();
     for (const rec of this.records.values()) {
       this.upkeep.cancelRefresh(rec);
       this.upkeep.cancelNote(rec);
@@ -1129,9 +1154,53 @@ export class SessionRuntime implements McpSessions {
     };
   }
 
-  /** The Kestrel tools one session gets (delegation, display, suggestions, tickets, browser, simulator). */
+  /** The project a session works in, or null when it has none. */
+  private async projectOfSession(sessionId: string): Promise<Project | null> {
+    const state = await this.workspace.state();
+    const session = state.sessions.find((s) => s.id === sessionId);
+    return state.projects.find((p) => p.id === session?.startedIn) ?? null;
+  }
+
+  /** `knowledge_search`, `knowledge_read` and `knowledge_propose`: the knowledge base read as merged; an addition only ever proposed, as a `knowledge` suggestion. */
+  private knowledgeTools(sessionId: string): Pick<KestrelToolHost, 'knowledgeSearch' | 'knowledgeRead' | 'knowledgePropose'> {
+    const answer = async (work: (project: Project | null) => Promise<string>): Promise<ToolResult> => {
+      try {
+        return { text: await work(await this.projectOfSession(sessionId)) };
+      } catch (error) {
+        return { isError: true, text: error instanceof Error ? error.message : String(error) };
+      }
+    };
+    return {
+      knowledgeSearch: (args) => answer((project) => this.knowledge.search(project, args.query)),
+      knowledgeRead: (args) => answer((project) => this.knowledge.read(project, args.id)),
+      knowledgePropose: (args) => this.suggestions.suggest(sessionId, { ...args, kind: KNOWLEDGE_KIND }),
+    };
+  }
+
+  /** This computer's Set up this computer checklist, handed over once Kestrel Connect has made it (index.ts). */
+  private setupSteps: SetupSteps | null = null;
+
+  useSetupSteps(steps: SetupSteps | null): void {
+    this.setupSteps = steps;
+  }
+
+  /** `setup_list`, `setup_run_step`, `setup_run_command` (setup-actions/agent-tools.ts). */
+  private setupTools(sessionId: string): Pick<KestrelToolHost, 'setupList' | 'setupRunStep' | 'setupRunCommand'> {
+    const platform = hostPlatform();
+    return setupToolsFor(sessionId, {
+      steps: () => this.setupSteps,
+      session: async (id) => (await this.workspace.state()).sessions.find((s) => s.id === id) ?? null,
+      mode: (id) => this.recordOf(id)?.settings.permission,
+      approve: (id, request) => this.requestApproval(id, request),
+      platform,
+      home: homedir(),
+      run: nodeRunner(platform),
+    });
+  }
+
+  /** The Kestrel tools one session gets (delegation, display, suggestions, tickets, knowledge, browser, simulator). */
   private toolHost(sessionId: string): KestrelToolHost {
-    const host: KestrelToolHost = { ...this.delegation.hostFor(sessionId), ...this.display.hostFor(sessionId), ...this.reviewReplies.hostFor(sessionId), ...this.suggestions.hostFor(sessionId), ...this.ticketTools(sessionId), ...this.browser.hostFor(sessionId), ...this.sim.hostFor(sessionId) };
+    const host: KestrelToolHost = { ...this.delegation.hostFor(sessionId), ...this.display.hostFor(sessionId), ...this.reviewReplies.hostFor(sessionId), ...this.suggestions.hostFor(sessionId), ...this.ticketTools(sessionId), ...this.knowledgeTools(sessionId), ...this.setupTools(sessionId), ...this.browser.hostFor(sessionId), ...this.sim.hostFor(sessionId) };
     return this.asideGuard(sessionId, host);
   }
 

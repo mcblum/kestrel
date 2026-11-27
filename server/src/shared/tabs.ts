@@ -23,6 +23,13 @@ export interface Controls {
   pinned?: boolean;
   /** The user picked the model, effort or fast mode for this draft themselves: the session keeps it when it leads (shared/who-does-what.ts). Never remembered. */
   modelChosen?: boolean;
+  /** Opened by Set up this computer's Ask the agent (Session.purpose): sent with no project only. Never remembered. */
+  purpose?: 'setup';
+  /**
+   * The computer of the account the session starts on, by its device id; absent or null: this one (issue 52,
+   * shared/start-computer.ts). This box's own choice: never remembered, never carried to another box.
+   */
+  machine?: string | null;
 }
 
 export type Tab =
@@ -61,7 +68,7 @@ export function activateNth(s: TabsState, n: number): TabsState {
 // ---- opening something: like a browser ------------------------------------------------------
 
 /** The project or folder an entry point named ("New session here"), applied to the screen it opens. */
-export type Preselect = Partial<Pick<Controls, 'projectId' | 'groupId'>>;
+export type Preselect = Partial<Pick<Controls, 'projectId' | 'groupId' | 'machine'>>;
 
 /** What a click opens: a session, a list page by its route, or the New session screen. */
 export type OpenTarget =
@@ -104,8 +111,12 @@ export function placement(s: TabsState, target: OpenTarget, options: OpenOptions
  */
 export function withScope(controls: Controls, choice: Partial<Controls>): Controls {
   const next = { ...controls, ...choice };
-  if (choice.projectId === undefined || choice.projectId === controls.projectId || 'folderId' in choice) return next;
-  const { folderId: _dropped, ...rest } = next;
+  if (choice.projectId === undefined || choice.projectId === controls.projectId) return next;
+  // Another project named with no computer: it is this computer's (an entry point that means another names it).
+  const { machine: _machine, ...here } = next;
+  const scoped = 'machine' in choice ? next : here;
+  if ('folderId' in choice) return scoped;
+  const { folderId: _dropped, ...rest } = scoped;
   return rest;
 }
 

@@ -23,11 +23,81 @@
 //   POST   /api/connect/recovery/put-away      200 ConnectView: the new words were written down
 //   GET    /api/connect/setup                  200 SetupList: Set up this computer, built from every computer's set-up record | 409
 //   POST   /api/connect/setup/record           204: Connections was opened; this computer's set-up record is written again if it changed
+//   POST   /api/connect/setup/dismiss { ids, dismissed }  200 SetupList: lines dismissed or restored on this computer | 400 | 409
+//   GET    /api/connect/setup/runs             200 SetupRuns: how each line run since the page opened stands
+//   POST   /api/connect/setup/run { line, input? } | { section }  200 RunReport: carried out by the server from its own list | 409 { error }
+//   POST   /api/connect/setup/undo { token }   204: what that run did is put back, where Kestrel can | 409
+//   DELETE /api/connect/setup/runs             204: the page was left; results from before go
+//   POST   /api/connect/setup/copy { line, from }  200 CopyReport: a line's missing values copied from that computer, on Allow there; names only | 400 | 409
+//   GET    /api/connect/setup/value-requests   200 ValueRequestView[]: other computers' requests waiting on the person here; names only
+//   POST   /api/connect/setup/value-requests/:id { allow }  200 { sent: SentReport | null }: Allow reads and sends the values; Deny sends nothing | 400 | 409
+//   GET    /api/connect/setup/sent             200 SentEntry[]: what this computer sent, by name (onboarding.md 19.14)
+//   DELETE /api/connect/setup/sent             200 { undo }: the record is emptied; the token puts it back
+//   POST   /api/connect/setup/sent/restore { token }  200 SentEntry[]: Undo of the above | 409
 import { Refused } from '../../refused.ts';
 import type { KestrelConnect } from './connect.ts';
+import { SETUP_GROUPS, type SetupGroup } from '../../shared/setup-list.ts';
+import type { SetupSteps } from '../../setup-actions/steps.ts';
 
 export type ConnectAnswer = { status: number; body?: unknown };
 type ReadBody = () => Promise<Record<string, unknown>>;
+
+const SECTIONS: readonly string[] = SETUP_GROUPS.map((g) => g.id);
+
+/** Set up this computer's own routes: dismiss, run, undo. Only from the window; a phone has no operation for them. */
+async function setupStepRoute(part: string, method: string, readBody: ReadBody, steps: SetupSteps): Promise<ConnectAnswer | null> {
+  if (part === 'runs' && method === 'GET') return { status: 200, body: steps.runs() };
+  if (part === 'runs' && method === 'DELETE') {
+    steps.forget();
+    return { status: 204 };
+  }
+  if (method !== 'POST') return null;
+  const body = await readBody();
+  if (part === 'dismiss') {
+    if (!Array.isArray(body.ids) || body.ids.some((id) => typeof id !== 'string') || typeof body.dismissed !== 'boolean') return { status: 400, body: { error: 'ids must list lines and dismissed must be true or false.' } };
+    return { status: 200, body: await steps.dismiss(body.ids as string[], body.dismissed) };
+  }
+  if (part === 'run') {
+    if (typeof body.section === 'string') {
+      if (!SECTIONS.includes(body.section)) return { status: 400, body: { error: 'section must be one of the list\'s sections.' } };
+      return { status: 200, body: await steps.runSection(body.section as SetupGroup) };
+    }
+    if (typeof body.line !== 'string') return { status: 400, body: { error: 'line must name a line, or section a section.' } };
+    const input = typeof body.input === 'object' && body.input !== null && !Array.isArray(body.input) ? Object.fromEntries(Object.entries(body.input).filter((e): e is [string, string] => typeof e[1] === 'string' && e[1].length <= 4000)) : {};
+    return { status: 200, body: await steps.runLine(body.line, input) };
+  }
+  if (part === 'undo') {
+    if (typeof body.token !== 'string') return { status: 400, body: { error: 'token must be the one the run answered.' } };
+    await steps.undo(body.token);
+    return { status: 204 };
+  }
+  return null;
+}
+
+/** Copying set-up values (onboarding.md section 19): the button here, and the request card for another computer's ask. */
+async function valuesRoute(parts: readonly string[], method: string, readBody: ReadBody, connect: KestrelConnect): Promise<ConnectAnswer | null> {
+  const values = connect.values;
+  if (parts[3] === 'copy' && parts.length === 4 && method === 'POST') {
+    const body = await readBody();
+    if (typeof body.line !== 'string' || typeof body.from !== 'string') return { status: 400, body: { error: 'line must name a line and from the computer to copy from.' } };
+    return { status: 200, body: await connect.copyValues(body.line, body.from) };
+  }
+  if (!values) return null;
+  if (parts[3] === 'value-requests' && parts.length === 4 && method === 'GET') return { status: 200, body: values.view() };
+  if (parts[3] === 'value-requests' && parts.length === 5 && method === 'POST') {
+    const body = await readBody();
+    if (typeof body.allow !== 'boolean') return { status: 400, body: { error: 'allow must be true or false.' } };
+    return { status: 200, body: { sent: await values.answer(parts[4]!, body.allow) } };
+  }
+  if (parts[3] === 'sent' && parts.length === 4 && method === 'GET') return { status: 200, body: await values.sent() };
+  if (parts[3] === 'sent' && parts.length === 4 && method === 'DELETE') return { status: 200, body: { undo: await values.clearSent() } };
+  if (parts[3] === 'sent' && parts.length === 5 && parts[4] === 'restore' && method === 'POST') {
+    const body = await readBody();
+    if (typeof body.token !== 'string') return { status: 400, body: { error: 'token must be the one Clear answered.' } };
+    return { status: 200, body: await values.restoreSent(body.token) };
+  }
+  return null;
+}
 
 export async function connectRoute(parts: readonly string[], method: string, readBody: ReadBody, connect: KestrelConnect): Promise<ConnectAnswer | null> {
   if (parts[1] !== 'connect' || parts.length > 5) return null;
@@ -59,7 +129,14 @@ export async function connectRoute(parts: readonly string[], method: string, rea
       return { status: 200, body: await connect.typeCode(id, body.code) };
     }
     if (parts[2] === 'setup') {
-      if (parts.length === 3 && method === 'GET') return { status: 200, body: await connect.setupList() };
+      const steps = connect.steps;
+      if (parts.length === 3 && method === 'GET') return { status: 200, body: steps ? await steps.list() : await connect.setupList() };
+      const copying = await valuesRoute(parts, method, readBody, connect);
+      if (copying) return copying;
+      if (parts.length === 4 && steps) {
+        const step = await setupStepRoute(parts[3]!, method, readBody, steps);
+        if (step) return step;
+      }
       if (parts.length === 4 && parts[3] === 'record' && method === 'POST') {
         connect.setupRefresh();
         return { status: 204 };

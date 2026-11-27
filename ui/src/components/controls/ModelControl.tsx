@@ -24,7 +24,8 @@ const unticked = (items: readonly MenuItem[]): MenuItem[] => items.map((item) =>
 
 function tooltip(models: readonly ModelOption[], value: ModelSettings, running: boolean): string {
   const option = optionFor(models, value.model);
-  const parts = [`Model: ${option?.description ?? modelLabel(models, value.model)}`];
+  const label = modelLabel(models, value.model);
+  const parts = [`Model: ${option?.description && option.description !== label ? `${label}. ${option.description}` : label}`];
   if (option?.efforts?.length) parts.push('Effort: how much it thinks before answering');
   if (option?.fast && value.fast) parts.push('Fast mode is on');
   if (running) parts.push('Changes apply from your next message');

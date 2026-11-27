@@ -99,7 +99,8 @@
 .kestrel .studio-sidebar .review-age { flex: none; font-size: 10.5px; line-height: 1.3; color: var(--s-muted); white-space: nowrap; }
 
 
-.kestrel .studio-sidebar .side-link .review-unread { flex: none; min-width: 18px; box-sizing: border-box; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--s-ink) 88%, transparent); color: var(--s-bg); font-size: 10px; font-weight: 600; line-height: 1.5; text-align: center; font-variant-numeric: tabular-nums; }
+/* One bubble for a number that waits on you: new reviews, and what is left of Set up this computer. */
+.kestrel :is(.studio-sidebar, .settings-nav) .side-link :is(.review-unread, .setup-left) { flex: none; min-width: 18px; box-sizing: border-box; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--s-ink) 88%, transparent); color: var(--s-bg); font-size: 10px; font-weight: 600; line-height: 1.5; text-align: center; font-variant-numeric: tabular-nums; }
 .kestrel .studio-sidebar .side-link .review-unread + .link-count { margin-left: -2px; }
 
 /* Settings → Code reviews → Review instructions: a wide box of prose, and Reset under it. */
@@ -224,3 +225,5 @@
 .kestrel .approved-mark svg { width: 12px; height: 12px; stroke-width: 2.25; }
 .kestrel .review-page-said { margin-top: 8px; font-size: 12px; }
 .kestrel .review-page-said .others-said-tick { width: 12px; height: 12px; }
+
+.kestrel :is(.studio-sidebar, .settings-nav) .side-link .setup-left { margin-left: auto; }

@@ -45,6 +45,25 @@ export const MODELS_TTL_MS = 5 * 60_000;
 export class AgentInfo {
   /** The models an agent offers, and when it said so. Kept for `MODELS_TTL_MS` once it has answered from the SDK. */
   private readonly modelCache = new Map<Agent, { at: number; list: ModelList }>();
+  /** What each agent last answered (its availability; its model list), to tell when that changed. */
+  private readonly lastSaid = new Map<string, string>();
+  private readonly agentListeners = new Set<() => void>();
+
+  /**
+   * Told when an agent's answer differs from the one it gave before: it became available or not (signed in,
+   * signed out, installed), or listed other models. Only on an answer something asked for: nothing is polled.
+   */
+  onAgentsChange(listener: () => void): () => void {
+    this.agentListeners.add(listener);
+    return () => void this.agentListeners.delete(listener);
+  }
+
+  private said(key: string, answer: unknown): void {
+    const json = JSON.stringify(answer);
+    const before = this.lastSaid.get(key);
+    this.lastSaid.set(key, json);
+    if (before !== undefined && before !== json) for (const listener of this.agentListeners) listener();
+  }
   /** What "/" offers before a session exists, by agent and folder: asked once per server run, and again only after it could not say. */
   private readonly draftSlash = new Map<string, Promise<SlashCommand[] | null>>();
   /** A context measurement being asked of a session's agent, so a second click waits for the first answer. */
@@ -69,6 +88,7 @@ export class AgentInfo {
         return { agent, ...answer, signIn: Boolean(answer.signIn && adapter.signIn) };
       }),
     );
+    this.said('availability', checked);
     return {
       available: checked.filter((c) => c.available).map((c) => c.agent),
       notes: Object.fromEntries(checked.filter((c) => !c.available && c.reason).map((c) => [c.agent, c.reason])) as Partial<Record<Agent, string>>,
@@ -97,6 +117,7 @@ export class AgentInfo {
     const listed = found.fromSdk && found.models.some((m) => m.id !== '');
     if (listed) {
       this.modelCache.set(agent, { at: this.host.now(), list: found });
+      this.said(`models|${agent}`, found.models);
       return found;
     }
     // It could not say this time: the last list it gave still stands; with none, what it has, as unknown.

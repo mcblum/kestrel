@@ -8,9 +8,10 @@ import { KIND_LABEL } from '@kestrel/server/mcp-servers';
 import { ready, type Sourced } from '@kestrel/server/sourced';
 import { useResource } from '../data/resources.ts';
 import { opener, openView } from '../route.ts';
-import { OLDER_SERVER, RESTART_REASON, useApp } from '../store.ts';
+import { OLDER_SERVER, RESTART_REASON } from '../store.ts';
 import { SettingHeading } from './SettingHelp.tsx';
 import '../styles/mcp-servers.css';
+import { useHereProjects } from '../awayProjects.ts';
 
 export const MCP_SERVERS_PATH = '/api/mcp-servers';
 
@@ -73,7 +74,7 @@ const HELP = (
 /** Settings → Agent setup: Kestrel's own servers, above the switches. */
 export function McpServersSetting() {
   const list = useMcpServers();
-  const projects = useApp((s) => s.workspace?.projects) ?? [];
+  const projects = useHereProjects();
   if (list.state !== 'ready') return <p className="settings-help">{list.state === 'loading' ? 'Loading…' : list.reason === RESTART_REASON ? OLDER_SERVER : list.reason}</p>;
   const every = list.value.servers.filter((s) => s.projectId === null);
   const ownByProject = projects.map((p) => ({ project: p, servers: list.value.servers.filter((s) => s.projectId === p.id) })).filter((g) => g.servers.length > 0);

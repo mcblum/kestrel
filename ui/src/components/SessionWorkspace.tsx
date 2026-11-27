@@ -1,8 +1,6 @@
-import { ThinkingMark } from './ThinkingMark.tsx';
 import { useWorkingTree } from '../workingTree.ts';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { sessionFolder } from '../sessionFolder.ts';
-import { ChevronDown } from 'lucide-react';
 import { CommandsPane } from './CommandsPane.tsx';
 import { Changes } from './Changes.tsx';
 import { SubAgentList, SubAgentView } from './SessionPane.tsx';
@@ -30,8 +28,11 @@ import { CameFrom, Lineage } from './Lineage.tsx';
 import type { SessionQueue, SessionSettings } from '@kestrel/server/model';
 import type { Controls } from '@kestrel/server/tabs';
 import { ComposerControls } from './ComposerControls.tsx';
-import { Composer, type Inject } from './Conversation.tsx';
+import { Composer, waitsOnCard, type Inject } from './Conversation.tsx';
+import { RemoteSession } from './RemoteSession.tsx';
 import { MessageList, type MessageListHandle } from './MessageList.tsx';
+import { useFollowEnd } from '../conversationFollow.ts';
+import { ToBottom } from './ToBottom.tsx';
 import { ComposerFoot } from './ComposerFoot.tsx';
 import { act, actions, focusRequests, messageFocus, useApp, type AttachmentRefs } from '../store.ts';
 import { presetForRole, ROLE_LABEL } from '@kestrel/server/who-does-what';
@@ -44,17 +45,16 @@ import { isOpenWork } from '@kestrel/server/workstreams';
 
 const NO_QUEUE: SessionQueue = { items: [], held: false };
 
-/** Within a few pixels of the end counts as the bottom. */
-const isAtBottom = (el: HTMLElement) => el.scrollHeight - el.scrollTop - el.clientHeight < 48;
-
-/** Where a session was left when the reader had scrolled up: restored when it comes back. A session
- *  left at the bottom has no entry and opens at the bottom, however much it has grown since. */
-const scrollMemory = new Map<string, number>();
-
 
 /** What the hooks read before the session is in the workspace: no worktree. */
 const NO_TREE = { id: '', title: '', worktreePath: null, branch: null, worktreeDiscarded: false };
+/** A session's page: its own when it runs here, the read-only one when another computer of the account runs it. */
 export function SessionWorkspace({ id }: { id: string }) {
+  const elsewhere = useApp((s) => s.sessionsById.get(id)?.runsOn !== undefined);
+  return elsewhere ? <RemoteSession id={id} /> : <OwnSessionWorkspace id={id} />;
+}
+
+function OwnSessionWorkspace({ id }: { id: string }) {
   const session = useApp((s) => s.sessionsById.get(id));
   const stored = useApp((s) => s.details.get(id));
   const live = useApp((s) => s.live.get(id));
@@ -123,71 +123,18 @@ export function SessionWorkspace({ id }: { id: string }) {
   }, [id, pullRequests.value]);
   // The repository's host decides the words: pull request or merge request.
   const terms = hostTerms(lookupHost(pullRequests.value));
-  const bodyRef = useRef<HTMLDivElement>(null);
-  // Held in state, not a ref: the conversation is not on the page until the session has loaded,
-  // and the effect that watches its height has to run again when it appears.
-  const [inner, setInner] = useState<HTMLDivElement | null>(null);
-  // The message box floats over the foot of the conversation, so the conversation (and its scroll
-  // bar) runs the full height. Its measured height is the room left under the last message.
-  const [dock, setDock] = useState<HTMLDivElement | null>(null);
-  const [composerHeight, setComposerHeight] = useState(140);
-  useEffect(() => {
-    if (!dock) return;
-    const observer = new ResizeObserver(() => setComposerHeight(Math.round(dock.getBoundingClientRect().height)));
-    observer.observe(dock);
-    return () => observer.disconnect();
-  }, [dock]);
-  // The session whose place was last restored: the tab can show another session without remounting.
-  const restored = useRef<string | null>(null);
   // The list draws only the rows near the screen, so a jump to a row goes through it, by index.
   const list = useRef<MessageListHandle>(null);
-  // Whether the view follows new output. True while the reader is at the bottom; scrolling up
-  // lets go, and coming back to the bottom (or sending a message) takes hold again.
-  const follow = useRef(true);
-  const [isFollowing] = useState(() => () => follow.current);
-  // The last scroll position seen, to tell the reader scrolling up from the page growing under them.
-  const lastTop = useRef(0);
-  const [away, setAway] = useState(false);
   const [pending, setPending] = useState<Partial<SessionSettings>>({});
   const count = detail?.messages.length ?? 0;
-  const toBottom = () => {
-    const el = bodyRef.current;
-    if (!el) return;
-    follow.current = true;
-    setAway(false);
-    el.scrollTop = el.scrollHeight;
-  };
-  // Come back to where this session was left the first time there is something to show.
-  useEffect(() => {
-    const el = bodyRef.current;
-    if (!el || count === 0 || restored.current === id) return;
-    restored.current = id;
-    // The list starts where the session was left, or at the end (MessageList's `initialTop`).
-    // Opened from the Needs you queue: land on the card that is waiting. The list moves there
-    // itself: only the rows near the screen are drawn, and they are measured as they come.
-    // Opened from a link to the review: land on the reviewer's message the findings came from.
+  // Opened from the Needs you queue: land on the card that is waiting. The list moves there itself: only the rows
+  // near the screen are drawn, and they are measured as they come. Opened from a link to the review: land on the
+  // reviewer's message the findings came from.
+  const { bodyRef, setInner, setDock, composerHeight, isFollowing, away, toBottom, onScroll, initialTop } = useFollowEnd(id, count, () => {
     const at = messageFocus.get(id);
     messageFocus.delete(id);
-    const card = (at !== undefined && (list.current?.scrollToMessage(at) ?? false)) || (focusRequests.delete(id) && (list.current?.scrollToPendingCard() ?? false));
-    const top = scrollMemory.get(id);
-    // On the way to the end every step is downwards, so none of them reads as the reader scrolling up.
-    lastTop.current = top ?? 0;
-    follow.current = !card && top === undefined;
-    setAway(!follow.current);
-  }, [count, id]);
-  // Anything that makes the conversation taller (a message, streamed text, a tool step, the
-  // status line) keeps the bottom in view, unless the reader has scrolled up.
-  useEffect(() => {
-    const el = bodyRef.current;
-    if (!el || !inner) return;
-    const observer = new ResizeObserver(() => {
-      if (follow.current) el.scrollTop = el.scrollHeight;
-    });
-    // Border box, so the room left under the last message (padding) counts as growth too.
-    observer.observe(inner, { box: 'border-box' });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [inner]);
+    return (at !== undefined && (list.current?.scrollToMessage(at) ?? false)) || (focusRequests.delete(id) && (list.current?.scrollToPendingCard() ?? false));
+  });
 
   // What every turn foot's Fork needs of the session (each foot makes the menu's own item, `forkItem`,
   // for its turn). Kept while it says the same, so no row is drawn again as text streams.
@@ -230,7 +177,7 @@ export function SessionWorkspace({ id }: { id: string }) {
   // A running step already says what is happening on its own line, so the turn's line stays general then.
   // It is always there while the turn runs: taking it away during steps made the text below jump.
   const workingText = stepRunning ? 'Working…' : live?.status || 'Working…';
-  const waiting = session.state === 'attention' && (detail?.messages.some((m) => m.input && !m.input.resolved) ?? false);
+  const waiting = waitsOnCard(session.state, detail?.messages);
   const send = async (text: string, files: AttachmentRefs | null = null) => {
     toBottom(); // sending a message always returns to the latest
     const sent = await actions.reply(id, text, pending, files);
@@ -281,18 +228,7 @@ export function SessionWorkspace({ id }: { id: string }) {
           <div
             className="conversation-body"
             ref={bodyRef}
-            onScroll={(e) => {
-              const el = e.currentTarget;
-              // Only the reader moving up lets go of the bottom. A scroll event that arrives after the
-              // page grew (a picture loaded, the message box was measured) finds the view short of the
-              // new end without anyone having scrolled; the height observer brings it back down.
-              if (isAtBottom(el)) follow.current = true;
-              else if (el.scrollTop < lastTop.current - 1) follow.current = false;
-              lastTop.current = el.scrollTop;
-              if (follow.current) scrollMemory.delete(id);
-              else scrollMemory.set(id, el.scrollTop);
-              setAway(!follow.current);
-            }}
+            onScroll={onScroll}
           >
            <div className="conversation-inner" ref={setInner} style={{ paddingBottom: composerHeight + 96 }}>
             {!detail ? (
@@ -307,7 +243,7 @@ export function SessionWorkspace({ id }: { id: string }) {
                   ref={list}
                   scrollRef={bodyRef}
                   isFollowing={isFollowing}
-                  initialTop={scrollMemory.get(id)}
+                  initialTop={initialTop}
                   head={<ConversationHead sessionId={id} at={detail.messages[0]?.at ?? session.createdAt} />}
                   messages={detail.messages}
                   sessionId={id}
@@ -327,14 +263,7 @@ export function SessionWorkspace({ id }: { id: string }) {
            </div>
           </div>
           {/* Sits just above the message box, whatever height the box is. */}
-          <div className="to-bottom-anchor" style={{ bottom: composerHeight }}>
-            {away && (
-              // Scrolled up: the bird says the agent is still working below; once it has finished, a chevron. Either goes to the bottom.
-              <button className={`to-bottom${session.state === 'running' ? ' working' : ''}`} aria-label={session.state === 'running' ? 'The agent is working below. Go to the latest' : 'Go to the latest'} onClick={toBottom}>
-                {session.state === 'running' ? <ThinkingMark status={workingText} /> : <ChevronDown aria-hidden />}
-              </button>
-            )}
-          </div>
+          <ToBottom away={away} running={session.state === 'running'} workingText={workingText} composerHeight={composerHeight} onClick={toBottom} />
           <div className="composer-dock" ref={setDock}>
           <Composer
             sendTo={sendTo}

@@ -186,7 +186,12 @@ export class FakeHeldService {
   recovery: { generation: number; wrapped: string } | null = null;
   previous: { generation: number; sealed: string }[] = [];
   rotationDue: { name: string; removedAt: string }[] | null = null;
-  records = new Map<string, { id: string; generation: number; session: string | null; project: string | null; body: string; bytes: number }>();
+  records = new Map<string, { id: string; generation: number; session: string | null; project: string | null; body: string; bytes: number; seq: number; version: number; writer: string; list: string | null }>();
+  /** The account's number for the last write or delete of a record, and the listed records deleted (the change feed). */
+  seq = 0;
+  /** Records a read answers as missing, as if still on their way (a test of an upload that lags its head). */
+  withhold: ((record: { list: string | null }) => boolean) | null = null;
+  tombstones = new Map<string, { list: string; seq: number }>();
   messages = new Map<string, { id: string; from: string; to: string; generation: number; body: string; bytes: number; createdAt: number }>();
   limit = 512 * 1024 * 1024;
   /** Phones' push tokens and sealed choices (phase 6). */
@@ -198,6 +203,8 @@ export class FakeHeldService {
   withdrawn: string[] = [];
   /** Makes every call fail as if the service could not be reached. */
   down = false;
+  /** A service from before the change feed: a record with a list is a request it does not know, and it has no feed. */
+  beforeFeed = false;
   /** The service takes renames (`PATCH /devices/:id`); false is a service from before that route. */
   renames = true;
 
@@ -259,6 +266,20 @@ export class FakeHeldService {
   }
 
   /** What a phone does when it registers for notifications, with its choices sealed (or none). */
+  /** Deletes a record; a listed one leaves a tombstone with a number of its own, and the other devices are told. */
+  private forget(id: string, by: string): void {
+    const record = this.records.get(id);
+    this.records.delete(id);
+    if (!record?.list) return;
+    this.tombstones.set(id, { list: record.list, seq: ++this.seq });
+    this.changed(by);
+  }
+
+  /** The `changed` notice, to every device of the account but the writer. */
+  private changed(by: string): void {
+    this.notices.push({ to: [...this.devices.keys()].filter((d) => d !== by), message: { service: 'changed', seq: this.seq } });
+  }
+
   registerPhone(deviceId: string, token: string, prefs: { generation: number; body: string } | null = null): void {
     this.push.set(deviceId, { token, generation: prefs?.generation ?? null, prefs: prefs?.body ?? null });
   }
@@ -368,8 +389,23 @@ export class FakeHeldService {
         const id = parts[2] as string;
         const bytes = (b.body as string).length;
         if (this.used() - (this.records.get(id)?.bytes ?? 0) + bytes > this.limit) this.refuse(413, 'held-full', 'Your account holds as much as it can. Delete some held conversations.');
-        this.records.set(id, { id, generation: b.generation as number, session: (b.session as string | null) ?? null, project: (b.project as string | null) ?? null, body: b.body as string, bytes });
-        return { record: { id, generation: b.generation, bytes }, usage: { bytes: this.used(), limit: this.limit } };
+        if (this.beforeFeed && (b.list !== undefined || b.ifVersion !== undefined)) this.refuse(400, 'bad-request', 'Unrecognized key.');
+        const before = this.records.get(id);
+        if (b.ifVersion !== undefined && (before?.version ?? null) !== b.ifVersion) this.refuse(409, 'record-changed', 'Another device wrote that record since this one read it. Read it again, merge, and write again.');
+        const list = (b.list as string | null) ?? null;
+        const record = { id, generation: b.generation as number, session: (b.session as string | null) ?? null, project: (b.project as string | null) ?? null, body: b.body as string, bytes, seq: ++this.seq, version: (before?.version ?? 0) + 1, writer: deviceId, list };
+        this.records.set(id, record);
+        this.tombstones.delete(id);
+        if (list) this.changed(deviceId);
+        return { record: { id, generation: b.generation, bytes, seq: record.seq, version: record.version, list }, usage: { bytes: this.used(), limit: this.limit } };
+      }
+      case 'GET /held/changes': {
+        if (this.beforeFeed) this.refuse(404, 'not-found', 'Not found.');
+        const list = params.get('list');
+        const since = Number(params.get('since') ?? 0);
+        const written = [...this.records.values()].filter((r) => r.list === list && (since === 0 || r.seq > since)).map((r) => ({ id: r.id, seq: r.seq, version: r.version, writer: r.writer, deleted: false }));
+        const gone = since === 0 ? [] : [...this.tombstones].filter(([, t]) => t.list === list && t.seq > since).map(([id, t]) => ({ id, seq: t.seq, version: null, writer: null, deleted: true }));
+        return { changes: [...written, ...gone].sort((a, b) => a.seq - b.seq), next: Math.max(this.seq, since), more: false };
       }
       case 'GET /held/records': {
         const below = Number(params.get('below'));
@@ -377,10 +413,12 @@ export class FakeHeldService {
       }
       case 'POST /held/records/read': {
         const ids = b.ids as string[];
-        return { records: ids.flatMap((i) => (this.records.has(i) ? [this.records.get(i)] : [])), missing: ids.filter((i) => !this.records.has(i)) };
+        const held = (i: string) => this.records.has(i) && !this.withhold?.(this.records.get(i)!);
+        return { records: ids.flatMap((i) => (held(i) ? [this.records.get(i)] : [])), missing: ids.filter((i) => !held(i)) };
       }
       case 'DELETE /held/records/:id':
-        if (!this.records.delete(parts[2] as string)) this.refuse(404, 'unknown-record', 'No such record.');
+        if (!this.records.has(parts[2] as string)) this.refuse(404, 'unknown-record', 'No such record.');
+        this.forget(parts[2] as string, deviceId);
         return null;
       case 'DELETE /held/records': {
         const session = params.get('session');
@@ -388,7 +426,7 @@ export class FakeHeldService {
         let deleted = 0;
         for (const [id, r] of this.records) {
           if ((session && r.session === session) || (project && r.project === project)) {
-            this.records.delete(id);
+            this.forget(id, deviceId);
             deleted += 1;
           }
         }
@@ -404,5 +442,46 @@ export class FakeHeldService {
       default:
         throw new Error(`the fake service has no ${key}`);
     }
+  }
+}
+
+/**
+ * The relay between the desks of one fake service: every frame a desk sends goes to the open socket of the
+ * device named in `to`. A frame for a device with no socket open is answered as the service answers one it
+ * cannot carry (`{ service: 'refused', id }`), unless `refuses` is off and it is only dropped. `lose` drops
+ * the frames a check picks, as a network that ate them would.
+ */
+export class FakeRelay {
+  readonly carried: string[] = [];
+  refuses = true;
+  private readonly losses: ((text: string) => boolean)[] = [];
+  private readonly wired = new Set<FakeSocket>();
+
+  constructor(private readonly service: FakeService) {}
+
+  lose(check: (text: string) => boolean): void {
+    this.losses.push(check);
+  }
+
+  /** Wires and welcomes every socket opened since the last call. */
+  wire(): void {
+    for (const socket of this.service.sockets) {
+      if (this.wired.has(socket)) continue;
+      this.wired.add(socket);
+      const send = socket.send;
+      socket.send = (text: string) => {
+        send(text);
+        this.carried.push(text);
+        if (!this.losses.some((l) => l(text))) this.deliver(socket, text);
+      };
+      this.service.welcome(socket, Date.now() + 3_600_000);
+    }
+  }
+
+  private deliver(from: FakeSocket, text: string): void {
+    const frame = JSON.parse(text) as { to?: string; id?: string };
+    const socket = [...this.service.sockets].reverse().find((s) => s.deviceId === frame.to && s.closedWith === null);
+    if (socket) return queueMicrotask(() => socket.events.message(text));
+    if (this.refuses && from.closedWith === null) queueMicrotask(() => from.events.message(JSON.stringify({ service: 'refused', id: frame.id ?? null, code: 'not-connected', reason: 'That device is not connected.' })));
   }
 }

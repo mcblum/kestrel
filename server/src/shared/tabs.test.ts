@@ -89,6 +89,12 @@ describe('New session', () => {
     expect(withScope(shop, { groupId: 'g1' })).toMatchObject({ projectId: 'shop', folderId: 'shop-web', groupId: 'g1' });
     expect(withScope(shop, { projectId: 'wren', folderId: 'w2' })).toMatchObject({ projectId: 'wren', folderId: 'w2' });
   });
+  it('a box on another computer goes back to this one when another project is named without a computer (issue 52)', () => {
+    const there = { ...DEFAULT_CONTROLS, projectId: 'billing', machine: 'mini' };
+    expect(withScope(there, { projectId: 'shop' })).not.toHaveProperty('machine');
+    expect(withScope(there, { projectId: 'notes', machine: 'studio' })).toMatchObject({ projectId: 'notes', machine: 'studio' });
+    expect(withScope(there, { groupId: 'g1' })).toMatchObject({ machine: 'mini' });
+  });
   it('repeated New session never piles up tabs', () => {
     let s = initialTabs();
     for (let i = 0; i < 50; i++) s = openTarget(s, fresh(), `n${i}`, PLAIN);

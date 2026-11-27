@@ -8,6 +8,7 @@ import { useViewer } from '../PictureViewer.tsx';
 import { Pictures } from '../Pictures.tsx';
 import type { PictureRef } from '../useBlobUrl.ts';
 import { AttachmentTile } from './AttachmentTile.tsx';
+import { HeldElsewhere, useFilesElsewhere } from '../HeldElsewhere.tsx';
 
 function FileTiles({ files, small }: { files: readonly Attachment[]; small?: boolean }) {
   return (
@@ -38,7 +39,9 @@ export function SentAttachments({ sessionId, attachments, small }: { sessionId: 
   const images = useMemo(() => attachments.filter((a) => a.kind === 'image'), [attachments]);
   const ids = useMemo(() => images.map((a) => a.id), [images]);
   const names = useMemo(() => images.map((a) => a.name), [images]);
+  const elsewhere = useFilesElsewhere();
   if (attachments.length === 0) return null;
+  if (elsewhere) return <HeldElsewhere names={attachments.map((a) => a.name)} machine={elsewhere} pictures={images.length === attachments.length} />;
   if (small) return <SmallTiles sessionId={sessionId} attachments={attachments} />;
   const files = attachments.filter((a) => a.kind !== 'image');
   return (

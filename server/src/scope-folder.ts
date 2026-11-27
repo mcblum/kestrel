@@ -6,6 +6,7 @@ import { homedir } from 'node:os';
 import type { Project, WorkspaceState } from './model.ts';
 import { defaultFolder, folderOf, hasFolders } from './shared/project-folders.ts';
 import { parseScope } from './shared/scope.ts';
+import { isAwayProjectId } from './shared/account-projects.ts';
 import { MAIN_CHECKOUT } from './shared/working-tree.ts';
 import { workingTreeIn } from './working-tree.ts';
 
@@ -76,6 +77,6 @@ export function sessionDirectory(state: Pick<WorkspaceState, 'sessions' | 'proje
 export function noFolderReason(key: string): string {
   const kind = parseScope(key)?.kind;
   if (kind === 'group') return 'A group has no folder.';
-  if (kind === 'project') return 'This project has no folder on disk yet.';
+  if (kind === 'project') return isAwayProjectId(parseScope(key)!.id) ? 'This project is on another computer of your account, not this one.' : 'This project has no folder on disk yet.';
   return 'This session has no folder on disk.';
 }

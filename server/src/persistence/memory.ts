@@ -6,6 +6,7 @@ import type { PullRequestState } from '../shared/details.ts';
 import type { HostKind } from '../shared/host-terms.ts';
 import { withSettledDefault } from '../shared/project-folders.ts';
 import { pinKey, type PinRef } from '../shared/pins.ts';
+import type { AccountChunk, AccountHead } from '../shared/machines.ts';
 import { createLocalPersistence } from './local.ts';
 import type { LocalDriver, Persistence, SessionPatch, StoredDetail } from './types.ts';
 
@@ -21,10 +22,13 @@ interface Data {
   requests: Map<string, readonly RequestLink[]>;
   workstreams: Workstream[];
   waits: SessionWait[];
+  accountSessions: Map<string, AccountHead>;
+  accountDetails: Map<string, readonly AccountChunk[]>;
+  accountRecords: Map<string, string>;
 }
 
-const empty = (): Data => ({ projects: [], groups: [], sessions: [], links: [], details: new Map(), settings: new Map(), tags: new Map(), pins: [], requests: new Map(), workstreams: [], waits: [] });
-const copy = (d: Data): Data => ({ projects: [...d.projects], groups: [...d.groups], sessions: [...d.sessions], links: [...d.links], details: new Map(d.details), settings: new Map(d.settings), tags: new Map(d.tags), pins: [...d.pins], requests: new Map(d.requests), workstreams: [...d.workstreams], waits: [...d.waits] });
+const empty = (): Data => ({ projects: [], groups: [], sessions: [], links: [], details: new Map(), settings: new Map(), tags: new Map(), pins: [], requests: new Map(), workstreams: [], waits: [], accountSessions: new Map(), accountDetails: new Map(), accountRecords: new Map() });
+const copy = (d: Data): Data => ({ projects: [...d.projects], groups: [...d.groups], sessions: [...d.sessions], links: [...d.links], details: new Map(d.details), settings: new Map(d.settings), tags: new Map(d.tags), pins: [...d.pins], requests: new Map(d.requests), workstreams: [...d.workstreams], waits: [...d.waits], accountSessions: new Map(d.accountSessions), accountDetails: new Map(d.accountDetails), accountRecords: new Map(d.accountRecords) });
 
 class MemoryDriver implements LocalDriver {
   private data = empty();
@@ -231,6 +235,47 @@ class MemoryDriver implements LocalDriver {
   }
   deleteWaitsOf(sessionId: string) {
     this.data.waits = this.data.waits.filter((w) => w.waiterId !== sessionId && w.targetId !== sessionId);
+  }
+  listAccountSessions() {
+    return [...this.data.accountSessions.values()].sort((a, b) => a.createdAt - b.createdAt);
+  }
+  putAccountSessions(heads: readonly AccountHead[]) {
+    const next = new Map(this.data.accountSessions);
+    for (const head of heads) next.set(head.id, { ...head });
+    this.data.accountSessions = next;
+  }
+  deleteAccountSessions(ids: readonly string[]) {
+    const sessions = new Map(this.data.accountSessions);
+    const details = new Map(this.data.accountDetails);
+    for (const id of ids) {
+      sessions.delete(id);
+      details.delete(id);
+    }
+    this.data.accountSessions = sessions;
+    this.data.accountDetails = details;
+  }
+  listAccountDetails(sessionId: string, from: number, to: number) {
+    return (this.data.accountDetails.get(sessionId) ?? []).filter((c) => c.n >= from && c.n < to);
+  }
+  putAccountDetails(sessionId: string, chunks: readonly AccountChunk[]) {
+    const places = new Set(chunks.map((c) => c.n));
+    const kept = (this.data.accountDetails.get(sessionId) ?? []).filter((c) => !places.has(c.n));
+    this.data.accountDetails = new Map(this.data.accountDetails).set(sessionId, [...kept, ...chunks].sort((a, b) => a.n - b.n));
+  }
+  deleteAccountDetails(sessionId: string, from: number) {
+    const kept = (this.data.accountDetails.get(sessionId) ?? []).filter((c) => c.n < from);
+    this.data.accountDetails = new Map(this.data.accountDetails).set(sessionId, kept);
+  }
+  listAccountRecords() {
+    return [...this.data.accountRecords].sort(([a], [b]) => (a < b ? -1 : 1)).map(([key, value]) => ({ key, value }));
+  }
+  putAccountRecord(key: string, value: string) {
+    this.data.accountRecords = new Map(this.data.accountRecords).set(key, value);
+  }
+  deleteAccountRecord(key: string) {
+    const next = new Map(this.data.accountRecords);
+    next.delete(key);
+    this.data.accountRecords = next;
   }
   begin() {
     this.snapshot = copy(this.data);

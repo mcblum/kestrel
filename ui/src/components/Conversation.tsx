@@ -200,6 +200,11 @@ export interface Inject {
   append?: boolean;
 }
 
+/** Whether the session waits on the user to answer a card in its conversation: the message box is closed until then. */
+export function waitsOnCard(state: string, messages: readonly ChatMessage[] | undefined): boolean {
+  return state === 'attention' && (messages?.some((m) => m.input && !m.input.resolved) ?? false);
+}
+
 interface ComposerProps {
   /** Where the draft is kept: the session id, or `tab:<id>` for an unsent tab. */
   draftKey: string;
