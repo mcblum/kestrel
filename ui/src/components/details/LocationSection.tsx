@@ -6,6 +6,7 @@ import { PathLine } from './PathValue.tsx';
 import { Line, Section } from './Rows.tsx';
 import { MAIN_CHECKOUT, type WorkingTreeAnswer } from '@kestrel/server/working-tree';
 import { useWorkingTree } from '../../workingTree.ts';
+import { useMachineName } from '../../machines.ts';
 
 type Checkout = 'Worktree' | 'Main checkout' | 'Plain folder' | 'Scratch folder';
 
@@ -26,6 +27,18 @@ interface Props {
 export function LocationSection({ session, started, folder: source, filed }: Props) {
   // The worktree it works in: its own, or its host's for a guest (@kestrel/server/working-tree).
   const where = useWorkingTree(session);
+  // A session on another computer works in a folder there: it is named, never a folder of this computer.
+  const machine = useMachineName(session.runsOn);
+  if (machine)
+    return (
+      <Section title="Location">
+        <Line>
+          {machine}
+          {where.tree && <span className="details-quiet"> · Worktree, on {where.tree.branch}</span>}
+        </Line>
+        {filed && filed.id !== started?.id && <Line quiet>Work landed in {filed.name}</Line>}
+      </Section>
+    );
   const folder = where.tree?.path ?? source?.path ?? null;
   // It has (or works in) a worktree that cannot be opened: say so, and that its panes open here instead.
   const fallback = !where.tree && where.reason !== MAIN_CHECKOUT ? where.reason : null;

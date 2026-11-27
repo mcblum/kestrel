@@ -115,6 +115,7 @@ export function withRemote(state: WorkspaceState, heads: readonly AccountHead[],
   }
 
   const remote: SessionView[] = [];
+  const remoteArchived: SessionView[] = [];
   for (const head of heads) {
     // A session this computer has is its own, whatever another machine says.
     if (own.has(head.id)) continue;
@@ -124,9 +125,9 @@ export function withRemote(state: WorkspaceState, heads: readonly AccountHead[],
     const projectId = here ?? away.find(head.repos) ?? awayProjectId(head);
     const machine = machines.find((m) => m.id === head.runsOn);
     if (!here && projectId && head.project) away.add(projectId, head.project.name, machine ? { ...machine, projectId: head.project.id } : null, head.repos, []);
-    remote.push(viewOf(head, projectId));
+    (head.archived ? remoteArchived : remote).push(viewOf(head, projectId));
   }
-  if (remote.length === 0 && away.byId.size === 0 && alsoOn.size === 0) return state;
+  if (remote.length === 0 && remoteArchived.length === 0 && away.byId.size === 0 && alsoOn.size === 0) return state;
   const sessions = remote.length > 0 ? [...state.sessions, ...remote] : state.sessions;
   const ungrouped = sessions.filter((s) => s.groupId === null && !s.aside).map((s) => s.id);
   const ownProjects = alsoOn.size > 0 ? state.projects.map((p) => (alsoOn.has(p.id) ? { ...p, alsoOn: alsoOn.get(p.id)! } : p)) : state.projects;
@@ -135,6 +136,7 @@ export function withRemote(state: WorkspaceState, heads: readonly AccountHead[],
     projects: away.byId.size > 0 ? [...ownProjects, ...away.byId.values()] : ownProjects,
     sessions,
     trees: remote.length > 0 ? { ...state.trees, ungrouped: buildTree(ungrouped, state.links) } : state.trees,
-    machines: machines.filter((m) => remote.some((s) => s.runsOn === m.id)),
+    ...(remoteArchived.length > 0 ? { archived: { ...state.archived, sessions: [...state.archived.sessions, ...remoteArchived] } } : {}),
+    machines: machines.filter((m) => remote.some((s) => s.runsOn === m.id) || remoteArchived.some((s) => s.runsOn === m.id)),
   };
 }

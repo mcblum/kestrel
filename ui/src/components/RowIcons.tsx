@@ -56,16 +56,12 @@ function RequestAndChanges({ session }: { session: Asker }) {
 
 /** The slot's icons for a sidebar row; nothing when the row has a dot (the row draws that). */
 export function RowIcons({ session, hasDot }: { session: Asker; hasDot: boolean }) {
-  // Changes and pull requests are read from a worktree, which only the session's own computer has.
-  if (session.runsOn) return null;
-  return <OwnRowIcons session={session} hasDot={hasDot} />;
-}
-
-function OwnRowIcons({ session, hasDot }: { session: Asker; hasDot: boolean }) {
   // A guest's row shows the worktree it works in: its host's changes and pull request.
   const tree = useWorkingTree(session);
   const side = useRequestSide(session);
-  if (asksForChanges(hasDot, { branch: side.branch, worktreePath: tree.tree?.path ?? null })) return <RequestAndChanges session={session} />;
+  // A session on another computer shows its pull request as that computer sent it (held in the store, never asked per
+  // row); its change counts are read from its worktree there, so a row does not ask that computer for them.
+  if (!session.runsOn && asksForChanges(hasDot, { branch: side.branch, worktreePath: tree.tree?.path ?? null })) return <RequestAndChanges session={session} />;
   if (asksForRequest(hasDot, side.branch)) return <RequestOnly session={session} />;
   return null;
 }

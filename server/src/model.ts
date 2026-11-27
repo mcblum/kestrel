@@ -464,6 +464,11 @@ export interface ChangedFile {
   status: 'M' | 'A' | 'D';
   /** Unified diff text for this file, as `git diff` prints it. */
   diff: string;
+  /**
+   * Set on a session another computer runs when its diff was too large to bring over (shared/remote-carry.ts): its
+   * length in characters, left on that computer. `diff` is empty then.
+   */
+  heldBack?: number;
 }
 
 /** A project page's Changes: the main checkout's uncommitted changes against HEAD. */

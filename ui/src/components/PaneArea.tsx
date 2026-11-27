@@ -6,7 +6,7 @@
 // when the columns at theirs do not fit beside it; past that they scroll sideways inside their own
 // area, with a scroll bar that shows. A column or stacked pane that was on stays mounted,
 // out of sight, after it is turned off, so nothing in it is lost.
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { CONTEXT_WIDTH_LIMITS, contextCardWidth, PANE_WIDTH, paneLayout, SIM_WIDTH, type LayoutColumn, type PaneId, type StackPane } from '@kestrel/server/pane-layout';
 import { parseScope, type Scope } from '@kestrel/server/scope';
 import type { PaneState } from '../paneState.ts';
@@ -41,7 +41,12 @@ interface Props {
   contextLabel?: string;
   /** Turn a pane off: its X, and for the floating Context card also Escape or a click outside it. */
   onClosePane: (pane: PaneId) => void;
+  /** A session on another computer: that computer's name. Its terminal, browser and simulator are there and never open here, and its folder is not opened from here. */
+  elsewhere?: string | null;
 }
+
+/** The panes that stay on the computer a session runs on (shared/machines.ts `paneThere`). */
+const PANES_THERE = ['terminal', 'browser', 'simulator'] as const;
 
 /** An Escape meant for something else: typing, a terminal, an open menu or picker. */
 export const escapeBelongsElsewhere = (event: KeyboardEvent) => {
@@ -72,7 +77,9 @@ function useDismiss(card: HTMLElement | null, onClose: () => void) {
 
 const widthOf = (columns: readonly LayoutColumn[], id: LayoutColumn['id']) => columns.find((c) => c.id === id)?.width;
 
-export function PaneArea({ scopeKey, state, main, mainLabel, changes, context, agent, aside, commands, terminalNote, contextLabel = 'Context', onClosePane }: Props) {
+export function PaneArea({ scopeKey, state: given, main, mainLabel, changes, context, agent, aside, commands, terminalNote, contextLabel = 'Context', onClosePane, elsewhere = null }: Props) {
+  // Kept while the given state is the same, so what follows it does not run again on every draw.
+  const state = useMemo(() => (elsewhere && PANES_THERE.some((p) => given.open[p]) ? { ...given, open: { ...given.open, terminal: false, browser: false, simulator: false } } : given), [given, elsewhere]);
   const scope = parseScope(scopeKey) as Scope;
   const [root, setRoot] = useState<HTMLDivElement | null>(null);
   const [available, setAvailable] = useState(() => window.innerWidth);
@@ -102,7 +109,7 @@ export function PaneArea({ scopeKey, state, main, mainLabel, changes, context, a
       return (
         <>
           <PaneHead pane="files" name="Files">
-            <OpenIn scope={scopeKey} what={openInWhat} />
+            {!elsewhere && <OpenIn scope={scopeKey} what={openInWhat} />}
           </PaneHead>
           <FilesPane scopeKey={scopeKey} />
         </>
@@ -151,7 +158,7 @@ export function PaneArea({ scopeKey, state, main, mainLabel, changes, context, a
           <section className="inspection" aria-label="Changes" style={{ width: changesWidth }}>
             <ResizeEdge width={changesWidth} limits={PANE_WIDTH} onResize={tabActions.setChangesWidth} label="Resize the changes column" />
             <PaneHead pane="changes" name="Changes">
-              <OpenIn scope={scopeKey} what={openInWhat} />
+              {!elsewhere && <OpenIn scope={scopeKey} what={openInWhat} />}
             </PaneHead>
             <div className="inspector-content">{changes}</div>
           </section>

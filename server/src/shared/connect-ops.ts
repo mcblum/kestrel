@@ -9,6 +9,7 @@ import { isPicks } from './suggestions.ts';
 import { VALUE_NAME, VALUE_NAMES_MAX } from './setup-values.ts';
 import type { PageAsk } from './transcript-page.ts';
 import { SELECTABLE_AGENTS, type Agent } from '../model.ts';
+import { isPermissionLevel, type PermissionLevel } from './permissions.ts';
 
 /** The protocol version this copy of Kestrel speaks. A frame of any other version is refused. */
 /** 2: frames sealed with AES-256-GCM (1 was ChaCha20-Poly1305, which the app's Electron cannot do). */
@@ -83,9 +84,19 @@ export interface ConnectOpArgs {
   'session.watch': { sessionId: string };
   'session.unwatch': { sessionId: string };
   'session.attach': { draftId: string; name: string; mediaType: string; data: string };
-  'session.reply': { sessionId: string; text: string; draftId?: string; attachments?: string[] };
+  /**
+   * The model, effort, fast mode and mode ride on the next message, as the window's own reply does; only a desktop may
+   * send them (a phone is refused with `NEVER_REMOTE['session.model']` or `['session.permission']`), never Bypass.
+   */
+  'session.reply': { sessionId: string; text: string; draftId?: string; attachments?: string[]; model?: string; permission?: PermissionLevel; effort?: string; fast?: boolean };
   'session.answer': { sessionId: string; requestId: string; optionId?: string; text?: string; answers?: Record<string, string> };
   'session.stop': { sessionId: string };
+  /**
+   * Archive or restore a session, from any device of the account (Matt, 2026-11-27: "Archive should be allowed from
+   * anywhere"). `skipScript`: archive without its project's archive script, after that script failed and the person
+   * chose to archive anyway.
+   */
+  'session.archive': { sessionId: string; archived: boolean; skipScript?: boolean };
   /** Compact the conversation (Matt, 2026-11-24): what the window's Compact button does. */
   'session.compact': { sessionId: string };
   'session.seen': { sessionId: string };
@@ -134,7 +145,46 @@ export interface ConnectOpArgs {
   'setup.values': { requestId: string; line: string; names: string[] };
   /** The asking computer took its request back (Cancel, or it gave up waiting). */
   'setup.values.withdraw': { requestId: string };
+  // Desk only: what the window's own page does with a session, asked by another desktop that shows it (Matt,
+  // 2026-11-27: "the view should (where possible) be exactly the same as with a local session"; account-sessions.md,
+  // "A session on another computer drawn as one here"). Each calls the route's own function there (session-routes.ts).
+  /** What a window watching the session starts from, less its conversation and agent output: files, settings, queue, commands. */
+  'session.snapshot': { sessionId: string };
+  /** A Details source: git status, a row's change counts, the repository link, usage, or the pull requests (`refresh`: ask the host now). */
+  'session.details': { sessionId: string; section: SessionSection; refresh?: boolean };
+  'session.context': { sessionId: string };
+  'session.files': { sessionId: string; path: string; folder?: string };
+  'session.file': { sessionId: string; path: string; folder?: string };
+  'session.document': { sessionId: string; path: string };
+  'session.documentPlace': { sessionId: string; path: string };
+  'session.raw': { sessionId: string; path: string };
+  /** Any file the message box takes, for a message from another desktop (`session.attach` takes a phone's photos only). */
+  'session.attachFile': { draftId: string; name: string; mediaType: string; data: string };
+  'session.rename': { sessionId: string; title: string };
+  'session.delete': { sessionId: string };
+  'session.tag': { sessionId: string; tag: string; on: boolean };
+  'session.role': { sessionId: string; role: 'design' | 'build'; brief?: string };
+  'session.reviewOf': { sessionId: string };
+  'session.review': { sessionId: string; comment?: boolean };
+  'session.fork': { sessionId: string; turn?: string };
+  'queue.send': { sessionId: string };
+  'queue.remove': { sessionId: string; messageId: string };
+  'background.stop': { sessionId: string; taskId: string };
+  'command.output': { sessionId: string; commandId: string };
+  'command.retry': { sessionId: string; commandId: string };
+  'command.stop': { sessionId: string; commandId: string };
+  /** The New PR form's pre-fill, and creating the request; the form is checked there as the route checks it. */
+  'pr.prepare': { sessionId: string; generated: boolean };
+  'pr.create': { sessionId: string; title: unknown; body: unknown; base: unknown; draft: unknown; autopilot?: unknown };
+  'pr.mergePreview': { sessionId: string; number: number };
+  'pr.merge': { sessionId: string; number: number; sha: string; base: string; method: string };
 }
+
+/** The Details sources another desktop may ask of a session (details-api.ts's sections). */
+export const SESSION_SECTIONS = ['git', 'change-counts', 'repository', 'usage', 'pull-requests'] as const;
+export type SessionSection = (typeof SESSION_SECTIONS)[number];
+/** A path inside a session's folder, as the routes take it; the route there confines it to the folder. */
+export const PATH_MAX = 4096;
 
 /** As many findings as one Fix sends (the review-end route's own limit). */
 export const FINDING_IDS_MAX = 50;
@@ -151,6 +201,8 @@ const id = (a: Args, field: string): Checked<string> => (typeof a[field] === 'st
 const optional = <T>(a: Args, field: string, check: (a: Args, f: string) => Checked<T>): Checked<T | undefined> => (a[field] === undefined ? { ok: true, value: undefined } : check(a, field));
 const text = (max: number, allowEmpty = false) => (a: Args, field: string): Checked<string> =>
   typeof a[field] === 'string' && (a[field] as string).length <= max && (allowEmpty || (a[field] as string).trim() !== '') ? { ok: true, value: a[field] as string } : fail(`${field} must be ${allowEmpty ? '' : 'non-empty '}text of at most ${max} characters.`);
+/** A pull request's number, as the merge route takes it. */
+const requestNumber = (a: Args, field: string): Checked<number> => (Number.isSafeInteger(a[field]) && (a[field] as number) >= 1 ? { ok: true, value: a[field] as number } : fail(`${field} must be a request's number.`));
 const count = (a: Args, field: string): Checked<number> =>
   Number.isInteger(a[field]) && (a[field] as number) >= 1 && (a[field] as number) <= PAGE_MAX ? { ok: true, value: a[field] as number } : fail(`${field} must be a whole number from 1 to ${PAGE_MAX}.`);
 
@@ -171,6 +223,13 @@ const ids = (max: number) => (a: Args, field: string): Checked<string[]> => {
   const v = a[field];
   return Array.isArray(v) && v.length <= max && v.every((x) => typeof x === 'string' && KEY.test(x)) ? { ok: true, value: v as string[] } : fail(`${field} must be a list of at most ${max} ids.`);
 };
+/** As controls-api.ts: an effort is a short word, empty for the model's default. */
+const EFFORT = /^[a-z]{0,16}$/;
+/** A path inside a session's folder ('' is the folder itself); the route there confines it. */
+const path = (a: Args, field: string): Checked<string> => (typeof a[field] === 'string' && (a[field] as string).length <= PATH_MAX && !/[\u0000-\u001f]/.test(a[field] as string) ? { ok: true, value: a[field] as string } : fail(`${field} must be a path of at most ${PATH_MAX} characters.`));
+/** A file of the message box, in base64: any kind, at most what one attached file may be. */
+const fileData = (a: Args, field: string): Checked<string> => (typeof a[field] === 'string' && (a[field] as string).length > 0 && (a[field] as string).length <= PHOTO_MAX_BASE64 && /^[A-Za-z0-9+/]*={0,2}$/.test(a[field] as string) ? { ok: true, value: a[field] as string } : fail(`${field} must be the file in base64, at most 20 MB.`));
+const asIs = (a: Args, field: string): Checked<unknown> => ({ ok: true, value: a[field] });
 const flag = (a: Args, field: string): Checked<boolean> => (typeof a[field] === 'boolean' ? { ok: true, value: a[field] as boolean } : fail(`${field} must be true or false.`));
 
 /** The files a message names: `draftId` and the ids uploaded to it with `session.attach`. Checked again by the runtime. */
@@ -234,8 +293,10 @@ interface OpSpec {
   /** The fields it takes; anything else is refused. */
   fields: readonly string[];
   check: (a: Args) => Checked<Args>;
-  /** Who may ask it: absent is any device of the keyring; 'desk' is a desktop only, and a phone is refused with `NEVER_REMOTE.setup`'s words. */
+  /** Who may ask it: absent is any device of the keyring; 'desk' is a desktop only, and a phone is refused (`phoneRefusal`). */
   who?: 'desk';
+  /** For a desk-only operation: the `NEVER_REMOTE` reason a phone is refused with; absent, it is told it is not something Kestrel Connect does. */
+  never?: string;
 }
 
 /** The list (spec section 4). Closed: a request for anything not here is refused. */
@@ -260,11 +321,20 @@ export const CONNECT_OPS: { readonly [K in ConnectOp]: OpSpec } = {
       }),
   },
   'session.reply': {
-    mapsTo: 'POST /api/sessions/:id/reply',
-    fields: ['sessionId', 'text', 'draftId', 'attachments'],
+    mapsTo: 'POST /api/sessions/:id/reply (the model, effort, fast mode and mode from a desktop only, never Bypass)',
+    fields: ['sessionId', 'text', 'draftId', 'attachments', 'model', 'permission', 'effort', 'fast'],
     check: (a) => {
+      if (a.permission === 'bypass') return fail(BYPASS_FROM_ELSEWHERE);
       const f = files(a);
-      return all({ sessionId: id(a, 'sessionId'), text: text(MESSAGE_MAX, f.ok && f.value.attachments !== undefined)(a, 'text'), ...spread(f) });
+      return all({
+        sessionId: id(a, 'sessionId'),
+        text: text(MESSAGE_MAX, f.ok && f.value.attachments !== undefined)(a, 'text'),
+        ...spread(f),
+        model: optional(a, 'model', modelId),
+        permission: optional(a, 'permission', (b, field) => (isPermissionLevel(b[field]) ? { ok: true as const, value: b[field] as PermissionLevel } : fail(`${field} must be a mode: ask, auto, edits, plan or readonly.`))),
+        effort: optional(a, 'effort', (b, field) => (typeof b[field] === 'string' && EFFORT.test(b[field] as string) ? { ok: true, value: b[field] as string } : fail(`${field} must be a level name such as low, medium or high, or empty for the default.`))),
+        fast: optional(a, 'fast', flag),
+      });
     },
   },
   'session.answer': {
@@ -273,6 +343,7 @@ export const CONNECT_OPS: { readonly [K in ConnectOp]: OpSpec } = {
     check: (a) => all({ sessionId: id(a, 'sessionId'), requestId: id(a, 'requestId'), optionId: optional(a, 'optionId', id), text: optional(a, 'text', text(2000, true)), answers: answers(a) }),
   },
   'session.stop': { mapsTo: 'POST /api/sessions/:id/stop', fields: ['sessionId'], check: (a) => all({ sessionId: id(a, 'sessionId') }) },
+  'session.archive': { mapsTo: 'POST /api/archive (kind session)', fields: ['sessionId', 'archived', 'skipScript'], check: (a) => all({ sessionId: id(a, 'sessionId'), archived: flag(a, 'archived'), skipScript: optional(a, 'skipScript', flag) }) },
   // Matt, 2026-11-24: "Within the context stuff, there should be a button to trigger compacting the convo"
   // (kestrel-connect.md, "The context window, and Compact"). The same call the window's button makes.
   'session.compact': { mapsTo: 'POST /api/sessions/:id/compact', fields: ['sessionId'], check: (a) => all({ sessionId: id(a, 'sessionId') }) },
@@ -352,9 +423,53 @@ export const CONNECT_OPS: { readonly [K in ConnectOp]: OpSpec } = {
     check: (a) => all({ sessionId: id(a, 'sessionId'), cardId: id(a, 'cardId'), action: oneOf(REVIEW_END_ACTIONS)(a, 'action'), findingIds: optional(a, 'findingIds', ids(FINDING_IDS_MAX)) }),
   },
   // Copying a set-up step's values (onboarding.md section 19): desk to desk, on a click there and Allow here.
-  'setup.values': { mapsTo: 'the request card on Set up this computer and Connections (setup-values/requests.ts)', who: 'desk', fields: ['requestId', 'line', 'names'], check: (a) => all({ requestId: id(a, 'requestId'), line: setupLine(a, 'line'), names: valueNames(a, 'names') }) },
-  'setup.values.withdraw': { mapsTo: 'the request card goes (setup-values/requests.ts)', who: 'desk', fields: ['requestId'], check: (a) => all({ requestId: id(a, 'requestId') }) },
+  'setup.values': { mapsTo: 'the request card on Set up this computer and Connections (setup-values/requests.ts)', who: 'desk', never: 'setup', fields: ['requestId', 'line', 'names'], check: (a) => all({ requestId: id(a, 'requestId'), line: setupLine(a, 'line'), names: valueNames(a, 'names') }) },
+  'setup.values.withdraw': { mapsTo: 'the request card goes (setup-values/requests.ts)', who: 'desk', never: 'setup', fields: ['requestId'], check: (a) => all({ requestId: id(a, 'requestId') }) },
+  // A session on another computer drawn as one here (Matt, 2026-11-27; account-sessions.md, "A session on another
+  // computer drawn as one here, as built"). Desk only: a phone gets none of these. Each calls the route's own function
+  // there (session-routes.ts), with that computer's checks; a file is confined to the session's folder by the same code.
+  'session.snapshot': { mapsTo: 'the watch message\'s snapshot (runtime.snapshot), less the conversation', who: 'desk', fields: ['sessionId'], check: (a) => all({ sessionId: id(a, 'sessionId') }) },
+  'session.details': { mapsTo: 'GET /api/sessions/:id/{git,change-counts,repository,usage,pull-requests}', who: 'desk', fields: ['sessionId', 'section', 'refresh'], check: (a) => all({ sessionId: id(a, 'sessionId'), section: oneOf(SESSION_SECTIONS)(a, 'section'), refresh: optional(a, 'refresh', flag) }) },
+  'session.context': { mapsTo: 'GET /api/sessions/:id/context', who: 'desk', fields: ['sessionId'], check: (a) => all({ sessionId: id(a, 'sessionId') }) },
+  'session.files': { mapsTo: 'GET /api/sessions/:id/files', who: 'desk', never: 'files', fields: ['sessionId', 'path', 'folder'], check: (a) => all({ sessionId: id(a, 'sessionId'), path: path(a, 'path'), folder: optional(a, 'folder', id) }) },
+  'session.file': { mapsTo: 'GET /api/sessions/:id/file', who: 'desk', never: 'files', fields: ['sessionId', 'path', 'folder'], check: (a) => all({ sessionId: id(a, 'sessionId'), path: path(a, 'path'), folder: optional(a, 'folder', id) }) },
+  'session.document': { mapsTo: 'GET /api/sessions/:id/document', who: 'desk', never: 'files', fields: ['sessionId', 'path'], check: (a) => all({ sessionId: id(a, 'sessionId'), path: path(a, 'path') }) },
+  'session.documentPlace': { mapsTo: 'GET /api/sessions/:id/document-place', who: 'desk', never: 'files', fields: ['sessionId', 'path'], check: (a) => all({ sessionId: id(a, 'sessionId'), path: path(a, 'path') }) },
+  'session.raw': { mapsTo: 'GET /api/sessions/:id/raw', who: 'desk', never: 'files', fields: ['sessionId', 'path'], check: (a) => all({ sessionId: id(a, 'sessionId'), path: path(a, 'path') }) },
+  'session.attachFile': {
+    mapsTo: 'POST /api/attachments/drafts/:draftId (any file the message box takes, from a desktop)',
+    who: 'desk',
+    never: 'files',
+    fields: ['draftId', 'name', 'mediaType', 'data'],
+    check: (a) => all({ draftId: id(a, 'draftId'), name: text(200)(a, 'name'), mediaType: typeof a.mediaType === 'string' && /^[a-z]{1,20}\/[A-Za-z0-9.+-]{1,100}$/.test(a.mediaType) ? { ok: true, value: a.mediaType } : fail('mediaType must be a media type such as text/plain.'), data: fileData(a, 'data') }),
+  },
+  'session.rename': { mapsTo: 'PATCH /api/sessions/:id', who: 'desk', never: 'session.rename', fields: ['sessionId', 'title'], check: (a) => all({ sessionId: id(a, 'sessionId'), title: text(200)(a, 'title') }) },
+  'session.delete': { mapsTo: 'DELETE /api/sessions/:id', who: 'desk', fields: ['sessionId'], check: (a) => all({ sessionId: id(a, 'sessionId') }) },
+  'session.tag': { mapsTo: 'POST /api/sessions/:id/tags, DELETE /api/sessions/:id/tags/:tag', who: 'desk', fields: ['sessionId', 'tag', 'on'], check: (a) => all({ sessionId: id(a, 'sessionId'), tag: text(200)(a, 'tag'), on: flag(a, 'on') }) },
+  'session.role': { mapsTo: 'POST /api/sessions/:id/role', who: 'desk', fields: ['sessionId', 'role', 'brief'], check: (a) => all({ sessionId: id(a, 'sessionId'), role: oneOf(['design', 'build'] as const)(a, 'role'), brief: optional(a, 'brief', text(MESSAGE_MAX, true)) }) },
+  'session.reviewOf': { mapsTo: 'GET /api/sessions/:id/review', who: 'desk', fields: ['sessionId'], check: (a) => all({ sessionId: id(a, 'sessionId') }) },
+  'session.review': { mapsTo: 'POST /api/sessions/:id/review', who: 'desk', fields: ['sessionId', 'comment'], check: (a) => all({ sessionId: id(a, 'sessionId'), comment: optional(a, 'comment', flag) }) },
+  'session.fork': { mapsTo: 'POST /api/sessions/:id/fork', who: 'desk', fields: ['sessionId', 'turn'], check: (a) => all({ sessionId: id(a, 'sessionId'), turn: optional(a, 'turn', id) }) },
+  'queue.send': { mapsTo: 'POST /api/sessions/:id/queue/send', who: 'desk', fields: ['sessionId'], check: (a) => all({ sessionId: id(a, 'sessionId') }) },
+  'queue.remove': { mapsTo: 'DELETE /api/sessions/:id/queue/:messageId', who: 'desk', fields: ['sessionId', 'messageId'], check: (a) => all({ sessionId: id(a, 'sessionId'), messageId: id(a, 'messageId') }) },
+  'background.stop': { mapsTo: 'POST /api/sessions/:id/background-tasks/:taskId/stop', who: 'desk', fields: ['sessionId', 'taskId'], check: (a) => all({ sessionId: id(a, 'sessionId'), taskId: id(a, 'taskId') }) },
+  'command.output': { mapsTo: 'GET /api/sessions/:id/commands/:commandId/output', who: 'desk', fields: ['sessionId', 'commandId'], check: (a) => all({ sessionId: id(a, 'sessionId'), commandId: id(a, 'commandId') }) },
+  'command.retry': { mapsTo: 'POST /api/sessions/:id/commands/:commandId/retry', who: 'desk', fields: ['sessionId', 'commandId'], check: (a) => all({ sessionId: id(a, 'sessionId'), commandId: id(a, 'commandId') }) },
+  'command.stop': { mapsTo: 'POST /api/sessions/:id/commands/:commandId/stop', who: 'desk', fields: ['sessionId', 'commandId'], check: (a) => all({ sessionId: id(a, 'sessionId'), commandId: id(a, 'commandId') }) },
+  'pr.prepare': { mapsTo: 'POST /api/sessions/:id/pr-prepare', who: 'desk', fields: ['sessionId', 'generated'], check: (a) => all({ sessionId: id(a, 'sessionId'), generated: flag(a, 'generated') }) },
+  // The form is passed on as it came: validatePRForm checks it there, for a desktop as for the window.
+  'pr.create': { mapsTo: 'POST /api/sessions/:id/pr-create', who: 'desk', fields: ['sessionId', 'title', 'body', 'base', 'draft', 'autopilot'], check: (a) => all({ sessionId: id(a, 'sessionId'), title: asIs(a, 'title'), body: asIs(a, 'body'), base: asIs(a, 'base'), draft: asIs(a, 'draft'), autopilot: asIs(a, 'autopilot') }) },
+  'pr.mergePreview': { mapsTo: 'POST /api/sessions/:id/pr-merge-preview', who: 'desk', fields: ['sessionId', 'number'], check: (a) => all({ sessionId: id(a, 'sessionId'), number: requestNumber(a, 'number') }) },
+  'pr.merge': { mapsTo: 'POST /api/sessions/:id/pr-merge', who: 'desk', fields: ['sessionId', 'number', 'sha', 'base', 'method'], check: (a) => all({ sessionId: id(a, 'sessionId'), number: requestNumber(a, 'number'), sha: typeof a.sha === 'string' && /^[a-f0-9]{40,64}$/i.test(a.sha) ? { ok: true, value: a.sha } : fail('sha must be the commit the preview showed.'), base: text(300)(a, 'base'), method: text(40)(a, 'method') }) },
 };
+
+/** Why a phone is refused an operation only a desktop may ask: its `NEVER_REMOTE` reason, or that it is not something Kestrel Connect does. */
+export function phoneRefusal(op: ConnectOp): string {
+  const never = CONNECT_OPS[op].never;
+  return (never && NEVER_REMOTE[never]) || notConnect(op);
+}
+
+const notConnect = (op: string): string => `A phone cannot ask for "${op.slice(0, 60)}": it is not something Kestrel Connect does.`;
 
 /** Whether only a desktop of the keyring may ask an operation (a phone is refused). */
 export const deskOnly = (op: ConnectOp): boolean => CONNECT_OPS[op].who === 'desk';
@@ -363,8 +478,11 @@ export const CONNECT_OP_NAMES = Object.keys(CONNECT_OPS) as ConnectOp[];
 export const isConnectOp = (value: unknown): value is ConnectOp => typeof value === 'string' && Object.hasOwn(CONNECT_OPS, value);
 
 /**
- * What is never done from a phone, whatever the account says (spec section 4). Not operations: the
- * reasons a request for one of these is refused, so the phone can say why.
+ * What is never done from a phone, whatever the account says (spec section 4): the reasons a phone's request for one
+ * of these is refused, so it can say why. Some name what a desktop of the account may now do on another desktop's
+ * session (rename, a model or mode on the next message, a session's files): those are desk-only operations of the
+ * list (`who: 'desk'`, `never` naming the reason here), and a phone asking one gets these words (`phoneRefusal`). The
+ * terminal, the browser pane and the simulator pane stay on the computer the session runs on for a desktop too.
  */
 export const NEVER_REMOTE: Readonly<Record<string, string>> = {
   terminal: 'The terminal is only at the desk.',
@@ -378,7 +496,6 @@ export const NEVER_REMOTE: Readonly<Record<string, string>> = {
   'review-mode': 'How reviews start is changed at the desk.',
   'session.rename': 'A session is renamed at the desk.',
   'session.move': 'A session is moved at the desk.',
-  'session.archive': 'A session is archived at the desk.',
   'session.model': 'A session\'s model is changed at the desk.',
   'session.permission': 'A session\'s mode is changed at the desk.',
   pair: 'Devices are paired at a desk or an already-paired phone, never by a request.',
@@ -396,7 +513,7 @@ export function checkRequest(raw: unknown): Checked<ConnectRequest> {
   const { op, args = {} } = raw as { op?: unknown; args?: unknown };
   if (!isConnectOp(op)) {
     const never = typeof op === 'string' ? Object.entries(NEVER_REMOTE).find(([k]) => op === k || op.startsWith(`${k}.`)) : undefined;
-    return fail(never ? never[1] : `A phone cannot ask for ${typeof op === 'string' ? `"${op.slice(0, 60)}"` : 'that'}: it is not something Kestrel Connect does.`);
+    return fail(never ? never[1] : typeof op === 'string' ? notConnect(op) : 'A phone cannot ask for that: it is not something Kestrel Connect does.');
   }
   if (typeof args !== 'object' || args === null || Array.isArray(args)) return fail('args must be an object.');
   const spec = CONNECT_OPS[op];
@@ -406,4 +523,24 @@ export function checkRequest(raw: unknown): Checked<ConnectRequest> {
   if (!checked.ok) return checked;
   const value = op === 'session.read' ? { sessionId: checked.value.sessionId, page: checked.value.page } : checked.value;
   return { ok: true, value: { op, args: value } as ConnectRequest };
+}
+
+/** Which change a reply carries, if any: the mode is named apart from the model, effort and fast mode. */
+export function replyChanges(args: ConnectOpArgs['session.reply']): 'permission' | 'model' | null {
+  if (args.permission !== undefined) return 'permission';
+  return args.model !== undefined || args.effort !== undefined || args.fast !== undefined ? 'model' : null;
+}
+
+/**
+ * A request as the device that sent it may make it: a phone is refused every desk-only operation (in `NEVER_REMOTE`'s
+ * words where it has some, before its fields are looked at) and a model or mode on a message; a desktop of the keyring
+ * is checked by the list alone.
+ */
+export function checkRequestFrom(raw: unknown, desktop: boolean): Checked<ConnectRequest> {
+  const op = typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? (raw as { op?: unknown }).op : undefined;
+  if (!desktop && isConnectOp(op) && deskOnly(op)) return fail(phoneRefusal(op));
+  const checked = checkRequest(raw);
+  if (!checked.ok || desktop || checked.value.op !== 'session.reply') return checked;
+  const change = replyChanges(checked.value.args);
+  return change ? fail(NEVER_REMOTE[change === 'permission' ? 'session.permission' : 'session.model']!) : checked;
 }

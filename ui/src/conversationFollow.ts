@@ -1,5 +1,5 @@
-// How a conversation's page keeps to the end of it: one hook for a session here (SessionWorkspace.tsx) and one on
-// another computer (RemoteSession.tsx), so the two cannot drift. The transcript is virtualized (MessageList.tsx):
+// How a conversation's page keeps to the end of it: one hook for the session page (SessionWorkspace.tsx), whether the
+// session runs here or on another computer. The transcript is virtualized (MessageList.tsx):
 // the list starts drawing at the end, and this keeps the scroll area there while the reader has not scrolled up.
 //
 // - The conversation runs the full height and the message box floats over its foot (`.composer-dock`); the box's

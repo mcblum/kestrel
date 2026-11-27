@@ -131,7 +131,8 @@ export class ReplicaSync {
   private async prefetchRound(): Promise<void> {
     if (!this.deps.api() || !this.deps.key()) return;
     const [heads, marks] = await Promise.all([this.deps.replica.heads(), this.deps.replica.detailMarks()]);
-    const behind = heads.filter((h) => marks.get(h.id)?.stamp !== conversationStamp(h)).sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+    // An archived session's conversation is no longer held: the copy kept here stays as it is.
+    const behind = heads.filter((h) => !h.archived && marks.get(h.id)?.stamp !== conversationStamp(h)).sort((a, b) => b.lastActivityAt - a.lastActivityAt);
     const worker = async () => {
       for (let head = behind.shift(); head; head = behind.shift()) {
         // The link went down or the person signed out: the next pass starts again where the copies stand.
@@ -215,6 +216,8 @@ export class ReplicaSync {
 
   /** Reads the chunks that may have changed since the stored ones were read; false when the service cannot be asked. */
   private async fetch(head: AccountHead): Promise<boolean> {
+    // Archived there: its conversation is no longer held, and the copy kept here is not cut down to nothing.
+    if (head.archived) return false;
     const api = this.deps.api();
     const key = this.deps.key();
     if (!api || !key) return false;

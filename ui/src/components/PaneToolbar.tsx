@@ -33,7 +33,8 @@ export interface PaneButtonExtras {
   attention?: Partial<Record<PaneId, boolean>>;
 }
 
-export function PaneToolbar({ open, onToggle, extras = {} }: { open: OpenPanes; onToggle: (pane: PaneId) => void; extras?: PaneButtonExtras }) {
+/** `onBlocked`: a press on a pane that cannot work here says why (a session on another computer: "The terminal is on Mac mini."). */
+export function PaneToolbar({ open, onToggle, extras = {}, onBlocked }: { open: OpenPanes; onToggle: (pane: PaneId) => void; extras?: PaneButtonExtras; onBlocked?: (reason: string) => void }) {
   return (
     <div className="pane-icons" role="toolbar" aria-label="Side panes">
       {PANE_BUTTONS.map(({ id, label: fallback, icon: Icon }) => {
@@ -49,7 +50,7 @@ export function PaneToolbar({ open, onToggle, extras = {} }: { open: OpenPanes; 
             aria-disabled={blocked ? true : undefined}
             aria-label={count > 0 ? `${label}, ${extras.countLabels?.[id] ?? `${count} changed ${count === 1 ? 'file' : 'files'}`}` : label}
             title={blocked ?? extras.titles?.[id] ?? label}
-            onClick={() => !blocked && onToggle(id)}
+            onClick={() => (blocked ? onBlocked?.(blocked) : onToggle(id))}
           >
             <Icon aria-hidden />
             {!blocked && count > 0 && <span className="bar-count">{count}</span>}

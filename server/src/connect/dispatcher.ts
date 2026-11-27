@@ -11,7 +11,10 @@ import { isSetupRunTool, SETUP_AT_DESK } from '../shared/setup-agent.ts';
 import { Refused } from '../refused.ts';
 import type { SessionRuntime } from '../runtime.ts';
 import { setAutopilot } from '../pull-requests/autopilot-api.ts';
-import { checkEnvelope, checkRequest, CONNECT_PROTOCOL_VERSION, deskOnly, NEVER_REMOTE, isConnectId, versionRefusal, type ConnectOpArgs, type ConnectRequest, type ConnectResponse, type Envelope } from '../shared/connect-ops.ts';
+import { checkEnvelope, checkRequestFrom, CONNECT_PROTOCOL_VERSION, isConnectId, versionRefusal, type ConnectOpArgs, type ConnectRequest, type ConnectResponse, type Envelope } from '../shared/connect-ops.ts';
+import { carriedFiles } from '../shared/remote-carry.ts';
+import type { SessionRoute } from '../session-routes.ts';
+import { deskSessionOp, isDeskSessionRequest } from './desk-session.ts';
 import { pageRefusal, transcriptPage } from '../shared/transcript-page.ts';
 import type { PullRequestsAnswer, ReviewsAnswer, StateAnswer, TicketsAnswer } from '../shared/connect-lists.ts';
 import { ASIDE_REFUSAL } from '../shared/connect-ops.ts';
@@ -54,6 +57,8 @@ export interface ConnectDeps {
   desk?: DeskOps | null;
   /** Projects kept off Kestrel Connect: left out of what this computer offers, as its record leaves them out. */
   keptOff: () => readonly string[];
+  /** The session page's routes (session-routes.ts), which another desktop's desk-only operations call; absent, those are refused. */
+  sessionRoute?: SessionRoute | null;
 }
 
 /** The desk-only operations' part: who a device is, by this computer's keyring, and the set-up value requests. */
@@ -63,8 +68,12 @@ export interface DeskOps {
   values?: Pick<ValueRequests, 'ask' | 'withdraw' | 'dropDevice' | 'close'> | null;
 }
 
-/** What of a live patch a phone is sent: the conversation as the window shows it, cards and all, and where it stands; never the terminal-side panes. */
-function remotePatch(patch: LivePatch): LivePatch | null {
+/**
+ * What of a live patch another device is sent: for a phone, the conversation as the window shows it, cards and all, and
+ * where it stands; for a desktop also what its window draws beside the conversation (the changed files as carried, the
+ * commands, background work and helpers), so the page there is this page. Never the agent's raw output.
+ */
+function remotePatch(patch: LivePatch, desk: boolean): LivePatch | null {
   const out: LivePatch = {
     ...(patch.messages ? { messages: patch.messages } : {}),
     ...(patch.removedMessages ? { removedMessages: patch.removedMessages } : {}),
@@ -74,12 +83,28 @@ function remotePatch(patch: LivePatch): LivePatch | null {
     ...(patch.replacedBy ? { replacedBy: patch.replacedBy } : {}),
     // How full the context window is, as the window's ring shows it; counts and category names only.
     ...(patch.context ? { context: patch.context } : {}),
+    ...(desk ? deskPart(patch) : {}),
   };
   return Object.keys(out).length > 0 ? out : null;
 }
 
 /** What a device reads and is then sent again when it changes: a list, or the state (only when what was seen changed). */
 type ReadKind = ListKind | 'state';
+/** What only a desktop is sent of a live patch (`remotePatch`). */
+function deskPart(patch: LivePatch): LivePatch {
+  return {
+    ...(patch.files ? { files: carriedFiles(patch.files) } : {}),
+    ...(patch.filesProblem !== undefined ? { filesProblem: patch.filesProblem } : {}),
+    ...(patch.subagents ? { subagents: patch.subagents } : {}),
+    ...(patch.subagentsAfter !== undefined ? { subagentsAfter: patch.subagentsAfter } : {}),
+    ...(patch.backgroundTasks ? { backgroundTasks: patch.backgroundTasks } : {}),
+    ...(patch.commands ? { commands: patch.commands } : {}),
+    ...(patch.slashCommands ? { slashCommands: patch.slashCommands } : {}),
+    ...(patch.kestrelTools ? { kestrelTools: patch.kestrelTools } : {}),
+    ...(patch.kestrelMissing ? { kestrelMissing: patch.kestrelMissing } : {}),
+    ...(patch.mcpServers ? { mcpServers: patch.mcpServers } : {}),
+  };
+}
 
 const SOMETHING_WENT_WRONG = (here: string) => `Something went wrong on ${here}. Try again, or look at Kestrel there.`;
 
@@ -132,10 +157,9 @@ export class ConnectDispatcher {
 
   /** Carries out one decrypted request body for a device. Never throws: a refusal is the answer. */
   async answer(device: string, body: unknown): Promise<ConnectResponse> {
-    const request = checkRequest(body);
+    // Desk-only operations, and a model or mode on a message, only from a desktop of this computer's keyring (onboarding.md 19.6).
+    const request = checkRequestFrom(body, this.deps.desk?.kindOf(device) === 'desktop');
     if (!request.ok) return { ok: false, reason: request.reason };
-    // A desk-only operation from anything but a desktop of this computer's keyring is refused (onboarding.md 19.6).
-    if (deskOnly(request.value.op) && this.deps.desk?.kindOf(device) !== 'desktop') return { ok: false, reason: NEVER_REMOTE.setup! };
     try {
       return { ok: true, result: await this.run(device, request.value) };
     } catch (error) {
@@ -176,6 +200,11 @@ export class ConnectDispatcher {
   private async run(device: string, request: ConnectRequest): Promise<unknown> {
     // A sidebar is used only beside its conversation at the desk: no op acts on one (kestrel-connect.md, "Sidebars").
     if ('sessionId' in request.args) await this.notAside(request.args.sessionId);
+    // A session's page as another desktop shows it: the route's own function (desk-session.ts).
+    if (isDeskSessionRequest(request)) {
+      await this.session(request.args.sessionId);
+      return deskSessionOp(request, this.deps.sessionRoute ?? null, this.deps.runtime, this.deps.here);
+    }
     switch (request.op) {
       case 'state.read':
         this.markRead(device, 'state');
@@ -255,6 +284,8 @@ export class ConnectDispatcher {
       case 'setup.values.withdraw':
         this.deps.desk?.values?.withdraw(device, request.args.requestId);
         return {};
+      case 'session.attachFile':
+        return this.attach(request.args);
     }
   }
 
@@ -313,16 +344,18 @@ export class ConnectDispatcher {
     return { watching: true };
   }
 
-  private async attach({ draftId, name, mediaType, data }: ConnectOpArgs['session.attach']) {
+  private async attach({ draftId, name, mediaType, data }: ConnectOpArgs['session.attach'] | ConnectOpArgs['session.attachFile']) {
     const bytes = Buffer.from(data, 'base64');
-    if (bytes.length === 0) throw new Refused('That photo is empty.');
+    if (bytes.length === 0) throw new Refused(mediaType.startsWith('image/') ? 'That photo is empty.' : `${name} is empty.`);
     return this.deps.runtime.attachments.saveDraft(draftId, { name, mediaType }, bytes);
   }
 
-  private async replyTo({ sessionId, text, draftId, attachments }: ConnectOpArgs['session.reply']) {
+  private async replyTo({ sessionId, text, draftId, attachments, model, permission, effort, fast }: ConnectOpArgs['session.reply']) {
     await this.session(sessionId);
-    // No change of model or mode rides on a phone's message: the session goes on as it was set at the desk.
-    const outcome = await this.deps.runtime.reply(sessionId, text, {}, { draft: draftRefs({ draftId, attachments }) });
+    // A desktop's message carries its model, effort, fast mode and mode as the window's route takes them (refused from
+    // a phone in `answer`, and Bypass by the list's check); a phone's goes on as the session was set at the desk.
+    const settings = { ...(model !== undefined ? { model: model.slice(0, 80) } : {}), ...(permission !== undefined ? { permission } : {}), ...(effort !== undefined ? { effort } : {}), ...(fast !== undefined ? { fast } : {}) };
+    const outcome = await this.deps.runtime.reply(sessionId, text, settings, { draft: draftRefs({ draftId, attachments }) });
     return { outcome };
   }
 
@@ -500,9 +533,7 @@ export class ConnectDispatcher {
   /** Gathered for a moment and sent once per session to each device watching it, as the window's live channel does. */
   private publish(sessionId: string, patch: LivePatch): void {
     if (!this.watched(sessionId)) return;
-    const remote = remotePatch(patch);
-    if (!remote) return;
-    this.pending.set(sessionId, mergePatch(this.pending.get(sessionId) ?? {}, remote));
+    this.pending.set(sessionId, mergePatch(this.pending.get(sessionId) ?? {}, patch));
     this.timer ??= setTimeout(() => this.flush(), LIVE_FLUSH_MS);
   }
 
@@ -511,9 +542,15 @@ export class ConnectDispatcher {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     this.flushLists();
-    for (const [sessionId, patch] of this.pending) {
+    for (const [sessionId, gathered] of this.pending) {
+      // Shaped once per kind of device: a phone gets the conversation's part, a desktop the page's too.
+      const shaped = new Map<boolean, LivePatch | null>();
       for (const [device, ids] of this.watching) {
-        if (ids.has(sessionId)) this.deps.send({ v: CONNECT_PROTOCOL_VERSION, from: this.deps.deviceId, to: device, kind: 'push', id: this.newId(), body: { type: 'live', sessionId, patch } });
+        if (!ids.has(sessionId)) continue;
+        const desk = this.deps.desk?.kindOf(device) === 'desktop';
+        if (!shaped.has(desk)) shaped.set(desk, remotePatch(gathered, desk));
+        const patch = shaped.get(desk);
+        if (patch) this.deps.send({ v: CONNECT_PROTOCOL_VERSION, from: this.deps.deviceId, to: device, kind: 'push', id: this.newId(), body: { type: 'live', sessionId, patch } });
       }
     }
     this.pending.clear();

@@ -15,6 +15,14 @@ describe('workingTreeOf', () => {
     expect(workingTreeOf(guest, find(host, guest))).toEqual({ tree: { path: '/wt/h', branch: 'kestrel/inputs', ownerId: 'h', host: { id: 'h', title: 'Fix the inputs' } } });
   });
 
+  it('gives a session on another computer its branch there, with no folder here', () => {
+    const away: TreeSession = { id: 'a', title: 'Away', worktreePath: null, branch: 'kestrel/away', worktreeDiscarded: false, runsOn: 'mini-1' };
+    expect(workingTreeOf(away, find(away))).toEqual({ tree: { path: '', branch: 'kestrel/away', ownerId: 'a', host: null } });
+    const awayGuest: TreeSession = { ...guest, id: 'ag', hostId: 'a', runsOn: 'mini-1' };
+    expect(workingTreeOf(awayGuest, find(away, awayGuest)).tree).toEqual({ path: '', branch: 'kestrel/away', ownerId: 'a', host: { id: 'a', title: 'Away' } });
+    expect(workingTreeOf({ ...away, branch: null }, find(away)).tree).toBeNull();
+  });
+
   it('finds an archived host', () => {
     expect(workingTreeOf(guest, sessionFinder({ sessions: [guest], archived: { sessions: [host] } })).tree?.path).toBe('/wt/h');
   });

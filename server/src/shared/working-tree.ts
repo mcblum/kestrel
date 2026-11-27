@@ -8,7 +8,7 @@
 // (working-tree-disk.ts).
 import type { Session } from '../model.ts';
 
-export type TreeSession = Pick<Session, 'id' | 'title' | 'worktreePath' | 'branch' | 'worktreeDiscarded' | 'hostId'>;
+export type TreeSession = Pick<Session, 'id' | 'title' | 'worktreePath' | 'branch' | 'worktreeDiscarded' | 'hostId' | 'runsOn'>;
 
 /** The session a guest works for, named. */
 export interface HostRef {
@@ -17,6 +17,7 @@ export interface HostRef {
 }
 
 export interface WorkingTree {
+  /** Its folder on this computer; '' for a session on another computer, whose folder is there (`runsOn`). */
   path: string;
   /** The branch recorded for the worktree; null when none is. */
   branch: string | null;
@@ -38,8 +39,21 @@ export const HOST_GONE = 'The session whose worktree this one worked in is gone'
 const hostWorks = (title: string) => `"${title}" works in the main checkout, so there is no worktree to compare with`;
 const hostDiscarded = (title: string) => `The worktree of "${title}", where this session worked, was discarded`;
 
+/**
+ * A session on another computer of the account works in a worktree there: its branch (its host's for a guest) is
+ * what this computer knows of it, and its folder is that computer's, so it has no path here. Its panes read through
+ * that computer (account-sessions.md, "A session on another computer drawn as one here, as built").
+ */
+function treeElsewhere(session: TreeSession, find: FindSession): WorkingTreeAnswer {
+  const host = session.hostId ? find(session.hostId) : undefined;
+  const owner = host ?? session;
+  if (!owner.branch) return { tree: null, reason: MAIN_CHECKOUT, host: null, discarded: false };
+  return { tree: { path: '', branch: owner.branch, ownerId: owner.id, host: host ? { id: host.id, title: host.title } : null } };
+}
+
 /** Where `session` works: its worktree, its host's for a guest, or null with the reason. */
 export function workingTreeOf(session: TreeSession, find: FindSession): WorkingTreeAnswer {
+  if (session.runsOn) return treeElsewhere(session, find);
   if (session.hostId) {
     const host = find(session.hostId);
     if (!host) return { tree: null, reason: HOST_GONE, host: null, discarded: false };

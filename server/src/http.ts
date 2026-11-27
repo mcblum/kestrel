@@ -1,24 +1,19 @@
-import { mergePRRoute } from './pull-requests/merge-api.ts';
 import { autopilotRoute } from './pull-requests/autopilot-api.ts';
-import { fileToRead, placeOf } from './file-to-read.ts';
 import { WORKSTREAM_NAME_MAX, WORKSTREAM_OBJECTIVE_MAX } from './shared/workstreams.ts';
 import { landingRoute, worktreesRoute } from './landing-api.ts';
 // HTTP and WebSocket API. Thin: checks access, validates input, calls the Workspace.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { isSelectableAgent, SELECTABLE_AGENTS, type Agent, type ChatMessage, type Project, type SessionView } from './model.ts';
-import { conversationStamp, remoteRefusal, whereIsMachine, type Machine } from './shared/machines.ts';
+import { conversationStamp, notReachedRead, remoteRefusal, whereIsMachine, type Machine } from './shared/machines.ts';
 import { notChangedHereRefusal, notHereRefusal } from './shared/account-projects.ts';
 import { thisComputer } from './shared/platform.ts';
 import { isPermissionLevel } from './shared/permissions.ts';
 import { sanitize } from './shared/tabs.ts';
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { extname } from 'node:path';
-import { IMAGE_TYPES } from './display.ts';
+import { readFileSync } from 'node:fs';
 import { attachmentRoute, draftRefs } from './attachments/api.ts';
-import { OutsideFolder, listDirectory, readFileContent, resolveInside } from './files.ts';
 import { Terminals } from './terminals.ts';
-import { noFolderReason, terminalFolder } from './scope-folder.ts';
+import { terminalFolder } from './scope-folder.ts';
 import { scopeKey } from './shared/scope.ts';
 import { terminalSocket, type TerminalMessage } from './terminal-socket.ts';
 import { isBrowserMessage } from './browser-bridge.ts';
@@ -37,7 +32,6 @@ import { whoDoesWhatRoute } from './who-does-what/api.ts';
 import { cleanupPolicyRoute } from './cleanup/api.ts';
 import { notificationsRoute } from './notifications/api.ts';
 import { gitDefaultsRoute } from './git-defaults/api.ts';
-import { AUTOMATIC } from './shared/git-defaults.ts';
 import { savedActionsRoute } from './saved-actions/api.ts';
 import { resolveAction, type PreviewWait } from './saved-actions/run.ts';
 import { projectEnvRoute } from './project-env/api.ts';
@@ -56,15 +50,13 @@ import type { CrashReportSetup } from './shared/crash-reports.ts';
 import { sandboxAllowRoute } from './sandbox-allow/api.ts';
 import { projectRoute } from './project-api.ts';
 import { projectPath } from './shared/project-folders.ts';
-import { detailsRoute, detailsSources, type DetailsSources } from './details-api.ts';
+import { detailsSources, type DetailsSources } from './details-api.ts';
 import { asReviewOrder } from './shared/review-requests.ts';
 import type { ReviewRequestStore } from './review-requests/store.ts';
 import { ticketsRoute, type TicketsApi } from './tickets/api.ts';
 import { reviewSettingsRoute } from './review-settings/api.ts';
 import { coloursRoute } from './colours/api.ts';
 import { pullRequestListRoute } from './pull-request-list-api.ts';
-import { createPRRoutes } from './pull-requests/create-api.ts';
-import { samplePullRequests } from './pull-requests/fake.ts';
 import type { TitleProvider } from './agents/title-providers.ts';
 import { onboardingRoute } from './onboarding/api.ts';
 import { controlsRoute, speedFields } from './controls-api.ts';
@@ -97,15 +89,12 @@ import { FINDING_ACTIONS, isFindingAction } from './finding-actions.ts';
 import { isReviewEndAction, REVIEW_END_ACTIONS } from './review-end.ts';
 import type { SessionRuntime } from './runtime.ts';
 import { Refused, type Workspace } from './workspace.ts';
+import { BadRequest, decodedSegment, optionalId, str } from './request-fields.ts';
+import { scopeFiles, sessionRoutes, type SessionRoutes } from './session-routes.ts';
 
 const MAX_BODY_BYTES = 64 * 1024;
 /** Writes that land within this window go out as one broadcast. */
 const BROADCAST_COALESCE_MS = 15;
-
-/** A local picture a markdown image may point at. */
-const RAW_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
-
-class BadRequest extends Error {}
 
 /** Effort and fast mode from a body (controls-api.ts), a bad value as a 400. */
 function speed(body: Record<string, unknown>): ReturnType<typeof speedFields> {
@@ -129,20 +118,10 @@ function answersOf(value: unknown): Record<string, string> | undefined {
   return Object.fromEntries(entries) as Record<string, string>;
 }
 
-function str(value: unknown, field: string, max = 400): string {
-  if (typeof value !== 'string' || !value.trim()) throw new BadRequest(`${field} is required`);
-  if (value.length > max) throw new BadRequest(`${field} is too long`);
-  return value.trim();
-}
 /** A message's text, which may be empty when it carries files. */
 function messageText(value: unknown, field: string, hasFiles: boolean): string {
   if (hasFiles && (value === undefined || value === null || value === '')) return '';
   return str(value, field, 20_000);
-}
-function optionalId(value: unknown, field: string): string | null {
-  if (value === null || value === undefined) return null;
-  if (typeof value !== 'string' || value.length > 100) throw new BadRequest(`${field} must be an id or null`);
-  return value;
 }
 
 async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
@@ -197,6 +176,8 @@ export interface KestrelServerOptions {
   whatsNew?: { store: WhatsNew; notes: NotesSource };
   /** Who may write a generated pull request's text: the title providers (index.ts). Default: none. */
   writers?: readonly TitleProvider[];
+  /** The session page's routes, shared with what another desktop asks (session-routes.ts). Default: built here. */
+  sessionRoutes?: SessionRoutes;
   /** How files are opened and shown in the file manager (file-open-api.ts); tests pass a stand-in runner. Default: this computer's own way (openers.ts). */
   /** Settings' Test for an MCP server (mcp-servers/probe.ts); tests pass a stand-in. Default: the real one. */
   mcpProbe?: (config: Record<string, unknown>) => Promise<ProbeResult>;
@@ -238,7 +219,7 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
   // The state is serialized once per change and the same string goes to every reader.
   let stateJson: Promise<string> | null = null;
   const detailsConfig = options.details ?? { sources: detailsSources(false), sample: false };
-  const createPRRoute = createPRRoutes({ samples: detailsConfig.sample ? (detailsConfig.sources.samples ?? samplePullRequests()) : null, writers: options.writers ?? [], gitDefaults: async (projectId) => (runtime ? runtime.gitDefaults.of(projectId) : AUTOMATIC), onCreated: (sessionId, autopilot) => runtime?.noteFormRequest(sessionId, autopilot) });
+  const sessionPage = options.sessionRoutes ?? sessionRoutes({ workspace, runtime: runtime ?? null, details: detailsConfig, writers: options.writers ?? [] });
   // Found once: which apps are installed does not change while Kestrel runs.
   let found: Openers | null = null;
   const openers = (): Openers => (found ??= openersFor(options.fileOpen?.platform ?? hostPlatform()));
@@ -258,12 +239,14 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
   const currentStateJson = () => (stateJson ??= workspace.view().then((s) => JSON.stringify(s)));
 
   /** A session that runs on another computer of the account, with that machine; null for this computer's own, and for none. */
-  async function remoteSession(id: string): Promise<{ session: SessionView; machine: Machine } | null> {
+  async function remoteSession(id: string): Promise<{ session: SessionView; machine: Machine; archived: boolean } | null> {
     const view = await workspace.view();
     if (!view.machines) return null;
-    const session = view.sessions.find((s) => s.id === id && s.runsOn);
+    // An archived one too: it is restored, or opened from Archived, through its machine.
+    const shown = view.sessions.find((s) => s.id === id && s.runsOn);
+    const session = shown ?? view.archived.sessions.find((s) => s.id === id && s.runsOn);
     if (!session?.runsOn) return null;
-    return { session, machine: whereIsMachine(session.runsOn, view.machines) };
+    return { session, machine: whereIsMachine(session.runsOn, view.machines), archived: !shown };
   }
 
   /** A project another computer of the account has and no folder of this one is (account-view.ts), or null. */
@@ -291,14 +274,27 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
   });
 
   /** Its conversation, whole or a page; `again` when the person pressed Try again. */
-  function remoteRead(found: { session: SessionView; machine: Machine }, ask: PageAsk | null, again: boolean) {
-    return remoteConversations.detail(found.session, found.machine, ask, again);
+  function remoteRead(found: { session: SessionView; machine: Machine; archived?: boolean }, ask: PageAsk | null, again: boolean) {
+    return remoteConversations.detail(found.session, found.machine, ask, again, found.archived === true);
+  }
+
+  /**
+   * A session another computer just made from one of its own at this window's word (a fork): listed here at once, from
+   * the head it was made from, until its own head arrives in the change feed (as a start elsewhere is, remote-start.ts).
+   */
+  async function listedThere(machine: Machine, fromId: string, made: Record<string, unknown>): Promise<void> {
+    const from = await workspace.account.head(fromId);
+    if (!from || typeof made.id !== 'string' || !made.id) return;
+    const now = Date.now();
+    const title = typeof made.title === 'string' && made.title ? made.title : from.title;
+    const { hostId: _guestOf, ...head } = from;
+    await workspace.account.started(machine, { ...head, id: made.id, title, state: 'running', note: '', request: null, stopped: undefined, completedAt: undefined, createdAt: now, updatedAt: now, lastActivityAt: now, messages: 0, chunks: 0 });
   }
 
   /** How a session on another computer is acted on there, or null with no account to ask through. */
   function remoteDeps(): RemoteActionDeps | null {
     const remote = options.connect?.remote;
-    return remote ? { ask: (machine, op, args) => remote.ask(machine, op, args), drafts: runtime?.attachments ?? null } : null;
+    return remote ? { ask: (machine, op, args) => remote.ask(machine, op, args), drafts: runtime?.attachments ?? null, listed: listedThere } : null;
   }
 
   /** The account's other computers a session may be started on from here, and how each is asked; none with no account. */
@@ -350,7 +346,15 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
     }
     const found = await remoteSession(id);
     if (!found) return;
+    const first = !watchedElsewhere.has(id);
     watchedElsewhere.add(id);
+    // Opened in a window: what its page draws beside the conversation, and that computer's pull requests, asked once.
+    if (first) {
+      void remote.readPullRequests(found.machine.id);
+      void remote.snapshot(found.machine.id, id).then((answer) => {
+        if (!answer.ok) live.publish(id, { filesProblem: answer.reached ? answer.reason : notReachedRead('its changes', found.machine.name) });
+      });
+    }
     // Still watched once found: a window that closed meanwhile asks for nothing.
     if (live.isWatched(id) && !remote.watching(id) && mayBeAhead(found.session)) remote.watch(found.machine.id, id);
   }
@@ -373,8 +377,8 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
     if (elsewhere && !(method === 'GET' && parts.length === 3)) {
       const deps = remoteDeps();
       if (!deps) return send(req, res, 409, { error: remoteRefusal(elsewhere.machine.name) });
-      const answer = await remoteActionRoute(parts, method, () => readJson(req), elsewhere.session.id, elsewhere.machine, deps);
-      return send(req, res, answer.status, answer.body);
+      const answer = await remoteActionRoute(parts, method, () => readJson(req), elsewhere.session.id, elsewhere.machine, deps, url);
+      return 'bytes' in answer ? sendBytes(req, res, answer.type, answer.bytes) : send(req, res, answer.status, answer.body);
     }
 
     // The computers a New session may run on (issue 52): the account's others, and what each offers when asked.
@@ -492,9 +496,6 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
     // Projects and their directories (project-api.ts).
     const projectAnswer = await projectRoute(parts, method, url, () => readJson(req), workspace, runtime);
     if (projectAnswer) return send(req, res, projectAnswer.status, projectAnswer.body);
-    // The New PR form: its pre-fill, and creating the pull request (pull-requests/create-api.ts).
-    const mergedPR = await mergePRRoute(parts, method, () => readJson(req), workspace, detailsConfig.sample, detailsConfig.sources.store);
-    if (mergedPR) return send(req, res, mergedPR.status, mergedPR.body);
     const autopilotAnswer = await autopilotRoute(parts, method, () => readJson(req), runtime?.autopilot ?? null);
     if (autopilotAnswer) return send(req, res, autopilotAnswer.status, autopilotAnswer.body);
     // Merging a session's worktree locally, or discarding it (landing-api.ts).
@@ -502,11 +503,10 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
     if (worktrees) return send(req, res, worktrees.status, worktrees.body);
     const landed = await landingRoute(parts, method, () => readJson(req), runtime ?? null);
     if (landed) return send(req, res, landed.status, landed.body);
-    const createdPR = await createPRRoute(parts, method, () => readJson(req), workspace);
-    if (createdPR) return send(req, res, createdPR.status, createdPR.body);
-    // A session's Details pane: git status, pull requests, usage (details-api.ts).
-    const details = await detailsRoute(parts, method, url, workspace, runtime, detailsConfig.sources, detailsConfig.sample);
-    if (details) return send(req, res, details.status, details.body);
+    // A session's page beside its conversation: Details, files, documents, the queue, commands, the request form and
+    // merge, rename, delete, tags, roles, review and fork (session-routes.ts; another desktop asks the same function).
+    const sessionAnswer = await sessionPage.route(parts, method, url, () => readJson(req));
+    if (sessionAnswer) return 'bytes' in sessionAnswer ? sendBytes(req, res, sessionAnswer.type, sessionAnswer.bytes) : send(req, res, sessionAnswer.status, sessionAnswer.body);
     // The order the user dragged the CODE REVIEWS rows into (review-requests/store.ts).
     if (parts[1] === 'review-requests' && parts[2] === 'order' && parts.length === 3 && method === 'PUT') {
       const order = asReviewOrder((await readJson(req)).order);
@@ -575,57 +575,11 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
         const page = transcriptPage(whole.messages, ask.value);
         return send(req, res, 200, { ...whole, messages: page.messages, page: { before: page.before, total: page.total } });
       }
-      if (method === 'PATCH' && parts.length === 3) {
-        await workspace.renameSession(parts[2]!, str((await readJson(req)).title, 'title', 200));
-        return send(req, res, 204);
-      }
-      if (runtime && method === 'DELETE' && parts.length === 3) {
-        await runtime.deleteSession(parts[2]!);
-        terminals.kill(parts[2]!); // its shells go with it (not before: a refused delete keeps them)
-        return send(req, res, 204);
-      }
-      // The Files view of a session (a bare id is a session's scope key).
-      if (runtime && method === 'GET' && parts.length === 4 && (parts[3] === 'files' || parts[3] === 'file')) return files(req, res, runtime, decodedSegment(parts[2]!), parts[3], url);
       // A picture a tool returned, stored under the session's media folder.
       if (runtime && method === 'GET' && parts.length === 5 && parts[3] === 'media') {
         const media = runtime.display.mediaFile(parts[2]!, parts[4]!);
         if (!media) return send(req, res, 404, { error: 'No such picture' });
         return sendBytes(req, res, media.type, readFileSync(media.path));
-      }
-      // An image file in the session's folder, for a markdown image that points at a local file.
-      if (runtime && method === 'GET' && parts.length === 4 && parts[3] === 'raw') {
-        const directory = await runtime.directoryOf(parts[2]!);
-        if (!directory || !existsSync(directory)) return send(req, res, 404, { error: 'This session has no folder on disk.' });
-        const path = url.searchParams.get('path') ?? '';
-        const type = IMAGE_TYPES[extname(path).slice(1).toLowerCase()];
-        if (!type) return send(req, res, 400, { error: 'Only png, jpg, gif, webp and svg images are served.' });
-        let file: string;
-        try {
-          file = resolveInside(directory, path);
-        } catch (error) {
-          if (error instanceof OutsideFolder) return send(req, res, 404, { error: error.message });
-          throw error;
-        }
-        const stat = statSync(file);
-        if (!stat.isFile()) return send(req, res, 404, { error: 'That is not a file.' });
-        if (stat.size > RAW_IMAGE_MAX_BYTES) return send(req, res, 413, { error: 'That image is larger than 10 MB.' });
-        return sendBytes(req, res, type, readFileSync(file));
-      }
-      // A Markdown or PDF file the user opened to read in a tab of the session, from wherever it is on this
-      // computer (file-to-read.ts decides which files, and says why not), and where it is, for the tab.
-      // The window's own: the per-launch token; never a tool, never a phone.
-      if (runtime && method === 'GET' && parts.length === 4 && (parts[3] === 'document' || parts[3] === 'document-place')) {
-        try {
-          const sessionId = parts[2]!;
-          const directory = await runtime.directoryOf(sessionId);
-          const file = fileToRead(url.searchParams.get('path') ?? '', directory);
-          if (parts[3] === 'document') return sendBytes(req, res, file.type, readFileSync(file.path));
-          const sessions = (await workspace.state()).sessions;
-          return send(req, res, 200, placeOf(file.path, sessionId, directory, sessions.map((s) => ({ id: s.id, title: s.title, path: s.worktreePath }))));
-        } catch (error) {
-          if (error instanceof Refused) return send(req, res, 404, { error: error.message });
-          throw error;
-        }
       }
       if (method === 'POST' && parts.length === 2) {
         const body = await readJson(req);
@@ -684,17 +638,6 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
         if ('problem' in subject) throw new BadRequest(subject.problem);
         return send(req, res, 200, { session: await runtime.asides.open(parts[2]!, { at: str(body.at, 'at', 200), ...(body.key !== undefined ? { key: str(body.key, 'key', ASIDE_KEY_MAX) } : {}), subject: subject.subject }) });
       }
-      if (runtime && parts[3] === 'review' && parts.length === 4 && (method === 'GET' || method === 'POST')) {
-        // With who would review it, or why nobody can: whoever wrote the code does not review it.
-        if (method === 'GET') return send(req, res, 200, { review: runtime.delegation.reviewOf(parts[2]!), ...(await runtime.delegation.reviewerFor(parts[2]!)) });
-        return send(req, res, 200, { review: await runtime.delegation.startReview(parts[2]!, { comment: (await readJson(req)).comment === true }) });
-      }
-      // A role's part started by the user from the message box (delegation.ts `startRole`).
-      if (runtime && parts[3] === 'role' && parts.length === 4 && method === 'POST') {
-        const body = await readJson(req);
-        if (body.role !== 'design' && body.role !== 'build') throw new BadRequest('role must be design or build');
-        return send(req, res, 200, { session: await runtime.delegation.startRole(parts[2]!, body.role, typeof body.brief === 'string' ? body.brief : '') });
-      }
       // Compact the conversation (the context popup's button; a phone's `session.compact` calls the same).
       if (runtime && method === 'POST' && parts.length === 4 && parts[3] === 'compact') {
         await runtime.compact(parts[2]!);
@@ -715,32 +658,6 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
         else await runtime.answer(id, str(body.requestId, 'requestId', 200), { optionId: typeof body.optionId === 'string' ? body.optionId : undefined, text: typeof body.text === 'string' ? body.text : undefined, answers: answersOf(body.answers) });
         return send(req, res, 204);
       }
-      // Stop one piece of work the agent left running in the background (runtime/background.ts).
-      if (runtime && method === 'POST' && parts.length === 6 && parts[3] === 'background-tasks' && parts[5] === 'stop') {
-        await runtime.stopBackgroundTask(parts[2]!, decodedSegment(parts[4]!));
-        return send(req, res, 204);
-      }
-      // The Commands pane: what one command printed, and stopping one (runtime/commands.ts).
-      if (runtime && method === 'GET' && parts.length === 6 && parts[3] === 'commands' && parts[5] === 'output') {
-        return send(req, res, 200, await runtime.commandOutput(parts[2]!, decodedSegment(parts[4]!)));
-      }
-      // "Retry command": the agent is told which command to run again; says whether it went at once or was queued.
-      if (runtime && method === 'POST' && parts.length === 6 && parts[3] === 'commands' && parts[5] === 'retry') {
-        return send(req, res, 200, { outcome: await runtime.retryCommand(parts[2]!, decodedSegment(parts[4]!)) });
-      }
-      if (runtime && method === 'POST' && parts.length === 6 && parts[3] === 'commands' && parts[5] === 'stop') {
-        await runtime.stopCommand(parts[2]!, decodedSegment(parts[4]!));
-        return send(req, res, 204);
-      }
-      // The queue of messages written while the agent worked: send it now, or drop one message.
-      if (runtime && method === 'POST' && parts.length === 5 && parts[3] === 'queue' && parts[4] === 'send') {
-        await runtime.sendQueued(parts[2]!);
-        return send(req, res, 204);
-      }
-      if (runtime && method === 'DELETE' && parts.length === 5 && parts[3] === 'queue') {
-        await runtime.removeQueued(parts[2]!, decodedSegment(parts[4]!));
-        return send(req, res, 204);
-      }
       if (runtime && method === 'POST' && parts.length === 4 && parts[3] === 'draft-summary') {
         const body = await readJson(req);
         const project = (await workspace.state()).projects.find((p) => p.id === body.projectId);
@@ -750,11 +667,6 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
       if (runtime && method === 'POST' && parts.length === 4 && parts[3] === 'move-to-project') {
         const body = await readJson(req);
         return send(req, res, 201, await runtime.delegation.manualMove(parts[2]!, str(body.projectId, 'projectId', 100), str(body.summary, 'summary', 20_000), body.groupId === undefined ? undefined : optionalId(body.groupId, 'groupId')));
-      }
-      if (runtime && method === 'POST' && parts.length === 4 && parts[3] === 'fork') {
-        // `turn`: the message that started the turn to fork from; absent, the end of the conversation.
-        const turn = optionalId((await readJson(req)).turn, 'turn');
-        return send(req, res, 201, await runtime.forks.fork(parts[2]!, turn ?? undefined));
       }
       if (method === 'POST' && parts.length === 4 && parts[3] === 'move') {
         const body = await readJson(req);
@@ -797,16 +709,21 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
       const body = await readJson(req);
       if (!isArchiveKind(body.kind)) throw new BadRequest('kind must be session, project or group');
       const id = str(body.id, 'id', 100);
+      // A session on another computer of the account is archived or restored there, as one here is (session.archive).
       const away = body.kind === 'session' ? await remoteSession(id) : null;
-      if (away) return send(req, res, 409, { error: remoteRefusal(away.machine.name) });
+      if (away) {
+        const deps = remoteDeps();
+        if (!deps) return send(req, res, 409, { error: remoteRefusal(away.machine.name) });
+        const answer = await remoteActionRoute(['api', 'sessions', id, 'archive'], 'POST', async () => ({ archived: body.archived !== false, skipScript: body.skipScript === true }), id, away.machine, deps, url);
+        return 'bytes' in answer ? send(req, res, 500, { error: 'The archive could not be done.' }) : send(req, res, answer.status, answer.body);
+      }
       const awayP = body.kind === 'project' ? await awayProject(id) : null;
       if (awayP) return send(req, res, 409, { error: notChangedHereRefusal(awayP, here()) });
       // A session's own archive runs its project's archive script first; a failure stops the archive
       // and says why, and the same request with `skipScript` archives without it.
-      if (runtime && body.kind === 'session' && body.archived !== false) {
-        const failure = await runtime.archiveSession(id, body.skipScript === true);
-        if (failure) return send(req, res, 409, { error: failure.reason, archiveScript: { output: failure.output } });
-        return send(req, res, 204);
+      if (body.kind === 'session') {
+        const answer = await sessionPage.route(['api', 'sessions', id, 'archive'], 'POST', url, async () => ({ archived: body.archived !== false, skipScript: body.skipScript === true }));
+        return answer && !('bytes' in answer) ? send(req, res, answer.status, answer.body) : send(req, res, 500, { error: 'The archive could not be done.' });
       }
       await workspace.setArchived(body.kind, id, body.archived !== false);
       return send(req, res, 204);
@@ -938,28 +855,15 @@ export function createKestrelServer(workspace: Workspace, policy: AccessPolicy, 
 
   // The user's own shells, several per session. Only with a runtime (it knows each session's folder).
   const terminals = options.terminals ?? new Terminals();
+  // A deleted session's shells go with it, whoever asked for the delete.
+  const unsubscribeDeleted = sessionPage.onDeleted((id) => terminals.kill(id));
   const folderOf = async (key: string) => runtime && terminalFolder((await workspace.state()).projects, key, (k) => runtime.folderOf(k));
 
   /** One directory, or one file, inside a scope's folder (scope-folder.ts). */
-  /** A path segment as sent (the UI encodes a scope key's `:`); one that does not decode stays as it is and matches nothing. */
-function decodedSegment(segment: string): string {
-  try {
-    return decodeURIComponent(segment);
-  } catch {
-    return segment;
-  }
-}
-
+  
 async function files(req: IncomingMessage, res: ServerResponse, runtime: SessionRuntime, key: string, what: 'files' | 'file', url: URL): Promise<void> {
-    const directory = await runtime.folderOf(key, url.searchParams.get('folder'));
-    if (!directory || !existsSync(directory)) return send(req, res, 404, { error: noFolderReason(key) });
-    const path = url.searchParams.get('path') ?? '';
-    try {
-      return send(req, res, 200, what === 'files' ? { root: directory, entries: listDirectory(directory, path), note: await runtime.folderNote(key) } : readFileContent(directory, path));
-    } catch (error) {
-      if (error instanceof OutsideFolder) return send(req, res, 400, { error: error.message });
-      throw error;
-    }
+    const answer = await scopeFiles(runtime, key, what, url);
+    return send(req, res, answer.status, 'body' in answer ? answer.body : undefined);
   }
 
   const sockets = new WebSocketServer({ noServer: true });
@@ -1013,7 +917,7 @@ async function files(req: IncomingMessage, res: ServerResponse, runtime: Session
     });
     currentStateJson().then((json) => push(ws, json), (error) => console.error('[kestrel] could not send state', error));
     // Every session's pull requests the server already holds; changes follow as they come.
-    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'pull-requests', all: detailsConfig.sources.store.all() }));
+    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'pull-requests', all: { ...Object.fromEntries(remoteRequests), ...detailsConfig.sources.store.all() } }));
     if (options.reviewRequests && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'review-requests', view: options.reviewRequests.view() }));
     if (options.tickets && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'tickets', view: options.tickets.store.view() }));
     if (options.connect && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'connect-state', view: options.connect.view() }));
@@ -1039,6 +943,21 @@ async function files(req: IncomingMessage, res: ServerResponse, runtime: Session
   // What the account's other computers offer for a new session, whole, whenever a reading of their records changed it.
   const unsubscribeOffers = workspace.accountOffers.onChange((offers) => {
     const json = JSON.stringify({ type: 'machine-offers', offers });
+    for (const ws of sockets.clients) if (ws.readyState === ws.OPEN) ws.send(json);
+  });
+
+  // Another computer's pull requests, as it sent them (RemoteSessions.readPullRequests), held once and pushed to every
+  // window as this computer's own are, so a session there shows its request as a session here does.
+  const remoteRequests = new Map<string, unknown>();
+  const unsubscribeRemoteRequests = options.connect?.remote.onPullRequests((_machine, lookups) => {
+    const changes: Record<string, unknown> = {};
+    for (const [id, lookup] of Object.entries(lookups)) {
+      if (JSON.stringify(remoteRequests.get(id)) === JSON.stringify(lookup)) continue;
+      remoteRequests.set(id, lookup);
+      changes[id] = lookup;
+    }
+    if (Object.keys(changes).length === 0) return;
+    const json = JSON.stringify({ type: 'pull-requests', changes });
     for (const ws of sockets.clients) if (ws.readyState === ws.OPEN) ws.send(json);
   });
 
@@ -1133,6 +1052,8 @@ async function files(req: IncomingMessage, res: ServerResponse, runtime: Session
       new Promise((resolve) => {
         unsubscribe();
         unsubscribePullRequests();
+        unsubscribeDeleted();
+        unsubscribeRemoteRequests?.();
         unsubscribeSeen();
         unsubscribeOffers();
         unsubscribeWhatsNew?.();

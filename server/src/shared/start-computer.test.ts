@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Project } from '../model.ts';
 import { BYPASS_FROM_ELSEWHERE } from './connect-ops.ts';
-import { ASKING, asStartChoices, cannotStartOn, computerOptions, computersOf, defaultComputer, projectAfterSwitch, projectOn, projectsOn, remoteMode, statusOf, type ComputerStatus } from './start-computer.ts';
+import { ASKING, asStartChoices, cannotStartOn, computerOptions, computersOf, defaultComputer, projectAfterSwitch, projectOn, projectsOn, remoteMode, remoteRunningModes, remoteRunningNote, modelOptionsOf, statusOf, type ComputerStatus } from './start-computer.ts';
 import type { RemoteStartChoices } from '../remote-starts/session-start.ts';
 
 const MINI = { id: 'mini', name: 'Mac mini' };
@@ -99,5 +99,19 @@ describe('reading what another computer offers', () => {
     expect(read).toMatchObject({ allowed: true, agents: ['claude'], start: { agent: 'claude', model: 'opus', permission: 'ask' }, providers: [{ agent: 'codex', models: [{ id: 'gpt', name: 'GPT' }], default: 'gpt' }], missing: [{ agent: 'opencode', reason: 'Not installed.' }] });
     expect(asStartChoices({ allowed: 'yes' })).toBeNull();
     expect(asStartChoices(null)).toBeNull();
+  });
+
+  it('offers Manual and Auto for a running session there, and keeps its own mode shown when it is neither', () => {
+    expect(remoteRunningModes('ask')).toEqual(['ask', 'auto']);
+    expect(remoteRunningModes('bypass')).toEqual(['ask', 'auto', 'bypass']);
+    expect(remoteRunningNote('bypass', 'Mac mini')).toContain('Bypass on Mac mini. Bypass is chosen on the computer the session runs on.');
+    expect(remoteRunningNote('auto', 'Mac mini')).toContain('on Mac mini');
+  });
+
+  it('reads a published model menu as the model picker does, effort and fast mode included', () => {
+    expect(modelOptionsOf([{ id: '', name: 'Default', efforts: ['low', 'high'], fast: true }, { id: 'haiku', name: 'Haiku', more: true }])).toEqual([
+      { id: '', label: 'Default', efforts: ['low', 'high'], fast: true },
+      { id: 'haiku', label: 'Haiku' },
+    ]);
   });
 });

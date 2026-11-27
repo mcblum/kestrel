@@ -8,13 +8,15 @@ import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import type { AgentAdapter } from '../../agents/types.ts';
 import { createKestrelServer, type KestrelServerOptions } from '../../http.ts';
-import { SELECTABLE_AGENTS, type Agent, type ChatMessage } from '../../model.ts';
+import { SELECTABLE_AGENTS, type Agent, type LivePatch } from '../../model.ts';
 import { memoryPersistence } from '../../persistence/memory.ts';
 import { createProject } from '../../project-store.ts';
 import { SessionRuntime } from '../../runtime.ts';
 import { memorySettings } from '../../suggestions/prefs.ts';
 import { FakeAgents, until } from '../../test-agent.ts';
 import { Workspace } from '../../workspace.ts';
+import { detailsSources } from '../../details-api.ts';
+import { sessionRoutes } from '../../session-routes.ts';
 import { ConnectDispatcher } from '../dispatcher.ts';
 import { connectLists } from '../lists.ts';
 import { FakeIdentity, FakeRelay, FakeService, fakeListener, tokensFor } from './connect-fakes.ts';
@@ -41,6 +43,11 @@ export async function newDesk(service: FakeService, relay: FakeRelay, name: stri
   const adapters = Object.fromEntries(SELECTABLE_AGENTS.map((a): [Agent, AgentAdapter] => [a, { ...fake.adapter(), agent: a }])) as Record<Agent, AgentAdapter>;
   const runtime = new SessionRuntime(workspace, adapters, realpathSync(mkdtempSync(join(tmpdir(), 'kestrel-remote-'))));
   const settings = memorySettings();
+  // The session page's routes, as index.ts builds them; sample pull requests, so no host is asked.
+  const details = detailsSources(true);
+  const page = sessionRoutes({ workspace, runtime, details: { sources: details, sample: true } });
+  // Its lists as the app's dispatcher has them, pull requests and all (start.ts).
+  const lists = connectLists(runtime.reviewPrefs, null, null, { store: details.store, prefs: runtime.gitPrefs, workspace });
   await settings.putSetting(CONNECT_PREFS_KEY, JSON.stringify({ enabled: true }));
   const desk = new KestrelConnect({
     vault: memoryVault({ tokens: tokensFor(0, Date.now()), device: null }),
@@ -50,7 +57,7 @@ export async function newDesk(service: FakeService, relay: FakeRelay, name: stri
     computerName: name,
     listen: fakeListener().listen,
     here: name,
-    dispatch: (deviceId, send, desk) => new ConnectDispatcher({ workspace, runtime, deviceId, here: name, send, desk, keptOff: () => [] }),
+    dispatch: (deviceId, send, desk) => new ConnectDispatcher({ workspace, runtime, deviceId, here: name, send, desk, keptOff: () => [], sessionRoute: page.route, lists }),
     held: { source: heldSource(workspace, runtime, connectLists(runtime.reviewPrefs, null, null)), queue: memoryQueueStore() },
     push: { source: pushSource(workspace, runtime, null, null) },
     replica: workspace.account,
@@ -70,7 +77,7 @@ export async function newDesk(service: FakeService, relay: FakeRelay, name: stri
       for (const s of (await workspace.state()).sessions) await runtime.idle(s.id);
     }
   };
-  return { workspace, runtime, fake, desk, settings, settle, id: () => desk.device()!.id };
+  return { workspace, runtime, fake, desk, settings, settle, page, id: () => desk.device()!.id };
 }
 
 /** A window's POST as it came back: the status, and the body's error or answer (null for 204). */
@@ -117,19 +124,28 @@ export async function laptopWindow(laptop: Desk, withRuntime = false, options: K
     return { status: res.status, body: res.status === 204 ? null : await res.json() };
   };
   /** A file uploaded to a draft, as the message box does it. */
+  /** Any request as the window makes it: the status, the answer's body (null when there is none), and its type. */
+  const call = async (method: string, path: string, body?: unknown): Promise<Posted & { type: string; bytes: Buffer }> => {
+    const res = await fetch(`http://127.0.0.1:${policy.port}${path}`, { method, headers: { Authorization: `Bearer ${TOKEN}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    const type = res.headers.get('content-type') ?? '';
+    const bytes = Buffer.from(await res.arrayBuffer());
+    return { status: res.status, type, bytes, body: res.status === 204 || !type.includes('json') ? null : JSON.parse(bytes.toString('utf8')) };
+  };
   const upload = async (draftId: string, name: string, type: string, bytes: Buffer): Promise<{ id: string }> => {
     const res = await fetch(`http://127.0.0.1:${policy.port}/api/attachments/drafts/${draftId}?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { Authorization: `Bearer ${TOKEN}`, 'Content-Type': type }, body: new Uint8Array(bytes) });
     return (await res.json()) as { id: string };
   };
   const socket = new WebSocket(`ws://127.0.0.1:${policy.port}/ws?token=${TOKEN}`, { origin: 'http://localhost:5173' });
-  const live: { sessionId: string; patch: { messages?: ChatMessage[]; status?: string } }[] = [];
+  const live: { sessionId: string; patch: LivePatch }[] = [];
+  const pullRequests: Record<string, unknown>[] = [];
   socket.on('message', (raw) => {
-    const m = JSON.parse(String(raw)) as { type?: string; sessionId: string; patch: never };
+    const m = JSON.parse(String(raw)) as { type?: string; sessionId: string; patch: never; changes?: Record<string, unknown>; all?: Record<string, unknown> };
     if (m.type === 'live') live.push(m);
+    if (m.type === 'pull-requests') pullRequests.push(m.changes ?? m.all ?? {});
   });
   await new Promise((resolve) => socket.once('open', resolve));
   cleanup.push(() => socket.close());
-  return { get, post, upload, live, send: (m: object) => socket.send(JSON.stringify(m)) };
+  return { get, post, call, upload, live, pullRequests, send: (m: object) => socket.send(JSON.stringify(m)) };
 }
 
 /** The Mac mini runs a session of `agent` with `turns` turns, held whole on the account; the laptop reads the feed. */

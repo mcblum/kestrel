@@ -15,8 +15,10 @@ import { ReviewReplies } from '../review-requests/reply.ts';
 import { SessionRuntime } from '../runtime.ts';
 import { ALWAYS_COMMAND, ALWAYS_FOLDER } from '../shared/sandbox-allow.ts';
 import { MOVE_DECLINED } from '../shared/session-move.ts';
-import { ASIDE_REFUSAL, BYPASS_FROM_ELSEWHERE, CONNECT_PROTOCOL_VERSION, NEVER_REMOTE, type ConnectResponse, type Envelope } from '../shared/connect-ops.ts';
+import { ASIDE_REFUSAL, BYPASS_FROM_ELSEWHERE, CONNECT_OP_NAMES, CONNECT_PROTOCOL_VERSION, deskOnly, NEVER_REMOTE, phoneRefusal, type ConnectResponse, type Envelope } from '../shared/connect-ops.ts';
 import type { PullRequest } from '../shared/details.ts';
+import { sessionRoutes } from '../session-routes.ts';
+import { detailsSources } from '../details-api.ts';
 import { ready } from '../shared/sourced.ts';
 import { openSuggestions } from '../shared/suggestions.ts';
 import { COMPACTION, FakeAgents, until } from '../test-agent.ts';
@@ -193,7 +195,11 @@ describe.each(SELECTABLE_AGENTS)('every operation, for a %s session', (agent) =>
     await d.settle();
     for (const [op, reason] of Object.entries(NEVER_REMOTE)) expect(await d.ask(op, { sessionId: session.id })).toEqual({ ok: false, reason });
     // No mode or model rides on a phone's message, Bypass least of all.
-    expect(await d.ask('session.reply', { sessionId: session.id, text: 'go', permission: 'bypass' })).toEqual({ ok: false, reason: 'session.reply takes no permission.' });
+    expect(await d.ask('session.reply', { sessionId: session.id, text: 'go', permission: 'bypass' })).toEqual({ ok: false, reason: BYPASS_FROM_ELSEWHERE });
+    expect(await d.ask('session.reply', { sessionId: session.id, text: 'go', permission: 'auto' })).toEqual({ ok: false, reason: NEVER_REMOTE['session.permission'] });
+    expect(await d.ask('session.reply', { sessionId: session.id, text: 'go', model: 'opus' })).toEqual({ ok: false, reason: NEVER_REMOTE['session.model'] });
+    // What a desktop of the account may now ask of a session here is refused to a phone, as before (Matt, 2026-11-27).
+    for (const op of CONNECT_OP_NAMES.filter(deskOnly)) expect(await d.ask(op, { sessionId: session.id })).toEqual({ ok: false, reason: phoneRefusal(op) });
     expect(await d.ask('session.read', { sessionId: 'nope' })).toEqual({ ok: false, reason: 'That session is no longer in Kestrel.' });
     expect(await d.ask('session.read', { sessionId: session.id, before: 'gone', limit: 5 })).toMatchObject({ ok: false, reason: expect.stringMatching(/no longer in the conversation/) });
     expect(await d.ask('session.attach', { draftId: 'd1', name: 'a.sh', mediaType: 'text/x-sh', data: 'ZWNobw==' })).toMatchObject({ ok: false, reason: expect.stringMatching(/Only photos/) });
@@ -237,6 +243,33 @@ const AGENT_CARDS: { name: string; request: InputRequest; choices: InputAnswer[]
     choices: [{ answers: { 'Which?': 'That' } }, { text: 'Neither: something else' }],
   },
 ];
+
+describe.each(SELECTABLE_AGENTS)('archiving from a phone, for a %s session (Matt, 2026-11-27: "Archive should be allowed from anywhere")', (agent) => {
+  /** A desk whose dispatcher has the session page's routes, as index.ts gives it. */
+  const withPage = () => desk((workspace, runtime) => ({ sessionRoute: sessionRoutes({ workspace, runtime, details: { sources: detailsSources(true), sample: true } }).route }));
+
+  it('archives and restores a session as the window does, and refuses one still at work in the workspace’s words', async () => {
+    const d = await withPage();
+    const session = await d.start(agent, 'hello');
+    await d.settle();
+    expect(await d.ok('session.archive', { sessionId: session.id, archived: true })).toEqual({});
+    expect((await d.workspace.state()).archived.sessions.map((s) => s.id)).toEqual([session.id]);
+    expect(await d.ok('session.archive', { sessionId: session.id, archived: false })).toEqual({});
+    expect((await d.workspace.state()).sessions.map((s) => s.id)).toEqual([session.id]);
+
+    // At work: the same refusal the window gets.
+    const fake = d.fakes[agent];
+    fake.hold = true;
+    await d.runtime.reply(session.id, 'more');
+    await until(() => fake.turns.length >= 2, 'the second turn');
+    const refusal = await d.workspace.setArchived('session', session.id, true).then(() => null, (e: Error) => e.message);
+    expect(refusal).not.toBeNull();
+    expect(await d.ask('session.archive', { sessionId: session.id, archived: true })).toEqual({ ok: false, reason: refusal });
+    fake.turns.at(-1)!.done();
+    await d.settle();
+    expect(await d.ask('session.archive', { sessionId: 'nope', archived: true })).toEqual({ ok: false, reason: 'That session is no longer in Kestrel.' });
+  });
+});
 
 describe.each(SELECTABLE_AGENTS)('every card a %s agent raises, answered from a phone', (agent) => {
   for (const card of AGENT_CARDS) {
@@ -979,7 +1012,7 @@ describe.each(SELECTABLE_AGENTS)('a provider and a model by name on a phone, on 
     return d;
   };
 
-  it('lists each connected provider with the desk\'s own menu rows, and the box\'s model as the default', async () => {
+  it('lists each connected provider with the desk\'s own menu rows, their efforts and fast mode, and the box\'s model as the default', async () => {
     const d = await withModels();
     await d.workspace.setUiState(remembered('wren-2'));
     const { providers, missing } = await d.ok('session.startChoices');
@@ -989,8 +1022,8 @@ describe.each(SELECTABLE_AGENTS)('a provider and a model by name on a phone, on 
       agent,
       name: AGENT_LABEL[agent],
       models: [
-        { id: 'wren-3', name: 'Wren 3' },
-        { id: 'kite-1', name: 'Kite 1' },
+        { id: 'wren-3', name: 'Wren 3', efforts: ['low', 'high'], fast: true },
+        { id: 'kite-1', name: 'Kite 1', efforts: ['low'] },
         { id: 'wren-2', name: 'Wren 2', more: true },
       ],
       default: 'wren-2',

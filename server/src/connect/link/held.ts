@@ -302,6 +302,10 @@ export class HeldConversations {
     // A sidebar is listed nowhere and drawn only in its pane at the desk: never held (kestrel-connect.md, "Sidebars").
     const want = state.sessions.filter((s) => !s.aside && !keptOff.has(projectOfSession(s) ?? NO_PROJECT));
     const wanted = new Set(want.map((s) => s.id));
+    // An archived session keeps only its head, marked archived, so every device lists it under Archived and can
+    // restore it from there (account-sessions.md, "A session on another computer drawn as one here, as built").
+    const archived = state.archived.sessions.filter((s) => !s.aside && !keptOff.has(projectOfSession(s) ?? NO_PROJECT));
+    const archivedIds = new Set(archived.map((s) => s.id));
     for (const id of Object.keys(this.q.held)) {
       if (wanted.has(id)) continue;
       // Deleted, archived, or kept off: its records go.
@@ -310,6 +314,14 @@ export class HeldConversations {
       const { [id]: _head, ...heads } = this.q.heads;
       this.q = { ...this.q, held: rest, heads };
       this.dirty.delete(id);
+      await this.save();
+    }
+    // A head held for an archived session that is now gone (deleted, or its project kept off): it goes too.
+    for (const id of Object.keys(this.q.heads)) {
+      if (wanted.has(id) || archivedIds.has(id) || id in this.q.held) continue;
+      await api.deleteRecords({ session: tag(`session|${desk.id}|${id}`) });
+      const { [id]: _head, ...heads } = this.q.heads;
+      this.q = { ...this.q, heads };
       await this.save();
     }
     for (const session of want) {
@@ -321,7 +333,8 @@ export class HeldConversations {
       await this.save();
     }
     const entries = await this.entries(state, want);
-    await this.uploadHeads(api, key, desk, entries.sessions, tag);
+    const archivedHeads = (await this.entries(state, archived)).sessions.map(({ contextNote: _note, ...head }) => ({ ...head, context: null, messages: 0, chunks: 0, archived: true as const }));
+    await this.uploadHeads(api, key, desk, [...entries.sessions, ...archivedHeads], tag);
     await this.uploadIndex(api, key, desk, entries, tag);
     await this.uploadLists(api, key, desk.id, state, want, prefs.keptOff, tag);
     this.problem = null;

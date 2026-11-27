@@ -87,7 +87,8 @@ export type Connection = 'connecting' | 'live' | 'offline' | 'no-server';
 
 /** Streaming state of one session, built from the live channel. Separate from the workspace. */
 /** What is held for a watched session: every field of a patch, except the one-off removals already applied. */
-export type LiveState = Required<Omit<LivePatch, 'removedMessages' | 'replacedBy'>> & Pick<LivePatch, 'replacedBy'>;
+/** What the live channel said of a session. Settings stay absent until its computer says them, so another computer's session never shows a placeholder model or mode as its own. */
+export type LiveState = Required<Omit<LivePatch, 'removedMessages' | 'replacedBy' | 'settings'>> & Pick<LivePatch, 'replacedBy' | 'settings'>;
 
 export interface AppState {
   connection: Connection;
@@ -465,7 +466,7 @@ const NO_QUEUE: SessionQueue = { items: [], held: false };
 const NO_SERVERS: NonNullable<LivePatch['mcpServers']> = [];
 
 function applyLive(id: string, patch: LivePatch) {
-  const prev = current().live.get(id) ?? { messages: [], files: [], filesProblem: null, commands: [], slashCommands: [], agentOutput: '', kestrelTools: 'unknown' as const, kestrelMissing: [] as string[], mcpServers: NO_SERVERS, settings: { model: '', permission: 'ask' as PermissionLevel }, status: '', subagents: [], subagentsAfter: null, queue: NO_QUEUE, context: null, backgroundTasks: [] };
+  const prev = current().live.get(id) ?? { messages: [], files: [], filesProblem: null, commands: [], slashCommands: [], agentOutput: '', kestrelTools: 'unknown' as const, kestrelMissing: [] as string[], mcpServers: NO_SERVERS, status: '', subagents: [], subagentsAfter: null, queue: NO_QUEUE, context: null, backgroundTasks: [] };
   const next: LiveState = {
     // Removed first, then merged: a message the server both removes and sends again has moved to the end.
     messages: patch.messages ? mergeMessages(withoutRemoved(prev.messages, patch.removedMessages), patch.messages) : withoutRemoved(prev.messages, patch.removedMessages),
@@ -475,7 +476,6 @@ function applyLive(id: string, patch: LivePatch) {
     kestrelTools: patch.kestrelTools ?? prev.kestrelTools,
     kestrelMissing: patch.kestrelMissing ?? prev.kestrelMissing,
     mcpServers: patch.mcpServers ?? prev.mcpServers,
-    settings: patch.settings ?? prev.settings,
     status: patch.status ?? prev.status,
     subagents: patch.subagents ?? prev.subagents,
     subagentsAfter: patch.subagentsAfter === undefined ? prev.subagentsAfter : patch.subagentsAfter,
@@ -485,6 +485,7 @@ function applyLive(id: string, patch: LivePatch) {
     commands: patch.commands ?? prev.commands,
     slashCommands: patch.slashCommands ?? prev.slashCommands,
     ...(patch.replacedBy ?? prev.replacedBy ? { replacedBy: patch.replacedBy ?? prev.replacedBy } : {}),
+    ...(patch.settings ?? prev.settings ? { settings: patch.settings ?? prev.settings } : {}),
   };
   set({ live: new Map(current().live).set(id, next) });
 }

@@ -101,15 +101,19 @@ export class RemoteConversations {
 
   constructor(private readonly deps: RemoteConversationDeps) {}
 
-  /** `GET /api/sessions/:id` for a session that runs on `machine`, whole or one page. `again`: the person pressed Try again. */
-  async detail(session: SessionView, machine: Machine, ask: PageAsk | null, again = false): Promise<RemoteAnswer> {
+  /**
+   * `GET /api/sessions/:id` for a session that runs on `machine`, whole or one page. `again`: the person pressed Try
+   * again. `archived`: archived there, so its conversation is no longer held or followed.
+   */
+  async detail(session: SessionView, machine: Machine, ask: PageAsk | null, again = false, archived = false): Promise<RemoteAnswer> {
     const kept = await this.deps.kept(session.id);
     const base = { session, ...EMPTY_DETAIL, kestrelTools: 'unknown' as const, trail: [] };
     if (ask) return this.page(session, machine, ask, kept, base);
 
     const asked = this.asked.get(session.id);
     const laid = asked?.reached && asked.newer && asked.stamp === (kept.stamp ?? '') ? overKept(kept.messages, asked.newer) : null;
-    const current = kept.current || laid !== null;
+    // Archived there: its conversation is no longer held or followed, and what is kept here is all there is to show.
+    const current = kept.current || laid !== null || archived;
     // Asked when the copy lacks something its head says, or a turn or card there may be ahead of the head.
     if (!current || mayBeAhead(session) || again) this.askInBackground(session.id, machine.id, kept, again);
     // Said only when it is true and matters: the copy is behind and that computer did not answer.

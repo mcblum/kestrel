@@ -53,7 +53,7 @@ const DEFAULT_ROW: RemoteStartModel = { id: '', name: 'Default' };
 const cannotStart = (a: AgentModels, here: string): string => a.reason ?? `${AGENT_LABEL[a.agent]} cannot start a session on ${here} now.`;
 
 function providerOf(a: AgentModels, r: ReturnType<typeof storedRemembered>): RemoteStartProvider {
-  const rows = menuRows(a.models).map(({ option, more }): RemoteStartModel => ({ id: option.id, name: option.label, ...(more ? { more: true as const } : {}) }));
+  const rows = menuRows(a.models).map(({ option, more }): RemoteStartModel => ({ id: option.id, name: option.label, ...(more ? { more: true as const } : {}), ...(option.efforts?.length ? { efforts: [...option.efforts] } : {}), ...(option.fast ? { fast: true as const } : {}) }));
   const models = rows.length > 0 ? rows : [DEFAULT_ROW];
   const remembered = rowIdFor(a.models, choicesFor(r, a.agent).model) ?? rowIdFor(a.models, '');
   return { agent: a.agent, name: AGENT_LABEL[a.agent], models, default: models.some((m) => m.id === remembered) ? remembered! : models[0]!.id };

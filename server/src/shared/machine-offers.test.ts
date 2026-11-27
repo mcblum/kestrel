@@ -41,6 +41,14 @@ describe('what a computer offers', () => {
     expect(asOffersRecord(offersRecordOf(MINI, 1000, wrongDefault))!.offers.projects[0]!.defaultFolderId).toBeNull();
   });
 
+  it('carries a model’s effort levels and fast mode, so a running session there can be changed as at its desk', () => {
+    const withEfforts: RemoteStartChoices = { ...OFFERS, providers: [{ ...OFFERS.providers[0]!, models: [{ id: '', name: 'Default', efforts: ['low', 'medium', 'high'], fast: true }] }] };
+    expect(asOffersRecord(JSON.parse(JSON.stringify(offersRecordOf(MINI, 1000, withEfforts))))!.offers).toEqual(withEfforts);
+    // An effort that is not a short word, and a fast flag that is not true, are dropped; the model stays.
+    const odd = { ...OFFERS, providers: [{ ...OFFERS.providers[0]!, models: [{ id: '', name: 'Default', efforts: ['low', 'Very High!', 3], fast: 'yes' }] }] };
+    expect(asOffersRecord(offersRecordOf(MINI, 1000, odd as unknown as RemoteStartChoices))!.offers.providers[0]!.models).toEqual([{ id: '', name: 'Default', efforts: ['low'] }]);
+  });
+
   it('keeps only entries of the window’s slice that are held offers under their own machine', () => {
     const held = { machine: MINI, made: 1000, offers: OFFERS };
     expect(asMachineOffersView({ [MINI.id]: held, other: held, bad: 3 })).toEqual({ [MINI.id]: held });

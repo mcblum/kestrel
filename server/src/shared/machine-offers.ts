@@ -68,6 +68,10 @@ export interface RemoteStartModel {
   name: string;
   /** Listed under "More models" at the desk. */
   more?: true;
+  /** The effort levels it takes, lowest first, as the desk's menu offers them; absent when it has none. */
+  efforts?: string[];
+  /** It can run in fast mode. */
+  fast?: true;
 }
 
 export interface RemoteStartProvider {
@@ -148,7 +152,15 @@ const agent = (value: unknown): value is Agent => AGENTS.includes(value as Agent
 const each = <T>(value: unknown, read: (raw: Record<string, unknown>) => T | null): T[] => (Array.isArray(value) ? value.slice(0, MAX_ITEMS).flatMap((raw) => ((o) => (o ? (read(o) ?? []) : []))(obj(raw))) : []);
 
 const asPreset = (p: Record<string, unknown>): ModelPreset | null => (id(p.id) && text(p.name) && agent(p.agent) && text(p.model) && text(p.effort) && typeof p.fast === 'boolean' ? { id: p.id as string, name: p.name, agent: p.agent, model: p.model, effort: p.effort, fast: p.fast } : null);
-const asModel = (m: Record<string, unknown>): RemoteStartModel | null => (text(m.id) && text(m.name) ? { id: m.id, name: m.name, ...(m.more === true ? { more: true as const } : {}) } : null);
+/** An effort level as an agent names one: a short lower-case word. */
+const EFFORT_WORD = /^[a-z]{1,16}$/;
+const MAX_EFFORTS = 8;
+const asEfforts = (value: unknown): string[] => (Array.isArray(value) ? value.slice(0, MAX_EFFORTS).filter((e): e is string => typeof e === 'string' && EFFORT_WORD.test(e)) : []);
+function asModel(m: Record<string, unknown>): RemoteStartModel | null {
+  if (!text(m.id) || !text(m.name)) return null;
+  const efforts = asEfforts(m.efforts);
+  return { id: m.id, name: m.name, ...(m.more === true ? { more: true as const } : {}), ...(efforts.length > 0 ? { efforts } : {}), ...(m.fast === true ? { fast: true as const } : {}) };
+}
 function asProvider(p: Record<string, unknown>): RemoteStartProvider | null {
   const models = each(p.models, asModel);
   if (!agent(p.agent) || !text(p.name) || !text(p.default) || !models.some((m) => m.id === p.default)) return null;

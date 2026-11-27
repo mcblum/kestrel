@@ -6,7 +6,8 @@
 import type { PermissionLevel } from './permissions.ts';
 import type { Project } from '../model.ts';
 import type { Machine } from './machines.ts';
-import type { RemoteStartChoices, RemoteStartMode } from '../remote-starts/session-start.ts';
+import type { RemoteStartChoices, RemoteStartMode, RemoteStartModel } from '../remote-starts/session-start.ts';
+import type { ModelOption } from '../agents/types.ts';
 import { BYPASS_FROM_ELSEWHERE } from './connect-ops.ts';
 
 /** What this computer knows of whether another computer can take a session now. */
@@ -109,6 +110,26 @@ export function remoteMode(permission: PermissionLevel, name: string): { mode: R
 
 /** The modes the box's mode picker offers while another computer is chosen. */
 export const REMOTE_PICKER_MODES: readonly PermissionLevel[] = ['ask', 'auto'];
+
+/**
+ * The modes a running session on another computer offers from here: Manual and Auto, and the mode it is in when that
+ * is neither, so its own mode stays shown (a session in Bypass there shows Bypass, ticked, and is changed away from it
+ * here; it is never switched on from here).
+ */
+export function remoteRunningModes(permission: PermissionLevel): readonly PermissionLevel[] {
+  return REMOTE_PICKER_MODES.includes(permission) ? REMOTE_PICKER_MODES : [...REMOTE_PICKER_MODES, permission];
+}
+
+/** The mode picker's words for a running session on `name`. */
+export function remoteRunningNote(permission: PermissionLevel, name: string): string {
+  if (permission === 'bypass') return `Mode: Bypass on ${name}. ${BYPASS_FROM_ELSEWHERE} Manual or Auto can be chosen here, from your next message`;
+  return `Mode: Manual or Auto, on ${name}. ${BYPASS_FROM_ELSEWHERE} Changes apply from your next message`;
+}
+
+/** A model menu as another computer published it (machine-offers.ts), in the shape the model picker reads. */
+export function modelOptionsOf(models: readonly RemoteStartModel[]): ModelOption[] {
+  return models.map((m) => ({ id: m.id, label: m.name, ...(m.efforts ? { efforts: m.efforts } : {}), ...(m.fast ? { fast: true } : {}) }));
+}
 
 /** Why a computer is listed but cannot take a session from here now: it did not answer. */
 export const unreachableStart = (name: string): string => `${name} cannot be reached now.`;

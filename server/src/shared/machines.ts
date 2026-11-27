@@ -2,7 +2,8 @@
 // and 9.1). A head is what one machine says about one of its sessions; this computer keeps the heads of
 // the others in its replica and draws them beside its own. What another machine sends is read through
 // the parsers here and nowhere else: it is sealed under the account key, but it is still outside data.
-import type { Agent, ChatMessage, FilingStatus, LivePatch, SessionState } from '../model.ts';
+import type { Agent, ChangedFile, ChatMessage, FilingStatus, LivePatch, SessionQueue, SessionSettings, SessionState } from '../model.ts';
+import { isPermissionLevel } from './permissions.ts';
 import type { PullRequestState } from './details.ts';
 
 const AGENTS: readonly Agent[] = ['claude', 'codex', 'opencode'];
@@ -38,6 +39,11 @@ export interface AccountHead {
   request: PullRequestState | null;
   stopped?: boolean;
   completedAt?: number;
+  /**
+   * Archived on its machine (Matt, 2026-11-27: "Archive should be allowed from anywhere"): every device lists it under
+   * Archived, not in the sidebar, and can restore it. Its conversation is no longer held; only this head is.
+   */
+  archived?: true;
   createdAt: number;
   updatedAt: number;
   lastActivityAt: number;
@@ -97,6 +103,7 @@ function asHead(raw: unknown, runsOn: string): AccountHead | null {
     request: REQUESTS.includes(r.request as PullRequestState) ? (r.request as PullRequestState) : null,
     ...(r.stopped === true ? { stopped: true } : {}),
     ...(count(r.completedAt) !== null ? { completedAt: r.completedAt as number } : {}),
+    ...(r.archived === true ? { archived: true as const } : {}),
     createdAt,
     updatedAt,
     lastActivityAt: count(r.lastActivityAt) ?? updatedAt,
@@ -148,21 +155,58 @@ export function asRemotePage(raw: unknown): RemotePage | null {
 }
 
 /**
- * What of another machine's live patch is shown here: the conversation and what the agent is doing now. A
- * session on another machine has no panes here, and its queue and model controls are not offered from here
- * (nothing on the closed list edits a queue; the model and mode are issue 52), so the rest is left out. Null
- * when nothing is left.
+ * What of another machine's live patch is shown here: the conversation and what the agent is doing now, and what the
+ * page draws beside it (account-sessions.md, "A session on another computer drawn as one here"): the model and mode,
+ * the queue, how full the context window is, the changed files as carried, the commands, background work, helpers and
+ * slash commands. Each part is taken only in the shape it must have; anything else is left out. Null when nothing is left.
  */
-export function asRemotePatch(raw: unknown): Pick<LivePatch, 'messages' | 'removedMessages' | 'status'> | null {
+export function asRemotePatch(raw: unknown): LivePatch | null {
   const r = obj(raw);
   if (!r) return null;
   const removed = Array.isArray(r.removedMessages) ? r.removedMessages.filter((id): id is string => typeof id === 'string') : [];
-  const out = {
+  const list = <K extends keyof LivePatch>(key: K): Partial<LivePatch> => (Array.isArray(r[key]) ? { [key]: (r[key] as unknown[]).filter((x) => obj(x) !== null) } : {});
+  const out: LivePatch = {
     ...(Array.isArray(r.messages) ? { messages: asMessages(r.messages) } : {}),
     ...(removed.length > 0 ? { removedMessages: removed } : {}),
     ...(typeof r.status === 'string' ? { status: r.status } : {}),
+    ...(asSettings(r.settings) ? { settings: asSettings(r.settings)! } : {}),
+    ...(asQueue(r.queue) ? { queue: asQueue(r.queue)! } : {}),
+    ...(r.context === null || obj(r.context) ? { context: r.context as LivePatch['context'] } : {}),
+    ...(Array.isArray(r.files) ? { files: asFiles(r.files) } : {}),
+    ...(r.filesProblem === null || typeof r.filesProblem === 'string' ? { filesProblem: r.filesProblem } : {}),
+    ...(r.subagentsAfter === null || typeof r.subagentsAfter === 'string' ? { subagentsAfter: r.subagentsAfter } : {}),
+    ...(r.kestrelTools === 'connected' || r.kestrelTools === 'missing' || r.kestrelTools === 'unknown' ? { kestrelTools: r.kestrelTools } : {}),
+    ...(Array.isArray(r.kestrelMissing) ? { kestrelMissing: r.kestrelMissing.filter((x): x is string => typeof x === 'string') } : {}),
+    ...list('subagents'),
+    ...list('backgroundTasks'),
+    ...list('commands'),
+    ...list('slashCommands'),
+    ...list('mcpServers'),
   };
   return Object.keys(out).length > 0 ? out : null;
+}
+
+/** A session's model and mode as another machine sent them, or null. */
+function asSettings(raw: unknown): SessionSettings | null {
+  const r = obj(raw);
+  if (!r || typeof r.model !== 'string' || !isPermissionLevel(r.permission)) return null;
+  return { model: r.model, permission: r.permission, ...(typeof r.effort === 'string' ? { effort: r.effort } : {}), ...(typeof r.fast === 'boolean' ? { fast: r.fast } : {}) };
+}
+
+/** The held messages as another machine sent them, or null. */
+function asQueue(raw: unknown): SessionQueue | null {
+  const r = obj(raw);
+  if (!r || !Array.isArray(r.items) || typeof r.held !== 'boolean') return null;
+  return { ...r, items: r.items.filter((x) => obj(x) !== null), held: r.held } as SessionQueue;
+}
+
+/** The changed files as another machine carried them: each with a path, a status and its diff (or what was held back). */
+function asFiles(raw: readonly unknown[]): ChangedFile[] {
+  return raw.flatMap((f) => {
+    const o = obj(f);
+    if (!o || typeof o.path !== 'string' || (o.status !== 'M' && o.status !== 'A' && o.status !== 'D') || typeof o.diff !== 'string') return [];
+    return [{ path: o.path, status: o.status, diff: o.diff, ...(typeof o.heldBack === 'number' ? { heldBack: o.heldBack } : {}) }];
+  });
 }
 
 /** Why something that needs a session's own machine is refused on another, naming where it runs. */
@@ -179,6 +223,11 @@ export function unreachableRefusal(machineName: string, why: string): string {
   return `${machineName} cannot be reached, so nothing was done there.${reason ? ` ${reason}` : ''} Try again when it is back.`;
 }
 
+/** Why something read from a session's own machine is not shown: that machine could not be reached. Nothing is held for later. */
+export function notReachedRead(what: string, machineName: string): string {
+  return `${machineName} cannot be reached, so ${what} cannot be shown now. Try again when it is back.`;
+}
+
 /** What of a head says its conversation changed: kept with the chunks fetched, and compared before fetching again. */
 export function conversationStamp(head: Pick<AccountHead, 'lastActivityAt' | 'messages' | 'chunks'>): string {
   return `${head.lastActivityAt}|${head.messages}|${head.chunks}`;
@@ -188,6 +237,13 @@ export function conversationStamp(head: Pick<AccountHead, 'lastActivityAt' | 'me
 export function whereIsMachine(id: string, machines: readonly Machine[]): Machine {
   return machines.find((m) => m.id === id) ?? { id, name: 'another computer' };
 }
+
+/** The panes that stay on the computer a session runs on: its shells, its browser and its simulator are that computer's. */
+export type PaneThere = 'terminal' | 'browser' | 'simulator';
+const PANE_THERE: Record<PaneThere, string> = { terminal: 'The terminal', browser: 'The browser pane', simulator: 'The simulator' };
+
+/** Why such a pane, or running a code block, cannot be had here: "The terminal is on Mac mini." */
+export const paneThere = (pane: PaneThere, machine: string): string => `${PANE_THERE[pane]} is on ${machine}.`;
 
 /**
  * Where a session runs: here, or on another machine of the account, online or not. A session with no

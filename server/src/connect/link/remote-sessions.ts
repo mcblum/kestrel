@@ -8,6 +8,8 @@
 // - What is watched is asked again whenever a channel to that computer opens, so a renewed link or a
 //   restarted computer carries on without a timer.
 import type { LivePatch } from '../../model.ts';
+import type { PullRequestLookup } from '../../shared/details.ts';
+import type { Sourced } from '../../shared/sourced.ts';
 import type { ConnectOp } from '../../shared/connect-ops.ts';
 import type { PageAsk } from '../../shared/transcript-page.ts';
 import { asRemotePage, asRemotePatch, type RemotePage } from '../../shared/machines.ts';
@@ -27,10 +29,23 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
  */
 export const READ_TIMEOUT_MS = 15_000;
 
+/** Another computer's pull-request lookups, by session id, as its `pullRequests.read` answers them. */
+export type RemotePullRequests = Record<string, Sourced<PullRequestLookup>>;
+
+/** The lookups of a `pullRequests.read` answer, or of its push; anything that is not one is left out. */
+export function asRemotePullRequests(raw: unknown): RemotePullRequests | null {
+  const r = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>).pullRequests : null;
+  if (typeof r !== 'object' || r === null || Array.isArray(r)) return null;
+  return Object.fromEntries(Object.entries(r as Record<string, unknown>).filter(([, v]) => typeof v === 'object' && v !== null && typeof (v as { state?: unknown }).state === 'string')) as RemotePullRequests;
+}
+
 export class RemoteSessions {
   /** Session id -> the computer it is watched on. */
   private readonly watched = new Map<string, string>();
   private readonly listeners = new Set<(sessionId: string, patch: LivePatch) => void>();
+  /** The computers whose pull requests were read since their channel opened: each sends them again when they change. */
+  private readonly readingRequests = new Set<string>();
+  private readonly requestListeners = new Set<(machine: string, lookups: RemotePullRequests) => void>();
 
   constructor(
     private readonly caller: Pick<DeskCaller, 'request'>,
@@ -59,6 +74,40 @@ export class RemoteSessions {
     return found ? { ok: true, page: found } : { ok: false, reached: true, reason: 'That computer answered with something that is not a conversation.' };
   }
 
+  /**
+   * What a window showing a session there starts from beside its conversation (`session.snapshot`: files, the model and
+   * mode, queue, commands), handed to the live listeners as a patch. Asked once when a window opens it; nothing waits
+   * for it, and a computer that cannot be reached leaves the page saying so.
+   */
+  async snapshot(machine: string, sessionId: string): Promise<RemoteAnswer> {
+    const answer = await this.ask(machine, 'session.snapshot', { sessionId });
+    if (!answer.ok) return answer;
+    const patch = asRemotePatch(answer.result);
+    if (patch) for (const listener of this.listeners) listener(sessionId, patch);
+    return answer;
+  }
+
+  /**
+   * That computer's pull requests, read once per channel (`pullRequests.read`): it sends them again whenever they
+   * change, as it does for a phone that read them, so they are never asked on a timer.
+   */
+  async readPullRequests(machine: string): Promise<void> {
+    if (this.readingRequests.has(machine)) return;
+    this.readingRequests.add(machine);
+    const answer = await this.ask(machine, 'pullRequests.read', {});
+    const lookups = answer.ok ? asRemotePullRequests(answer.result) : null;
+    if (!lookups) {
+      this.readingRequests.delete(machine);
+      return;
+    }
+    for (const listener of this.requestListeners) listener(machine, lookups);
+  }
+
+  onPullRequests(listener: (machine: string, lookups: RemotePullRequests) => void): () => void {
+    this.requestListeners.add(listener);
+    return () => this.requestListeners.delete(listener);
+  }
+
   /** A window opened a session that runs there: its live output is asked for while the computer can be reached. */
   watch(machine: string, sessionId: string): void {
     this.watched.set(sessionId, machine);
@@ -85,6 +134,12 @@ export class RemoteSessions {
   /** A push from a computer this one called. */
   push(from: string, body: unknown): void {
     const b = typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {};
+    // Its pull requests again, believed only from a computer whose requests this one read.
+    if (b.type === 'pull-requests' && this.readingRequests.has(from)) {
+      const lookups = asRemotePullRequests(b.pullRequests);
+      if (lookups) for (const listener of this.requestListeners) listener(from, lookups);
+      return;
+    }
     if (b.type !== 'live' || typeof b.sessionId !== 'string' || this.watched.get(b.sessionId) !== from) return;
     const patch = asRemotePatch(b.patch);
     if (!patch) return;
@@ -94,6 +149,8 @@ export class RemoteSessions {
   /** A channel to a computer opened: a new channel watches nothing there, so what is watched is asked again. */
   opened(machine: string): void {
     for (const [sessionId, on] of this.watched) if (on === machine) this.tell(machine, sessionId, 'session.watch');
+    // A new channel has read nothing there yet: its pull requests are read again, so they are sent again as they change.
+    if (this.readingRequests.delete(machine)) void this.readPullRequests(machine);
   }
 
   /** A computer asked for a new channel: opened again at once when something there is watched. */

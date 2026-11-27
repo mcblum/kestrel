@@ -7,7 +7,9 @@
 import { SessionTicketChip } from './TicketChip.tsx';
 import { useProjectTint } from '../colours.ts';
 import { FamilyChip } from './FamilyChip.tsx';
-import { ExternalLink, Folder, Plug, TriangleAlert, FolderGit2 } from 'lucide-react';
+import { ExternalLink, Folder, Monitor, Plug, TriangleAlert, FolderGit2 } from 'lucide-react';
+import { paneThere } from '@kestrel/server/machines';
+import { useMachineName } from '../machines.ts';
 import { serverStateText } from '@kestrel/server/mcp-servers';
 import { fitsGroup } from '@kestrel/server/project-groups';
 import { lookupHost, type GitStatus, type PullRequest } from '@kestrel/server/details';
@@ -112,6 +114,9 @@ export function SessionBar({ session, detail, panes, browserTitle, git, pullRequ
   const tree = useWorkingTree(session);
   const side = useRequestSide(session);
   const branch = tree.tree?.branch ?? null;
+  // A session on another computer: its terminal, browser and simulator are there, and their icons say so.
+  const machine = useMachineName(session.runsOn);
+  const there = machine ? { terminal: paneThere('terminal', machine), browser: paneThere('browser', machine), simulator: paneThere('simulator', machine) } : undefined;
   const button = requestButton({ ...(session.review ? { review: session.review } : {}), branch, worktreeDiscarded: !tree.tree }, pullRequests.value, git);
   return (
     <header className="session-bar session-head">
@@ -143,11 +148,19 @@ export function SessionBar({ session, detail, panes, browserTitle, git, pullRequ
             attention: { changes: uncommittedCount(git) > 0 },
             titles: { changes: changedFilesText(files.length, uncommittedCount(git)) ?? 'Changes', browser: browserTitle ? `Browser · ${browserTitle}` : 'Browser', context: 'Details', commands: runningCommands > 0 ? `Commands · ${runningCommands} running` : 'Commands' },
             labels: { context: 'Session details' },
+            ...(there ? { disabled: there } : {}),
           }}
+          onBlocked={actions.showError}
         />
       </div>
       {/* Line two, quieter: where it works, the work it is part of (its workstream, or the sessions it started) with their requests, and its git state. Tags are in Details. */}
       <div className="bar-line bar-line-where">
+        {machine && (
+          <span className="bar-item" title={`This session runs on ${machine}. Its files, terminal and agent are there`}>
+            <Monitor aria-hidden />
+            Runs on {machine}
+          </span>
+        )}
         {session.groupId && <GroupSelect session={session} />}
         <Where session={session} />
         <FamilyChip sessionId={session.id} />

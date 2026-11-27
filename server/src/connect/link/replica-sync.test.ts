@@ -234,7 +234,7 @@ describe.each([
     expect(await l.sync.conversation('nope')).toBeNull();
   });
 
-  it('drops a session the other computer archived, and never receives a project kept off there', async () => {
+  it('keeps a session the other computer archived as an archived head, restores it, and never receives a project kept off there (Matt, 2026-11-27)', async () => {
     const { service, keys } = await account();
     let prefs = DEFAULT_HELD_PREFS;
     const m = await mini(service, keys, () => prefs);
@@ -249,13 +249,32 @@ describe.each([
     await l.sync.conversation(shown.id);
     expect((await l.db.listAccountSessions()).map((h) => h.id)).toEqual([shown.id]);
 
+    const kept = await l.db.listAccountDetails(shown.id, 0, 10);
+    expect(kept.length).toBeGreaterThan(0);
     await m.workspace.setArchived('session', shown.id, true);
     await m.held.run();
     await l.sync.run();
 
+    // Only its head is held now, marked archived; its conversation went from the service, and the copy kept here stays.
+    expect((await l.db.listAccountSessions()).map((h) => [h.id, h.archived, h.chunks])).toEqual([[shown.id, true, 0]]);
+    expect(await l.db.listAccountDetails(shown.id, 0, 10)).toEqual(kept);
+    expect((await l.db.listAccountRecords()).map((r) => r.key)).toEqual([`detail|${shown.id}`, 'feed|heads', `machine|${MINI}`]);
+
+    // Restored there: listed again, its conversation held again.
+    await m.workspace.setArchived('session', shown.id, false);
+    await m.held.run();
+    await l.sync.run();
+    const [head] = await l.db.listAccountSessions();
+    expect(head?.archived).toBeUndefined();
+    expect(head?.chunks).toBeGreaterThan(0);
+
+    // Deleted while archived: its head goes too.
+    await m.workspace.setArchived('session', shown.id, true);
+    await m.held.run();
+    await m.runtime.deleteSession(shown.id);
+    await m.held.run();
+    await l.sync.run();
     expect(await l.db.listAccountSessions()).toEqual([]);
-    expect(await l.db.listAccountDetails(shown.id, 0, 10)).toEqual([]);
-    expect((await l.db.listAccountRecords()).map((r) => r.key)).toEqual(['feed|heads', `machine|${MINI}`]);
   });
 
   it('refuses a head from a machine outside the keyring, and one under a record that is not its session’s', async () => {

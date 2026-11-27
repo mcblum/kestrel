@@ -19,6 +19,7 @@ import { startConnect } from './connect/link/start.ts';
 import { startCrashReporter } from './crash-reports/start.ts';
 import { crashReportSetup } from './shared/crash-reports.ts';
 import { detailsSources } from './details-api.ts';
+import { sessionRoutes } from './session-routes.ts';
 import { syncPullRequests } from './pull-request-sync.ts';
 import { originUrl } from './git.ts';
 import { sharedGlabSignIn } from './pull-requests/glab.ts';
@@ -244,7 +245,9 @@ runtime.useTickets(
 // The Tickets routes, for the window and a phone of the account alike (tickets/api.ts).
 const ticketsApi = { store: tickets, sync: ticketSync, work: ticketWork, jira, linear, sources: () => sourcesOfTickets.status() };
 // Kestrel Connect (connect/link/): signed in and switched on in Settings, it links to the relay.
-const connect = await startConnect({ dataDir, settings: db, fake, workspace, runtime, reviewRequests, tickets, ticketsApi, pullRequests: details.store, mcpServers, vaultKey });
+// A session's page beside its conversation, for this window and for another desktop that shows the session (session-routes.ts).
+const sessionPage = sessionRoutes({ workspace, runtime, details: { sources: details, sample: fake }, writers: titles });
+const connect = await startConnect({ dataDir, settings: db, fake, workspace, runtime, reviewRequests, tickets, ticketsApi, pullRequests: details.store, mcpServers, vaultKey, sessionRoute: sessionPage.route });
 // The agent's set-up tools read and run the same checklist as the page (onboarding.md 18.14).
 runtime.useSetupSteps(connect.steps);
 // What's new: the notes shipped with this copy (the repository's whats-new/ from a checkout; the shell
@@ -263,7 +266,7 @@ const whatsNew = { notes: whatsNewNotes, store: new WhatsNew({ settings: db, not
 await whatsNew.store.view().catch((error: unknown) => console.error('[kestrel] could not read what is new', error));
 // The account preview's computers for New session (seed-account.ts), in a checkout only.
 const startComputers = process.env.KESTREL_ACCOUNT_PREVIEW === '1' && process.env.KESTREL_PACKAGED !== '1' ? previewStartComputers() : undefined;
-const app = createKestrelServer(workspace, { token, allowedOrigins: uiOrigins, port }, runtime, { details: { sources: details, sample: fake }, writers: titles, reviewRequests, tickets: ticketsApi, crashReporting, connect, whatsNew, ...(startComputers ? { startComputers } : {}) });
+const app = createKestrelServer(workspace, { token, allowedOrigins: uiOrigins, port }, runtime, { details: { sources: details, sample: fake }, writers: titles, sessionRoutes: sessionPage, reviewRequests, tickets: ticketsApi, crashReporting, connect, whatsNew, ...(startComputers ? { startComputers } : {}) });
 watchedNow = () => app.watched();
 checkTickets = () => void ticketSync.check();
 await app.listen();

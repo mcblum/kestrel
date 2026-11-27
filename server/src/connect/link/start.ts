@@ -1,6 +1,7 @@
 // Builds Kestrel Connect for the running server: the public service (KESTREL_CONNECT_URL for a
 // self-hosted one), its realm, and the protected store: sealed under the app's keystore key when
 // the app handed one over (app/vault-key.mjs), else a file only the user can read.
+import type { SessionRoute } from '../../session-routes.ts';
 import type { TicketsApi } from '../../tickets/api.ts';
 import { connectLists } from '../lists.ts';
 import { connectCryptoProblem } from '../crypto-check.ts';
@@ -182,7 +183,7 @@ function setupDeps(...args: Parameters<typeof setupDepsBase>): ReturnType<typeof
   return { ...deps, preview: async (name) => previewSetupList(await deps.inventory({ id: 'preview-source', name }, []), Date.now()) };
 }
 
-export async function startConnect(opts: { dataDir: string; settings: SettingStore; fake: boolean; workspace: Workspace; runtime: SessionRuntime; reviewRequests?: ReviewRequestStore; tickets?: TicketStore; ticketsApi?: TicketsApi; pullRequests?: PullRequestStore; mcpServers?: McpServerStore; vaultKey?: Buffer | null }): Promise<KestrelConnect> {
+export async function startConnect(opts: { dataDir: string; settings: SettingStore; fake: boolean; workspace: Workspace; runtime: SessionRuntime; reviewRequests?: ReviewRequestStore; tickets?: TicketStore; ticketsApi?: TicketsApi; pullRequests?: PullRequestStore; mcpServers?: McpServerStore; vaultKey?: Buffer | null; sessionRoute?: SessionRoute | null }): Promise<KestrelConnect> {
   const service = new HttpConnectService(serviceUrl());
   const identity = new OidcProvider(async () => (await service.config()).issuer, CONNECT_DESKTOP_CLIENT);
   const key = opts.vaultKey !== undefined ? opts.vaultKey : readVaultKey();
@@ -192,7 +193,7 @@ export async function startConnect(opts: { dataDir: string; settings: SettingSto
   // A paired phone's decrypted requests are carried out in process (connect/dispatcher.ts).
   const pulls = opts.pullRequests ? { store: opts.pullRequests, prefs: opts.runtime.gitPrefs, workspace: opts.workspace } : null;
   const lists = connectLists(opts.runtime.reviewPrefs, opts.reviewRequests ?? null, opts.tickets ?? null, pulls);
-  const dispatch = (deviceId: string, send: (frame: Envelope) => void, desk: DeskOps): ConnectDispatcher => new ConnectDispatcher({ workspace: opts.workspace, runtime: opts.runtime, deviceId, here, send, lists, reviewRequests: opts.reviewRequests ?? null, tickets: opts.ticketsApi ?? null, desk, keptOff: (): readonly string[] => connect.keptOff() });
+  const dispatch = (deviceId: string, send: (frame: Envelope) => void, desk: DeskOps): ConnectDispatcher => new ConnectDispatcher({ workspace: opts.workspace, runtime: opts.runtime, deviceId, here, send, lists, reviewRequests: opts.reviewRequests ?? null, tickets: opts.ticketsApi ?? null, desk, keptOff: (): readonly string[] => connect.keptOff(), sessionRoute: opts.sessionRoute ?? null });
   const connect: KestrelConnect = new KestrelConnect({ vault, identity, service, settings: opts.settings, computerName: computerName(), unavailable: opts.fake ? SAMPLE_DATA_REASON : connectCryptoProblem(), dispatch, here, held: { source: heldSource(opts.workspace, opts.runtime, lists), queue: fileQueueStore(join(opts.dataDir, HELD_QUEUE_FILE)) }, push: { source: pushSource(opts.workspace, opts.runtime, opts.reviewRequests ?? null, opts.tickets ?? null, opts.pullRequests ?? null) }, setup: setupDeps(opts.workspace, opts.runtime, opts.fake, opts.dataDir, opts.mcpServers ?? null), replica: opts.workspace.account, projects: opts.workspace.accountProjects, seen: seenSource(opts.workspace), offers: { source: offersSource(opts.runtime, opts.workspace, here), store: opts.workspace.accountOffers, watch: offersWatch(opts.runtime, opts.workspace) } });
   await connect.start();
   return connect;

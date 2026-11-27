@@ -1,7 +1,7 @@
 // What another machine sends is read through these parsers only (machines.ts), and the line a remote
 // conversation shows when its copy is behind and its machine did not answer.
 import { describe, expect, it } from 'vitest';
-import { asRemotePage, asRemotePatch, notAnsweredText } from './machines.ts';
+import { asRemotePage, asRemotePatch, notAnsweredText, paneThere } from './machines.ts';
 
 describe('notAnsweredText', () => {
   const at = new Date(2026, 10, 25, 14, 2).getTime();
@@ -22,8 +22,17 @@ describe('what another machine sends', () => {
     expect(asRemotePage(null)).toBeNull();
   });
 
-  it('a live patch keeps the conversation and what the agent is doing, and nothing else', () => {
-    expect(asRemotePatch({ messages: [{ id: 'm1', author: 'agent', time: '', text: 'hi' }], status: 'Thinking…', files: [{ path: 'secret' }], agentOutput: 'x', removedMessages: ['m0', 3] })).toEqual({ messages: [{ id: 'm1', author: 'agent', time: '', text: 'hi' }], status: 'Thinking…', removedMessages: ['m0'] });
-    expect(asRemotePatch({ files: [] })).toBeNull();
+  it('a live patch keeps what a window draws of the session, drops what does not read as it, and never the agent’s raw output', () => {
+    expect(asRemotePatch({ messages: [{ id: 'm1', author: 'agent', time: '', text: 'hi' }], status: 'Thinking…', files: [{ path: 'no-status' }], agentOutput: 'x', removedMessages: ['m0', 3] })).toEqual({ messages: [{ id: 'm1', author: 'agent', time: '', text: 'hi' }], status: 'Thinking…', files: [], removedMessages: ['m0'] });
+    expect(asRemotePatch({ files: [] })).toEqual({ files: [] });
+    expect(asRemotePatch({ agentOutput: 'x' })).toBeNull();
+  });
+});
+
+describe('what stays on the computer a session runs on', () => {
+  it('names the pane and the computer', () => {
+    expect(paneThere('terminal', 'Mac mini')).toBe('The terminal is on Mac mini.');
+    expect(paneThere('browser', 'Mac mini')).toBe('The browser pane is on Mac mini.');
+    expect(paneThere('simulator', 'Mac mini')).toBe('The simulator is on Mac mini.');
   });
 });

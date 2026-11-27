@@ -8,6 +8,9 @@ import type { ComponentPropsWithoutRef, ReactNode } from 'react';
 import { Pause, Play, SquareArrowOutUpRight } from 'lucide-react';
 import { runnableBlock } from '@kestrel/server/code-run';
 import { runBlock, stopRun, useBlockRun } from '../codeRun.ts';
+import { paneThere } from '@kestrel/server/machines';
+import { useMachineName } from '../machines.ts';
+import { actions, useApp } from '../store.ts';
 import { CopyButton } from './CopyButton.tsx';
 import { openView } from '../route.ts';
 import { HighlightedCode } from '../highlight/HighlightedCode.tsx';
@@ -101,7 +104,22 @@ export function CodeFrame({ lang, code, source, tools }: { lang: string | null; 
   );
 }
 
-function RunButton({ sessionId, lang, text, script }: { sessionId: string; lang: string | null; text: string; script: string }) {
+function RunButton(props: { sessionId: string; lang: string | null; text: string; script: string }) {
+  const machine = useMachineName(useApp((s) => s.sessionsById.get(props.sessionId)?.runsOn));
+  return machine ? <RunThere machine={machine} /> : <RunHere {...props} />;
+}
+
+/** A session on another computer: its Run terminal is there, so Run says so and runs nothing. */
+function RunThere({ machine }: { machine: string }) {
+  const why = paneThere('terminal', machine);
+  return (
+    <button type="button" className="copy-button code-run" aria-label={why} aria-disabled title={why} onClick={() => actions.showError(why)}>
+      <Play aria-hidden />
+    </button>
+  );
+}
+
+function RunHere({ sessionId, lang, text, script }: { sessionId: string; lang: string | null; text: string; script: string }) {
   const state = useBlockRun(sessionId, script);
   if (state === 'running')
     return (

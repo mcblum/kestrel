@@ -7,6 +7,8 @@
 // In a new tab everything is editable. In a running session the provider, project and environment
 // are fixed; model, effort, fast mode and permissions can change and apply from the next message.
 // A model, effort, fast mode or mode picked here is where the next new session starts (sticky-controls.ts).
+// A running session on another computer of the account has the same row: its models, efforts and fast mode are the
+// ones that computer published (machine-offers.ts), and its mode is Manual or Auto from here, never Bypass.
 import { useEffect } from 'react';
 import { Laptop } from 'lucide-react';
 import { ENVIRONMENTS, showEnvironmentControl } from '@kestrel/server/environments';
@@ -30,7 +32,9 @@ import { ContextRing } from './controls/ContextRing.tsx';
 import { ComputerControl } from './controls/ComputerControl.tsx';
 import { RemoteAgentControls } from './controls/RemoteAgentControls.tsx';
 import { useComputerOffers, useOtherComputers } from '../startComputers.ts';
-import { projectAfterSwitch, projectsOn, remoteMode, REMOTE_PICKER_MODES } from '@kestrel/server/start-computer';
+import { modelOptionsOf, projectAfterSwitch, projectsOn, remoteMode, remoteRunningModes, remoteRunningNote, REMOTE_PICKER_MODES, type ComputerStatus } from '@kestrel/server/start-computer';
+import type { ModelOption } from '@kestrel/server/agent-types';
+import { useMachineName } from '../machines.ts';
 import { AutopilotControl } from './controls/AutopilotControl.tsx';
 import { useCapabilities } from './controls/useCapabilities.ts';
 
@@ -61,9 +65,17 @@ interface Props {
   sessionId?: string;
   /** Offer the computer pill (a New session box); off where the choices are remembered (Settings), since a computer never is. */
   computers?: boolean;
+  /** A running session on another computer of the account: that computer's id. */
+  runsOn?: string;
 }
 
-export function ComposerControls({ value, mode, onChange, sessionId, computers = true }: Props) {
+/** The models a running session there offers: that computer's published menu for its agent, or its current model alone until it has one. */
+function modelsThere(status: ComputerStatus, agent: Agent, model: string): readonly ModelOption[] {
+  const provider = status.state === 'ready' ? status.choices.providers.find((p) => p.agent === agent) : undefined;
+  return provider ? modelOptionsOf(provider.models) : [{ id: model, label: model || 'Default' }];
+}
+
+export function ComposerControls({ value, mode, onChange, sessionId, computers = true, runsOn }: Props) {
   const projects = useApp((s) => s.workspace?.projects) ?? [];
   const caps = useCapabilities(value.agent);
   const fixed = mode === 'running';
@@ -89,8 +101,11 @@ export function ComposerControls({ value, mode, onChange, sessionId, computers =
   const others = useOtherComputers();
   const machine = !fixed && computers && value.machine ? value.machine : null;
   const machineName = machine ? (others?.find((m) => m.id === machine)?.name ?? 'another computer') : null;
-  const offers = useComputerOffers(machine ? [machine] : []);
-  const status = offers(machine ?? '');
+  // A running session on another computer: its row reads what that computer offers.
+  const elsewhere = fixed && runsOn ? runsOn : null;
+  const elsewhereName = useMachineName(elsewhere ?? undefined) ?? 'another computer';
+  const offers = useComputerOffers(machine ? [machine] : elsewhere ? [elsewhere] : []);
+  const status = offers(machine ?? elsewhere ?? '');
   const switchComputer = (next: string | null) => {
     const projectId = projectAfterSwitch(projects, value.projectId, next);
     const { folderId: _folder, groupId: _group, ...rest } = value;
@@ -118,7 +133,7 @@ export function ComposerControls({ value, mode, onChange, sessionId, computers =
       <span className="ctl-where">
         {item('Project', project, hasProject ? projectName : `Unscoped. No repository: it works in a scratch folder${machineName ? ` on ${machineName}` : ''} and hands changes to a project`, 'ctl-project')}
         {!fixed && !machine && <FolderPicker controls={value} onSelect={(folderId) => onChange({ ...value, folderId })} />}
-        {!machine && showEnvironmentControl() &&
+        {!machine && !elsewhere && showEnvironmentControl() &&
           item(
             'Environment',
             <span className="ctl-fixed">
@@ -130,6 +145,8 @@ export function ComposerControls({ value, mode, onChange, sessionId, computers =
       <span className="ctl-right">
         {machine ? (
           remote('model')
+        ) : elsewhere ? (
+          <ModelControl models={modelsThere(status, value.agent, value.model)} value={value} running onChange={(s) => onChange({ ...value, ...s })} />
         ) : (
           <>
             <PresetControl value={value} running={fixed} onChange={pick} />
@@ -140,6 +157,8 @@ export function ComposerControls({ value, mode, onChange, sessionId, computers =
         <span className="ctl ctl-mode" key="Mode">
           {machine ? (
             <ModePicker value={remoteMode(value.permission, machineName ?? '').mode} levels={REMOTE_PICKER_MODES} agent={value.agent} help={remoteMode(value.permission, machineName ?? '').note ?? `Mode: Manual or Auto on ${machineName}. Bypass is chosen on the computer the session runs on`} onChange={(permission) => pick({ ...value, permission })} />
+          ) : elsewhere ? (
+            <ModePicker value={value.permission} levels={remoteRunningModes(value.permission)} agent={value.agent} help={remoteRunningNote(value.permission, elsewhereName)} onChange={(permission) => onChange({ ...value, permission })} />
           ) : (
             <ModePicker value={value.permission} levels={caps.permissions} agent={value.agent} help={`Mode: ${fixed ? `${hint}. Changes apply from your next message` : hint}`} onChange={(permission) => pick({ ...value, permission })} />
           )}

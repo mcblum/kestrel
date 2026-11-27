@@ -1,6 +1,6 @@
 // The closed list of what a phone may ask, and the envelope its frames travel in (shared/connect-ops.ts).
 import { describe, expect, it } from 'vitest';
-import { checkEnvelope, checkRequest, CONNECT_OP_NAMES, CONNECT_OPS, deskOnly, CONNECT_PROTOCOL_VERSION, NEVER_REMOTE, PAGE_MAX, versionRefusal, BYPASS_FROM_ELSEWHERE } from './connect-ops.ts';
+import { checkEnvelope, checkRequest, checkRequestFrom, CONNECT_OP_NAMES, CONNECT_OPS, deskOnly, CONNECT_PROTOCOL_VERSION, NEVER_REMOTE, PAGE_MAX, phoneRefusal, versionRefusal, BYPASS_FROM_ELSEWHERE } from './connect-ops.ts';
 
 const frame = (over: Record<string, unknown> = {}) => ({ v: CONNECT_PROTOCOL_VERSION, from: 'phone-1', to: 'mac-1', kind: 'request', id: 'f1', body: 'ciphertext', ...over });
 
@@ -48,6 +48,7 @@ const GOOD: Record<string, Record<string, unknown>> = {
   'session.reply': { sessionId: 's1', text: 'carry on' },
   'session.answer': { sessionId: 's1', requestId: 'r1', optionId: 'allow' },
   'session.stop': { sessionId: 's1' },
+  'session.archive': { sessionId: 's1', archived: true, skipScript: false },
   'session.compact': { sessionId: 's1' },
   'reviews.read': {},
   'tickets.read': {},
@@ -76,7 +77,36 @@ const GOOD: Record<string, Record<string, unknown>> = {
   'reviewEnd.act': { sessionId: 's1', cardId: 'c1', action: 'fix', findingIds: ['f1', 'f2'] },
   'setup.values': { requestId: 'r1', line: 'mcp:home-assistant', names: ['HOMEASSISTANT_URL', 'HOMEASSISTANT_TOKEN'] },
   'setup.values.withdraw': { requestId: 'r1' },
+  'session.snapshot': { sessionId: 's1' },
+  'session.details': { sessionId: 's1', section: 'pull-requests', refresh: true },
+  'session.context': { sessionId: 's1' },
+  'session.files': { sessionId: 's1', path: 'src' },
+  'session.file': { sessionId: 's1', path: 'src/app.ts', folder: 'f1' },
+  'session.document': { sessionId: 's1', path: 'README.md' },
+  'session.documentPlace': { sessionId: 's1', path: 'README.md' },
+  'session.raw': { sessionId: 's1', path: 'docs/shot.png' },
+  'session.attachFile': { draftId: 'd1', name: 'notes.txt', mediaType: 'text/plain', data: 'aGk=' },
+  'session.rename': { sessionId: 's1', title: 'Fix the login' },
+  'session.delete': { sessionId: 's1' },
+  'session.tag': { sessionId: 's1', tag: 'release', on: true },
+  'session.role': { sessionId: 's1', role: 'build', brief: 'Wire it in.' },
+  'session.reviewOf': { sessionId: 's1' },
+  'session.review': { sessionId: 's1', comment: true },
+  'session.fork': { sessionId: 's1', turn: 'm3' },
+  'queue.send': { sessionId: 's1' },
+  'queue.remove': { sessionId: 's1', messageId: 'q1' },
+  'background.stop': { sessionId: 's1', taskId: 't1' },
+  'command.output': { sessionId: 's1', commandId: 'c1' },
+  'command.retry': { sessionId: 's1', commandId: 'c1' },
+  'command.stop': { sessionId: 's1', commandId: 'c1' },
+  'pr.prepare': { sessionId: 's1', generated: true },
+  'pr.create': { sessionId: 's1', title: 'Fix', body: '', base: 'main', draft: false },
+  'pr.mergePreview': { sessionId: 's1', number: 12 },
+  'pr.merge': { sessionId: 's1', number: 12, sha: 'a'.repeat(40), base: 'main', method: 'squash' },
 };
+
+/** Every operation only a desktop of the keyring may ask (Matt, 2026-11-27, and onboarding.md 19.6). */
+const DESK_ONLY = ['setup.values', 'setup.values.withdraw', 'session.snapshot', 'session.details', 'session.context', 'session.files', 'session.file', 'session.document', 'session.documentPlace', 'session.raw', 'session.attachFile', 'session.rename', 'session.delete', 'session.tag', 'session.role', 'session.reviewOf', 'session.review', 'session.fork', 'queue.send', 'queue.remove', 'background.stop', 'command.output', 'command.retry', 'command.stop', 'pr.prepare', 'pr.create', 'pr.mergePreview', 'pr.merge'];
 
 describe('the operations', () => {
   it('are the ones in the spec, each saying what it maps to', () => {
@@ -89,8 +119,8 @@ describe('the operations', () => {
   });
 
   it.each(Object.entries(GOOD).filter(([, args]) => Object.keys(args).length > 0))('%s refuses a field it does not take', (op, args) => {
-    const checked = checkRequest({ op, args: { ...args, permission: 'bypass' } });
-    expect(checked).toEqual({ ok: false, reason: `${op} takes no permission.` });
+    const checked = checkRequest({ op, args: { ...args, nonsense: 1 } });
+    expect(checked).toEqual({ ok: false, reason: `${op} takes no nonsense.` });
   });
 
   it.each([
@@ -135,9 +165,31 @@ describe('the operations', () => {
 
 describe('what a phone never does', () => {
   it('edits no session by hand (Matt, 2026-11-22)', () => {
-    for (const op of ['session.rename', 'session.move', 'session.archive', 'session.model', 'session.permission']) {
-      expect(checkRequest({ op, args: {} })).toEqual({ ok: false, reason: NEVER_REMOTE[op] });
+    for (const op of ['session.rename', 'session.move', 'session.model', 'session.permission']) {
+      expect(checkRequestFrom({ op, args: {} }, false)).toEqual({ ok: false, reason: NEVER_REMOTE[op] });
     }
+    // Nor does a model or mode ride on a phone's message; Bypass is refused to anyone.
+    expect(checkRequestFrom({ op: 'session.reply', args: { sessionId: 's1', text: 'go', model: 'opus' } }, false)).toEqual({ ok: false, reason: NEVER_REMOTE['session.model'] });
+    expect(checkRequestFrom({ op: 'session.reply', args: { sessionId: 's1', text: 'go', effort: 'high' } }, false)).toEqual({ ok: false, reason: NEVER_REMOTE['session.model'] });
+    expect(checkRequestFrom({ op: 'session.reply', args: { sessionId: 's1', text: 'go', permission: 'auto' } }, false)).toEqual({ ok: false, reason: NEVER_REMOTE['session.permission'] });
+    expect(checkRequestFrom({ op: 'session.reply', args: { sessionId: 's1', text: 'go', permission: 'bypass' } }, true)).toEqual({ ok: false, reason: BYPASS_FROM_ELSEWHERE });
+    expect(checkRequestFrom({ op: 'session.reply', args: { sessionId: 's1', text: 'go', model: 'opus', permission: 'plan', effort: 'high', fast: true } }, true)).toMatchObject({ ok: true });
+  });
+});
+
+describe('session.archive: from anywhere (Matt, 2026-11-27: "Archive should be allowed from anywhere")', () => {
+  it('is no longer what a phone never does, and a phone asks it as a desktop does', () => {
+    expect(NEVER_REMOTE['session.archive']).toBeUndefined();
+    for (const desktop of [false, true]) {
+      expect(checkRequestFrom({ op: 'session.archive', args: { sessionId: 's1', archived: true } }, desktop)).toEqual({ ok: true, value: { op: 'session.archive', args: { sessionId: 's1', archived: true } } });
+      expect(checkRequestFrom({ op: 'session.archive', args: { sessionId: 's1', archived: false } }, desktop)).toMatchObject({ ok: true });
+    }
+  });
+
+  it('says archived or restored in so many words', () => {
+    expect(checkRequest({ op: 'session.archive', args: { sessionId: 's1' } })).toEqual({ ok: false, reason: 'archived must be true or false.' });
+    expect(checkRequest({ op: 'session.archive', args: { sessionId: 's1', archived: 'yes' } })).toEqual({ ok: false, reason: 'archived must be true or false.' });
+    expect(checkRequest({ op: 'session.archive', args: { sessionId: 's1', archived: true, skipScript: 1 } })).toEqual({ ok: false, reason: 'skipScript must be true or false.' });
   });
 });
 
@@ -168,18 +220,43 @@ describe('session.start: a new session from a blank page (A8, Matt 2026-11-24)',
   });
 
   it.each(Object.keys(NEVER_REMOTE))('refuses %s with its own reason', (op) => {
-    expect(checkRequest({ op, args: {} })).toEqual({ ok: false, reason: NEVER_REMOTE[op] });
+    expect(checkRequestFrom({ op, args: {} }, false)).toEqual({ ok: false, reason: NEVER_REMOTE[op] });
     expect(checkRequest({ op: `${op}.anything`, args: {} })).toEqual({ ok: false, reason: NEVER_REMOTE[op] });
   });
 
-  it.each(['session.delete', 'session.fork', 'projects.add', 'state.write', '__proto__', 'constructor', 'toString'])('refuses %s, which is not on the list', (op) => {
-    const checked = checkRequest({ op, args: {} });
+  it.each(['session.delete', 'session.fork', 'projects.add', 'state.write', '__proto__', 'constructor', 'toString'])('refuses %s to a phone, which may not ask it', (op) => {
+    const checked = checkRequestFrom({ op, args: {} }, false);
     expect(checked.ok).toBe(false);
     if (!checked.ok) expect(checked.reason).toMatch(/not something Kestrel Connect does/);
   });
 
   it('marks only the copying of set-up values desk-only (onboarding.md 19.6)', () => {
-    expect(CONNECT_OP_NAMES.filter(deskOnly).sort()).toEqual(['setup.values', 'setup.values.withdraw']);
+    expect(CONNECT_OP_NAMES.filter(deskOnly).sort()).toEqual([...DESK_ONLY].sort());
+  });
+
+  it.each(DESK_ONLY)('refuses %s to a phone, even with good arguments, as a phone was refused before', (op) => {
+    expect(checkRequestFrom({ op, args: GOOD[op] }, false)).toEqual({ ok: false, reason: phoneRefusal(op as never) });
+    expect(checkRequestFrom({ op, args: GOOD[op] }, true)).toMatchObject({ ok: true });
+  });
+
+  it('says what a phone was told before for each desk-only operation', () => {
+    expect(phoneRefusal('setup.values')).toBe(NEVER_REMOTE.setup);
+    expect(phoneRefusal('session.rename')).toBe(NEVER_REMOTE['session.rename']);
+    expect(phoneRefusal('session.file')).toBe(NEVER_REMOTE.files);
+    expect(phoneRefusal('session.details')).toMatch(/not something Kestrel Connect does/);
+  });
+
+  it.each([
+    ['session.details', { sessionId: 's1', section: 'secrets' }, /section must be one of/],
+    ['session.file', { sessionId: 's1', path: 'a\u0000b' }, /path must be a path/],
+    ['session.attachFile', { draftId: 'd1', name: 'a.txt', mediaType: 'text plain', data: 'aGk=' }, /mediaType/],
+    ['pr.merge', { sessionId: 's1', number: 1, sha: 'nope', base: 'main', method: 'merge' }, /sha must be/],
+    ['pr.mergePreview', { sessionId: 's1', number: 0 }, /number must be/],
+    ['session.role', { sessionId: 's1', role: 'review' }, /role must be one of/],
+  ])('%s refuses %j', (op, args, reason) => {
+    const checked = checkRequest({ op, args });
+    expect(checked.ok).toBe(false);
+    if (!checked.ok) expect(checked.reason).toMatch(reason);
   });
 
   it.each([

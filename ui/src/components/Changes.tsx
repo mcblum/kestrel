@@ -4,6 +4,8 @@ import { useWorkingTree } from '../workingTree.ts';
 import { FileCode } from 'lucide-react';
 import { Diff, getChangeKey, Hunk, parseDiff, type FileData } from 'react-diff-view';
 import 'react-diff-view/style/index.css';
+import { tooLargeToBring } from '@kestrel/server/remote-carry';
+import { useFilesElsewhere } from './HeldElsewhere.tsx';
 import type { ChangedFile, SessionDetail } from '@kestrel/server/model';
 import { uncommittedCount, uncommittedFilesText } from '@kestrel/server/commit-request';
 import type { GitStatus } from '@kestrel/server/details';
@@ -46,6 +48,9 @@ function OneFileDiff({ file, path, viewType, markLine }: { file: FileData; path:
 // The diff itself is react-diff-view; only the colours are ours (see app.css, code-tokens.css).
 const FileDiffView = memo(function FileDiffView({ file, viewType, markLine }: { file: ChangedFile; viewType: DiffViewType; markLine?: number }) {
   const parsed = useMemo(() => parseDiff(file.diff), [file.diff]);
+  // A diff too large to carry from the computer the session runs on stays there, and says so (shared/remote-carry.ts).
+  const machine = useFilesElsewhere();
+  if (file.heldBack !== undefined) return <p className="muted pad">{tooLargeToBring('This diff', machine ?? 'the computer it runs on')}</p>;
   return (
     <div className={`diff-wrap diff-${viewType}`}>
       {parsed.map((f) => (

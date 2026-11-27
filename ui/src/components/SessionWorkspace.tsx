@@ -29,12 +29,16 @@ import type { SessionQueue, SessionSettings } from '@kestrel/server/model';
 import type { Controls } from '@kestrel/server/tabs';
 import { ComposerControls } from './ComposerControls.tsx';
 import { Composer, waitsOnCard, type Inject } from './Conversation.tsx';
-import { RemoteSession } from './RemoteSession.tsx';
 import { MessageList, type MessageListHandle } from './MessageList.tsx';
 import { useFollowEnd } from '../conversationFollow.ts';
 import { ToBottom } from './ToBottom.tsx';
 import { ComposerFoot } from './ComposerFoot.tsx';
-import { act, actions, focusRequests, messageFocus, useApp, type AttachmentRefs } from '../store.ts';
+import { act, actions, focusRequests, mergeMessages, messageFocus, useApp, type AttachmentRefs } from '../store.ts';
+import { notAnsweredText } from '@kestrel/server/machines';
+import { useMachineName } from '../machines.ts';
+import { useBehindRetry } from '../behindRetry.ts';
+import { FilesElsewhere } from './HeldElsewhere.tsx';
+import '../styles/machines.css';
 import { presetForRole, ROLE_LABEL } from '@kestrel/server/who-does-what';
 import { startRole } from '../review.ts';
 import { useWhoDoesWhat } from '../whoDoesWhat.ts';
@@ -48,14 +52,20 @@ const NO_QUEUE: SessionQueue = { items: [], held: false };
 
 /** What the hooks read before the session is in the workspace: no worktree. */
 const NO_TREE = { id: '', title: '', worktreePath: null, branch: null, worktreeDiscarded: false };
-/** A session's page: its own when it runs here, the read-only one when another computer of the account runs it. */
-export function SessionWorkspace({ id }: { id: string }) {
-  const elsewhere = useApp((s) => s.sessionsById.get(id)?.runsOn !== undefined);
-  return elsewhere ? <RemoteSession id={id} /> : <OwnSessionWorkspace id={id} />;
-}
 
-function OwnSessionWorkspace({ id }: { id: string }) {
+/**
+ * A session's page, the same whether it runs here or on another computer of the account (account-sessions.md, "A
+ * session on another computer drawn as one here, as built"). For one there (`runsOn`) the few differences are small:
+ * the bar says where it runs; its conversation is the account's copy with what streams from that computer laid over
+ * it, and a line with Try again when that computer was asked for what the copy lacks and did not answer; its
+ * terminal, browser and simulator stay on that computer and say so; a file not held here says where it is
+ * (`FilesElsewhere`). Everything else is read and done through the same routes, which the server carries out there
+ * (remote-actions.ts).
+ */
+export function SessionWorkspace({ id }: { id: string }) {
   const session = useApp((s) => s.sessionsById.get(id));
+  // The computer it runs on, for a session there; null for this computer's own.
+  const machine = useMachineName(session?.runsOn);
   const stored = useApp((s) => s.details.get(id));
   const live = useApp((s) => s.live.get(id));
   const projects = useApp((s) => s.workspace?.projects) ?? [];
@@ -67,15 +77,16 @@ function OwnSessionWorkspace({ id }: { id: string }) {
   // The agent's browser calls go to this window; opening a page brings the Browser pane up.
   const showBrowser = useRef(() => {});
   showBrowser.current = () => panes.show('browser');
-  useEffect(() => browserPane.serve(id, { reveal: () => showBrowser.current() }), [id]);
+  // A session on another computer: its agent's browser, simulator and code-block runs are that computer's window's.
+  useEffect(() => (machine ? undefined : browserPane.serve(id, { reveal: () => showBrowser.current() })), [id, machine]);
   // The agent's sim_ tools bring the Simulator pane up the same way.
   const showSimulator = useRef(() => {});
   showSimulator.current = () => panes.show('simulator');
-  useEffect(() => simulator.serve(id, () => showSimulator.current()), [id]);
+  useEffect(() => (machine ? undefined : simulator.serve(id, () => showSimulator.current())), [id, machine]);
   // Running a code block from the conversation brings the Terminal pane up.
   const showTerminal = useRef(() => {});
   showTerminal.current = () => panes.show('terminal');
-  useEffect(() => serveRuns(id, () => showTerminal.current()), [id]);
+  useEffect(() => (machine ? undefined : serveRuns(id, () => showTerminal.current())), [id, machine]);
   // An edit line in the conversation brings the Changes pane up at that file (changesFocus.ts).
   const showChanges = useRef(() => {});
   showChanges.current = () => panes.show('changes');
@@ -105,7 +116,12 @@ function OwnSessionWorkspace({ id }: { id: string }) {
   const lastStored = useRef(stored);
   if (stored) lastStored.current = stored;
   const shown = stored ?? lastStored.current;
-  const detail = useMemo(() => (shown && live ? { ...shown, messages: live.messages, files: live.files, agentOutput: live.agentOutput, kestrelTools: live.kestrelTools, kestrelMissing: live.kestrelMissing, ...(live.mcpServers.length ? { mcpServers: live.mcpServers } : {}) } : shown), [shown, live]);
+  // For a session on another computer, what streamed from it replaces the same message of the account's copy, or follows it.
+  const elsewhere = machine !== null;
+  const detail = useMemo(() => (shown && live ? { ...shown, messages: elsewhere ? (live.messages.length ? mergeMessages(shown.messages, live.messages) : shown.messages) : live.messages, files: live.files, agentOutput: live.agentOutput, kestrelTools: live.kestrelTools, kestrelMissing: live.kestrelMissing, ...(live.mcpServers.length ? { mcpServers: live.mcpServers } : {}) } : shown), [shown, live, elsewhere]);
+  // The account's copy is behind its head: read it again a few times; Try again asks its computer afresh.
+  const behind = detail?.remote?.current === false;
+  const tryAgain = useBehindRetry(id, behind);
   // The Details sources are asked again whenever the session or its changes do; the git one feeds the top line too.
   const refreshKey = detailsRefreshKey(session?.updatedAt ?? 0, detail?.files ?? []);
   const git = useGitStatus(id, refreshKey);
@@ -147,17 +163,20 @@ function OwnSessionWorkspace({ id }: { id: string }) {
   // The roles the user gave an agent (Settings → Models & roles → Who does what): what is typed can be sent
   // to one of them instead, to be done in this session's worktree (server: delegation.ts `startRole`).
   const who = useWhoDoesWhat();
-  const worktree = Boolean(session?.worktreePath) && !session?.worktreeDiscarded;
   // The branch a pull request is made from: a guest's is its host's (@kestrel/server/working-tree).
-  const requestBranch = useWorkingTree(session ?? NO_TREE).tree?.branch ?? '';
+  const workingTree = useWorkingTree(session ?? NO_TREE).tree;
+  const requestBranch = workingTree?.branch ?? '';
+  // A session there has its worktree on that computer: its branch is what is known of it here.
+  const worktree = elsewhere ? workingTree !== null : Boolean(session?.worktreePath) && !session?.worktreeDiscarded;
   const sendTo = useMemo(() => {
     const options = (['design', 'build'] as const).flatMap((role) => {
       const preset = presetForRole(who, role);
-      return preset && worktree ? [{ id: role, label: `Send to ${ROLE_LABEL[role]}`, hint: preset.name }] : [];
+      // A role's part there runs on that computer's own Who does what.
+      return preset && worktree ? [{ id: role, label: `Send to ${ROLE_LABEL[role]}`, hint: machine ? `on ${machine}` : preset.name }] : [];
     });
     const sendRole = async (role: string, text: string) => (await act(() => startRole(id, role as 'design' | 'build', text).then(() => true))) === true;
     return { options, send: sendRole };
-  }, [who, id, worktree]);
+  }, [who, id, worktree, machine]);
   // Sidebars about a finding open in this page's tools column (asides.ts); what one concluded comes back into this message box, unsent.
   const asideCalls = useRef({ show: panes.showAside, put: (_: string) => {} });
   asideCalls.current = { show: panes.showAside, put: (text: string) => setInject({ id, text, n: Date.now(), append: true }) };
@@ -167,7 +186,8 @@ function OwnSessionWorkspace({ id }: { id: string }) {
 
   const settings = live?.settings ?? detail?.settings;
   const current: Controls = { agent: session.agent, model: pending.model ?? settings?.model ?? '', effort: pending.effort ?? settings?.effort ?? '', fast: pending.fast ?? settings?.fast ?? false, permission: pending.permission ?? settings?.permission ?? (session.startedIn ? 'ask' : 'readonly'), projectId: session.startedIn, groupId: session.groupId };
-  const changed = settingsChanged(pending, settings);
+  const change = changedSettings(pending, settings);
+  const changed = Object.keys(change).length > 0;
   const projectIsPlain = sessionFolder(session, projects.find((p) => p.id === session.startedIn))?.isGit === false;
   const agentCard = <SubAgentList agents={live?.subagents ?? []} openId={open.agent ? panes.state.agentId : null} onOpen={panes.toggleAgent} />;
   // The index of the message the card sits under; -1 puts it at the end.
@@ -180,7 +200,8 @@ function OwnSessionWorkspace({ id }: { id: string }) {
   const waiting = waitsOnCard(session.state, detail?.messages);
   const send = async (text: string, files: AttachmentRefs | null = null) => {
     toBottom(); // sending a message always returns to the latest
-    const sent = await actions.reply(id, text, pending, files);
+    // Only what differs rides on the message: a session in Bypass on another computer keeps it while its model changes.
+    const sent = await actions.reply(id, text, change, files);
     if (sent) setPending({});
     // Again once the message itself is on the page, in case it arrived after the first jump.
     requestAnimationFrame(toBottom);
@@ -199,9 +220,20 @@ function OwnSessionWorkspace({ id }: { id: string }) {
   return (
     <section className={`session-workspace${hasColumns ? '' : ' focus-conversation'}`} data-session-id={id}>
       <SessionBar session={session} detail={detail} panes={panes} browserTitle={browserTitle} git={git.value} pullRequests={pullRequests} onOpenPullRequest={(request) => openPullRequest(id, request)} />
+      {/* Only when it is true and matters: the copy is behind and its computer was asked and did not answer. */}
+      {machine && detail?.remote && behind && !detail.remote.reachable && (
+        <div className="remote-as-of" role="status">
+          <span>{notAnsweredText(machine, detail.remote.asOf)}</span>
+          <button type="button" className="secondary-button small" onClick={tryAgain}>
+            Try again
+          </button>
+        </div>
+      )}
+      <FilesElsewhere.Provider value={machine}>
       <AsideContext.Provider value={asideHost}>
       <PaneArea
         scopeKey={id}
+        elsewhere={machine}
         state={panes.state}
         mainLabel="Session content"
         contextLabel="Details"
@@ -234,7 +266,7 @@ function OwnSessionWorkspace({ id }: { id: string }) {
             {!detail ? (
               <div className="muted">Loading conversation…</div>
             ) : detail.messages.length === 0 ? (
-              <div className="muted">No messages yet.</div>
+              <div className="muted">{machine && behind ? 'This computer has no copy of the conversation yet. It is read from Kestrel Connect when this computer is connected.' : 'No messages yet.'}</div>
             ) : (
               <>
                 {/* The sub-agent card is part of the conversation: it sits under the message it belongs to. */}
@@ -280,7 +312,12 @@ function OwnSessionWorkspace({ id }: { id: string }) {
             above={<ComposerFoot sessionId={id} messages={detail?.messages} queue={live?.queue ?? detail?.queue ?? NO_QUEUE} running={session.state === 'running'} waiting={waiting} onEdit={editQueued} onOpenCommand={panes.showCommand} />}
             controls={
               <>
-                <ComposerControls value={current} mode="running" sessionId={id} onChange={(c) => setPending({ model: c.model, effort: c.effort ?? '', fast: c.fast ?? false, permission: c.permission })} />
+                {machine && !settings ? (
+                  // Its real model and mode come from its computer; nothing stands in for them until it has said.
+                  <span className="ctl-note">{machine} has not said this session’s model and mode yet</span>
+                ) : (
+                  <ComposerControls value={current} mode="running" sessionId={id} {...(session.runsOn ? { runsOn: session.runsOn } : {})} onChange={(c) => setPending({ model: c.model, effort: c.effort ?? '', fast: c.fast ?? false, permission: c.permission })} />
+                )}
                 {changed && <span className="ctl-note">Applies from your next message</span>}
               </>
             }
@@ -292,6 +329,7 @@ function OwnSessionWorkspace({ id }: { id: string }) {
         }
       />
       </AsideContext.Provider>
+      </FilesElsewhere.Provider>
     </section>
   );
 }
@@ -308,12 +346,12 @@ const ConversationHead = memo(function ConversationHead({ sessionId, at }: { ses
   );
 });
 
-/** A model, effort, fast-mode or mode change waiting for the next message. */
-function settingsChanged(pending: Partial<SessionSettings>, settings: SessionSettings | undefined): boolean {
-  return (
-    (pending.model !== undefined && pending.model !== (settings?.model ?? '')) ||
-    (pending.effort !== undefined && pending.effort !== (settings?.effort ?? '')) ||
-    (pending.fast !== undefined && pending.fast !== (settings?.fast ?? false)) ||
-    (pending.permission !== undefined && pending.permission !== settings?.permission)
-  );
+/** The model, effort, fast-mode and mode changes waiting for the next message: only those that differ from what the session has. */
+function changedSettings(pending: Partial<SessionSettings>, settings: SessionSettings | undefined): Partial<SessionSettings> {
+  return {
+    ...(pending.model !== undefined && pending.model !== (settings?.model ?? '') ? { model: pending.model } : {}),
+    ...(pending.effort !== undefined && pending.effort !== (settings?.effort ?? '') ? { effort: pending.effort } : {}),
+    ...(pending.fast !== undefined && pending.fast !== (settings?.fast ?? false) ? { fast: pending.fast } : {}),
+    ...(pending.permission !== undefined && pending.permission !== settings?.permission ? { permission: pending.permission } : {}),
+  };
 }
