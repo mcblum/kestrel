@@ -28,7 +28,8 @@
 .kestrel .family-row .menu-item { display: grid; flex: 1; min-width: 0; height: var(--family-row); padding-block: 4px; gap: 1px; align-content: center; }
 .kestrel .family-row.current { background: var(--s-soft); }
 .kestrel .family-row.child .menu-item { padding-left: 27px; }
-.kestrel .family-row.child::before { content: ''; position: absolute; left: 14px; top: calc(var(--family-name-mid) - var(--family-row)); width: 8px; height: var(--family-row); border-left: 1px solid var(--elbow-line); border-bottom: 1px solid var(--elbow-line); border-bottom-left-radius: 4px; pointer-events: none; }
+.kestrel .family-row.child { --elbow-x: 14px; --elbow-mid: var(--family-name-mid); --elbow-width: 8px; }
+.kestrel .family-row.lead + .family-row.child { --elbow-start: calc(var(--family-name-mid) - var(--family-row)); }
 .kestrel .family-row .family-row-name { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .kestrel .family-row .family-row-title { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kestrel .family-row .family-row-tag { flex: none; }

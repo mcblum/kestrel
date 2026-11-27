@@ -77,10 +77,7 @@
    The line sits 4px in from where the parent's title starts and stops 5px short of the child's. */
 .kestrel .studio-sidebar .tree-children > li { position: relative; --elbow-x: calc(var(--side-label-x) + (var(--depth, 1) - 1) * var(--side-indent) + 4px); }
 .kestrel .studio-sidebar .project-block .folder-block .tree-children > li { --elbow-x: calc(var(--folder-label-x) + (var(--depth, 1) - 1) * var(--side-indent) + 4px); }
-.kestrel .studio-sidebar .tree-children > li::before,
-.kestrel .studio-sidebar .tree-children > li:not(:last-child)::after { content: ''; position: absolute; z-index: 1; left: var(--elbow-x); top: 0; border-left: 1px solid var(--elbow-line); pointer-events: none; }
-.kestrel .studio-sidebar .tree-children > li::before { width: calc(var(--side-indent) - 9px); height: calc(var(--side-row) / 2); border-bottom: 1px solid var(--elbow-line); border-bottom-left-radius: 4px; }
-.kestrel .studio-sidebar .tree-children > li:not(:last-child)::after { bottom: 0; }
+.kestrel .studio-sidebar .tree-children > li { --elbow-width: calc(var(--side-indent) - 9px); --elbow-mid: calc(var(--side-row) / 2); }
 
 /* A project and a tag are drawn alike (Matt, 2026-11-22): the name in semibold, a quiet guide line
    down from the row's icon beside everything listed under it, and the titles under it starting

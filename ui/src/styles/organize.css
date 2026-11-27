@@ -114,7 +114,10 @@
 .kestrel .workstream-archived button { flex: none; margin-left: auto; }
 /* A session list drawn as a tree (a workstream's page): each level is indented, with the line from its parent, as in the sidebar. */
 .kestrel .trow.nested .tcell-main { position: relative; padding-left: calc(var(--depth) * 22px); }
-.kestrel .trow.nested .tcell-main::before { content: ''; position: absolute; left: calc((var(--depth) - 1) * 22px + 6px); top: -10px; bottom: 50%; width: 9px; border-left: 1px solid var(--s-line); border-bottom: 1px solid var(--s-line); border-bottom-left-radius: 4px; }
+.kestrel .trow.nested { position: relative; }
+.kestrel .table-guides { position: absolute; inset: 0 0 -1px 8px; pointer-events: none; }
+.kestrel .table-branch, .kestrel .table-rail { position: absolute; inset: 0; --elbow-x: calc((var(--depth) - 1) * 22px + 6px); --elbow-mid: 50%; --elbow-width: 9px; }
+.kestrel .table-rail { left: var(--elbow-x); border-left: 1px solid var(--elbow-line); }
 
 /* A workstream's first line: the title, then its chevron right after it (Matt, 2026-11-22), as a
    project's follows its name, so the row's end keeps only the dots and the two buttons. */

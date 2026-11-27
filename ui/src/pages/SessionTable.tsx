@@ -1,7 +1,7 @@
 import { contextMenu } from '../menuState.ts';
 // The one table every session list uses: Session, Status, Updated (Project on lists that span
 // projects; Group when any session in the list is in a group, `showGroup`; Status left out where a section's heading already says it, `showStatus`). Rows are memoized; a push that changes one session re-renders one row.
-import { memo, type CSSProperties, type DragEvent } from 'react';
+import { memo, useMemo, type CSSProperties, type DragEvent } from 'react';
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import type { LinkKind, Project, SessionView, WorkspaceState } from '@kestrel/server/model';
 import { statusOf, type Sort, type SortKey } from '@kestrel/server/status';
@@ -48,7 +48,23 @@ function RowTags({ tags }: { tags: readonly string[] }) {
   </span>;
 }
 
-const Row = memo(function Row({ session, projects, origin, showProject, showStatus, compact, group, depth = 0 }: { /** How far the row is indented in a tree (a workstream's page); 0 in a flat list. */ depth?: number; session: SessionView; projects: readonly Project[]; origin: string | null; showProject: boolean; showStatus: boolean; compact: boolean; /** Its group's name, '' for none; undefined when there is no Group column. */ group?: string }) {
+/** A flat table draws the trunks of ancestor siblings through the rows between them. */
+function tableBranches(sessions: readonly SessionView[], depths?: ReadonlyMap<string, number>) {
+  const branches = new Map<string, { last: boolean; rails: number[] }>();
+  if (!depths) return branches;
+  const upcoming = new Set<number>();
+  for (const session of [...sessions].reverse()) {
+    const depth = depths.get(session.id) ?? 0;
+    for (const level of upcoming) if (level > depth) upcoming.delete(level);
+    if (depth) {
+      branches.set(session.id, { last: !upcoming.has(depth), rails: [...upcoming].filter(level => level < depth) });
+      upcoming.add(depth);
+    }
+  }
+  return branches;
+}
+
+const Row = memo(function Row({ session, projects, origin, showProject, showStatus, compact, group, depth = 0, branch }: { /** How far the row is indented in a tree (a workstream's page); 0 in a flat list. */ depth?: number; branch?: { last: boolean; rails: number[] }; session: SessionView; projects: readonly Project[]; origin: string | null; showProject: boolean; showStatus: boolean; compact: boolean; /** Its group's name, '' for none; undefined when there is no Group column. */ group?: string }) {
   const mark = filingMark(session.filing.status, session.filing.discarded);
   const project = projectName(session, projects);
   const update = updateLine(session);
@@ -58,6 +74,10 @@ const Row = memo(function Row({ session, projects, origin, showProject, showStat
   };
   return (
     <div className={`trow${compact ? ' inbox-row' : ''}${depth > 0 ? ' nested' : ''}`} role="row" aria-level={depth > 0 ? depth + 1 : undefined} draggable onDragStart={onDragStart} onContextMenu={(event) => { if (isTypedText(event.target)) return; event.preventDefault(); openRowMenu('session', session.id, { x: event.clientX, y: event.clientY }); }} {...opener((newTab) => openSession(session.id, newTab))}>
+      {branch && <span className="table-guides" aria-hidden>
+        {branch.rails.map(level => <span className="table-rail" key={level} style={{ '--depth': level } as CSSProperties} />)}
+        <span className={`table-branch${branch.last ? ' last' : ''}`} style={{ '--depth': depth } as CSSProperties} />
+      </span>}
       <span className="tcell tcell-main" style={depth > 0 ? ({ '--depth': depth } as CSSProperties) : undefined}>
         <span className="trow-title-line">
           <button type="button" className={`trow-title trow-title-button${compact ? ' inbox-title' : ''}`} title={compact ? session.title : undefined} onClick={e => { e.stopPropagation(); opener((newTab) => openSession(session.id, newTab)).onClick(e); }}>{session.title}</button>
@@ -109,6 +129,7 @@ interface Props {
 }
 
 export function SessionTable({ sessions, workspace, showProject, sort, onSort, bare, showStatus = true, showGroup = false, depths }: Props) {
+  const branches = useMemo(() => tableBranches(sessions, depths), [sessions, depths]);
   const withGroup = showGroup && !bare;
   const groupName = (s: SessionView) => workspace.groups.find((g) => g.id === s.groupId)?.name ?? '';
   const head = (key: SortKey, label: string, className: string) => {
@@ -140,7 +161,7 @@ export function SessionTable({ sessions, workspace, showProject, sort, onSort, b
         </div>
       )}
       {sessions.map((s) => (
-        <Row key={s.id} session={s} projects={workspace.projects} origin={originOf(s, workspace)} showProject={showProject} showStatus={showStatus} compact={!!bare} depth={depths?.get(s.id) ?? 0} {...(withGroup ? { group: groupName(s) } : {})} />
+        <Row key={s.id} session={s} projects={workspace.projects} origin={originOf(s, workspace)} showProject={showProject} showStatus={showStatus} compact={!!bare} branch={branches.get(s.id)} depth={depths?.get(s.id) ?? 0} {...(withGroup ? { group: groupName(s) } : {})} />
       ))}
     </div>
   );

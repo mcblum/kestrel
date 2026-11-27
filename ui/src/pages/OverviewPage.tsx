@@ -8,7 +8,8 @@ import { useWorktrees } from '../components/worktrees.ts';
 import { opener, openView } from '../route.ts';
 import { useApp } from '../store.ts';
 import { openCreateProject } from '../projectNav.ts';
-import { useMemo } from 'react';
+import { SessionCanvas } from './SessionCanvas.tsx';
+import { useMemo, useState } from 'react';
 import type { SessionView, WorkspaceState } from '@kestrel/server/model';
 import { FILTER_LABEL, emptyState, inView, overviewLine } from '@kestrel/server/status';
 import { overviewSections, showsStatus } from '@kestrel/server/overview';
@@ -73,6 +74,13 @@ function WorktreeCleanupNotice() {
 }
 
 export function OverviewPage({ workspace }: { workspace: WorkspaceState }) {
+  const [visual, setVisual] = useState(() => new URLSearchParams(location.search).get('view') === 'visualizer' || sessionStorage.getItem('overview-mode') === 'visualizer');
+  const switcher = <div className="overview-switch" role="group" aria-label="Overview layout">
+    {['Dashboard', 'Visualizer'].map((label, i) => <button key={label} aria-pressed={visual === Boolean(i)} onClick={() => {
+      setVisual(Boolean(i));
+      sessionStorage.setItem('overview-mode', label.toLowerCase());
+    }}>{label}</button>)}
+  </div>;
   const seen = useApp((s) => s.seen);
   const pullRequests = useApp((s) => s.pullRequests);
   const listed = useMemo(() => workspace.sessions.filter((s) => inView(s, { kind: 'overview' })), [workspace.sessions]);
@@ -85,9 +93,11 @@ export function OverviewPage({ workspace }: { workspace: WorkspaceState }) {
   const newSession = (newTab: boolean) => void runMenuAction(item.newSession().action!, newTab);
   const addProject = () => openCreateProject();
   // No sessions yet: a first-session experience (starter, then the projects), never "nothing needs you".
+  if (visual) return <div className="overview-page">{switcher}<SessionCanvas sessions={listed} workspace={workspace} needs={rows['needs-you']} /></div>;
   if (empty === 'first-session')
     return (
       <div className="page column">
+        {switcher}
         <PageHeader title={OVERVIEW_HEADING} line="Start in a project, or explore an idea without one." />
         {/* First run: the projects come first, several at once. */}
         {workspace.projects.length === 0 && <ProjectsOnboarding />}
@@ -98,6 +108,7 @@ export function OverviewPage({ workspace }: { workspace: WorkspaceState }) {
 
   return (
     <div className="overview-page">
+      {switcher}
       <div className="overview-scroll">
         <div className="page column inbox-page overview-content">
           <PageHeader title="Overview" line={overviewLine(counts)} onNewSession={newSession} />

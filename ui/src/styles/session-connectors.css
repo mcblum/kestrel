@@ -1,0 +1,30 @@
+/* Each branch owns its vertical stroke. A tee starts one pixel to its right.
+   The final sibling ends the trunk with a rounded elbow. */
+.kestrel :where(.tree-children > li, .family-row.child, .card-children > .card-child:not(.card-more), .table-branch, .canvas-grid li > ul > li)::before,
+.kestrel :where(.tree-children > li, .family-row.child, .card-children > .card-child:not(.card-more), .table-branch, .canvas-grid li > ul > li)::after {
+  content: '';
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 1;
+}
+.kestrel :where(.tree-children > li, .family-row.child, .card-children > .card-child:not(.card-more), .table-branch, .canvas-grid li > ul > li)::before {
+  left: var(--elbow-x);
+  top: var(--elbow-start, 0px);
+  bottom: 0;
+  border-left: 1px solid var(--elbow-line);
+}
+.kestrel :where(.tree-children > li, .family-row.child, .card-children > .card-child:not(.card-more), .table-branch, .canvas-grid li > ul > li)::after {
+  left: calc(var(--elbow-x) + 1px);
+  top: var(--elbow-mid);
+  width: calc(var(--elbow-width) - 1px);
+  border-bottom: 1px solid var(--elbow-line);
+}
+.kestrel :is(.tree-children > li:last-child, .family-row.child:last-child, .card-child:last-of-type:not(.card-more), .table-branch.last, .canvas-grid li > ul > li:last-child)::before {
+  bottom: auto;
+  width: var(--elbow-width);
+  height: calc(var(--elbow-mid) - var(--elbow-start, 0px) + 1px);
+  border-bottom: 1px solid var(--elbow-line);
+  border-bottom-left-radius: var(--elbow-radius, 4px);
+}
+.kestrel :is(.tree-children > li:last-child, .family-row.child:last-child, .card-child:last-of-type, .table-branch.last, .canvas-grid li > ul > li:last-child)::after { content: none; }

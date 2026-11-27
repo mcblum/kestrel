@@ -81,9 +81,9 @@
 .kestrel .hover-card .card-children { display: grid; }
 .kestrel .hover-card .card-line.card-child { position: relative; align-items: flex-start; padding-left: 28px; }
 .kestrel .hover-card .card-child > .card-pr-icon { margin-top: 2px; }
-.kestrel .hover-card .card-child::before { content: ''; position: absolute; left: 15px; top: -6px; width: 8px; height: 18px; border-left: 1px solid var(--elbow-line); border-bottom: 1px solid var(--elbow-line); border-bottom-left-radius: 4px; pointer-events: none; }
-.kestrel .hover-card .card-children:not(.under-own) > .card-child:first-child::before { top: 4px; height: 8px; }
-.kestrel .hover-card .card-child.card-more::before { content: none; }
+.kestrel .hover-card .card-child { --elbow-x: 15px; --elbow-mid: 12px; --elbow-width: 8px; }
+.kestrel .hover-card .card-child:first-child { --elbow-start: -6px; }
+.kestrel .hover-card .card-children:not(.under-own) > .card-child:first-child { --elbow-start: 4px; }
 .kestrel .hover-card .card-child-text { display: grid; flex: 1; min-width: 0; gap: 1px; }
 .kestrel .hover-card .card-child-where { font-size: 11px; color: var(--s-muted); }
 .kestrel .hover-card .card-copy { padding-right: 4px; }

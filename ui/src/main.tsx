@@ -21,6 +21,7 @@ import './styles/details.css';
 import './styles/pane-head.css';
 import './styles/commands.css';
 import './styles/organize.css';
+import './styles/session-connectors.css';
 import './styles/sidebar-rhythm.css';
 import './styles/sidebar-create.css';
 import './styles/sidebar-rows.css';
