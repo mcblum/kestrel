@@ -13,7 +13,7 @@ import type { SessionRuntime } from '../runtime.ts';
 import { setAutopilot } from '../pull-requests/autopilot-api.ts';
 import { checkEnvelope, checkRequest, CONNECT_PROTOCOL_VERSION, deskOnly, NEVER_REMOTE, isConnectId, versionRefusal, type ConnectOpArgs, type ConnectRequest, type ConnectResponse, type Envelope } from '../shared/connect-ops.ts';
 import { pageRefusal, transcriptPage } from '../shared/transcript-page.ts';
-import type { PullRequestsAnswer, ReviewsAnswer, TicketsAnswer } from '../shared/connect-lists.ts';
+import type { PullRequestsAnswer, ReviewsAnswer, StateAnswer, TicketsAnswer } from '../shared/connect-lists.ts';
 import { ASIDE_REFUSAL } from '../shared/connect-ops.ts';
 import type { Workspace } from '../workspace.ts';
 import type { ValueRequests } from '../setup-values/requests.ts';
@@ -28,9 +28,10 @@ import { ticketsRoute, type TicketsApi } from '../tickets/api.ts';
 
 /**
  * A frame pushed to a phone: live output of a session it watches, or the Code reviews or Tickets list
- * again when it changed, to a device that read it since its channel opened.
+ * again when it changed, to a device that read it since its channel opened; and the state again when the
+ * seen record changed, to a device that read the state since its channel opened.
  */
-export type ConnectPush = { type: 'live'; sessionId: string; patch: LivePatch } | { type: 'reviews'; reviews: ReviewsAnswer } | { type: 'tickets'; tickets: TicketsAnswer } | { type: 'pull-requests'; pullRequests: PullRequestsAnswer };
+export type ConnectPush = { type: 'live'; sessionId: string; patch: LivePatch } | { type: 'state'; state: StateAnswer } | { type: 'reviews'; reviews: ReviewsAnswer } | { type: 'tickets'; tickets: TicketsAnswer } | { type: 'pull-requests'; pullRequests: PullRequestsAnswer };
 
 export interface ConnectDeps {
   workspace: Workspace;
@@ -77,6 +78,9 @@ function remotePatch(patch: LivePatch): LivePatch | null {
   return Object.keys(out).length > 0 ? out : null;
 }
 
+/** What a device reads and is then sent again when it changes: a list, or the state (only when what was seen changed). */
+type ReadKind = ListKind | 'state';
+
 const SOMETHING_WENT_WRONG = (here: string) => `Something went wrong on ${here}. Try again, or look at Kestrel there.`;
 
 export class ConnectDispatcher {
@@ -84,8 +88,8 @@ export class ConnectDispatcher {
   private readonly watching = new Map<string, Set<string>>();
   private readonly pending = new Map<string, LivePatch>();
   /** Device id -> the lists it has read since its channel opened, and so is sent again when they change. */
-  private readonly reading = new Map<string, Set<ListKind>>();
-  private readonly changedLists = new Set<ListKind>();
+  private readonly reading = new Map<string, Set<ReadKind>>();
+  private readonly changedLists = new Set<ReadKind>();
   private timer: NodeJS.Timeout | null = null;
   private counter = 0;
   private readonly lists: ConnectLists;
@@ -95,9 +99,12 @@ export class ConnectDispatcher {
     this.lists = deps.lists ?? connectLists(deps.runtime.reviewPrefs, null, null);
     const offLive = deps.runtime.onLive((sessionId, patch) => this.publish(sessionId, patch));
     const offLists = this.lists.onChange((kind) => this.listChanged(kind));
+    // A session read on any window, phone or computer of the account: a phone's unread dots follow at once.
+    const offSeen = deps.workspace.seen.onChange(() => this.listChanged('state'));
     this.unsubscribe = () => {
       offLive();
       offLists();
+      offSeen();
     };
   }
 
@@ -171,7 +178,8 @@ export class ConnectDispatcher {
     if ('sessionId' in request.args) await this.notAside(request.args.sessionId);
     switch (request.op) {
       case 'state.read':
-        return this.deps.workspace.state();
+        this.markRead(device, 'state');
+        return this.stateAnswer();
       case 'session.read':
         return this.read(request.args);
       case 'session.watch':
@@ -391,10 +399,21 @@ export class ConnectDispatcher {
     return { type: servedType(stored.attachment), name: stored.attachment.name, data: (await readFile(stored.path)).toString('base64') };
   }
 
+  /** From now on the device is sent this again when it changes, until it says bye. */
+  private markRead(device: string, kind: ReadKind): void {
+    const set = this.reading.get(device) ?? new Set<ReadKind>();
+    this.reading.set(device, set.add(kind));
+  }
+
+  /** The state as GET /api/state gives it, with the seen record as GET /api/seen gives it. */
+  private async stateAnswer(): Promise<StateAnswer> {
+    const [state, seen] = await Promise.all([this.deps.workspace.state(), this.deps.workspace.seen.view()]);
+    return { ...state, seen };
+  }
+
   /** The list as the window's page has it, or off in the desk's words; and the device is sent it again when it changes. */
   private readList(device: string, kind: ListKind): Promise<ReviewsAnswer | TicketsAnswer | PullRequestsAnswer> {
-    const set = this.reading.get(device) ?? new Set<ListKind>();
-    this.reading.set(device, set.add(kind));
+    this.markRead(device, kind);
     if (kind === 'reviews') return this.lists.reviews();
     if (kind === 'pull-requests') return this.lists.pullRequests();
     return Promise.resolve(this.lists.tickets());
@@ -467,7 +486,7 @@ export class ConnectDispatcher {
 
   // ---- live output ------------------------------------------------------------------------
 
-  private listChanged(kind: ListKind): void {
+  private listChanged(kind: ReadKind): void {
     if (![...this.reading.values()].some((kinds) => kinds.has(kind))) return;
     this.changedLists.add(kind);
     this.timer ??= setTimeout(() => this.flush(), LIVE_FLUSH_MS);
@@ -500,7 +519,7 @@ export class ConnectDispatcher {
     this.pending.clear();
   }
 
-  /** Each changed list once, from the view the store already built, to every device that read it. */
+  /** Each changed list (or the state) once, from the view the store already built, to every device that read it. */
   private flushLists(): void {
     const kinds = [...this.changedLists];
     this.changedLists.clear();
@@ -511,6 +530,7 @@ export class ConnectDispatcher {
         for (const device of devices) if (this.reading.get(device)?.has(kind)) this.deps.send({ v: CONNECT_PROTOCOL_VERSION, from: this.deps.deviceId, to: device, kind: 'push', id: this.newId(), body });
       };
       if (kind === 'tickets') send({ type: 'tickets', tickets: this.lists.tickets() });
+      else if (kind === 'state') void this.stateAnswer().then((state) => send({ type: 'state', state }), (error) => console.error('[kestrel] connect state push failed', error));
       else if (kind === 'pull-requests') void this.lists.pullRequests().then((pullRequests) => send({ type: 'pull-requests', pullRequests }), (error) => console.error('[kestrel] connect pull-requests push failed', error));
       else void this.lists.reviews().then((reviews) => send({ type: 'reviews', reviews }), (error) => console.error('[kestrel] connect reviews push failed', error));
     }

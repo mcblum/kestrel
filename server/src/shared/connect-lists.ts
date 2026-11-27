@@ -2,16 +2,24 @@
 // Tickets pages on a phone"): the views the window's pushes carry, or off in the desk's words. One
 // definition for the dispatcher's reads, its pushes and the held records. Pure.
 import { broughtInByLead, type BroughtInRequests, type BroughtInState } from './brought-in-requests.ts';
-import type { SessionView } from '../model.ts';
+import type { SessionView, WorkspaceState } from '../model.ts';
 import type { PullRequestLookup } from './details.ts';
 import { attentionBySession, type AttentionPrefs, type AttentionSession, type RequestAttention } from './request-attention.ts';
 import type { Sourced } from './sourced.ts';
 import { REVIEWS_OFF_REASON, type ReviewMode } from './review-settings.ts';
 import type { ReviewRequestsView } from './review-requests.ts';
+import type { Seen } from './unread.ts';
 import { ticketsOn, ticketSourcesOff, TICKETS_OFF_REASON, type TicketsView } from './tickets.ts';
 
 export type ReviewsAnswer = { on: false; reason: string } | { on: true; view: ReviewRequestsView };
 export type TicketsAnswer = { on: false; reason: string } | { on: true; view: TicketsView; sourcesOff: string[] };
+
+/**
+ * What `state.read` answers and a `state` push carries: the workspace state the window gets, and the one seen
+ * record (session id -> the activity time looked at; the same map as GET /api/seen), so a phone draws the same
+ * unread dots. `seen` is optional for a phone's sake: a desk older than it sends none.
+ */
+export type StateAnswer = WorkspaceState & { seen?: Seen };
 
 export function reviewsAnswer(view: ReviewRequestsView, mode: ReviewMode): ReviewsAnswer {
   return mode === 'off' ? { on: false, reason: REVIEWS_OFF_REASON } : { on: true, view };

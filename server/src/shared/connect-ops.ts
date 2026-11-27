@@ -240,7 +240,7 @@ interface OpSpec {
 
 /** The list (spec section 4). Closed: a request for anything not here is refused. */
 export const CONNECT_OPS: { readonly [K in ConnectOp]: OpSpec } = {
-  'state.read': { mapsTo: 'GET /api/state', fields: [], check: () => ({ ok: true, value: {} }) },
+  'state.read': { mapsTo: 'GET /api/state, with GET /api/seen\'s map as seen; pushed again when seen changes', fields: [], check: () => ({ ok: true, value: {} }) },
   'session.read': {
     mapsTo: 'GET /api/sessions/:id, a page at a time',
     fields: ['sessionId', 'last', 'before', 'limit'],

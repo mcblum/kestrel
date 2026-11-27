@@ -143,7 +143,7 @@ describe.each(SELECTABLE_AGENTS)('every operation, for a %s session', (agent) =>
     await d.settle();
 
     const state = await d.ok('state.read');
-    expect(state).toEqual(await d.workspace.state());
+    expect(state).toEqual({ ...(await d.workspace.state()), seen: await d.workspace.seen.view() });
 
     const first = await d.ok('session.read', { sessionId: session.id, last: 1 });
     expect(first.total).toBe(2);
@@ -561,6 +561,41 @@ describe('the Code reviews and Tickets lists on a phone', () => {
     const view = tickets([ticket(1)], ['jira', 'github']);
     d.ticketStore.set(view);
     expect(await d.ok('tickets.read')).toEqual({ on: true, view, sourcesOff: ['Jira Cloud is switched off in Settings → Tickets.', 'GitHub issues are switched off in Settings → Tickets.'] });
+  });
+
+  it('sends the state again, seen and all, when the seen record changes, only to a device that read the state', async () => {
+    const d = await desk();
+    const session = await d.start('claude', 'fix the build');
+    await d.settle();
+    const statePushes = () => d.listPushes().filter((p) => p.body.type === 'state') as Envelope<Extract<ConnectPush, { type: 'state' }>>[];
+
+    // Not read yet: a seen change sends nothing.
+    await d.workspace.seen.mark([session.id]);
+    d.dispatcher.flush();
+    await Promise.resolve();
+    expect(statePushes()).toHaveLength(0);
+
+    const read = await d.ok('state.read');
+    expect(read.seen[session.id]).toBeGreaterThan(0);
+
+    // A burst of changes (unread on another window, then read again) is one push, with the record as it ends.
+    await d.workspace.seen.markUnread(session.id);
+    await d.workspace.seen.mark([session.id]);
+    d.dispatcher.flush();
+    await until(() => statePushes().length > 0, 'a state push');
+    expect(statePushes().map((p) => p.to)).toEqual([PHONE]);
+    expect(statePushes()[0]!.body.state).toEqual({ ...(await d.workspace.state()), seen: await d.workspace.seen.view() });
+
+    await d.workspace.seen.markUnread(session.id);
+    d.dispatcher.flush();
+    await until(() => statePushes().length > 1, 'a second state push');
+    expect(statePushes()[1]!.body.state.seen?.[session.id]).toBe(0);
+
+    await d.dispatcher.receive({ v: CONNECT_PROTOCOL_VERSION, from: PHONE, to: MAC, kind: 'bye', id: 'b1', body: null });
+    await d.workspace.seen.mark([session.id]);
+    d.dispatcher.flush();
+    await Promise.resolve();
+    expect(statePushes()).toHaveLength(2);
   });
 
   it('pushes a changed list, once per burst, only to a device that read it, until it says bye', async () => {
