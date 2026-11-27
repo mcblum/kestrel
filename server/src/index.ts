@@ -89,6 +89,7 @@ function openPersistence(): Persistence {
 
 const db = openPersistence();
 const workspace = new Workspace(db);
+await workspace.adoptEarlierDelegates();
 const seeded = fake && (await db.isEmpty());
 if (seeded && sidebarDemo) await seedSidebar(db, dataDir);
 else if (seeded && story) await seedStory(workspace, makeStoryProjects(dataDir));

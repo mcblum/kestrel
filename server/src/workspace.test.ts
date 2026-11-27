@@ -358,6 +358,46 @@ describe.each([
         expect((await ws.state()).workstreams).toEqual([]);
       });
 
+      test('a new workstream takes in what the orchestrator had already delegated, and theirs', async () => {
+        await add('o', 'bellbird');
+        const own = await ws.delegate('o', [{ projectId: 'bellbird', brief: 'a' }, { projectId: 'bellbird', brief: 'b' }]);
+        const below = await ws.delegate(own.children[0]!.id, [{ projectId: 'bellbird', brief: 'c' }]);
+        expect((await ws.state()).workstreams).toEqual([]);
+
+        const across = await ws.delegate('o', [{ projectId: 'platform', brief: 'd' }]);
+
+        expect(across.created).toBe(true);
+        expect(across.workstream!.sessionIds).toEqual(['o', own.children[0]!.id, below.children[0]!.id, own.children[1]!.id, across.children[0]!.id]);
+      });
+
+      test('an earlier delegate that leads a workstream of its own stays in that one', async () => {
+        await add('o', 'bellbird');
+        const own = await ws.delegate('o', [{ projectId: 'bellbird', brief: 'a' }]);
+        const theirs = await ws.delegate(own.children[0]!.id, [{ projectId: 'docs', brief: 'b' }]);
+
+        const across = await ws.delegate('o', [{ projectId: 'platform', brief: 'c' }]);
+
+        expect(across.workstream!.sessionIds).toEqual(['o', across.children[0]!.id]);
+        expect((await ws.state()).workstreams.find((w) => w.id === theirs.workstream!.id)!.sessionIds).toEqual([own.children[0]!.id, theirs.children[0]!.id]);
+      });
+
+      test('a workstream made before that rule gets its lead’s earlier delegates once, and a removed one stays removed', async () => {
+        await add('o', 'bellbird');
+        const across = await ws.delegate('o', [{ projectId: 'platform', brief: 'a' }]);
+        const own = await ws.delegate('o', [{ projectId: 'bellbird', brief: 'b' }]);
+        const id = across.workstream!.id;
+        // As it was stored before: the own-project delegate was never taken in.
+        await ws.removeFromWorkstream(id, own.children[0]!.id);
+
+        await ws.adoptEarlierDelegates();
+
+        const members = async () => (await ws.state()).workstreams.find((w) => w.id === id)!.sessionIds;
+        expect(await members()).toEqual(['o', across.children[0]!.id, own.children[0]!.id]);
+        await ws.removeFromWorkstream(id, own.children[0]!.id);
+        await ws.adoptEarlierDelegates();
+        expect(await members()).toEqual(['o', across.children[0]!.id]);
+      });
+
       test('further delegation joins the workstream the orchestrator is in, own-project work included', async () => {
         await add('o', 'bellbird');
         const first = await ws.delegate('o', [{ projectId: 'platform', brief: 'a' }]);

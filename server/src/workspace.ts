@@ -16,7 +16,7 @@ export const MAX_HANDOFFS_IN_A_ROW = 5;
 import { worktreeRepo } from './worktree-repo.ts';
 import { fitsGroup, joinRefusal, moveGroupRefusal } from './shared/project-groups.ts';
 import { visibleWaits } from './shared/waits.ts';
-import { afterUserMessage, archiveRefusal, removeRefusal, childGroupId, delegateWorkstream, shownWorkstreams, visibleWorkstreams, workstreamName, workstreamObjective, workstreamOf } from './shared/workstreams.ts';
+import { afterUserMessage, archiveRefusal, removeRefusal, childGroupId, delegateWorkstream, earlierDelegates, shownWorkstreams, visibleWorkstreams, workstreamName, workstreamObjective, workstreamOf } from './shared/workstreams.ts';
 import { nameTakenBy, projectRecord, type NewProject } from './project-record.ts';
 import { Refused } from './refused.ts';
 import { SeenStore } from './seen.ts';
@@ -34,6 +34,9 @@ import type { Persistence, StoredDetail } from './persistence/types.ts';
 
 export { Refused, deriveState, withoutArchived };
 export type { DelegateTask, NewSession };
+
+/** The setting that says `adoptEarlierDelegates` has run. */
+const EARLIER_DELEGATES_ADOPTED = 'workstreams-earlier-delegates-adopted';
 
 export class Workspace {
   readonly onboarding: Onboarding;
@@ -702,6 +705,7 @@ export class Workspace {
    * begins in the orchestrator's group only when that group can hold it. A split that reaches
    * across projects makes a workstream pointing at the orchestrator and the children, or adds the
    * children to the one the orchestrator is already in (`delegateWorkstream`).
+   * A new workstream also takes in what the orchestrator had delegated before (`earlierDelegates`).
    */
   async delegate(orchestratorId: string, tasks: readonly DelegateTask[], named: { name?: string; objective?: string } = {}): Promise<{ workstream: Workstream | null; created: boolean; children: Session[] }> {
     const limits = await this.limits.current();
@@ -729,7 +733,7 @@ export class Workspace {
       if (plan === 'none') return { workstream: null, created: false, children };
       const added = children.map((c) => c.id);
       if (plan === 'create') {
-        const workstream: Workstream = { id: randomUUID(), name: workstreamName(named.name ?? '') || workstreamName(orchestrator.title) || 'Workstream', objective: workstreamObjective(named.objective ?? ''), createdAt: this.clock(), sessionIds: [orchestratorId, ...added], status: 'active', archivedAt: null };
+        const workstream: Workstream = { id: randomUUID(), name: workstreamName(named.name ?? '') || workstreamName(orchestrator.title) || 'Workstream', objective: workstreamObjective(named.objective ?? ''), createdAt: this.clock(), sessionIds: [orchestratorId, ...earlierDelegates(orchestratorId, links, workstreams), ...added], status: 'active', archivedAt: null };
         await tx.insertWorkstream(workstream);
         return { workstream, created: true, children };
       }
@@ -742,6 +746,33 @@ export class Workspace {
   }
 
   // ---- workstreams -----------------------------------------------------------------------
+
+  /**
+   * Once, at start: a workstream made before a new one took in its lead's earlier delegates
+   * (`earlierDelegates`) gets them now, after the members it has. Kept as done in the settings, so
+   * a session the user removes afterwards stays removed.
+   */
+  async adoptEarlierDelegates(): Promise<void> {
+    const changed = await this.db.transaction(async (tx) => {
+      if ((await tx.getSetting(EARLIER_DELEGATES_ADOPTED)) !== null) return false;
+      const links = await tx.listLinks();
+      let workstreams = await tx.listWorkstreams();
+      let any = false;
+      for (const { id } of workstreams) {
+        const current = workstreams.find((w) => w.id === id)!;
+        const leadId = current.sessionIds[0];
+        const missing = leadId === undefined ? [] : earlierDelegates(leadId, links, workstreams);
+        if (missing.length === 0) continue;
+        const sessionIds = [...current.sessionIds, ...missing];
+        await tx.setWorkstreamSessions(id, sessionIds);
+        workstreams = workstreams.map((w) => (w.id === id ? { ...w, sessionIds } : w));
+        any = true;
+      }
+      await tx.putSetting(EARLIER_DELEGATES_ADOPTED, 'done');
+      return any;
+    });
+    if (changed) this.changed();
+  }
 
   /** Rename a workstream. An empty name is refused. */
   async renameWorkstream(id: string, name: string): Promise<void> {

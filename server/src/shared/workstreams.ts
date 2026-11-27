@@ -3,7 +3,7 @@
 // so nothing moves when one is made, changed or deleted. Shared by the server, which keeps them,
 // and the sidebar and the workstream page, which draw them.
 import type { Group, Link, Session, TreeNode, Workstream } from '../model.ts';
-import { buildTree } from '../tree.ts';
+import { buildTree, subtreeIds } from '../tree.ts';
 import { fitsGroup, projectOfSession } from './project-groups.ts';
 import { parentHears } from './turn-reports.ts';
 import { activityAt } from './session-order.ts';
@@ -30,6 +30,18 @@ export function delegateWorkstream(orchestrator: Placed, taskProjects: readonly 
   if (current) return { join: current.id };
   const home = projectOfSession(orchestrator);
   return home !== null && taskProjects.every((projectId) => projectId === home) ? 'none' : 'create';
+}
+
+/**
+ * The sessions a new workstream takes in beside its lead and the sessions just started: everything
+ * the lead had already delegated to, and theirs. A split inside the lead's own project makes no
+ * workstream, so by the time one is made the lead may have delegates from before; the workstream
+ * is the whole of the work, so they belong in it. A session already in a workstream stays in that
+ * one (a session is in at most one).
+ */
+export function earlierDelegates(leadId: string, links: readonly Link[], workstreams: readonly Pick<Workstream, 'sessionIds'>[]): string[] {
+  const taken = new Set(workstreams.flatMap((w) => w.sessionIds));
+  return subtreeIds(leadId, links).filter((id) => id !== leadId && !taken.has(id));
 }
 
 /**
