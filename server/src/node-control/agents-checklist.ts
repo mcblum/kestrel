@@ -1,4 +1,4 @@
-// `kestrel-node agents`: the checklist that gets Claude Code, Codex and OpenCode installed and signed in on a node, and
+// `kestrel node agents`: the checklist that gets Claude Code, Codex and OpenCode installed and signed in on a node, and
 // says whether the command sandbox is there (docs/designs/worker-nodes.md, section 6). It runs in the terminal, which
 // has the person's keyboard and screen: an agent's own sign-in needs a real terminal. It says what happens as the same
 // typed events `join` uses (shared/node-commands.ts), drawn by the same function (join-draw.ts): a section per agent,
@@ -16,7 +16,7 @@ import { SANDBOX_INSTALL_UNKNOWN, SANDBOX_RESTART, WITHOUT_SANDBOX } from '../sh
 import { moveCommand, type AgentFacts, type AgentPrograms } from './agents-programs.ts';
 
 export interface AgentsOptions {
-  /** One agent only (`kestrel-node agents codex`); null for all three and the sandbox. */
+  /** One agent only (`kestrel node agents codex`); null for all three and the sandbox. */
   only: Agent | null;
   /** Install what is missing without asking and print the sign-in commands (`--yes`, or no terminal). */
   unattended: boolean;
@@ -221,7 +221,7 @@ class Checklist {
     const states = await this.deps.node(ends.filter((e) => e.changed).map((e) => e.agent));
     this.say(0, { kind: 'heading', text: `What ${this.deps.name} tells your other devices` });
     if (!states) {
-      this.say(0, { kind: 'line', text: 'The node is not running, so it has not said which agents can run. Start it with kestrel-node start; then kestrel-node status says.' });
+      this.say(0, { kind: 'line', text: 'The node is not running, so it has not said which agents can run. Start it with kestrel node start; then kestrel node status says.' });
       return null;
     }
     for (const end of ends) {
@@ -278,6 +278,6 @@ export async function runAgentsChecklist(deps: ChecklistDeps, io: ChecklistIo, o
   const canRun = states ? ends.filter((e) => states.find((s) => s.agent === e.agent)?.canRun).length : null;
   const ready = ends.every((e) => e.ready) && (states === null || canRun === ends.length) && sandboxReady;
   const count = canRun === null ? `${ends.filter((e) => e.ready).length} of ${ends.length} signed in` : `${canRun} of ${ends.length} can run`;
-  io.say({ event: 'end', ok: ready, text: options.only ? `${NODE_AGENT_LABEL[options.only]} on ${deps.name}: ${ready ? 'ready' : 'not ready yet'}.` : `Agents on ${deps.name}: ${count}.`, next: 'kestrel-node status' });
+  io.say({ event: 'end', ok: ready, text: options.only ? `${NODE_AGENT_LABEL[options.only]} on ${deps.name}: ${ready ? 'ready' : 'not ready yet'}.` : `Agents on ${deps.name}: ${count}.`, next: 'kestrel node status' });
   return ready ? 0 : 1;
 }

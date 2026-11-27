@@ -40,8 +40,8 @@ describe('drawJoin', () => {
       '   ✓ Signed in as person@example.com',
       '',
       '2  Let this node in',
-      "   On a device already in your account, open Kestrel → Settings → Connections and choose Let in on",
-      "   kestrel-node01's request.",
+      "   Kestrel on your other devices is showing a request. Choose Let in on kestrel-node01's request",
+      "   there, or find it in Settings → Connections.",
       '',
       '   Waiting for you to choose Let in there…',
       '   Blum Laptop opened it. Type this code there:',
@@ -72,8 +72,8 @@ describe('drawJoin', () => {
       '   ok: Signed in as person@example.com',
       '',
       '2  Let this node in',
-      "   On a device already in your account, open Kestrel -> Settings -> Connections and choose Let in on",
-      "   kestrel-node01's request.",
+      "   Kestrel on your other devices is showing a request. Choose Let in on kestrel-node01's request",
+      "   there, or find it in Settings -> Connections.",
       '',
       '   Waiting for you to choose Let in there...',
       '   Blum Laptop opened it. Type this code there:',
@@ -115,7 +115,7 @@ describe('drawJoin', () => {
       { event: 'say', step: 1, kind: 'wait', text: 'Waiting for you to sign in…' },
       { event: 'end', ok: false, text: DEVICE_CODE_EXPIRED },
     ];
-    expect(drawJoin(events, PLAIN)).toEqual(['   Waiting for you to sign in...', '', 'The sign-in code expired before anyone signed in with it. Run "kestrel-node join" again for a new', 'one.']);
+    expect(drawJoin(events, PLAIN)).toEqual(['   Waiting for you to sign in...', '', 'The sign-in code expired before anyone signed in with it. Run "kestrel node join" again for a new', 'one.']);
   });
 
   test('a request that ended says why and what to run', () => {

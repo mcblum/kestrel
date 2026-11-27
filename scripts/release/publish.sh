@@ -35,9 +35,12 @@
 #
 # So do the worker node's bundles (kestrel-node-linux-<arch>.tar.gz and .sha256, from dist/node, where the
 # package-node-* CI jobs leave them): step 1 checks each against its checksum, that it holds this version, and that
-# nothing private is inside; 3 uploads them; 4 links them from the Release (/kestrel-node-linux-<arch>.tar.gz, the
-# address install-node.sh fetches the newest from); a release (not a beta) also commits install-node.sh to `main`
-# in 5, served at …/-/raw/main/install-node.sh. None is required: a release without them publishes the rest.
+# nothing private is inside; 3 uploads them; 4 links them from a release's Release (/kestrel-node-linux-<arch>.tar.gz);
+# 5 commits the node's install script to `main` with this version written into it (KESTREL_LATEST) and its channel:
+# a beta as install-beta.sh, a release as install.sh and, when the betas move to it (as beta-mac.yml does),
+# install-beta.sh too. Each is a one-line install, `curl -fsSL …/-/raw/main/install[-beta].sh | sh`, which
+# fetches the version it names from the package registry. Only a publish that carries the bundles writes them, so
+# the version an install script names always has its bundles. None is required: without them the rest is published.
 #
 #   scripts/release/publish.sh [--dry-run] [--force] [--dir dist/release]
 #
@@ -270,7 +273,7 @@ if curl -fsS -o /dev/null -H @"$HEADER" "$PUBLIC/api/v4/projects/$PROJECT_ID/rel
   api_send DELETE "/projects/$PROJECT_ID/releases/v$VERSION" >/dev/null
 fi
 printf '%s' "$OTHERS" > "$WORK/others"
-python3 - "$VERSION" "$REGISTRY" "$ZIP" "$DMG" "$WORK/others" "$NOTES_BODY" "$NODE_ARCHES" "${RAW}install-node.sh" > "$WORK/release.json" <<'PY'
+python3 - "$VERSION" "$REGISTRY" "$ZIP" "$DMG" "$WORK/others" "$NOTES_BODY" "$NODE_ARCHES" "${RAW}install.sh" > "$WORK/release.json" <<'PY'
 import json, sys
 v, registry, zip_name, dmg, others, notes, node_arches, installer = sys.argv[1:9]
 links = [
@@ -333,12 +336,22 @@ while read -r platform arch feed _ _; do
   [ -n "${feed:-}" ] || continue
   commit_feeds "$platform" "$arch"
 done <<< "$OTHERS"
-# The worker node's install script, beside the feeds, where its one-line command fetches it. A release only: a beta
-# has no Release, so the newest bundle the script fetches is still the last release's.
-if [ "$CHANNEL" = stable ] && [ -n "$NODE_ARCHES" ]; then
-  ! private_in "$ROOT/scripts/release/install-node.sh" || fail "install-node.sh contains a private string"
-  echo "    install-node.sh (the worker node's install, for linux:$NODE_ARCHES)"
-  commit_file install-node.sh "$ROOT/scripts/release/install-node.sh"
+# The worker node's install scripts, beside the feeds, where their one-line commands fetch them. Each names the newest
+# version of its channel, written in here, so the copy served is the feed: a beta writes install-beta.sh; a
+# release writes install.sh, and install-beta.sh too unless the betas serve a newer beta (the beta-mac.yml
+# rule, version.mjs feeds).
+INSTALLERS=""
+if [ -n "$NODE_ARCHES" ]; then
+  [ "$CHANNEL" != stable ] || INSTALLERS="install.sh"
+  if [ "$CHANNEL" = beta ] || node "$ROOT/scripts/release/version.mjs" feeds "$VERSION" "$LIVE_BETA" | grep -qx beta-mac.yml; then INSTALLERS="$INSTALLERS install-beta.sh"; fi
+  for name in $INSTALLERS; do
+    case "$name" in *-beta.sh) ch=beta ;; *) ch=stable ;; esac
+    sed -e "s/^KESTREL_CHANNEL=.*/KESTREL_CHANNEL=$ch/" -e "s/^KESTREL_LATEST=.*/KESTREL_LATEST=$VERSION/" "$ROOT/scripts/release/install.sh" > "$WORK/$name"
+    { grep -qx "KESTREL_CHANNEL=$ch" "$WORK/$name" && grep -qx "KESTREL_LATEST=$VERSION" "$WORK/$name"; } || fail "could not write $ch and $VERSION into $name"
+    ! private_in "$WORK/$name" || fail "$name contains a private string"
+    echo "    $name (the worker node's install for the ${ch} channel, naming $VERSION, for linux:$NODE_ARCHES)"
+    commit_file "$name" "$WORK/$name"
+  done
 fi
 
 if [ "$DRY" = 1 ]; then
@@ -362,8 +375,14 @@ if [ "$CHANNEL" = stable ]; then
     permalinks="$permalinks $PUBLIC/$PROJECT/-/releases/permalink/latest/downloads/$permalink"
   done <<< "$OTHERS"
   for f in $NODE_FILES; do permalinks="$permalinks $PUBLIC/$PROJECT/-/releases/permalink/latest/downloads/$f"; done
-  [ -z "$NODE_ARCHES" ] || permalinks="$permalinks ${RAW}install-node.sh"
 fi
+# Each install script as the one-line command fetches it, naming this version, and the bundles it will fetch.
+for name in $INSTALLERS; do
+  served="$(curl -fsSL "$RAW$name?nocache=$(date +%s)")" || fail "the public install script does not load: $RAW$name"
+  echo "$served" | grep -qx "KESTREL_LATEST=$VERSION" || fail "the public $name does not name $VERSION yet"
+  echo "    200  $RAW$name (names $VERSION)"
+done
+for f in $NODE_FILES; do urls="$urls $REGISTRY$f"; done
 for u in $(printf '%s\n' $urls | sort -u) "$REGISTRY$ZIP.blockmap" $permalinks; do
   code="$(curl -sS -o /dev/null -I -L -w '%{http_code}' "$u")"
   [ "$code" = 200 ] || fail "$u answers $code"
@@ -376,9 +395,10 @@ if [ "$CHANNEL" = beta ]; then
   echo "    download: $REGISTRY$DMG"
   echo "    (install it by hand once on a copy without the beta switch; it comes up on the beta channel)"
   echo "    latest-mac.yml, the permanent download link and the release notes are unchanged."
+  for name in $INSTALLERS; do echo "    worker node (beta): curl -fsSL $RAW$name | sh"; done
 else
   echo "Published Kestrel $VERSION"
   for name in $COMMITTED; do echo "    feed:     $RAW$name"; done
   for u in $permalinks; do echo "    download: $u"; done
-  [ -z "$NODE_ARCHES" ] || echo "    worker node: curl -fsSL ${RAW}install-node.sh | sh"
+  for name in $INSTALLERS; do echo "    worker node$(case "$name" in *-beta.sh) echo ' (beta)' ;; esac): curl -fsSL $RAW$name | sh"; done
 fi

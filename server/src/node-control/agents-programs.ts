@@ -1,4 +1,4 @@
-// What `kestrel-node agents` runs, in the terminal: each agent's own programs, found and run in the environment the
+// What `kestrel node agents` runs, in the terminal: each agent's own programs, found and run in the environment the
 // node runs them in (agents/kestrel-agents.ts, `nodeAgentsEnv`), so what the checklist installs is what the node finds.
 // Kestrel only runs the programs and reads their answers about themselves (a version, signed in or not, whether a turn
 // ran). It opens no credential file, prints nothing an agent's status program printed, and copies nothing: a sign-in

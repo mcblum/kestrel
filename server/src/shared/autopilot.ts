@@ -135,6 +135,20 @@ export function newRecord(number: number, merge: boolean, prefs: AutopilotPrefs)
   return { number, merge, rounds: 0, maxRounds: prefs.rounds, roundMinutes: prefs.roundMinutes, handled: [] };
 }
 
+/** When the PR store first saw the request's head commit (`headSeenAt`), never later than now; now when it did not say. */
+export const seenAt = (pr: Pick<PullRequest, 'headSeenAt'>, now: number): number => Math.min(pr.headSeenAt ?? now, now);
+
+/**
+ * A new record for a request as it stands when Autopilot is turned on (issue 82): its head is taken as seen
+ * when the store first saw it, so checks that have long settled are not waited on again, and the first step
+ * acts at once on what already needs doing (failed checks, conflicts, requested changes, a branch the host
+ * requires to catch up, or a merge when it is green).
+ */
+export function recordFor(pr: Pick<PullRequest, 'number' | 'headSha' | 'headSeenAt'> | null, number: number, merge: boolean, prefs: AutopilotPrefs, now: number): AutopilotRecord {
+  const record = newRecord(pr?.number ?? number, merge, prefs);
+  return pr?.headSha ? { ...record, head: { sha: pr.headSha, at: seenAt(pr, now) } } : record;
+}
+
 /** A stored record read back; null when it is not one. */
 export function asRecord(raw: unknown): AutopilotRecord | null {
   if (typeof raw !== 'object' || raw === null) return null;
@@ -231,7 +245,8 @@ export function autopilotStep(input: StepInput): Step {
   if (pr.state === 'closed') return stopped(record, now, `${where} was closed`, false);
   const head = pr.headSha ?? '';
   const moved = !!head && record.head?.sha !== head;
-  if (moved) record = { ...record, head: { sha: head, at: now } };
+  // A commit's checks are given time to start from when the store first saw it, not from when Autopilot did.
+  if (moved) record = { ...record, head: { sha: head, at: seenAt(pr, now) } };
 
   const round = record.round;
   if (round) {

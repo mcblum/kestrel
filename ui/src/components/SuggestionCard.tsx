@@ -5,11 +5,14 @@
 // Once answered or dismissed, the card goes and one quiet line stays where it was raised, with Undo
 // where the kind offers it. Any kind is drawn the same way: the server owns titles, buttons and lines.
 // A card with `picks` (a tag card) also draws the names to choose (SuggestionPicks.tsx) and sends what
-// is chosen with the buttons that take it.
+// is chosen with the buttons that take it. A card about a pull request the store already holds as merged
+// or closed is not drawn (shared/request-cards.ts); the server withdraws it.
 import { memo, useMemo, useState } from 'react';
 import { Lightbulb, X } from 'lucide-react';
 import type { ChatMessage } from '@kestrel/server/model';
 import { orderedButtons, shownSuggestion, type Suggestion } from '@kestrel/server/suggestions';
+import { cardSession, requestCardGone } from '@kestrel/server/request-cards';
+import { useApp } from '../store.ts';
 import { withTyped } from '@kestrel/server/tag-match';
 import { useKnownTags } from './SessionTags.tsx';
 import { SuggestionPicks } from './SuggestionPicks.tsx';
@@ -86,7 +89,8 @@ function Card({ sessionId, suggestion, waiting }: { sessionId: string; suggestio
 
 /** The open suggestion of a session, above the message box; nothing when there is none (or the server is older). */
 export const SuggestionDock = memo(function SuggestionDock({ sessionId, messages }: { sessionId: string; messages: readonly ChatMessage[] | undefined }) {
-  const shown = useMemo(() => shownSuggestion(messages), [messages]);
+  const pullRequests = useApp((s) => s.pullRequests);
+  const shown = useMemo(() => shownSuggestion(messages, (s) => requestCardGone(s, pullRequests.get(cardSession(s))) === null), [messages, pullRequests]);
   if (!shown) return null;
   return <Card key={shown.suggestion.id} sessionId={sessionId} suggestion={shown.suggestion} waiting={shown.waiting} />;
 });

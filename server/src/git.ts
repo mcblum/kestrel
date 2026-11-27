@@ -16,7 +16,7 @@ const run = promisify(execFile);
 const MAX_DIFF_BYTES = 200_000;
 /**
  * The environment every git call here runs in: the server's own, read at each call (on a worker node it carries the
- * node's key, commit name and email, which `kestrel-node git` can change while it runs: node-control/node-git-env.ts),
+ * node's key, commit name and email, which `kestrel node git` can change while it runs: node-control/node-git-env.ts),
  * with no terminal prompt and no optional locks.
  */
 export const gitEnv = (): NodeJS.ProcessEnv => ({ ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' });

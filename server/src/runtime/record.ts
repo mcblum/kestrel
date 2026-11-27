@@ -78,6 +78,8 @@ export interface Live {
   slashCommands: SlashCommand[];
   /** Started by `spawn`. Stored: nothing else records it, and its shell stays confined after a restart. */
   spawned: boolean;
+  /** For a spawned session: the session that spawned it, which a link would otherwise say (issue 74: whether its starter would be asked). Stored. */
+  spawnedBy: string | null;
   /** It works in another session's worktree, as that session's guest (shared/worktree-guests.ts). Stored. */
   guest: Guest | null;
   /** A review of this session's work, when one was started (shared/worktree-guests.ts). Stored. */
@@ -149,6 +151,7 @@ export function newRecord(stored: Partial<Live> | null, base: string | null): Li
     slashAsked: false,
     slashCommands: [],
     spawned: false,
+    spawnedBy: null,
     guest: null,
     review: null,
     roleRun: null,

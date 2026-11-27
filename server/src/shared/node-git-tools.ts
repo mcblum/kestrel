@@ -1,4 +1,4 @@
-// gh and glab on a worker node (docs/designs/worker-nodes.md, section 7), purely: the version of each `kestrel-node git`
+// gh and glab on a worker node (docs/designs/worker-nodes.md, section 7), purely: the version of each `kestrel node git`
 // installs, the published archive and its checksum, which tool speaks to which host (the pull-request code's one rule,
 // `gitHostKind`), the tools' own sign-ins with exactly the scopes Kestrel needs, the API calls that list keys and read
 // verified addresses, and how an address is chosen from what a host answers. The tools go into Kestrel's tools folder
@@ -50,7 +50,7 @@ const glabAsset = (arch: ToolArch, sha256: string): ToolAsset => ({
   inArchive: 'bin/glab',
 });
 
-/** The versions `kestrel-node git` installs, from the releases' published checksum files (checked 2026-11-27). */
+/** The versions `kestrel node git` installs, from the releases' published checksum files (checked 2026-11-27). */
 export function toolPinsOf(): ToolPins {
   return {
     gh: {

@@ -9,6 +9,7 @@ import { sandboxBounds } from '../claude/sandbox.ts';
 import { commandInBounds } from '../../sandbox-allow/match.ts';
 import { offerOptions } from '../../sandbox-allow/offer.ts';
 import type { SandboxOffer } from '../../shared/sandbox-allow.ts';
+import { ALWAYS_CHILDREN, ALWAYS_CHILDREN_LABEL } from '../../shared/sandbox-inherit.ts';
 import type { InputAnswer, InputOption, InputRequest, StartOptions } from '../types.ts';
 import { ACTING_KESTREL_TOOLS } from './config.ts';
 import type { ToolCall } from './map.ts';
@@ -54,6 +55,13 @@ export interface DecideContext {
   root: string;
   /** A session another session started: held to its folder by path. */
   confined: boolean;
+  /**
+   * Such a session whose commands may reach outside its folder without asking: the user's switch is on and its starter
+   * would not be asked (shared/sandbox-inherit.ts; issue 74). Its edits stay held to its folder.
+   */
+  inherits?: boolean;
+  /** Its card for a command reaching outside the folder may offer to turn that switch on (`offersInherit`). */
+  offersChildren?: boolean;
   readable: readonly string[];
   sandboxAllow?: StartOptions['sandboxAllow'];
   element?: ElementLookup;
@@ -136,14 +144,17 @@ function outsideFolder(ask: Ask, call: ToolCall | undefined, ctx: DecideContext,
   const fallback = { title: 'Reach outside the session folder', detail: `OpenCode asks to work in:\n${folders.map((f) => `- ${f}`).join('\n')}` };
   if (ctx.policy.acceptOutside) return once;
   if (tool === 'bash') {
-    // Auto in a session the user started does not ask (Matt, 2026-11-23); one another session started does.
-    if (ctx.policy.acceptCommands && !ctx.confined) return once;
+    // Auto in a session the user started does not ask (Matt, 2026-11-23); one another session started does, unless the
+    // user let such sessions through while their starter would not be asked (issue 74).
+    if (ctx.policy.acceptCommands && (!ctx.confined || ctx.inherits === true)) return once;
     if (listed(str(call?.input.command), ctx)) return once;
     const always = offer ? offerOptions(offer) : [];
-    const shown = card(ask, call, ctx, fallback, always.length ? { options: [ALLOW[0]!, ...always, ALLOW[1]!], sandboxOffer: offer! } : {});
+    const children: InputOption[] = ctx.offersChildren ? [{ id: ALWAYS_CHILDREN, label: ALWAYS_CHILDREN_LABEL, role: 'allow' }] : [];
+    const extra = [...always, ...children];
+    const shown = card(ask, call, ctx, fallback, extra.length ? { options: [ALLOW[0]!, ...extra, ALLOW[1]!], ...(always.length ? { sandboxOffer: offer! } : {}) } : {});
     return shown.kind === 'card' ? { ...shown, request: { ...shown.request, title: `Run outside the session folder: ${shown.request.title}` } } : shown;
   }
-  if (ctx.policy.acceptOther && !ctx.confined) return once;
+  if (ctx.policy.acceptOther && (!ctx.confined || ctx.inherits === true)) return once;
   return card(ask, call, ctx, fallback);
 }
 

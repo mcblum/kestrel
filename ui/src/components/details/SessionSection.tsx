@@ -2,7 +2,7 @@
 // composer's pickers show, handed in from the one place they are worked out), group, tags, cost,
 // turns, and when it started and was last active.
 import type { SessionUsage } from '@kestrel/server/details';
-import { costText } from '@kestrel/server/details';
+import { spendText } from '@kestrel/server/details';
 import type { Group, SessionView } from '@kestrel/server/model';
 import { PERMISSION_LEVELS } from '@kestrel/server/permissions';
 import type { Sourced } from '@kestrel/server/sourced';
@@ -62,8 +62,9 @@ export function SessionSection({ session, group, controls, pending, usage }: Pro
         </Row>
         <AutopilotRow session={session} />
         <Row label="Cost" group>
-          {notRecorded(usage) ? <span className="details-quiet">Not recorded</span> : <SourcedValue value={usage}>{(u) => costText(u)}</SourcedValue>}
+          {notRecorded(usage) ? <span className="details-quiet">{spendText(session.agent, null).cost}</span> : <SourcedValue value={usage}>{(u) => spendText(session.agent, u).cost}</SourcedValue>}
         </Row>
+        {usage.state === 'ready' && usage.value.tokens && <Row label="Tokens">{spendText(session.agent, usage.value).tokens}</Row>}
         {usage.state === 'ready' && <Row label="Turns">{usage.value.turns}</Row>}
         <Row label="Started" group><When at={session.createdAt} /></Row>
         <Row label="Last active"><When at={activityAt(session)} /></Row>

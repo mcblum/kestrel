@@ -3,7 +3,7 @@
 // it is on its way the buttons wait, and a refusal shows here, on the row.
 import { useEffect, useState } from 'react';
 import type { InputCard } from '@kestrel/server/model';
-import { CardOptions } from '../components/CardOptions.tsx';
+import { CardOptions, type CardConfirm } from '../components/CardOptions.tsx';
 import { actions } from '../store.ts';
 
 /** Longer than this (in lines or characters) folds, with a control to show all of it. */
@@ -35,10 +35,10 @@ export function ApprovalDecision({ sessionId, card }: { sessionId: string; card:
     setError(null);
   }, [card.id]);
 
-  const pick = async (optionId: string) => {
+  const pick = async (optionId: string, confirm: CardConfirm) => {
     setPending(optionId);
     setError(null);
-    const refused = await actions.answerHere(sessionId, card.id, { optionId });
+    const refused = await actions.answerHere(sessionId, card.id, { optionId, ...confirm });
     // The row leaves the list when the session runs again; with another card still waiting it
     // stays, so fetch the conversation again to show that one.
     actions.loadDetail(sessionId, true);
@@ -49,7 +49,7 @@ export function ApprovalDecision({ sessionId, card }: { sessionId: string; card:
   return (
     <div className="qrow-decide">
       <CommandDetail text={card.detail} />
-      <CardOptions card={card} onPick={(id) => void pick(id)} pendingId={pending} />
+      <CardOptions card={card} onPick={(id, confirm) => void pick(id, confirm)} pendingId={pending} />
       {error && (
         <p className="qrow-error" role="alert">
           {error}

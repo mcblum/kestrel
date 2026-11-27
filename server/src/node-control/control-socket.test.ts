@@ -22,7 +22,7 @@ const noUninstall = async () => ({ ok: false as const, reason: 'not in this test
 const rechecked: Agent[][] = [];
 const noAgents = async (recheck: readonly Agent[]): Promise<NodeAgentState[]> => {
   rechecked.push([...recheck]);
-  return [{ agent: 'claude', canRun: true, why: null }, { agent: 'opencode', canRun: false, why: 'OpenCode is not signed in on Worker node 1. Run `kestrel-node agents` there.' }];
+  return [{ agent: 'claude', canRun: true, why: null }, { agent: 'opencode', canRun: false, why: 'OpenCode is not signed in on Worker node 1. Run `kestrel node agents` there.' }];
 };
 
 const status: NodeStatus = nodeStatusOf({
@@ -93,21 +93,18 @@ describe('the control socket', () => {
 
   test('the terminal’s own commands are not taken on the socket', async () => {
     const { path } = await start();
-    for (const command of ['start', 'logs']) expect(JSON.parse(await raw(path, `${JSON.stringify({ command })}\n`))).toMatchObject({ ok: false, reason: expect.stringContaining('is not a kestrel-node command') });
+    for (const command of ['start', 'logs', 'configure', 'setup', 'upgrade']) expect(JSON.parse(await raw(path, `${JSON.stringify({ command })}\n`))).toMatchObject({ ok: false, reason: expect.stringContaining('is not a command the node answers') });
   });
 
-  test('every other command on the list is refused as not built yet, with its reason', async () => {
-    const { path } = await start();
-    const unbuilt = NODE_COMMAND_NAMES.filter((name) => !NODE_COMMANDS[name].built);
-    expect(unbuilt.length).toBeGreaterThan(0);
-    for (const command of unbuilt) expect(await askNode(path, command)).toEqual({ ok: false, reason: notBuiltReason(command) });
-    expect(stops).toBe(0);
+  test('every command on the list is built in this version (a later one would answer with notBuiltReason)', () => {
+    expect(NODE_COMMAND_NAMES.filter((name) => !NODE_COMMANDS[name].built)).toEqual([]);
+    expect(notBuiltReason('git')).toBe('"git" is not built yet in this version of kestrel.');
   });
 
   test('agents: the node asks its agents again, forgetting those named in recheck, and says what it tells other devices', async () => {
     const { path } = await start();
     const reply = JSON.parse(await raw(path, `${JSON.stringify({ command: 'agents', recheck: ['codex', 'codex', 'opencode'] })}\n`));
-    expect(reply).toEqual({ ok: true, command: 'agents', agents: [{ agent: 'claude', canRun: true, why: null }, { agent: 'opencode', canRun: false, why: 'OpenCode is not signed in on Worker node 1. Run `kestrel-node agents` there.' }] });
+    expect(reply).toEqual({ ok: true, command: 'agents', agents: [{ agent: 'claude', canRun: true, why: null }, { agent: 'opencode', canRun: false, why: 'OpenCode is not signed in on Worker node 1. Run `kestrel node agents` there.' }] });
     expect(rechecked).toEqual([['codex', 'opencode']]);
     expect(JSON.parse(await raw(path, '{"command":"agents"}\n'))).toMatchObject({ ok: true });
     expect(rechecked.at(-1)).toEqual([]);
@@ -131,7 +128,7 @@ describe('the control socket', () => {
     const { path } = await start();
     const reply = JSON.parse(await raw(path, '{"command":"shell"}\n'));
     expect(reply).toMatchObject({ ok: false });
-    expect(reply.reason).toContain('is not a kestrel-node command');
+    expect(reply.reason).toBe('"shell" is not a command the node answers. The commands are status, stop, join, agents, git, uninstall.');
   });
 
   test('a request that is not JSON, or too long, is refused and never reaches a command', async () => {
@@ -211,9 +208,9 @@ describe('the terminal’s side', () => {
   test('a refusal goes to the error output with a non-zero exit', async () => {
     const { path } = await start();
     const err: string[] = [];
-    const code = await runClient(path, 'setup', () => undefined, (l) => err.push(l));
+    const code = await runClient(`${path}.nobody`, 'status', () => undefined, (l) => err.push(l));
     expect(code).toBe(1);
-    expect(err).toEqual([notBuiltReason('setup')]);
+    expect(err).toEqual([noNodeRunning(`${path}.nobody`)]);
   });
 
   test('outcomeOf words each kind of answer', () => {

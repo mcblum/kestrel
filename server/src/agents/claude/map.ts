@@ -6,6 +6,7 @@
 // block index of a final message is the count of blocks already seen for that message id.
 // Anything with a `parent_tool_use_id` belongs to a sub-agent (Task tool): it is not the main
 // conversation, so only its file changes are noticed.
+import { limitsFromEvent, tokensFromResult } from './usage.ts';
 import { KESTREL_TOOLS, type AgentEvent, type KestrelToolsStatus } from '../types.ts';
 import type { TodoItem } from '../../model.ts';
 import { clip, editedFile, mayChangeFiles, summarizeTool, type ElementLookup } from './describe.ts';
@@ -184,6 +185,11 @@ export class ClaudeMapper {
         return this.user(m);
       case 'result':
         return [...this.turnPoint(), ...this.result(m)];
+      case 'rate_limit_event': {
+        // The account's plan usage, as the CLI read it from the response (usage.ts).
+        const usage = limitsFromEvent(m);
+        return usage ? [{ type: 'limits', usage }] : [];
+      }
       default:
         return [];
     }
@@ -344,7 +350,10 @@ export class ClaudeMapper {
   }
 
   private result(m: SdkLike): AgentEvent[] {
-    if (m.subtype === 'success' && !m.is_error) return [{ type: 'done', reason: 'complete', costUsd: m.total_cost_usd }];
+    if (m.subtype === 'success' && !m.is_error) {
+      const tokens = tokensFromResult(m);
+      return [{ type: 'done', reason: 'complete', costUsd: m.total_cost_usd, ...(tokens ? { tokens } : {}) }];
+    }
     const reason = String(m.result ?? (m.errors ?? []).join('; ') ?? m.subtype ?? 'The agent stopped with an error.') || String(m.subtype);
     return [claudeFailure(reason)];
   }

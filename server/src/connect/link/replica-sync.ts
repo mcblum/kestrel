@@ -12,6 +12,7 @@
 //   only under the record id its session makes. Opening it at all proves its writer held the key.
 // - The service keeps a delete in the feed for 30 days. Having not read it for `WHOLE_AFTER_MS`, or
 //   under another key or device, this computer reads every head again and drops what is not there.
+import { keyOf, newestFirst } from '../../shared/session-order.ts';
 import type { AccountReplica } from '../../account-replica.ts';
 import type { ChatMessage } from '../../model.ts';
 import { asAccountChunk, asHeadRecord, conversationStamp, headLabel, HEADS_LIST, type AccountChunk, type AccountHead, type HeadRecord, type Machine } from '../../shared/machines.ts';
@@ -24,7 +25,7 @@ export const WHOLE_AFTER_MS = 25 * 24 * 60 * 60 * 1000;
 
 /**
  * How many conversations are read from the service at once in the background. Two: a computer with hundreds of
- * sessions (a first sign-in, a long time away) is brought up to date as a trickle, newest activity first, so the
+ * sessions (a first sign-in, a long time away) is brought up to date as a trickle, most recent first (working now first, session-order.ts), so the
  * sessions a person is likely to open are there first and the link is never filled with one burst. Each read
  * asks only for the chunks the head's stamp says may have changed (`fetch`).
  */
@@ -102,7 +103,7 @@ export class ReplicaSync {
   }
 
   /**
-   * Brings every kept conversation that is behind its head up to it, newest activity first, `PREFETCH_AT_ONCE` at
+   * Brings every kept conversation that is behind its head up to it, most recent first (working now first), `PREFETCH_AT_ONCE` at
    * a time; one round at a time, and one asked for during it runs after it. Started after each pass, so only by
    * the feed: nothing is polled. A conversation whose stamp matches is not read again.
    */
@@ -132,7 +133,7 @@ export class ReplicaSync {
     if (!this.deps.api() || !this.deps.key()) return;
     const [heads, marks] = await Promise.all([this.deps.replica.heads(), this.deps.replica.detailMarks()]);
     // An archived session's conversation is no longer held: the copy kept here stays as it is.
-    const behind = heads.filter((h) => !h.archived && marks.get(h.id)?.stamp !== conversationStamp(h)).sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+    const behind = heads.filter((h) => !h.archived && marks.get(h.id)?.stamp !== conversationStamp(h)).sort((a, b) => newestFirst(keyOf(a.id, () => a), keyOf(b.id, () => b)));
     const worker = async () => {
       for (let head = behind.shift(); head; head = behind.shift()) {
         // The link went down or the person signed out: the next pass starts again where the copies stand.

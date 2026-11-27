@@ -6,7 +6,7 @@ import type { Group, Link, Session, TreeNode, Workstream } from '../model.ts';
 import { buildTree, subtreeIds } from '../tree.ts';
 import { fitsGroup, projectOfSession } from './project-groups.ts';
 import { parentHears } from './turn-reports.ts';
-import { activityAt } from './session-order.ts';
+import { moreRecent, recencyOf, recencyOfAll, type Recency } from './session-order.ts';
 import { statusOf } from './status.ts';
 
 type Placed = Pick<Session, 'landedIn' | 'startedIn'>;
@@ -139,10 +139,10 @@ export interface WorkstreamRow<S> {
 }
 
 type Ranked = Pick<Session, 'id' | 'state' | 'note' | 'updatedAt' | 'lastActivityAt'>;
-/** How soon a session wants looking at: waiting on the user or failed first, then working, then the rest. */
+/** How soon a session wants looking at: waiting on the user or failed first, then the rest, which go by how recent they are (working first). */
 const urgency = (s: Ranked): number => {
   const status = statusOf(s);
-  return status === 'needs-you' || status === 'failed' ? 0 : status === 'working' ? 1 : 2;
+  return status === 'needs-you' || status === 'failed' ? 0 : 1;
 };
 
 /**
@@ -150,28 +150,40 @@ const urgency = (s: Ranked): number => {
  * sessions it started, each with its own, indented a level each; a member nothing in the
  * workstream started sits at the first level, as in the sidebar (`workstreamShape`). At each level
  * the sessions that need something or are working rise to the top: a session is placed by the
- * most urgent thing in its subtree (waiting on the user or failed, then working, then the rest),
- * and within that by the latest activity in its subtree. Sessions missing from `sessions` (archived,
+ * most urgent thing in its subtree (waiting on the user or failed first), and within that by how
+ * recent its subtree is (`moreRecent`: working now first, then the latest activity). Sessions missing from `sessions` (archived,
  * deleted) are left out, with what is under them moving up a level.
  */
 export function workstreamRows<S extends Ranked>(workstream: Pick<Workstream, 'sessionIds'>, links: readonly Link[], sessions: readonly S[]): WorkstreamRow<S>[] {
   const byId = new Map(sessions.map((s) => [s.id, s]));
   const { leadId, under } = workstreamShape(workstream, links);
   const lead = leadId ? byId.get(leadId) : undefined;
-  const key = (node: TreeNode): { urgency: number; at: number } => {
+  const key = (node: TreeNode): { urgency: number; recency: Recency } => {
     const own = byId.get(node.sessionId);
     const kids = node.children.map(key);
-    return { urgency: Math.min(own ? urgency(own) : 2, ...kids.map((k) => k.urgency)), at: Math.max(own ? activityAt(own) : 0, ...kids.map((k) => k.at)) };
+    return { urgency: Math.min(own ? urgency(own) : 1, ...kids.map((k) => k.urgency)), recency: recencyOfAll([...(own ? [recencyOf(own)] : []), ...kids.map((k) => k.recency)]) };
   };
   const level = (nodes: readonly TreeNode[], depth: number): WorkstreamRow<S>[] =>
     nodes
       .map((node) => ({ node, key: key(node) }))
-      .sort((a, b) => a.key.urgency - b.key.urgency || b.key.at - a.key.at || a.node.sessionId.localeCompare(b.node.sessionId))
+      .sort((a, b) => a.key.urgency - b.key.urgency || moreRecent(a.key.recency, b.key.recency) || a.node.sessionId.localeCompare(b.node.sessionId))
       .flatMap(({ node }) => {
         const session = byId.get(node.sessionId);
         return session ? [{ session, depth }, ...level(node.children, depth + 1)] : level(node.children, depth);
       });
   return [...(lead ? [{ session: lead, depth: 0 }] : []), ...level(under, lead ? 1 : 0)];
+}
+
+/** How recent a workstream is: its most recent session's recency (session-order.ts). Null when none of its sessions is known. */
+export function workstreamRecency(w: Pick<Workstream, 'sessionIds'>, lookup: (id: string) => Ranked | undefined): Recency | null {
+  const known = w.sessionIds.flatMap((id) => lookup(id) ?? []);
+  return known.length > 0 ? recencyOfAll(known.map(recencyOf)) : null;
+}
+
+/** Workstreams most recent first (`workstreamRecency`); one with no known session last; otherwise in the order given. */
+export function byWorkstreamRecency<W extends Pick<Workstream, 'sessionIds'>>(all: readonly W[], lookup: (id: string) => Ranked | undefined): W[] {
+  const ranked = all.map((w, i) => ({ w, i, r: workstreamRecency(w, lookup) }));
+  return ranked.sort((a, b) => (a.r && b.r ? moreRecent(a.r, b.r) : a.r ? -1 : b.r ? 1 : 0) || a.i - b.i).map((x) => x.w);
 }
 
 /** "1 delegated session", for the lead row's second line; counts everything under the lead. */

@@ -1,4 +1,4 @@
-// `kestrel-node join` (worker-nodes.md, section 5; account-sessions.md 4.4): sign in by a device authorization
+// `kestrel node join` (worker-nodes.md, section 5; account-sessions.md 4.4): sign in by a device authorization
 // grant typed on another device, then ask to join the account and be let in by the two codes, never by recovery
 // words. It drives the node's own Kestrel Connect module through the same methods a window's buttons call, and
 // watches the view it pushes; nothing here decides what to trust (join.ts does). The terminal going away withdraws
@@ -50,10 +50,11 @@ function nextChange(target: JoinTarget, signal: AbortSignal): Promise<void> {
 const minutesLeft = (expiresAt: number): number => Math.max(1, Math.round((expiresAt - Date.now()) / 60_000));
 
 /**
- * Where a request to join is let in, as step 2 says it. Today that is Settings → Connections of a desktop, where Let in
- * makes the code the node then shows. One place: item 72 (the request shown over any page) changes it.
+ * Where a request to join is let in, as step 2 says it (issue 72): a desktop of the account that is open draws the
+ * request's card over whatever page it shows, and Settings → Connections keeps it when the card was put aside. Let in
+ * there makes the code the node then shows. One place.
  */
-export const LET_IN_WHERE = (name: string): string => `On a device already in your account, open Kestrel → Settings → Connections and choose Let in on ${name}'s request.`;
+export const LET_IN_WHERE = (name: string): string => `Kestrel on your other devices is showing a request. Choose Let in on ${name}'s request there, or find it in Settings → Connections.`;
 
 /** The steps' headings, and the title above them. */
 export const JOIN_TITLE = (name: string): string => `Kestrel worker node: join ${name} to your account`;
@@ -146,7 +147,7 @@ async function withdraw(target: JoinTarget): Promise<void> {
   if (joining && joining.state !== 'in' && joining.state !== 'ended') await target.cancelJoin().catch(() => undefined);
 }
 
-/** Runs `kestrel-node join` against this node's Connect module. Never throws: how it ended is the answer. */
+/** Runs `kestrel node join` against this node's Connect module. Never throws: how it ended is the answer. */
 export async function joinFlow(target: JoinTarget, io: JoinIo, signal: AbortSignal): Promise<JoinEnd> {
   try {
     const start = target.view();

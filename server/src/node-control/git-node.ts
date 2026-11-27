@@ -1,4 +1,4 @@
-// The node's part of `kestrel-node git` (shared/node-commands.ts): what only the running node knows. The terminal makes
+// The node's part of `kestrel node git` (shared/node-commands.ts): what only the running node knows. The terminal makes
 // the key, tests it and asks the person (git-checklist.ts); the node reads its git settings again into the environment
 // its git and its sessions' agents run in (node-git-env.ts), and says the repositories of the account's projects and
 // what the account's other computers publish about their git. No key or token is in what it says.
@@ -32,7 +32,7 @@ async function repositories(source: GitFactsSource): Promise<string[]> {
  */
 export function accountUnknownOf(account: ConnectAccount, link: ConnectLink, feedRead: boolean): string | null {
   if (feedRead) return null;
-  if (account.state !== 'signed-in') return 'This node is not in an account yet (`kestrel-node join`), so the account’s projects are not known.';
+  if (account.state !== 'signed-in') return 'This node is not in an account yet (`kestrel node join`), so the account’s projects are not known.';
   if (link.state !== 'connected') return `The account’s projects are not known yet: Kestrel Connect is ${linkText(link).toLowerCase()}.`;
   return 'The account’s projects are not read yet: the node reads them shortly after it connects.';
 }

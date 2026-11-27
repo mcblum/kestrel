@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Project } from '../model.ts';
 import { BYPASS_FROM_ELSEWHERE } from './connect-ops.ts';
-import { ASKING, asStartChoices, cannotStartOn, cloneOn, computerOptions, computersOf, defaultComputer, doesNotHave, modelOptionsOf, notThereYet, projectAfterSwitch, projectOn, projectsOn, remoteMode, remoteRunningModes, remoteRunningNote, startingOn, startMayHaveHappened, statusOf, type ComputerStatus } from './start-computer.ts';
+import { ASKING, asStartChoices, cannotStartOn, cloneOn, computerOptions, computersOf, defaultComputer, doesNotHave, modelOptionsOf, notThereYet, projectAfterSwitch, projectOn, projectsOn, remoteMode, remoteBypass, remoteRunningModes, remoteRunningNote, startingOn, startMayHaveHappened, statusOf, type ComputerStatus } from './start-computer.ts';
 import type { RemoteStartChoices } from '../remote-starts/session-start.ts';
 
 const MINI = { id: 'mini', name: 'Mac mini' };
@@ -101,9 +101,13 @@ describe('reading what another computer offers', () => {
     expect(asStartChoices(null)).toBeNull();
   });
 
-  it('offers Manual and Auto for a running session there, and keeps its own mode shown when it is neither', () => {
-    expect(remoteRunningModes('ask')).toEqual(['ask', 'auto']);
-    expect(remoteRunningModes('bypass')).toEqual(['ask', 'auto', 'bypass']);
+  it('offers a running session there every mode its agent has, as here, and keeps its own mode shown (issue 79)', () => {
+    const levels = ['readonly', 'ask', 'auto', 'edits', 'plan', 'bypass'] as const;
+    expect(remoteRunningModes(levels, 'ask')).toEqual(levels);
+    expect(remoteRunningModes(levels, 'bypass')).toEqual(levels);
+    // An agent with fewer modes still shows the one the session is in.
+    expect(remoteRunningModes(['ask', 'auto'], 'plan')).toEqual(['ask', 'auto', 'plan']);
+    expect(remoteBypass('Mac mini')).toBe('Bypass is chosen on Mac mini, the computer the session runs on.');
     expect(remoteRunningNote('bypass', 'Mac mini')).toContain('Bypass on Mac mini. Bypass is chosen on the computer the session runs on.');
     expect(remoteRunningNote('auto', 'Mac mini')).toContain('on Mac mini');
   });

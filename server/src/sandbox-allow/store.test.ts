@@ -8,6 +8,7 @@ import type { InputCard } from '../model.ts';
 import { memoryPersistence } from '../persistence/memory.ts';
 import { sqlitePersistence } from '../persistence/sqlite.ts';
 import { ALWAYS_COMMAND, ALWAYS_FOLDER } from '../shared/sandbox-allow.ts';
+import { ALWAYS_CHILDREN, ALWAYS_CHILDREN_LABEL, INHERIT_UNCONFIRMED } from '../shared/sandbox-inherit.ts';
 import { sandboxAllowRoute } from './api.ts';
 import { SANDBOX_ALLOW_KEY, SandboxAllowList } from './store.ts';
 import type { FolderContext } from './validate.ts';
@@ -39,6 +40,23 @@ describe.each([
     ]);
     await again.remove('command:git commit');
     expect(await new SandboxAllowList({ settings: db }).entries()).toEqual([{ kind: 'folder', path: join(m.home, '.gnupg'), access: 'read-write' }]);
+  });
+
+  it('keeps the switch for sessions started by another session across a restart, off by default, and the list with it (issue 74)', async () => {
+    const db = makeDb();
+    const list = new SandboxAllowList({ settings: db });
+    expect((await list.view()).inherit).toBe(false);
+    expect(list.inherits()).toBe(false);
+    await list.addCommand('gpg');
+    await list.setInherit(true);
+    const again = new SandboxAllowList({ settings: db });
+    expect(await again.view()).toEqual({ entries: [{ kind: 'command', words: ['gpg'] }], inherit: true });
+    expect(again.inherits()).toBe(true);
+    // An add or a removal leaves it as it is.
+    await again.remove('command:gpg');
+    expect((await new SandboxAllowList({ settings: db }).view()).inherit).toBe(true);
+    await again.setInherit(false);
+    expect((await new SandboxAllowList({ settings: db }).view()).inherit).toBe(false);
   });
 
   it('drops what it cannot read', async () => {
@@ -76,7 +94,7 @@ describe('the list', () => {
     await list.addCommand('gpg');
     await list.addCommand('gpg');
     await list.addFolder('~/.gnupg', 'read');
-    expect(await list.addFolder('~/.gnupg', 'read-write')).toEqual({ entries: [{ kind: 'command', words: ['gpg'] }, { kind: 'folder', path: join(m.home, '.gnupg'), access: 'read-write' }] });
+    expect(await list.addFolder('~/.gnupg', 'read-write')).toEqual({ entries: [{ kind: 'command', words: ['gpg'] }, { kind: 'folder', path: join(m.home, '.gnupg'), access: 'read-write' }], inherit: false });
     expect(list.current()).toHaveLength(2);
     await expect(list.remove('command:nope')).rejects.toThrow(/not on the always-allowed list/);
   });
@@ -115,20 +133,52 @@ describe('an "Always allow" choice on the sandbox card', () => {
   });
 });
 
+describe('"Always allow for sessions started by another session" on the sandbox card (issue 74)', () => {
+  const offering = (): InputCard => ({ ...card(undefined), options: [{ id: 'allow', label: 'Allow', role: 'allow' }, { id: ALWAYS_CHILDREN, label: ALWAYS_CHILDREN_LABEL, role: 'allow' }, { id: 'deny', label: 'Deny', role: 'deny' }] });
+
+  it('turns the switch on and allows the request, once the person confirmed it where they answered', async () => {
+    const list = new SandboxAllowList({ context: machine().context });
+    expect(await list.answerCard(offering(), { optionId: ALWAYS_CHILDREN, confirmed: true })).toEqual({ optionId: 'allow', confirmed: true });
+    expect(list.inherits()).toBe(true);
+    expect(await list.entries()).toEqual([]);
+  });
+
+  it('is refused without the confirmation (a phone that did not ask), with the reason, and the switch stays off', async () => {
+    const list = new SandboxAllowList({ context: machine().context });
+    await expect(list.answerCard(offering(), { optionId: ALWAYS_CHILDREN })).rejects.toThrow(INHERIT_UNCONFIRMED);
+    await expect(list.answerCard(offering(), { optionId: ALWAYS_CHILDREN, confirmed: false })).rejects.toThrow(/needs your confirmation/);
+    expect(list.inherits()).toBe(false);
+    // The card's other choices need none.
+    expect(await list.answerCard(offering(), { optionId: 'allow' })).toEqual({ optionId: 'allow' });
+  });
+
+  it('is refused on a card that did not offer it, and nothing changes', async () => {
+    const list = new SandboxAllowList({ context: machine().context });
+    await expect(list.answerCard(card({ command: ['gpg'] }), { optionId: ALWAYS_CHILDREN })).rejects.toThrow(/does not offer to allow commands outside the sandbox for sessions started by another session/);
+    await expect(list.answerCard(undefined, { optionId: ALWAYS_CHILDREN })).rejects.toThrow(/does not offer/);
+    expect(list.inherits()).toBe(false);
+  });
+});
+
 describe('the HTTP route', () => {
   it('lists, adds, refuses with a reason, and removes', async () => {
     const m = machine();
     const list = new SandboxAllowList({ context: m.context });
     const route = (method: string, body: Record<string, unknown> = {}) => sandboxAllowRoute(['api', 'sandbox-allow'], method, async () => body, list);
-    expect(await route('GET')).toEqual({ status: 200, body: { entries: [] } });
-    expect(await route('POST', { kind: 'command', command: 'git commit' })).toEqual({ status: 200, body: { entries: [{ kind: 'command', words: ['git', 'commit'] }] } });
+    expect(await route('GET')).toEqual({ status: 200, body: { entries: [], inherit: false } });
+    expect(await route('POST', { kind: 'command', command: 'git commit' })).toEqual({ status: 200, body: { entries: [{ kind: 'command', words: ['git', 'commit'] }], inherit: false } });
     expect(await route('POST', { kind: 'folder', path: '~', access: 'read' })).toEqual({ status: 400, body: { error: expect.stringMatching(/home folder/) } });
     expect(await route('POST', { kind: 'command', command: 'sh' })).toEqual({ status: 400, body: { error: expect.stringMatching(/runs other programs/) } });
     for (const wrapper of ['rtk git', 'rtk proxy', 'rtk', 'rtk git commit']) expect(await route('POST', { kind: 'command', command: wrapper })).toEqual({ status: 400, body: { error: expect.stringMatching(/Add the command it wraps instead/) } });
     expect(await route('POST', { kind: 'glob', pattern: '*' })).toEqual({ status: 400, body: { error: expect.stringMatching(/kind must be/) } });
     expect(await route('POST', { kind: 'command', command: 3 })).toEqual({ status: 400, body: { error: expect.stringMatching(/must be text/) } });
     expect(await route('DELETE', {})).toEqual({ status: 400, body: { error: expect.stringMatching(/id must/) } });
-    expect(await route('DELETE', { id: 'command:git commit' })).toEqual({ status: 200, body: { entries: [] } });
+    expect(await route('DELETE', { id: 'command:git commit' })).toEqual({ status: 200, body: { entries: [], inherit: false } });
+    // The switch for sessions started by another session (issue 74): saved as it is changed.
+    expect(await route('PATCH', { inherit: true })).toEqual({ status: 200, body: { entries: [], inherit: true } });
+    expect(list.inherits()).toBe(true);
+    expect(await route('PATCH', { inherit: 'yes' })).toEqual({ status: 400, body: { error: 'inherit must be true or false.' } });
+    expect(await route('PATCH', { inherit: false })).toEqual({ status: 200, body: { entries: [], inherit: false } });
     expect(await route('PUT')).toBeNull();
     expect(await sandboxAllowRoute(['api', 'sandbox-allow', 'x'], 'GET', async () => ({}), list)).toBeNull();
   });

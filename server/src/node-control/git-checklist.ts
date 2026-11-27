@@ -1,4 +1,4 @@
-// `kestrel-node git`: the checklist that gives Kestrel's git on a node a key of its own, gets it accepted at the
+// `kestrel node git`: the checklist that gives Kestrel's git on a node a key of its own, gets it accepted at the
 // account's git hosts, and sets the name and email its commits carry (docs/designs/worker-nodes.md, section 7). It
 // runs in the terminal, as `agents` does, drawn by join's drawing function from the same events.
 //
@@ -156,7 +156,7 @@ class GitChecklist {
   private async untilKnown(facts: NodeGitFacts | null): Promise<NodeGitFacts | null> {
     let now = facts;
     for (let i = 0; i < TRIES && (!now || now.accountUnknown); i++) {
-      this.say(HOSTS, { kind: 'line', text: now ? now.accountUnknown! : `The node is not running, so it cannot say which hosts your account's projects use. Start it (kestrel-node start).` });
+      this.say(HOSTS, { kind: 'line', text: now ? now.accountUnknown! : `The node is not running, so it cannot say which hosts your account's projects use. Start it (kestrel node start).` });
       if (this.options.unattended) return now;
       const answer = await this.io.ask(HOSTS, 'Press Enter to check again, type w to wait for it (up to a minute), or c to carry on without them: ');
       if (answer === null || /^\s*c/i.test(answer)) return now;
@@ -542,9 +542,9 @@ export async function runGitChecklist(deps: GitChecklistDeps, io: ChecklistIo, o
   list.save();
   // The node reads what was chosen into the environment its git runs in.
   const applied = facts ? await deps.node() : null;
-  if (!applied) io.say({ event: 'say', step: 0, kind: 'line', text: 'The node is not running; it uses this when it starts (kestrel-node start).' });
+  if (!applied) io.say({ event: 'say', step: 0, kind: 'line', text: 'The node is not running; it uses this when it starts (kestrel node start).' });
   const left = list.stillToDo(hosts, hasKey);
   const ok = left === 0;
-  io.say({ event: 'end', ok, text: endText(name, list.current(), hosts, hasKey, left), next: 'kestrel-node status' });
+  io.say({ event: 'end', ok, text: endText(name, list.current(), hosts, hasKey, left), next: 'kestrel node status' });
   return ok ? 0 : 1;
 }

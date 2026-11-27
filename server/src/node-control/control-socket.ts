@@ -24,9 +24,9 @@ export interface ControlHandlers {
   join: JoinRun;
   /** The node's part of uninstalling: refuse while work is not pushed, else leave the account (uninstall-node.ts). */
   uninstall(): Promise<{ ok: true; message: string } | { ok: false; reason: string }>;
-  /** The node's part of `kestrel-node agents`: forget what it knew of `recheck`, ask every agent again, and say what it now tells other devices. */
+  /** The node's part of `kestrel node agents`: forget what it knew of `recheck`, ask every agent again, and say what it now tells other devices. */
   agents(recheck: readonly Agent[]): Promise<NodeAgentState[]>;
-  /** The node's part of `kestrel-node git`: read its git settings again, and say what only it knows (git-node.ts). */
+  /** The node's part of `kestrel node git`: read its git settings again, and say what only it knows (git-node.ts). */
   git(): Promise<NodeGitFacts>;
 }
 

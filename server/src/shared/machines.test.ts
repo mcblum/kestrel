@@ -1,7 +1,7 @@
 // What another machine sends is read through these parsers only (machines.ts), and the line a remote
 // conversation shows when its copy is behind and its machine did not answer.
 import { describe, expect, it } from 'vitest';
-import { asRemotePage, asRemotePatch, notAnsweredText, paneThere } from './machines.ts';
+import { asHeadRecord, asRemotePage, asRemotePatch, notAnsweredText, notReachedSettings, paneThere } from './machines.ts';
 
 describe('notAnsweredText', () => {
   const at = new Date(2026, 10, 25, 14, 2).getTime();
@@ -26,6 +26,25 @@ describe('what another machine sends', () => {
     expect(asRemotePatch({ messages: [{ id: 'm1', author: 'agent', time: '', text: 'hi' }], status: 'Thinking…', files: [{ path: 'no-status' }], agentOutput: 'x', removedMessages: ['m0', 3] })).toEqual({ messages: [{ id: 'm1', author: 'agent', time: '', text: 'hi' }], status: 'Thinking…', files: [], removedMessages: ['m0'] });
     expect(asRemotePatch({ files: [] })).toEqual({ files: [] });
     expect(asRemotePatch({ agentOutput: 'x' })).toBeNull();
+  });
+});
+
+describe('a head’s model and mode (issue 79)', () => {
+  const head = { id: 's1', title: 'Fix it', agent: 'codex', state: 'done', createdAt: 1, updatedAt: 2 };
+  const record = (session: Record<string, unknown>) => asHeadRecord({ kind: 'head', machine: { id: 'mini-1', name: 'Mac mini' }, session });
+
+  it('keeps them when they read as a model and a mode, effort and fast mode included', () => {
+    expect(record({ ...head, settings: { model: 'gpt-5', permission: 'bypass', effort: 'high', fast: true } })!.head.settings).toEqual({ model: 'gpt-5', permission: 'bypass', effort: 'high', fast: true });
+  });
+
+  it('leaves them out when they do not, or when an older machine never said them', () => {
+    expect(record({ ...head, settings: { model: 'gpt-5', permission: 'everything' } })!.head).not.toHaveProperty('settings');
+    expect(record({ ...head, settings: 'auto' })!.head).not.toHaveProperty('settings');
+    expect(record(head)!.head).not.toHaveProperty('settings');
+  });
+
+  it('says why they cannot be changed while their computer cannot be reached', () => {
+    expect(notReachedSettings('Mac mini')).toBe("Mac mini cannot be reached, so this session's model and mode cannot be changed from here now. Try again when it is back.");
   });
 });
 

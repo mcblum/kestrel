@@ -13,6 +13,7 @@ import { unwrapShell } from '../../sandbox-allow/command-line.ts';
 import { codexAdapter, nodeLauncher } from './index.ts';
 import { listAnswer } from './allow-list.ts';
 import { codexPolicy } from './policy.ts';
+import { ALWAYS_CHILDREN, ALWAYS_CHILDREN_LABEL } from '../../shared/sandbox-inherit.ts';
 import { PROTECTED_REFUSAL, protectedRefusal } from '../../shared/protected-files.ts';
 
 const FAKE = join(import.meta.dirname, 'fixtures', 'fake-app-server.mjs');
@@ -65,6 +66,30 @@ describe('Codex and the always-allowed list', () => {
     expect(card.request.options.map((o) => o.id)).toEqual(['allow', 'always-command', 'deny']);
     expect(card.request.options[1]!.label).toBe('Always allow this command: git push');
     // The runtime adds the entry and passes the choice on as Allow (sandbox-allow/store.ts answerCard).
+    handle.answer(card.request.id, { optionId: 'allow' });
+    await t.next('done');
+    expect(t.said()).toContain('ran it');
+    await handle.close!();
+  });
+
+  it('a child whose starter would not be asked runs the command with no card once the switch lets it (issue 74)', async () => {
+    const t = setup('auto', access([]));
+    let on = true;
+    const handle = t.adapter.start({ ...t.options, outsideInherit: { allows: () => on, offerable: () => !on } }, 'git push origin main', t.emit);
+    await t.next('done');
+    expect(t.events.some((e) => e.type === 'needs-input')).toBe(false);
+    expect(t.said()).toContain('ran it');
+    on = false;
+    await handle.close!();
+  });
+
+  it('a child whose switch is off asks, and its card offers to turn it on; the choice, passed on as Allow, accepts', async () => {
+    const t = setup('auto', access([]));
+    const handle = t.adapter.start({ ...t.options, outsideInherit: { allows: () => false, offerable: () => true } }, 'git push origin main', t.emit);
+    const card = (await t.next('needs-input')) as Extract<AgentEvent, { type: 'needs-input' }>;
+    expect(card.request.options.map((o) => o.id)).toEqual(['allow', ALWAYS_CHILDREN, 'deny']);
+    expect(card.request.options[1]!.label).toBe(ALWAYS_CHILDREN_LABEL);
+    // The runtime turns the switch on and passes the choice on as Allow (sandbox-allow/store.ts answerCard).
     handle.answer(card.request.id, { optionId: 'allow' });
     await t.next('done');
     expect(t.said()).toContain('ran it');

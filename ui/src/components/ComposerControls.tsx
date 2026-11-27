@@ -29,10 +29,11 @@ import { ProviderControl } from './controls/ProviderControl.tsx';
 import { ModelControl } from './controls/ModelControl.tsx';
 import { PresetControl } from './controls/PresetControl.tsx';
 import { ContextRing } from './controls/ContextRing.tsx';
+import { PlanUsageReadout } from './controls/PlanUsage.tsx';
 import { ComputerControl } from './controls/ComputerControl.tsx';
 import { RemoteAgentControls } from './controls/RemoteAgentControls.tsx';
 import { useComputerOffers, useOtherComputers } from '../startComputers.ts';
-import { cloneOn, modelOptionsOf, notThereYet, projectAfterSwitch, projectOn, projectsOn, remoteMode, remoteRunningModes, remoteRunningNote, REMOTE_PICKER_MODES, type ComputerStatus } from '@kestrel/server/start-computer';
+import { cloneOn, modelOptionsOf, notThereYet, projectAfterSwitch, projectOn, projectsOn, remoteBypass, remoteMode, remoteRunningModes, remoteRunningNote, REMOTE_PICKER_MODES, type ComputerStatus } from '@kestrel/server/start-computer';
 import type { ModelOption } from '@kestrel/server/agent-types';
 import { useMachineName } from '../machines.ts';
 import { AutopilotControl } from './controls/AutopilotControl.tsx';
@@ -160,12 +161,14 @@ export function ComposerControls({ value, mode, onChange, sessionId, computers =
           {machine ? (
             <ModePicker value={remoteMode(value.permission, machineName ?? '').mode} levels={REMOTE_PICKER_MODES} agent={value.agent} help={remoteMode(value.permission, machineName ?? '').note ?? `Mode: Manual or Auto on ${machineName}. Bypass is chosen on the computer the session runs on`} onChange={(permission) => pick({ ...value, permission })} />
           ) : elsewhere ? (
-            <ModePicker value={value.permission} levels={remoteRunningModes(value.permission)} agent={value.agent} help={remoteRunningNote(value.permission, elsewhereName)} onChange={(permission) => onChange({ ...value, permission })} />
+            <ModePicker value={value.permission} levels={remoteRunningModes(caps.permissions, value.permission)} agent={value.agent} help={remoteRunningNote(value.permission, elsewhereName)} bypassRefusal={remoteBypass(elsewhereName)} onChange={(permission) => onChange({ ...value, permission })} />
           ) : (
             <ModePicker value={value.permission} levels={caps.permissions} agent={value.agent} help={`Mode: ${fixed ? `${hint}. Changes apply from your next message` : hint}`} onChange={(permission) => pick({ ...value, permission })} />
           )}
         </span>
         {fixed && sessionId && <AutopilotControl sessionId={sessionId} />}
+        {/* The account's plan usage for this agent (issue 80); not in Settings' defaults, which start no session. */}
+        {(fixed || computers) && <PlanUsageReadout agent={value.agent} {...(fixed && sessionId ? { sessionId } : {})} {...(elsewhere ? { elsewhere: elsewhereName } : machine ? { elsewhere: machineName ?? 'that computer' } : {})} />}
         {fixed && sessionId && caps.contextUsage && <ContextRing sessionId={sessionId} />}
       </span>
     </div>

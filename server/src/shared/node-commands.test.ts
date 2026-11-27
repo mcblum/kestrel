@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'vitest';
-import { CLI_COMMAND_NAMES, isNodeCommand, isTerminalCommand, NODE_COMMAND_NAMES, NODE_COMMANDS, notBuiltReason, parseNodeRequest, TERMINAL_COMMAND_NAMES, unknownCommandReason } from './node-commands.ts';
+import { isNodeCommand, NODE_GROUP_COMMAND_NAMES, nodeCommandLine, OLD_NODE_WORDS, isTerminalCommand, NODE_COMMAND_NAMES, NODE_COMMANDS, notBuiltReason, parseNodeRequest, TERMINAL_COMMAND_NAMES, unknownCommandReason } from './node-commands.ts';
 
 describe('the closed list of node commands', () => {
   test('names every command the socket answers, and only those', () => {
-    expect([...NODE_COMMAND_NAMES].sort()).toEqual(['agents', 'git', 'join', 'setup', 'status', 'stop', 'uninstall']);
+    expect([...NODE_COMMAND_NAMES].sort()).toEqual(['agents', 'git', 'join', 'status', 'stop', 'uninstall']);
   });
 
   test('status, stop, join, agents, git and uninstall are built in this version', () => {
@@ -11,8 +11,8 @@ describe('the closed list of node commands', () => {
     expect(built.sort()).toEqual(['agents', 'git', 'join', 'status', 'stop', 'uninstall']);
   });
 
-  test('start and logs are the terminal’s alone: they work with no node running, so the socket never takes them', () => {
-    expect([...TERMINAL_COMMAND_NAMES].sort()).toEqual(['logs', 'start']);
+  test('configure, start, logs and upgrade are the terminal’s alone: they work with no node running, so the socket never takes them', () => {
+    expect([...TERMINAL_COMMAND_NAMES].sort()).toEqual(['configure', 'logs', 'start', 'upgrade']);
     for (const name of TERMINAL_COMMAND_NAMES) {
       expect(isNodeCommand(name)).toBe(false);
       expect(parseNodeRequest(JSON.stringify({ command: name }))).toMatchObject({ ok: false });
@@ -20,8 +20,17 @@ describe('the closed list of node commands', () => {
     expect(isTerminalCommand('status')).toBe(false);
   });
 
-  test('kestrel-node takes every command of both lists, each once', () => {
-    expect([...CLI_COMMAND_NAMES].sort()).toEqual([...NODE_COMMAND_NAMES, ...TERMINAL_COMMAND_NAMES].sort());
+  test('the node group takes every command of both lists but upgrade (kestrel’s own), each once, configure first', () => {
+    expect(NODE_GROUP_COMMAND_NAMES[0]).toBe('configure');
+    expect([...NODE_GROUP_COMMAND_NAMES, 'upgrade'].sort()).toEqual([...NODE_COMMAND_NAMES, ...TERMINAL_COMMAND_NAMES].sort());
+    expect(nodeCommandLine('agents')).toBe('kestrel node agents');
+  });
+
+  test('the first version’s words with no group are still the node’s, setup as configure', () => {
+    expect(OLD_NODE_WORDS.setup).toBe('configure');
+    expect(OLD_NODE_WORDS.run).toBe('run');
+    for (const name of NODE_GROUP_COMMAND_NAMES) expect(OLD_NODE_WORDS[name]).toBe(name);
+    expect(Object.hasOwn(OLD_NODE_WORDS, 'upgrade')).toBe(false);
   });
 
   test('recognises a command name and nothing inherited or made up', () => {
@@ -56,6 +65,6 @@ describe('parseNodeRequest', () => {
   });
 
   test('the not-built reason names the command', () => {
-    expect(notBuiltReason('agents')).toBe('"agents" is not built yet in this version of kestrel-node.');
+    expect(notBuiltReason('agents')).toBe('"agents" is not built yet in this version of kestrel.');
   });
 });

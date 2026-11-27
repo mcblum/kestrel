@@ -13,8 +13,8 @@ describe('serviceUnitText', () => {
 
   test('runs the installed launcher in the foreground, after the network', () => {
     expect(directive(unit, 'Type')).toEqual(['simple']);
-    expect(directive(unit, 'ExecStart')).toEqual([`${UNIT_LAUNCHER} run`]);
-    expect(UNIT_LAUNCHER).toBe('%h/.kestrel/node/current/bin/kestrel-node');
+    expect(directive(unit, 'ExecStart')).toEqual([`${UNIT_LAUNCHER} node run`]);
+    expect(UNIT_LAUNCHER).toBe('%h/.kestrel/node/current/bin/kestrel');
     expect(directive(unit, 'After')).toEqual(['network-online.target']);
     expect(directive(unit, 'Wants')).toEqual(['network-online.target']);
     expect(directive(unit, 'WantedBy')).toEqual(['default.target']);
@@ -46,6 +46,7 @@ describe('nodeInstallPaths', () => {
       current: '/home/user/.kestrel/node/current',
       unit: `/home/user/.config/systemd/user/${NODE_UNIT_NAME}`,
       link: '/home/user/.local/bin/kestrel-node',
+      cli: '/home/user/.local/bin/kestrel',
     });
   });
 });

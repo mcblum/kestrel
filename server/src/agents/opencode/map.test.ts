@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { AgentEvent } from '../types.ts';
 import { OpencodeMapper, toTodos } from './map.ts';
+import { turnEnd } from './turn-end.ts';
 
 const SESSION = 'ses_e0b321ec1ffeA8HkCv6MA3S5bC';
 const recorded = readFileSync(join(import.meta.dirname, 'fixtures', 'recorded-turn.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l) as Record<string, unknown>);
@@ -45,8 +46,14 @@ describe('OpencodeMapper on a recorded turn', () => {
     expect(mapper.model).toBe('ollama/qwen2.5:7b-instruct');
   });
 
-  it('reads the context the conversation occupies from the last step', () => {
-    expect(mapper.usage).toEqual({ costUsd: 0, contextTokens: 4162 });
+  it('reads the context the conversation occupies from the last step, and adds up every step\'s tokens', () => {
+    // The two recorded steps: 4096 in, 158 out; 4096 in, 66 out (a local model: no cost, no cache).
+    expect(mapper.usage).toEqual({ costUsd: 0, tokens: { input: 8192, output: 224 }, contextTokens: 4162 });
+  });
+
+  it("sends the turn's tokens with how it ended, though the model cost nothing", () => {
+    expect(turnEnd({ error: null, text: '', costUsd: 0 }, false, null, 0, mapper.usage.tokens)).toEqual({ type: 'done', reason: 'complete', tokens: { input: 8192, output: 224 } });
+    expect(turnEnd({ error: null, text: '', costUsd: 0 }, false, null, 0, null)).toEqual({ type: 'done', reason: 'complete' });
   });
 
   it('ignores another session’s events in the same folder', () => {

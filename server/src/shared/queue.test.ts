@@ -62,6 +62,8 @@ describe('the message queue', () => {
     expect(takeAll(EMPTY_QUEUE, { text: 'asked', fromAgent: true }).byUser).toBe(false);
     expect(takeAll(asked, { text: 'typed' }).byUser).toBe(true);
     expect(takeAll(two()).byUser).toBe(true);
+    // Each part another session sent is marked, so the conversation can fold it when long (message-preview.ts).
+    expect(takeAll(asked, { text: 'typed' }).parts.map((p) => p.byAgent)).toEqual([true, undefined]);
   });
 
   it('merges settings changes in order, later ones winning, and drops empty ones', () => {

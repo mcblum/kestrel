@@ -23,7 +23,7 @@ type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** Notifications Kestrel has no use for; Codex is asked not to send them. */
-const UNUSED_NOTIFICATIONS = ['turn/moderationMetadata', 'thread/readState/changed', 'account/rateLimits/updated', 'remoteControl/status/changed', 'turn/diff/updated'];
+const UNUSED_NOTIFICATIONS = ['turn/moderationMetadata', 'thread/readState/changed', 'remoteControl/status/changed', 'turn/diff/updated'];
 
 export async function initialize(rpc: RpcConnection, version: string): Promise<void> {
   // `experimentalApi` is what lets a turn run in Codex's plan mode (`collaborationMode`).

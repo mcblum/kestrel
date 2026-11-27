@@ -1,6 +1,7 @@
 import { contextMenu } from '../menuState.ts';
 // The one table every session list uses: Session, Status, Updated (Project on lists that span
 // projects; Group when any session in the list is in a group, `showGroup`; Status left out where a section's heading already says it, `showStatus`). Rows are memoized; a push that changes one session re-renders one row.
+import { useMachineName } from '../machines.ts';
 import { memo, useMemo, type CSSProperties, type DragEvent } from 'react';
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import type { LinkKind, Project, SessionView, WorkspaceState } from '@kestrel/server/model';
@@ -68,6 +69,8 @@ const Row = memo(function Row({ session, projects, origin, showProject, showStat
   const mark = filingMark(session.filing.status, session.filing.discarded);
   const project = projectName(session, projects);
   const update = updateLine(session);
+  // Where it runs when that is another computer of the account (a workstream's page lists them beside this computer's own).
+  const machine = useMachineName(session.runsOn);
   const onDragStart = (event: DragEvent) => {
     event.dataTransfer.setData(SESSION_MIME, session.id);
     event.dataTransfer.effectAllowed = 'move';
@@ -85,6 +88,7 @@ const Row = memo(function Row({ session, projects, origin, showProject, showStat
         </span>
         <span className="trow-sub">
           <span>{AGENT_LABEL[session.agent]}</span>
+          {machine && <span>On {machine}</span>}
           {compact && showProject && <span className="trow-inline-project">{project}<FilingTag mark={mark} /></span>}
           {update && <span className="trow-update">{update}</span>}
           {/* In a tree the indent already says who started it. */}

@@ -120,6 +120,46 @@ describe.each(SELECTABLE_AGENTS)('held conversations, for a %s session', (agent)
     for (const secret of ['invoice', '4211', 'Shop', session.id, 'Studio Mac', agent]) expect(dump).not.toContain(secret);
   });
 
+  it('says the session’s model and mode in its head, not in the index, and again when they change (issue 79)', async () => {
+    const service = new FakeHeldService();
+    const keys = await openKeys(service);
+    const d = await desk();
+    d.fakes[agent].script = (turn) => turn.emit({ type: 'message', id: `a${turn.n}`, text: 'done', delta: 'done', done: true });
+    const session = await d.runtime.start({ agent, projectId: d.project.id, prompt: 'start', permission: 'ask' });
+    await d.settle();
+    const held = uploader(service, keys, d.source);
+    await held.run();
+    expect(opened(service, keys, `head|${session.id}`).session.settings).toMatchObject({ permission: 'ask' });
+    // The index a phone reads is as it was.
+    expect(opened(service, keys, `index|${MAC}`).sessions[0]).not.toHaveProperty('settings');
+
+    await d.runtime.reply(session.id, 'faster now', { model: 'faster-model', permission: 'auto' });
+    await d.settle();
+    await held.run();
+    expect(opened(service, keys, `head|${session.id}`).session.settings).toMatchObject({ model: 'faster-model', permission: 'auto' });
+  });
+
+  it('reads the model and mode once for a session held before heads carried them (issue 79)', async () => {
+    const service = new FakeHeldService();
+    const keys = await openKeys(service);
+    const d = await desk();
+    d.fakes[agent].script = (turn) => turn.emit({ type: 'message', id: `a${turn.n}`, text: 'done', delta: 'done', done: true });
+    const session = await d.runtime.start({ agent, projectId: d.project.id, prompt: 'start', permission: 'ask' });
+    await d.settle();
+    const queue = memoryQueueStore();
+    // An older Kestrel's uploader: no settings to read.
+    const { settings: _none, ...older } = d.source;
+    const before = uploader(service, keys, older, { queue });
+    await before.run();
+    await before.close();
+    expect(opened(service, keys, `head|${session.id}`).session).not.toHaveProperty('settings');
+    expect(queue.current().held[session.id]).not.toHaveProperty('settings');
+
+    await uploader(service, keys, d.source, { queue }).run();
+    expect(opened(service, keys, `head|${session.id}`).session.settings).toMatchObject({ permission: 'ask' });
+    expect(queue.current().held[session.id]!.settings).toMatchObject({ permission: 'ask' });
+  });
+
   it('delivers a message a phone left while the desk was away, once, and says so in the index', async () => {
     const service = new FakeHeldService();
     const keys = await openKeys(service);
@@ -152,6 +192,8 @@ describe.each(SELECTABLE_AGENTS)('held conversations, for a %s session', (agent)
 /** A source the test drives by hand. */
 function stubSource(initial: { sessions: { id: string; project: string | null; messages: ChatMessage[]; extra?: Record<string, unknown> }[] }) {
   let sessions = initial.sessions;
+  // How the sessions were started and the workstreams they are in, as the state says them (issue 83).
+  let tree: { links: WorkspaceState['links']; workstreams: WorkspaceState['workstreams'] } = { links: [], workstreams: [] };
   let stamp = 1;
   const changes = new Set<() => void>();
   const lives = new Set<(id: string, streaming: boolean) => void>();
@@ -172,6 +214,9 @@ function stubSource(initial: { sessions: { id: string; project: string | null; m
         projects: [{ id: 'p1', name: 'Shop', folders: [] }, { id: 'p2', name: 'Secret', folders: [] }],
         sessions: sessions.map((s) => ({ id: s.id, title: `t-${s.id}`, agent: 'claude', state: 'done', note: '', startedIn: s.project, landedIn: s.project, branch: null, request: null, filing: { projectId: s.project, status: s.project ? 'landed' : 'unscoped', discarded: false }, createdAt: 1, updatedAt: stamp, lastActivityAt: stamp, ...s.extra })),
         archived: { sessions: [] },
+        links: tree.links,
+        workstreams: tree.workstreams,
+        archivedWorkstreams: [],
       } as unknown as WorkspaceState;
     },
     messages: async (id) => sessions.find((s) => s.id === id)?.messages ?? null,
@@ -197,6 +242,11 @@ function stubSource(initial: { sessions: { id: string; project: string | null; m
     },
     live(id: string) {
       for (const l of lives) l(id, true);
+    },
+    /** The links and workstreams changed. */
+    setTree(next: typeof tree) {
+      tree = next;
+      for (const l of changes) l();
     },
     /** The Code reviews or Tickets list changed. */
     lists(next: { reviews?: ReviewsAnswer; tickets?: TicketsAnswer; pullRequests?: PullRequestsAnswer }) {
@@ -355,6 +405,37 @@ describe('what is sent, and when', () => {
     await vi.advanceTimersByTimeAsync(2_000);
     // Then one pass, not twenty.
     expect(s.counts.passes).toBe(passes + 1);
+  });
+
+  it('says in each head how the session was started and its workstream, naming only sessions whose heads are published (issue 83)', async () => {
+    const service = new FakeHeldService();
+    const keys = await openKeys(service);
+    const prefs: HeldPrefs = { ...DEFAULT_HELD_PREFS, keptOff: ['p2'] };
+    const s = stubSource({ sessions: [{ id: 'lead', project: 'p1', messages: msgs(1) }, { id: 'child', project: 'p1', messages: msgs(1) }, { id: 'secret', project: 'p2', messages: msgs(1) }] });
+    s.setTree({
+      links: [
+        { id: 'l1', parentId: 'lead', childId: 'child', kind: 'delegate' },
+        { id: 'l2', parentId: 'lead', childId: 'secret', kind: 'delegate' },
+        { id: 'l3', parentId: 'secret', childId: 'lead', kind: 'fork' },
+      ],
+      workstreams: [{ id: 'w1', name: 'Invoice export', objective: 'Ship it', createdAt: 5, sessionIds: ['lead', 'child', 'secret'] }],
+    });
+    const held = uploader(service, keys, s.source, { prefs: () => prefs });
+    await held.run();
+    const lead = opened(service, keys, 'head|lead').session;
+    const child = opened(service, keys, 'head|child').session;
+    // The kept-off project's session is never named: not as a parent, not in the workstream.
+    expect(lead).not.toHaveProperty('link');
+    expect(child.link).toEqual({ parentId: 'lead', kind: 'delegate' });
+    expect(lead.workstream).toEqual({ id: 'w1', name: 'Invoice export', objective: 'Ship it', createdAt: 5, sessionIds: ['lead', 'child'], status: 'active', archivedAt: null });
+    expect(child.workstream).toEqual(lead.workstream);
+    expect(opened(service, keys, 'head|secret')).toBeUndefined();
+    // The index a phone reads is as it was.
+    expect(opened(service, keys, `index|${MAC}`).sessions.every((x: object) => !('link' in x) && !('workstream' in x))).toBe(true);
+    // Renamed: the heads say so on the next pass.
+    s.setTree({ links: [{ id: 'l1', parentId: 'lead', childId: 'child', kind: 'delegate' }], workstreams: [{ id: 'w1', name: 'Exports', objective: '', createdAt: 5, sessionIds: ['lead', 'child'], status: 'complete' }] });
+    await held.run();
+    expect(opened(service, keys, 'head|child').session.workstream).toMatchObject({ name: 'Exports', status: 'complete' });
   });
 
   it('deletes a deleted session, and keeps a kept-off project off, deleting what it held', async () => {

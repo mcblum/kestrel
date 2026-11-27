@@ -289,7 +289,8 @@ export async function answerCard(host: TurnHost, sessionId: string, requestId: s
   // open): no turn is running, so the session is at rest until what was approved starts something.
   if (own && !rec.handle?.busy() && !rec.launching) return answerAfterTurn(host, sessionId, rec, requestId, label, own, answer.optionId === 'allow');
   // An "Always allow" choice on a sandbox card puts the card's own offer on the list first.
-  const forwarded = own ? answer : await host.sandboxAllow.answerCard(card, answer);
+  // `confirmed` is Kestrel's (a choice that asks first), never the agent's.
+  const { confirmed: _confirmed, ...forwarded } = own ? answer : await host.sandboxAllow.answerCard(card, answer);
   if (own) {
     // Kestrel's own card (delegate, spawn): the waiting tool call gets the choice, once the step is written as being carried out.
     await host.steps.take(sessionId, requestId);

@@ -20,6 +20,7 @@ import { Refused } from '../workspace.ts';
 import type { RuntimeHost } from './host.ts';
 import type { Live } from './record.ts';
 import { agentStartOptions } from './start-options.ts';
+import { outsideInheritFor } from './outside-inherit.ts';
 
 /** The file tools whose target is checked before an edit (Claude's names; Codex's changes are asked as Edit). */
 const EDIT_PATH_KEYS: Record<string, string> = { Write: 'file_path', Edit: 'file_path', MultiEdit: 'file_path', NotebookEdit: 'notebook_path' };
@@ -69,7 +70,9 @@ export async function startOptions(host: OptionsHost, sessionId: string, directo
     const refusal = protectedRefusal(action, secrets, (path) => resolveReal(path, directory), sep);
     return refusal ? { allow: false, message: refusal } : editVerdict(host, sessionId, project?.id ?? null, directory, action);
   };
-  const guarded: StartOptions = { ...options, ...(Object.keys(env).length > 0 ? { env } : {}), ...(secrets.length ? { protectedFiles: secrets } : {}), intercept, sandboxAllow: host.sandboxAllow.access(), ...(signing ? { commitSigning: signing } : {}), ...(options.confineShell ? { sandboxSupport: hostSandboxSupport() } : {}) };
+  // A session another session started may leave its sandbox unasked when the user allowed it and its starter could (issue 74).
+  const inherit = options.confineShell ? await outsideInheritFor(host, sessionId, settings.permission) : undefined;
+  const guarded: StartOptions = { ...options, ...(Object.keys(env).length > 0 ? { env } : {}), ...(secrets.length ? { protectedFiles: secrets } : {}), intercept, sandboxAllow: host.sandboxAllow.access(), ...(signing ? { commitSigning: signing } : {}), ...(options.confineShell ? { sandboxSupport: hostSandboxSupport() } : {}), ...(inherit ? { outsideInherit: inherit } : {}) };
   const mcpAccess = host.mcpAccess();
   return mcpAccess ? { ...guarded, kestrelMcp: mcpAccess(sessionId) } : guarded;
 }

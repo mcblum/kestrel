@@ -13,7 +13,7 @@ import { heldLists, heldPullRequests } from '../../shared/connect-lists.ts';
 import type { ConnectLists } from '../lists.ts';
 import { createHash } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
-import type { ChatMessage, SessionView, WorkspaceState } from '../../model.ts';
+import type { ChatMessage, SessionSettings, SessionView, WorkspaceState } from '../../model.ts';
 import { Refused } from '../../refused.ts';
 import type { ContextShown, SessionRuntime } from '../../runtime.ts';
 import type { ContextUsage } from '../../shared/context-usage.ts';
@@ -21,6 +21,7 @@ import type { Attachment } from '../../shared/attachments.ts';
 import type { ConnectHeld } from '../../shared/connect.ts';
 import { projectOfSession } from '../../shared/project-groups.ts';
 import { headLabel, HEADS_LIST } from '../../shared/machines.ts';
+import { headLinkOf, headWorkstreamOf } from '../../shared/account-workstreams.ts';
 import type { Workspace } from '../../workspace.ts';
 import { openRecord, sealRecord, tagOf } from '../account-key.ts';
 import type { ReadyKey } from './account-keys.ts';
@@ -54,6 +55,8 @@ export const DEFAULT_HELD_PREFS: HeldPrefs = { keptOff: [], attachments: false }
 export interface HeldSource {
   state(): Promise<WorkspaceState>;
   messages(sessionId: string): Promise<ChatMessage[] | null>;
+  /** A session's model, effort, fast mode and mode as they are now, for its head (issue 79); none when left out. */
+  settings?(sessionId: string): Promise<SessionSettings | null>;
   attachment(sessionId: string, id: string): { path: string; type: string; name: string } | null;
   media(sessionId: string, name: string): { path: string; type: string } | null;
   onChange(listener: () => void): () => void;
@@ -81,14 +84,20 @@ export function heldSource(workspace: Workspace, runtime: SessionRuntime, lists:
       if (overlay) return overlay.messages;
       return (await workspace.detail(sessionId))?.messages ?? null;
     },
+    async settings(sessionId) {
+      const overlay = runtime.overlay(sessionId);
+      if (overlay) return overlay.settings ?? null;
+      return (await workspace.detail(sessionId))?.settings ?? null;
+    },
     attachment(sessionId, id) {
       const found = runtime.attachments.file(sessionId, id);
       return found && { path: found.path, type: found.attachment.mediaType, name: found.attachment.name };
     },
     media: (sessionId, name) => runtime.display.mediaFile(sessionId, name),
     onChange: (listener) => workspace.onChange(listener),
+    // A change of model or mode is said in the session's head too (issue 79), so it is read again then.
     onLive: (listener) => runtime.onLive((sessionId, patch) => {
-      if (patch.messages || patch.removedMessages) listener(sessionId, true);
+      if (patch.messages || patch.removedMessages || patch.settings) listener(sessionId, true);
     }),
     async repos(projectId) {
       const project = (await workspace.state()).projects.find((p) => p.id === projectId);
@@ -332,14 +341,18 @@ export class HeldConversations {
     }
     for (const session of want) {
       const before = this.q.held[session.id];
-      if (before && before.stamp === activity(session) && !this.dirty.has(session.id)) continue;
+      // Held before heads carried the model and mode: read once more for them (the chunks are sent only where they differ).
+      const settingsKnown = before?.settings !== undefined || !this.deps.source.settings;
+      if (before && before.stamp === activity(session) && !this.dirty.has(session.id) && settingsKnown) continue;
       this.dirty.delete(session.id);
       const after = await this.uploadSession(api, key, desk.id, session, before, prefs, tag);
       this.q = { ...this.q, held: { ...this.q.held, [session.id]: after } };
       await this.save();
     }
-    const entries = await this.entries(state, want);
-    const archivedHeads = (await this.entries(state, archived)).sessions.map(({ contextNote: _note, ...head }) => ({ ...head, context: null, messages: 0, chunks: 0, archived: true as const }));
+    // A head names another session (the one that started it, its workstream's) only when that session's head is published too.
+    const published = new Set([...wanted, ...archivedIds]);
+    const entries = await this.entries(state, want, published);
+    const archivedHeads = (await this.entries(state, archived, published)).sessions.map(({ contextNote: _note, ...head }) => ({ ...head, context: null, messages: 0, chunks: 0, archived: true as const }));
     await this.uploadHeads(api, key, desk, [...entries.sessions, ...archivedHeads], tag);
     await this.uploadIndex(api, key, desk, entries, tag);
     await this.uploadLists(api, key, desk.id, state, want, prefs.keptOff, tag);
@@ -396,7 +409,8 @@ export class HeldConversations {
     const files = prefs.attachments ? await this.uploadFiles(api, key, deskId, session.id, messages, moved ? [] : (before?.files ?? []), sessionTag, project, tag) : [];
     const dropped = (before?.files ?? []).filter((f) => !files.includes(f));
     for (const id of dropped) await api.deleteRecord(id).catch(() => undefined);
-    return { project, chunks, files, stamp: activity(session), count: messages.length };
+    const settings = this.deps.source.settings ? await this.deps.source.settings(session.id) : undefined;
+    return { project, chunks, files, stamp: activity(session), count: messages.length, ...(settings !== undefined ? { settings } : {}) };
   }
 
   private async uploadFiles(api: HeldApi, key: ReadyKey, deskId: string, sessionId: string, messages: readonly ChatMessage[], sent: readonly string[], sessionTag: string, project: string, tag: (label: string) => string): Promise<string[]> {
@@ -428,17 +442,26 @@ export class HeldConversations {
   }
 
   /** What is said of each held session, to the index and to its head alike, and the measurements carried. */
-  private async entries(state: WorkspaceState, want: readonly SessionView[]): Promise<HeldEntries> {
+  private async entries(state: WorkspaceState, want: readonly SessionView[], published: ReadonlySet<string>): Promise<HeldEntries> {
+    const workstreams = [...state.workstreams, ...state.archivedWorkstreams];
     const projects = new Map(state.projects.map((p) => [p.id, p.name]));
     const contexts: Record<string, ContextUsage> = {};
     const repos = new Map<string, string[]>();
     for (const id of new Set(want.flatMap((s) => projectOfSession(s) ?? []))) repos.set(id, (await this.deps.source.repos?.(id)) ?? []);
     const sessions = want.map((s) => {
       const projectId = projectOfSession(s);
-      const count = this.q.held[s.id]?.count ?? 0;
-      return { id: s.id, title: s.title, agent: s.agent, state: s.state, note: s.note, project: projectId ? { id: projectId, name: projects.get(projectId) ?? '' } : null, ...(s.hostId ? { hostId: s.hostId } : {}), repos: projectId ? (repos.get(projectId) ?? []) : [], filing: s.filing.status, branch: s.branch, request: s.request, ...(s.stopped ? { stopped: true } : {}), ...(s.completedAt !== undefined ? { completedAt: s.completedAt } : {}), createdAt: s.createdAt, updatedAt: s.updatedAt, lastActivityAt: s.lastActivityAt ?? s.updatedAt, messages: count, chunks: Math.ceil(count / CHUNK_MESSAGES), ...this.contextOf(s, contexts) };
+      const held = this.q.held[s.id];
+      const count = held?.count ?? 0;
+      return { id: s.id, title: s.title, agent: s.agent, state: s.state, note: s.note, project: projectId ? { id: projectId, name: projects.get(projectId) ?? '' } : null, ...(s.hostId ? { hostId: s.hostId } : {}), repos: projectId ? (repos.get(projectId) ?? []) : [], filing: s.filing.status, branch: s.branch, request: s.request, ...(s.stopped ? { stopped: true } : {}), ...(s.completedAt !== undefined ? { completedAt: s.completedAt } : {}), createdAt: s.createdAt, updatedAt: s.updatedAt, lastActivityAt: s.lastActivityAt ?? s.updatedAt, messages: count, chunks: Math.ceil(count / CHUNK_MESSAGES), ...(held?.settings ? { settings: held.settings } : {}), ...this.treeOf(s.id, state, workstreams, published), ...this.contextOf(s, contexts) };
     });
     return { sessions, contexts };
+  }
+
+  /** How a session was started and the workstream it is in, for its head only (issue 83): what another computer draws its tree and workstream from. */
+  private treeOf(sessionId: string, state: WorkspaceState, workstreams: WorkspaceState['workstreams'], published: ReadonlySet<string>): { link?: object; workstream?: object } {
+    const link = headLinkOf(sessionId, state.links, published);
+    const workstream = headWorkstreamOf(sessionId, workstreams, published);
+    return { ...(link ? { link } : {}), ...(workstream ? { workstream } : {}) };
   }
 
   /**
@@ -474,7 +497,8 @@ export class HeldConversations {
 
   /** The whole list in one record, which the iPhone app reads until it reads heads. */
   private async uploadIndex(api: HeldApi, key: ReadyKey, desk: { id: string; name: string }, { sessions, contexts }: HeldEntries, tag: (label: string) => string): Promise<void> {
-    const content = { v: 1, kind: 'index', desk, sessions, deliveries: this.q.deliveries };
+    // The model and mode, the link and the workstream are for the other computers' heads only: the index a phone reads is as it was.
+    const content = { v: 1, kind: 'index', desk, sessions: sessions.map(({ settings: _settings, link: _link, workstream: _workstream, ...entry }) => entry), deliveries: this.q.deliveries };
     const h = hash(JSON.stringify(content));
     if (h === this.q.indexHash) return;
     await this.put(api, key, tag(`index|${desk.id}`), { ...content, asOf: this.now() }, null, null);

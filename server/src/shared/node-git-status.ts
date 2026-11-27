@@ -1,7 +1,7 @@
-// What a node says about its git, in `kestrel-node status` and when it is uninstalled, purely, from what
-// `kestrel-node git` kept (shared/node-git.ts). Nothing is run to say it: the hosts and tools are as the checklist last
+// What a node says about its git, in `kestrel node status` and when it is uninstalled, purely, from what
+// `kestrel node git` kept (shared/node-git.ts). Nothing is run to say it: the hosts and tools are as the checklist last
 // found them, and it says so. What is still to do is summed up by the checklist's own rule (node-git-todo.ts).
-import { gitToDoSummary } from './node-git-todo.ts';
+import { gitToDo, gitToDoSummary } from './node-git-todo.ts';
 import { GIT_TOOLS, signOutCommand, TOOL_CONFIG_SHOWN, type GitTool } from './node-git-tools.ts';
 import { NODE_GIT_COMMAND, type HostCheck, type NodeGitSettings, type SigningChoice, type ToolState } from './node-git.ts';
 
@@ -14,6 +14,11 @@ export interface NodeGitStatus {
   tools: { gh: ToolState | null; glab: ToolState | null };
   /** "key made; accepted at github.com; signing key not checked at …" (node-git-todo.ts). */
   summary: string;
+  /**
+   * How many items the checklist's still-to-do list has for the hosts checked so far (`gitToDo`), so `kestrel node configure` can
+   * tell whether git is done. Absent from a node older than `setup`, which is read as: done once the key is made.
+   */
+  left?: number;
 }
 
 /** Pure: the git part of the status. */
@@ -27,6 +32,7 @@ export function gitStatusOf(settings: NodeGitSettings, keyIsThere: boolean): Nod
     signing: settings.signing,
     tools: settings.tools,
     summary: gitToDoSummary(settings, keyIsThere && settings.key !== null),
+    left: gitToDo(settings, { keyIsThere: keyIsThere && settings.key !== null, hosts: Object.keys(settings.hosts).sort(), hostsKnown: true }).length,
   };
 }
 

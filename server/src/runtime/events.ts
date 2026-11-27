@@ -17,9 +17,9 @@ import { pickedUp, runEnded, unread } from './mid-turn.ts';
 import { noteFromText, trackSubagent, type Live } from './record.ts';
 
 /** The events `onAgentEvent` deals with before the turn's own (`applyTurnEvent`). */
-type TurnEvent = Exclude<AgentEvent, { type: 'context' | 'picked-up' | 'unread' | 'outside-allowed' | 'slash-commands' | 'tool-output' | 'background-ended' | 'background-tasks' | 'image' | 'mode' | 'subagent-output' }>;
+type TurnEvent = Exclude<AgentEvent, { type: 'context' | 'limits' | 'picked-up' | 'unread' | 'outside-allowed' | 'slash-commands' | 'tool-output' | 'background-ended' | 'background-tasks' | 'image' | 'mode' | 'subagent-output' }>;
 
-export type EventHost = Pick<RuntimeHost, 'workspace' | 'agents' | 'upkeep' | 'background' | 'commands' | 'delegation' | 'display' | 'midTurn' | 'emitLive' | 'apply' | 'queue' | 'setQueue' | 'flushQueue' | 'turnComplete' | 'agentTurns'>;
+export type EventHost = Pick<RuntimeHost, 'workspace' | 'agents' | 'upkeep' | 'background' | 'commands' | 'delegation' | 'display' | 'midTurn' | 'emitLive' | 'apply' | 'queue' | 'setQueue' | 'flushQueue' | 'turnComplete' | 'agentTurns' | 'planUsage'>;
 
 /** How full the context window is, as last measured: kept on the record and sent to watchers. */
 export function noteContext(host: Pick<RuntimeHost, 'emitLive'>, id: string, rec: Live, usage: ContextUsage): void {
@@ -41,6 +41,8 @@ export function onAgentEvent(host: EventHost, id: string, rec: Live, event: Agen
     host.emitLive(id, { kestrelTools: rec.kestrelTools, kestrelMissing: rec.kestrelMissing, mcpServers: rec.mcpServers });
   }
   if (event.type === 'context') return noteContext(host, id, rec, event.usage);
+  // The account's, not the session's: one copy per agent, pushed only when it changed (plan-usage.ts).
+  if (event.type === 'limits') return void host.planUsage.note(agentOf(host, id), event.usage);
   if (event.type === 'picked-up') return pickedUp(host.midTurn, id, rec, event.ids);
   if (event.type === 'unread') return unread(host.midTurn, id, rec, event.ids);
   if (event.type === 'outside-allowed') {
@@ -105,7 +107,7 @@ async function sideEffects(host: EventHost, id: string, rec: Live, event: AgentE
       await host.upkeep.persist(id, rec);
       return host.delegation.onChildState(id, 'attention', event.request.title);
     case 'done':
-      rec.usage = addTurnCost(rec.usage, event.costUsd);
+      rec.usage = addTurnCost(rec.usage, event.costUsd, event.tokens);
       if (!quiet) return turnEnded(host, id, rec, event.reason);
       await host.upkeep.refreshFiles(id, rec);
       return host.upkeep.flush(id, rec);

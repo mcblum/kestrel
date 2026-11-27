@@ -1,8 +1,8 @@
-// `kestrel-node uninstall` in the terminal. It asks first; asks the running node for its part (refuse while work
+// `kestrel node uninstall` in the terminal. It asks first; asks the running node for its part (refuse while work
 // is not pushed, else leave the account: uninstall-node.ts), starting the service for that when it is installed and
 // stopped; then stops the node, deletes the unit, the bundles, the link, the agents' programs and the gh and glab it installed, asks separately before deleting the data
 // folder, and says what is left on purpose. Every effect is passed in, so the whole flow is tested in a folder.
-import { lstatSync, readdirSync, rmSync } from 'node:fs';
+import { lstatSync, readdirSync, readlinkSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { NodeCommand, NodeReply } from '../shared/node-commands.ts';
 import { NODE_UNIT_NAME, type NodeInstallPaths, type ServiceState } from '../shared/node-service.ts';
@@ -35,16 +35,16 @@ export interface UninstallDeps {
   exists(path: string): boolean;
   sshPublicKeys(): string[];
   agentSignIns(): AgentSignIn[];
-  /** The node's git key, read before it is deleted (`kestrel-node git`); null when it has none. */
+  /** The node's git key, read before it is deleted (`kestrel node git`); null when it has none. */
   gitKey(): FarewellGitKey | null;
-  /** gh's and glab's sign-ins, as `kestrel-node git` last found them, read before the data folder may be deleted. */
+  /** gh's and glab's sign-ins, as `kestrel node git` last found them, read before the data folder may be deleted. */
   toolSignIns(): AgentSignIn[];
 }
 
 const START_WAIT_MS = 60_000;
 const STOP_WAIT_MS = 30_000;
 
-export const NOT_RUNNING = 'The node is not running, so it cannot check its sessions for work that is not pushed, or leave your account. Start it ("kestrel-node start", or "kestrel-node run" in another terminal) and run "kestrel-node uninstall" again. Nothing was changed.';
+export const NOT_RUNNING = 'The node is not running, so it cannot check its sessions for work that is not pushed, or leave your account. Start it ("kestrel node start", or "kestrel node run" in another terminal) and run "kestrel node uninstall" again. Nothing was changed.';
 
 /** Reaches a running node, starting the installed service when nothing answers. False when none can be reached. */
 async function reachNode(deps: UninstallDeps, io: UninstallIo): Promise<boolean> {
@@ -76,13 +76,15 @@ async function deleteInstall(deps: UninstallDeps, managedBySystemd: boolean): Pr
   deps.remove(deps.paths.unit);
   if (managedBySystemd) await deps.systemctl(['daemon-reload']);
   done.push(`Deleted the service (${deps.paths.unit}).`);
-  if (deps.isLink(deps.paths.link)) {
-    deps.remove(deps.paths.link);
-    done.push(`Deleted the link ${deps.paths.link}.`);
+  // Both names on PATH, each only when it is Kestrel's own link (a `kestrel` of something else is left alone).
+  for (const link of [deps.paths.cli, deps.paths.link]) {
+    if (!deps.isLink(link)) continue;
+    deps.remove(link);
+    done.push(`Deleted the link ${link}.`);
   }
   deps.remove(deps.paths.bundles);
   done.push(`Deleted the node's program (${deps.paths.bundles}).`);
-  // The agents `kestrel-node agents` installed are programs in Kestrel's folder; their sign-ins are each agent's own,
+  // The agents `kestrel node agents` installed are programs in Kestrel's folder; their sign-ins are each agent's own,
   // in the home folder, and are left alone (the farewell names them).
   const tools = toolsFolder(deps.dataDir);
   if (deps.exists(tools)) {
@@ -157,14 +159,14 @@ export function agentSignIns(home: string, exists: (path: string) => boolean): A
   return known.filter((agent) => exists(agent.where));
 }
 
-/** The node's git key as `kestrel-node git` kept it: its fingerprint and the hosts it reached. Never opens the key. */
+/** The node's git key as `kestrel node git` kept it: its fingerprint and the hosts it reached. Never opens the key. */
 export function nodeGitKey(dataDir: string, exists: (path: string) => boolean): FarewellGitKey | null {
   const settings = readNodeGitSettings(dataDir);
   if (!settings.key || !exists(nodeGitPaths(dataDir).publicKey)) return null;
   return { fingerprint: settings.key.fingerprint, hosts: hostsWithKey(settings) };
 }
 
-/** gh's and glab's sign-ins `kestrel-node git` found, with their sign-out commands; no file of theirs is opened. */
+/** gh's and glab's sign-ins `kestrel node git` found, with their sign-out commands; no file of theirs is opened. */
 export const toolSignIns = (dataDir: string): AgentSignIn[] => toolSignInsOf(readNodeGitSettings(dataDir));
 
 export const removePath = (path: string): void => rmSync(path, { recursive: true, force: true });
@@ -172,6 +174,15 @@ export const removePath = (path: string): void => rmSync(path, { recursive: true
 export function isSymlink(path: string): boolean {
   try {
     return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+/** A link the install made: a symlink into Kestrel's bundles (`~/.kestrel/node/…`), never another program's `kestrel`. */
+export function isKestrelLink(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink() && readlinkSync(path).includes('/.kestrel/node/');
   } catch {
     return false;
   }

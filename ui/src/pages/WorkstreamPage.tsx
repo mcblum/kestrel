@@ -13,6 +13,7 @@ import { useMemo, useState } from 'react';
 import type { SessionView, WorkspaceState } from '@kestrel/server/model';
 import { orderSessions } from '@kestrel/server/session-order';
 import { waitsIn, type ShownWait } from '@kestrel/server/waits';
+import { remoteWorkstreamRefusal } from '@kestrel/server/account-workstreams';
 import { isArchived, isComplete, leadOf, workstreamRows, workstreamSummary, WORKSTREAM_OBJECTIVE_MAX } from '@kestrel/server/workstreams';
 import { opener, openSession } from '../route.ts';
 import { actions } from '../store.ts';
@@ -58,16 +59,18 @@ function WorkstreamTicket({ id }: { id: string }) {
   );
 }
 
-/** The objective, read or edited in place. Saved when Save is pressed; Escape or Cancel leaves it as it was. */
-function Objective({ id, objective }: { id: string; objective: string }) {
+/** The objective, read or edited in place. Saved when Save is pressed; Escape or Cancel leaves it as it was. `elsewhere`: why it is only read here (another computer holds the workstream). */
+function Objective({ id, objective, elsewhere }: { id: string; objective: string; elsewhere: string | null }) {
   const [draft, setDraft] = useState<string | null>(null);
-  if (draft === null)
+  if (draft === null || elsewhere)
     return (
       <div className="workstream-objective">
         <p className={objective ? undefined : 'quiet'}>{objective || NO_OBJECTIVE}</p>
-        <button type="button" className="secondary-button small" onClick={() => setDraft(objective)}>
-          {objective ? 'Edit' : 'Write one'}
-        </button>
+        {elsewhere ? null : (
+          <button type="button" className="secondary-button small" onClick={() => setDraft(objective)}>
+            {objective ? 'Edit' : 'Write one'}
+          </button>
+        )}
       </div>
     );
   const save = () => {
@@ -114,6 +117,7 @@ export function WorkstreamPage({ id, workspace }: { id: string; workspace: Works
   // The open requests of the sessions its lead brought in, beside the page's … as on the lead's header.
   const broughtIn = useBroughtIn(workstream ? leadOf(workstream) : null);
   const waits = useMemo(() => (workstream ? waitsIn(workstream, members, workspace.links, workspace.waits ?? []) : []), [workstream, members, workspace.links, workspace.waits]);
+  const elsewhere = workstream ? remoteWorkstreamRefusal(workstream) : null;
   if (!workstream)
     return (
       <div className="page column collection">
@@ -125,19 +129,23 @@ export function WorkstreamPage({ id, workspace }: { id: string; workspace: Works
     );
   return (
     <div className="page column collection">
-      <PageHeader title={workstream.name} line={`Workstream · ${isComplete(workstream) ? 'Complete · ' : ''}${workstreamSummary(members)}. Each session stays in its own project.`} menu={{ kind: 'workstream', id }} actions={broughtIn && <BroughtInPill rollup={broughtIn} />} mark={<WorkstreamColourPicker workstreamId={id} name={workstream.name} />} />
+      <PageHeader title={workstream.name} line={`Workstream${workstream.heldOn ? ` on ${workstream.heldOn.name}` : ''} · ${isComplete(workstream) ? 'Complete · ' : ''}${workstreamSummary(members)}. Each session stays in its own project.`} menu={{ kind: 'workstream', id }} actions={broughtIn && <BroughtInPill rollup={broughtIn} />} mark={<WorkstreamColourPicker workstreamId={id} name={workstream.name} />} />
       {isArchived(workstream) && (
         <p className="workstream-archived" role="status">
           This workstream is archived: it is out of the sidebar, and its sessions are where they were. A new message in one of them brings it back.
-          <button type="button" className="secondary-button small" onClick={() => void actions.archiveWorkstream(id, false)}>
-            Restore workstream
-          </button>
+          {elsewhere ? (
+            ` ${elsewhere}`
+          ) : (
+            <button type="button" className="secondary-button small" onClick={() => void actions.archiveWorkstream(id, false)}>
+              Restore workstream
+            </button>
+          )}
         </p>
       )}
       <WorkstreamTicket id={id} />
       <section className="page-section">
         <h2>Objective</h2>
-        <Objective id={id} objective={workstream.objective} />
+        <Objective id={id} objective={workstream.objective} elsewhere={elsewhere} />
       </section>
       <section className="page-section">
         <h2>

@@ -55,13 +55,20 @@ server restarts, an open page fetches the new token by itself.
 ### A worker node (no window)
 
 ```bash
-pnpm --filter @kestrel/server kestrel-node          # starts the node: the same server, no window, no UI origin
-pnpm --filter @kestrel/server kestrel-node status   # asks the running node, over its socket
-pnpm --filter @kestrel/server kestrel-node stop     # ends its sessions' turns and stops it
-pnpm --filter @kestrel/server kestrel-node join     # signs in with a code typed on another device, then asks to join
+pnpm --filter @kestrel/server kestrel node run        # starts the node: the same server, no window, no UI origin
+pnpm --filter @kestrel/server kestrel                 # one line of how the node is, and the commands
+pnpm --filter @kestrel/server kestrel node            # the node's commands
+pnpm --filter @kestrel/server kestrel node status     # asks the running node, over its socket
+pnpm --filter @kestrel/server kestrel node stop       # ends its sessions' turns and stops it
+pnpm --filter @kestrel/server kestrel node join       # signs in with a code typed on another device, then asks to join
+pnpm --filter @kestrel/server kestrel node configure  # join, agents, git and the administrator's steps, one after another
+pnpm --filter @kestrel/server kestrel version         # the version
 ```
 
-`server/src/node.ts` calls the same start function as `server/src/index.ts` (`startKestrel` in
+(`kestrel` here is the package script; installed, the command is `kestrel` too. `kestrel` is a general command, and the
+worker node's commands are its `node` group. The first version's words with no group, `kestrel-node run`, `kestrel status`,
+`kestrel setup` and the rest, are still taken: an installed node's unit and install script type them. The `kestrel-node`
+package script is kept for the same reason.) `server/src/node.ts` calls the same start function as `server/src/index.ts` (`startKestrel` in
 `server/src/start-server.ts`) with kind `node`. It listens on loopback only (the token and the Host and Origin checks stand,
 and no browser origin is allowed), keeps Kestrel Connect's sign-in in the file only you can read, and talks to the terminal over
 `node.sock` in its data folder (mode 600; `KESTREL_DATA_DIR` for another folder, kept short: a Unix socket's path is limited
@@ -73,9 +80,9 @@ the six-digit code the node prints, and the node asks for the second code that d
 with fakes and reach no network (`server/src/node-control/node-join.test.ts`).
 
 ```bash
-pnpm --filter @kestrel/server kestrel-node start              # starts the installed service, or says how to run it
-pnpm --filter @kestrel/server kestrel-node logs [-f] [-n 500] # the node's log: journalctl for its unit, else its log file
-pnpm --filter @kestrel/server kestrel-node uninstall          # leaves the account and removes the installed node
+pnpm --filter @kestrel/server kestrel node start              # starts the installed service, or says how to run it
+pnpm --filter @kestrel/server kestrel node logs [-f] [-n 500] # the node's log: journalctl for its unit, else its log file
+pnpm --filter @kestrel/server kestrel node uninstall          # leaves the account and removes the installed node
 ```
 
 `status`, `stop`, `join` and the node's part of `uninstall` go over the socket, from one closed list (`NODE_COMMANDS` in
@@ -103,16 +110,19 @@ To try the install script without publishing, point it at that folder; it reads
 `<url>/kestrel-node-linux-<arch>.tar.gz` and its `.sha256` from there, whichever version is asked for:
 
 ```bash
-KESTREL_NODE_URL=file:///src/dist/node sh scripts/release/install-node.sh
+KESTREL_NODE_URL=file:///src/dist/node sh scripts/release/install.sh
 ```
 
-On a Linux machine or container with a systemd user manager (a plain `docker run` has none: the script then says
-so and how to run `kestrel-node run` by hand). Run it twice to see an upgrade in place. `KESTREL_NODE_START_WAIT`
+On a test machine or container, copy the bundle, its `.sha256` and the script over and run it there as the node's
+user, the same way (`KESTREL_NODE_URL=file://$HOME/bundle sh install.sh`). As through `curl | sh`, it goes on
+to `kestrel node configure` on the terminal; `KESTREL_NODE_TTY=/nowhere` shows what it does with no terminal. On a machine or
+container with a systemd user manager (a plain `docker run` has none: the script then says so and how to run
+`kestrel node run` by hand, then `kestrel node configure`). Run it twice to see an upgrade in place. `KESTREL_NODE_START_WAIT`
 (seconds, default 20) is how long it waits for the node's socket. Its tests run it against stub `uname`, `id`,
 `systemctl`, `loginctl` and a package manager in a temporary home, fetching over `file://`, with no network:
 
 ```bash
-node --test scripts/release/install-node.test.mjs
+node --test scripts/release/install.test.mjs
 ```
 
 ### Sessions from another computer, without a second computer

@@ -54,8 +54,15 @@ describe('Codex adapter, against a fake app-server', () => {
     expect(handle.busy()).toBe(true);
     const started = await t.next('started');
     expect(started).toMatchObject({ agentSessionId: 'thread-1', model: 'fake-1', kestrelTools: 'missing' });
-    expect(await t.next('done')).toEqual({ type: 'done', reason: 'complete' });
+    // The turn's tokens (the fake's one request: 990 in, 10 out) go with how it ended.
+    expect(await t.next('done')).toEqual({ type: 'done', reason: 'complete', tokens: { input: 990, output: 10 } });
     expect(handle.busy()).toBe(false);
+    // The plan's windows: read once when the app-server started, then the sparse update the turn sent.
+    const limits = t.events.filter((e): e is Extract<AgentEvent, { type: 'limits' }> => e.type === 'limits');
+    expect(limits.map((e) => e.usage.windows.map((w) => [w.id, w.usedPercent]))).toEqual([
+      [['primary', 37], ['secondary', 12]],
+      [['primary', 38]],
+    ]);
     expect(t.events.filter((e) => e.type === 'message').map((e) => (e as { text: string }).text)).toEqual(['hel', 'hello', 'hello']);
     const sent = t.received();
     const start = sent.find((m) => m.method === 'thread/start');
@@ -112,7 +119,7 @@ describe('Codex adapter, against a fake app-server', () => {
     handle.compact!();
     expect(handle.busy()).toBe(true);
     expect(() => handle.compact!()).toThrow('still working');
-    expect(await t.next('done', () => true, before)).toEqual({ type: 'done', reason: 'complete' });
+    expect(await t.next('done', () => true, before)).toEqual({ type: 'done', reason: 'complete', tokens: { input: 200, output: 0 } });
     expect(t.received().filter((m) => m.method === 'thread/compact/start').map((m) => m.params)).toEqual([{ threadId: 'thread-1' }]);
     expect(t.events.slice(before).some((e) => e.type === 'status' && e.text === 'Compacting the conversation…')).toBe(true);
     expect(t.events.slice(before).find((e) => e.type === 'context')).toMatchObject({ usage: { usedTokens: 200, windowTokens: 10000 } });

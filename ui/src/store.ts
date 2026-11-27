@@ -2,6 +2,7 @@
 // slice it uses changes. The server is the source of truth: it pushes the whole derived
 // workspace on change, and unchanged objects keep their identity here (structural sharing),
 // so memoized rows do not re-render when something unrelated moves.
+import { asPlanUsageView, type PlanUsageView } from '@kestrel/server/plan-usage';
 import type { SetupRuns } from '@kestrel/server/setup-sections';
 import type { ValueRequestView } from '@kestrel/server/setup-values';
 import { useStore } from 'zustand';
@@ -81,14 +82,14 @@ export type UpdateState = { status: 'idle' | 'checking' | 'downloading' | 'ready
 export type AttachmentRefs = { draftId: string; attachments: string[] };
 
 /** An answer to a card: an option, typed text, or each question's chosen label(s). */
-export type CardAnswer = { optionId?: string; text?: string; answers?: Record<string, string> };
+export type CardAnswer = { optionId?: string; text?: string; answers?: Record<string, string>; /** The person confirmed a choice that asks first (CardOptions.tsx). */ confirmed?: true };
 
 export type Connection = 'connecting' | 'live' | 'offline' | 'no-server';
 
 /** Streaming state of one session, built from the live channel. Separate from the workspace. */
 /** What is held for a watched session: every field of a patch, except the one-off removals already applied. */
 /** What the live channel said of a session. Settings stay absent until its computer says them, so another computer's session never shows a placeholder model or mode as its own. */
-export type LiveState = Required<Omit<LivePatch, 'removedMessages' | 'replacedBy' | 'settings'>> & Pick<LivePatch, 'replacedBy' | 'settings'>;
+export type LiveState = Required<Omit<LivePatch, 'removedMessages' | 'replacedBy' | 'settings' | 'unreached'>> & Pick<LivePatch, 'replacedBy' | 'settings' | 'unreached'>;
 
 export interface AppState {
   connection: Connection;
@@ -118,6 +119,8 @@ export interface AppState {
   resources: ReadonlyMap<string, Sourced<unknown>>;
   /** When each session was last looked at, as the server pushes it (server/src/seen.ts); null until the first push. */
   seen: Seen | null;
+  /** Each agent account's plan usage as the server holds it (server/src/plan-usage.ts); empty until a report. */
+  planUsage: PlanUsageView;
   /** What each of the account's other computers offers for a new session, by machine id, as read from its record on Kestrel Connect (server/src/account-offers.ts); empty until the first push. */
   machineOffers: MachineOffersView;
   /** What's new, as the server pushes it (server/src/whats-new/store.ts): the releases with notes, the switch, notes due to open; null until the first push. */
@@ -163,7 +166,7 @@ async function refreshLaunch(): Promise<boolean> {
   }
 }
 
-const initialState: AppState = { connection: launch ? 'connecting' : 'no-server', live: new Map(), renaming: null, tagging: null, openedFromReference: null, workspace: null, sessionsById: new Map(), details: new Map(), pullRequests: new Map(), reviewRequests: NO_REVIEW_REQUESTS, tickets: NO_TICKETS, seen: null, machineOffers: {}, whatsNew: null, pullRequestsVersion: 0, resources: new Map(), tabs: { loaded: false, state: initialTabs(), remembered: DEFAULT_REMEMBERED, sidebar: EMPTY_SIDEBAR }, simulator: { devices: { loaded: false, devices: [], unavailable: null }, infos: new Map(), chosen: new Map(), errors: new Map() }, signIn: {}, connect: null, setupRuns: {}, setupValueRequests: [], updateChannel: window.kestrelShell?.app?.updateChannel ?? null, error: null };
+const initialState: AppState = { connection: launch ? 'connecting' : 'no-server', live: new Map(), renaming: null, tagging: null, openedFromReference: null, workspace: null, sessionsById: new Map(), details: new Map(), pullRequests: new Map(), reviewRequests: NO_REVIEW_REQUESTS, tickets: NO_TICKETS, seen: null, planUsage: {}, machineOffers: {}, whatsNew: null, pullRequestsVersion: 0, resources: new Map(), tabs: { loaded: false, state: initialTabs(), remembered: DEFAULT_REMEMBERED, sidebar: EMPTY_SIDEBAR }, simulator: { devices: { loaded: false, devices: [], unavailable: null }, infos: new Map(), chosen: new Map(), errors: new Map() }, signIn: {}, connect: null, setupRuns: {}, setupValueRequests: [], updateChannel: window.kestrelShell?.app?.updateChannel ?? null, error: null };
 
 /** The one store (Zustand). Everything the app knows about the server lives here, once. */
 const appStoreApi = createStore<AppState>()(() => initialState);
@@ -490,6 +493,7 @@ function applyLive(id: string, patch: LivePatch) {
     slashCommands: patch.slashCommands ?? prev.slashCommands,
     ...(patch.replacedBy ?? prev.replacedBy ? { replacedBy: patch.replacedBy ?? prev.replacedBy } : {}),
     ...(patch.settings ?? prev.settings ? { settings: patch.settings ?? prev.settings } : {}),
+    ...((patch.unreached === undefined ? prev.unreached : patch.unreached) ? { unreached: (patch.unreached === undefined ? prev.unreached : patch.unreached)! } : {}),
   };
   set({ live: new Map(current().live).set(id, next) });
 }
@@ -546,6 +550,21 @@ function applySeen(raw: unknown) {
   set({ seen: next });
 }
 
+/** Each agent's plan usage, as pushed: an agent whose report did not change keeps its identity. */
+function applyPlanUsage(raw: unknown) {
+  const next = asPlanUsageView(raw);
+  const prev = current().planUsage;
+  const kept: PlanUsageView = {};
+  let changed = Object.keys(prev).length !== Object.keys(next).length;
+  for (const [agent, usage] of Object.entries(next) as [keyof PlanUsageView, PlanUsageView[keyof PlanUsageView]][]) {
+    const before = prev[agent];
+    const same = before !== undefined && JSON.stringify(before) === JSON.stringify(usage);
+    kept[agent] = same ? before : usage;
+    if (!same) changed = true;
+  }
+  if (changed) set({ planUsage: kept });
+}
+
 function connect() {
   if (!launch) return;
   const socket = new WebSocket(`ws://127.0.0.1:${launch.port}/ws?token=${launch.token}`);
@@ -560,6 +579,7 @@ function connect() {
     else if (message.type === 'review-requests') applyReviewRequests(message.view);
     else if (message.type === 'tickets') applyTickets(message.view);
     else if (message.type === 'seen') applySeen(message.seen);
+    else if (message.type === 'plan-usage') applyPlanUsage(message.usage);
     else if (message.type === 'machine-offers') set({ machineOffers: asMachineOffersView(message.offers) });
     else if (message.type === 'whats-new') set({ whatsNew: message.view as WhatsNewView });
     else handlerFor(message.type)?.message(message);

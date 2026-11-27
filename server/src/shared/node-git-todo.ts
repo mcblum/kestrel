@@ -1,5 +1,5 @@
 // What is still to do for git on a worker node (docs/designs/worker-nodes.md, section 7), purely, from what
-// `kestrel-node git` kept. One rule: the checklist ends with it as a numbered list, and `status` sums it up. Where
+// `kestrel node git` kept. One rule: the checklist ends with it as a numbered list, and `status` sums it up. Where
 // Kestrel cannot know (a host it could not ask, a signing key no tool could list) it says "not checked", never "done".
 import { whereSigningKey, wherePasteKey } from './node-git-hosts.ts';
 import { hostKindOf, signInCommand, toolForHost, type GitTool } from './node-git-tools.ts';

@@ -1,4 +1,4 @@
-// What `kestrel-node uninstall` decides and says (docs/designs/worker-nodes.md, section 4), purely. It is refused
+// What `kestrel node uninstall` decides and says (docs/designs/worker-nodes.md, section 4), purely. It is refused
 // while a session's worktree has work that is not pushed, by one rule: uncommitted files (git status) or commits on
 // its branch that are on no remote-tracking branch, the two counts Kestrel already takes before it removes a
 // worktree after a merge (cleanup/on-merge.ts, git.ts). Git that cannot answer counts as work, never as none.
@@ -26,7 +26,7 @@ export function unsavedWorkRefusal(rows: readonly WorktreeWork[]): string | null
   const unsaved = rows.filter(hasUnsavedWork);
   if (unsaved.length === 0) return null;
   const named = unsaved.map((w) => `  "${w.title}": ${whatIsLeft(w)}`);
-  return [`Not uninstalled: ${plural(unsaved.length, 'session has', 'sessions have')} work that is not pushed, and it would be lost.`, ...named, 'Push it (or discard it in Kestrel), then run "kestrel-node uninstall" again. Nothing was changed.'].join('\n');
+  return [`Not uninstalled: ${plural(unsaved.length, 'session has', 'sessions have')} work that is not pushed, and it would be lost.`, ...named, 'Push it (or discard it in Kestrel), then run "kestrel node uninstall" again. Nothing was changed.'].join('\n');
 }
 
 /** What the node did when it left the account. */
@@ -56,7 +56,7 @@ export interface AgentSignIn {
   signOut: string;
 }
 
-/** The node's own git key (`kestrel-node git`), deleted with the node: its fingerprint and the hosts it was added to. */
+/** The node's own git key (`kestrel node git`), deleted with the node: its fingerprint and the hosts it was added to. */
 export interface FarewellGitKey {
   fingerprint: string;
   hosts: readonly string[];
@@ -68,7 +68,7 @@ export interface Farewell {
   /** Public halves of SSH keys in ~/.ssh: a key added to a git host for this node is still there. */
   sshPublicKeys: readonly string[];
   agents: readonly AgentSignIn[];
-  /** gh and glab, signed in at hosts by `kestrel-node git`: their programs are deleted, their sign-ins are not. */
+  /** gh and glab, signed in at hosts by `kestrel node git`: their programs are deleted, their sign-ins are not. */
   tools?: readonly AgentSignIn[];
   /** The data folder, when it was kept. */
   keptData: string | null;

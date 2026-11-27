@@ -11,7 +11,7 @@ import { noteLine, type MessageFrom } from './shared/notes.ts';
 export type TranscriptAction =
   | AgentEvent
   /** The user's message. `midTurn`: sent into the running turn, not starting one (shared/mid-turn.ts). */
-  | { type: 'user'; id: string; text: string; attachments?: readonly Attachment[]; midTurn?: boolean }
+  | { type: 'user'; id: string; text: string; attachments?: readonly Attachment[]; midTurn?: boolean; byAgent?: true }
   /** Messages taken back out: sent into a turn that ended before the agent read them, and held again. */
   | { type: 'withdrawn'; ids: readonly string[] }
   /** The user answered (or the request was abandoned); `label` says how. */
@@ -136,7 +136,7 @@ function applyAction(messages: readonly ChatMessage[], action: TranscriptAction,
   const sent = now === undefined ? {} : { sentAt: now };
   switch (action.type) {
     case 'user': {
-      const message: ChatMessage = { id: action.id, author: 'you', time, text: action.text, ...(action.attachments?.length ? { attachments: [...action.attachments] } : {}), ...sent, ...(action.midTurn ? { midTurn: 'sent' as const } : {}) };
+      const message: ChatMessage = { id: action.id, author: 'you', time, text: action.text, ...(action.attachments?.length ? { attachments: [...action.attachments] } : {}), ...sent, ...(action.midTurn ? { midTurn: 'sent' as const } : {}), ...(action.byAgent ? { byAgent: true as const } : {}) };
       // The user has spoken: the reply buttons of earlier next steps are spent.
       const spent: ChatMessage[] = [];
       const before = messages.map((m) => {

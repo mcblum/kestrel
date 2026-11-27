@@ -1,10 +1,11 @@
-.kestrel .overview-switch { flex: none; display: flex; align-self: flex-end; gap: 2px; padding: 3px; margin: 10px 18px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-soft); }
+/* The Overview's top bar: the page's name in the switch's own type at the left, the switch at the right. */
+.kestrel .overview-bar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 18px; }
+.kestrel .overview-bar h1 { margin: 0; font: inherit; font-size: 12px; color: var(--s-muted); }
+.kestrel .overview-switch { flex: none; display: flex; gap: 2px; padding: 3px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-soft); }
 .kestrel .overview-switch button { border: 0; border-radius: 5px; padding: 5px 12px; font: inherit; font-size: 12px; color: var(--s-muted); background: transparent; cursor: pointer; }
 .kestrel .overview-switch [aria-pressed=true] { color: var(--s-ink); background: var(--s-paper); box-shadow: 0 1px 4px #0002; }
 .kestrel .session-canvas { flex: 1; overflow: auto; padding: clamp(18px, 3vw, 44px); border-top: 1px solid var(--s-line); background: radial-gradient(circle, var(--s-line) 1px, transparent 1px) 0 0 / 16px 16px, var(--s-bg); }
-.session-canvas header, .canvas-summary, .canvas-meta, .canvas-state { display: flex; align-items: center; gap: 8px; }
-.session-canvas header svg { color: var(--s-muted); }
-.session-canvas h1 { font-size: 25px; letter-spacing: -.045em; margin: 0; }
+.canvas-summary, .canvas-meta, .canvas-state { display: flex; align-items: center; gap: 8px; }
 .canvas-summary { margin: 8px 0 25px; color: var(--s-muted); font-size: 12px; }
 .canvas-summary span + span::before { content: '·'; margin-right: 8px; }
 .session-canvas ul { list-style: none; margin: 0; padding: 0; }
@@ -43,7 +44,7 @@
   .canvas-card[data-state=working]::after { content: ""; position: absolute; inset: -1px; pointer-events: none; border-radius: inherit; box-shadow: 0 0 0 2px color-mix(in srgb, var(--s-muted) 22%, transparent); animation: canvas-pulse 3s ease-in-out infinite alternate; }
   @keyframes canvas-pulse { from { opacity: .05; } to { opacity: .85; } }
 }
-.canvas-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 15px 0 9px; }
+.canvas-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 0 0 9px; }
 .canvas-simulate { margin-inline-start: auto; }
 .canvas-filter span { margin-right: 4px; font-size: 12px; color: var(--s-muted); }
 .kestrel .canvas-filter button { padding: 4px 9px; font: inherit; font-size: 12px; border-radius: 12px; background: var(--s-paper); color: var(--s-ink); border: 1px solid var(--s-line); cursor: pointer; }

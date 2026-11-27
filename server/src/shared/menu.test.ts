@@ -153,6 +153,14 @@ describe('a workstream’s menu', () => {
     expect(ids({ kind: 'workstream', workstreamId: 'w', name: 'Invoices', onPage: true })).not.toContain('open-workstream');
   });
 
+  it('of a workstream another computer holds, opens it and dims every change with the reason (issue 83)', () => {
+    const hint = '“Invoices” is on Mac mini, so it can only be changed there.';
+    const menu = sidebarMenu({ kind: 'workstream', workstreamId: 'w', name: 'Invoices', running: true, elsewhere: hint });
+    expect(menu.filter((i) => !i.disabled).map((i) => i.id)).toEqual(['open-workstream', 'open-new-tab']);
+    expect(menu.filter((i) => i.disabled).every((i) => i.hint === hint && !i.action)).toBe(true);
+    expect(menu.map((i) => i.id)).not.toContain('stop-workstream');
+  });
+
   it('marks complete or not, and archives or restores, as it stands; archiving is disabled, with the reason, while sessions are at work', () => {
     const base = { kind: 'workstream' as const, workstreamId: 'w', name: 'Invoices' };
     const find = (target: Parameters<typeof sidebarMenu>[0], id: string) => sidebarMenu(target).find((i) => i.id === id);

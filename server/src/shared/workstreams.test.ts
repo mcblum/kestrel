@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { afterUserMessage, archiveRefusal, completeRefusal, isOpenWork, leadOf, childGroupId, delegatedText, isArchived, isComplete, shownWorkstreams, splitArchived, workstreamRows, workstreamShape, delegateWorkstream, visibleWorkstreams, waitingOn, workstreamName, workstreamNotice, workstreamObjective, workstreamOf, workstreamSummary, WORKSTREAM_NAME_MAX } from './workstreams.ts';
+import { byWorkstreamRecency, workstreamRecency, afterUserMessage, archiveRefusal, completeRefusal, isOpenWork, leadOf, childGroupId, delegatedText, isArchived, isComplete, shownWorkstreams, splitArchived, workstreamRows, workstreamShape, delegateWorkstream, visibleWorkstreams, waitingOn, workstreamName, workstreamNotice, workstreamObjective, workstreamOf, workstreamSummary, WORKSTREAM_NAME_MAX } from './workstreams.ts';
 
 const s = (startedIn: string | null, landedIn: string | null = null) => ({ startedIn, landedIn });
 const w = (id: string, sessionIds: string[]) => ({ id, name: id, objective: '', createdAt: 1, sessionIds });
@@ -221,3 +221,16 @@ describe('a workstream drawn as one tree', () => {
   });
 });
 
+
+// Issue 83: a workstream is as recent as its most recent session, by the one rule (session-order.ts).
+describe('how recent a workstream is', () => {
+  const session = (id: string, state: string, at: number) => ({ id, state: state as never, note: '', updatedAt: at, lastActivityAt: at });
+  const byId = new Map([session('done-late', 'done', 100), session('going', 'running', 10), session('old', 'done', 5)].map((x) => [x.id, x]));
+  const lookup = (id: string) => byId.get(id);
+
+  it('is its most recent session’s: one with a session working now is ahead of one that finished more lately', () => {
+    expect(workstreamRecency({ sessionIds: ['old', 'going'] }, lookup)).toEqual({ working: true, at: 10 });
+    const order = byWorkstreamRecency([{ id: 'a', sessionIds: ['done-late'] }, { id: 'none', sessionIds: ['gone'] }, { id: 'b', sessionIds: ['old', 'going'] }], lookup);
+    expect(order.map((w) => w.id)).toEqual(['b', 'a', 'none']);
+  });
+});

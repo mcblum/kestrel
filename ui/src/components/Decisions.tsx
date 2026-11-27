@@ -9,7 +9,7 @@ import { Markdown } from './Markdown.tsx';
 import { SandboxOfferNote } from './SandboxAllowSetting.tsx';
 import { actions } from '../store.ts';
 
-type Answer = { optionId?: string; text?: string; answers?: Record<string, string> };
+type Answer = { optionId?: string; text?: string; answers?: Record<string, string>; confirmed?: true };
 type Send = (answer: Answer) => void;
 
 /**
@@ -46,7 +46,7 @@ function PlanCard({ card, sessionId, send }: { card: InputCard; sessionId: strin
       <div className="plan-body prose">
         <Markdown text={card.detail} sessionId={sessionId} />
       </div>
-      <CardOptions card={card} onPick={(optionId) => send({ optionId })} />
+      <CardOptions card={card} onPick={(optionId, confirm) => send({ optionId, ...confirm })} />
     </div>
   );
 }
@@ -150,7 +150,7 @@ function PlainCard({ card, send }: { card: InputCard; send: Send }) {
       <strong>{card.kind === 'approval' ? 'Approval needed' : 'Your call'}</strong>
       <p className="decision-title">{card.title}</p>
       {card.detail && <pre className="decision-detail">{card.detail}</pre>}
-      <CardOptions card={card} variant="plain" onPick={(optionId) => send({ optionId })} />
+      <CardOptions card={card} variant="plain" onPick={(optionId, confirm) => send({ optionId, ...confirm })} />
       {card.sandboxOffer && <SandboxOfferNote />}
       {card.kind === 'question' && (
         <div className="decision-free">

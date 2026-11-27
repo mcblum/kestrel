@@ -1,5 +1,5 @@
-// Kestrel's own log for a node started by hand (`kestrel-node run` with no systemd running it): what the server
-// prints also goes to `~/.kestrel/logs/node.log`, readable by the user only, so `kestrel-node logs` has something to
+// Kestrel's own log for a node started by hand (`kestrel node run` with no systemd running it): what the server
+// prints also goes to `~/.kestrel/logs/node.log`, readable by the user only, so `kestrel node logs` has something to
 // read. Under systemd the journal keeps it instead. One earlier file is kept (node.log.1) once this one passes
 // MAX_LOG_BYTES at start, as the app's server log does (app/server-log.mjs).
 import { appendFileSync, chmodSync, mkdirSync, renameSync, statSync } from 'node:fs';

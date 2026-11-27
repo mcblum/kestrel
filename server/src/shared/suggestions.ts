@@ -45,7 +45,13 @@ export interface SuggestionPicks {
 
 export interface Suggestion {
   id: string;
+  /** The session whose conversation it is in. */
   sessionId: string;
+  /**
+   * The session it is about and acts on, when that is another one: a delegate child's card about its pull
+   * request, shown on the top of its tree (shared/request-cards.ts). Absent: the session it is in.
+   */
+  about?: string;
   /** Which entry of the registry owns it ("tag"). */
   kind: string;
   title: string;
@@ -86,14 +92,18 @@ export function suggestionsIn(messages: readonly Pick<ChatMessage, 'suggestion'>
   return messages.flatMap((m) => (m.suggestion ? [m.suggestion] : []));
 }
 
-/** The suggestions still waiting for the user, oldest first: the first is the card, the rest wait behind it. */
-export function openSuggestions(messages: readonly Pick<ChatMessage, 'suggestion'>[]): Suggestion[] {
-  return suggestionsIn(messages).filter((s) => s.state === 'open');
+/**
+ * The suggestions still waiting for the user, oldest first: the first is the card, the rest wait behind it.
+ * `applies`, when given, leaves out one that no longer applies though the server has not withdrawn it yet
+ * (a card about a request the window already holds as merged; shared/request-cards.ts).
+ */
+export function openSuggestions(messages: readonly Pick<ChatMessage, 'suggestion'>[], applies?: (s: Suggestion) => boolean): Suggestion[] {
+  return suggestionsIn(messages).filter((s) => s.state === 'open' && (!applies || applies(s)));
 }
 
 /** What the card at the foot shows: the oldest open suggestion, and how many more wait behind it. */
-export function shownSuggestion(messages: readonly Pick<ChatMessage, 'suggestion'>[] | undefined): { suggestion: Suggestion; waiting: number } | null {
-  const open = openSuggestions(messages ?? []);
+export function shownSuggestion(messages: readonly Pick<ChatMessage, 'suggestion'>[] | undefined, applies?: (s: Suggestion) => boolean): { suggestion: Suggestion; waiting: number } | null {
+  const open = openSuggestions(messages ?? [], applies);
   return open.length ? { suggestion: open[0]!, waiting: open.length - 1 } : null;
 }
 

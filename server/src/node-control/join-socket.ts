@@ -1,4 +1,4 @@
-// The node's side of `kestrel-node join` on the control socket: the one command that is a conversation
+// The node's side of `kestrel node join` on the control socket: the one command that is a conversation
 // (shared/node-commands.ts, `NodeJoinEvent`). The node says lines and asks for answers; the terminal sends one
 // answer line per question. A line that is not an answer, or comes when nothing is asked, is told so and the
 // conversation goes on; a line too long ends it. The terminal going away aborts the run, which withdraws.
@@ -24,8 +24,8 @@ export type JoinRun = (io: JoinIo, signal: AbortSignal) => Promise<JoinEnd>;
 export const JOIN_LIMIT_MS = 30 * 60_000;
 
 export const NOTHING_ASKED = 'Nothing is being asked now.';
-export const ANSWER_TOO_LONG = 'That answer is too long, so the join was stopped. Run "kestrel-node join" again.';
-const TOOK_TOO_LONG = 'The join took too long and was stopped. Run "kestrel-node join" again.';
+export const ANSWER_TOO_LONG = 'That answer is too long, so the join was stopped. Run "kestrel node join" again.';
+const TOOK_TOO_LONG = 'The join took too long and was stopped. Run "kestrel node join" again.';
 
 /** The terminal went away (Ctrl-C, a closed window): what was under way is withdrawn. */
 export class TerminalGone extends Error {

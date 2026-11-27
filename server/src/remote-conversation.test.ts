@@ -71,6 +71,16 @@ describe('RemoteConversations', () => {
     expect(published).toEqual([]);
   });
 
+  it('answers with the model and mode its head says, whatever its machine does (issue 79)', async () => {
+    const settings = { model: 'gpt-5', permission: 'auto' as const };
+    const { r } = remote(away, { messages: conversation(2), current: true, readAt: 1000, stamp: 'a', settings });
+    expect(body(await r.detail(done, MINI, null)).settings).toEqual(settings);
+    expect(body(await r.detail(done, MINI, { last: 1 })).settings).toEqual(settings);
+    // An older machine's head says none: none is made up.
+    const { r: older } = remote(away, { messages: conversation(2), current: true, readAt: 1000, stamp: 'a' });
+    expect(body(await older.detail(done, MINI, null))).not.toHaveProperty('settings');
+  });
+
   it('a copy that is behind opens at once, and what its machine answers later is laid over it', async () => {
     const all = conversation(10);
     const m = machine(all, true);

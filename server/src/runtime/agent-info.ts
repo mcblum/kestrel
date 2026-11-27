@@ -135,7 +135,7 @@ export class AgentInfo {
   }
 
   /**
-   * `kestrel-node agents` installed or signed in these agents, or a check turn of theirs answered: forget what was
+   * `kestrel node agents` installed or signed in these agents, or a check turn of theirs answered: forget what was
    * remembered and what each adapter kept, and ask them again. The answer is what the node now says about every agent.
    */
   async recheck(agents: readonly Agent[]): Promise<AgentAvailability> {

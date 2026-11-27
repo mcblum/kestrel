@@ -77,7 +77,7 @@ describe('OpenCode adapter, against a fake opencode serve', () => {
     expect(handle.busy()).toBe(true);
     const started = await t.next('started');
     expect(started).toMatchObject({ agentSessionId: 'ses_fake1', model: 'fakeprov/fake-1', kestrelTools: 'connected', missing: [] });
-    expect(await t.next('done')).toEqual({ type: 'done', reason: 'complete', costUsd: 0.0042 });
+    expect(await t.next('done')).toEqual({ type: 'done', reason: 'complete', costUsd: 0.0042, tokens: { input: 2000, output: 30 } });
     expect(handle.busy()).toBe(false);
     expect(t.events.filter((e) => e.type === 'message').map((e) => (e as { text: string }).text)).toEqual(['hel', 'hello', 'hello']);
     expect(await t.next('context')).toMatchObject({ usage: { model: 'fakeprov/fake-1', usedTokens: 2030, windowTokens: 200000 } });

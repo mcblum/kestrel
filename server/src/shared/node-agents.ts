@@ -7,7 +7,7 @@ import type { Agent } from '../model.ts';
 import type { PinnedAgent } from './node-agent-versions.ts';
 
 /** The checklist that installs and signs in the agents on a node. */
-export const NODE_AGENTS_COMMAND = 'kestrel-node agents';
+export const NODE_AGENTS_COMMAND = 'kestrel node agents';
 
 /** The agents the checklist knows, in the order it shows them. */
 export const NODE_AGENTS: readonly Agent[] = ['claude', 'codex', 'opencode'];
@@ -84,7 +84,7 @@ const run = (reader: AgentReader, agent?: Agent): string => {
   return reader === 'here' ? `Run \`${command}\`` : `Run \`${command}\` there`;
 };
 const on = (reader: AgentReader): string => (reader === 'here' ? '' : ` on ${reader.elsewhere}`);
-const theLog = (reader: AgentReader): string => (reader === 'here' ? '`kestrel-node logs` shows the rest' : "the node's log has the rest");
+const theLog = (reader: AgentReader): string => (reader === 'here' ? '`kestrel node logs` shows the rest' : "the node's log has the rest");
 
 /**
  * The one sentence a node says about an agent that cannot run, wherever it is read: the node's own status and
@@ -137,7 +137,7 @@ export const NODE_SIGN_IN_STATUS_ARGS: Record<Agent, readonly string[]> = {
 };
 
 /**
- * A one-line turn, run only when the person asks (`kestrel-node agents --check`), since it spends a little of their
+ * A one-line turn, run only when the person asks (`kestrel node agents --check`), since it spends a little of their
  * usage: the only way to know whether a provider will take a turn (in the spike OpenCode was signed in and its
  * provider still refused every turn). Each is the agent's own non-interactive mode, in an empty folder of Kestrel's.
  */

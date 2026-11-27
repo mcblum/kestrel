@@ -120,7 +120,7 @@ function readRoute({ parts, url, sessionId }: Asked): Mapped | null {
 function actionRoute({ parts, body, sessionId }: Asked): Mapped | null {
   switch (parts[3]) {
     case 'answer':
-      return { op: 'session.answer', args: { sessionId, ...given(body, ['requestId', 'optionId', 'text', 'answers']) }, shape: nothing };
+      return { op: 'session.answer', args: { sessionId, ...given(body, ['requestId', 'optionId', 'text', 'answers', 'confirmed']) }, shape: nothing };
     case 'stop':
       return { op: 'session.stop', args: { sessionId }, shape: nothing };
     case 'archive':

@@ -1,5 +1,6 @@
 // Which context menu a sidebar row gets. One place for the right-click on a row and the row's …
 // button, so the two always open the same menu (menu.ts holds the items themselves).
+import { remoteWorkstreamRefusal } from '@kestrel/server/account-workstreams';
 import { isArchived, isComplete, isOpenWork } from '@kestrel/server/workstreams';
 import type { PinKind, WorkspaceState } from '@kestrel/server/model';
 import { sidebarMenu, type MenuTarget } from '@kestrel/server/menu';
@@ -49,7 +50,7 @@ function sessionTarget(ws: WorkspaceState, id: string, seen: Seen | null, pinned
     pinned,
     canReveal: canReveal(),
     ...openIn(),
-    ...(workstream ? { workstream: { id: workstream.id, name: workstream.name, refusal: removeRefusal(workstream, s.id) } } : {}),
+    ...(workstream ? { workstream: { id: workstream.id, name: workstream.name, refusal: remoteWorkstreamRefusal(workstream) ?? removeRefusal(workstream, s.id) } } : {}),
   };
 }
 
@@ -110,7 +111,7 @@ export function menuTargetFor(ws: WorkspaceState, kind: string | undefined, id: 
     if (!workstream) return { kind: 'empty' };
     const members = new Set(workstream.sessionIds);
     const inSight = ws.sessions.filter((s) => members.has(s.id));
-    return { kind: 'workstream', workstreamId: id, name: workstream.name, running: inSight.some(busy), members: inSight, complete: isComplete(workstream), archived: isArchived(workstream) };
+    return { kind: 'workstream', workstreamId: id, name: workstream.name, running: inSight.some(busy), members: inSight, complete: isComplete(workstream), archived: isArchived(workstream), elsewhere: remoteWorkstreamRefusal(workstream) };
   }
   if (kind === 'folder') {
     const inFolder = ws.sessions.filter((x) => x.groupId === id);

@@ -12,6 +12,8 @@
 //   resolved, the review no longer asks, a newer occurrence took its place, the request was merged or
 //   closed, or the reason was turned off). Seen moving within this run only: a card left open across a
 //   restart whose reason then went is caught when its button is pressed (it says it no longer applies).
+// - Every card about the request (this one, the Autopilot offer, the review offer; shared/request-cards.ts)
+//   is withdrawn, wherever it is shown, when the request is seen going from open to merged or closed.
 import type { PullRequestLookup } from '../shared/details.ts';
 import { occurrenceKey, requestAttention, sessionAttention, settledLine, type AttentionPrefs, type AttentionSession, type ReasonDetail, type RequestAttention } from '../shared/request-attention.ts';
 import type { Sourced } from '../shared/sourced.ts';
@@ -28,6 +30,8 @@ export interface AttentionWatchDeps {
   raise(sessionId: string, card: Omit<RequestAttention, 'reasons'> & ReasonDetail): Promise<unknown>;
   /** Settle the session's open cards for which `line` says why they no longer apply (null keeps one open). */
   withdraw(sessionId: string, line: (payload: Record<string, unknown>) => string | null): Promise<unknown>;
+  /** Withdraw the session's cards about a request that was merged or closed (`Suggestions.withdrawGone`). */
+  withdrawGone?(sessionId: string): Promise<unknown>;
   /** Whether Autopilot looks after the session's request (pull-requests/autopilot.ts): it raises no card then, it acts. */
   autopilotOn?(sessionId: string): boolean;
   lookMs?: number;
@@ -37,11 +41,18 @@ export interface AttentionWatchDeps {
 /** One occurrence of one reason on one request. */
 const keyOf = (a: Pick<RequestAttention, 'number'>, d: ReasonDetail): string => `${a.number}\n${occurrenceKey(d)}`;
 const keysOf = (a: RequestAttention | null): ReadonlySet<string> => new Set(a ? a.reasons.map((d) => keyOf(a, d)) : []);
+/** The session's requests that are open or drafts. */
+const openOf = (lookup: Sourced<PullRequestLookup>): ReadonlySet<number> => new Set(lookup.state === 'ready' ? lookup.value.pullRequests.filter((p) => p.state === 'open' || p.state === 'draft').map((p) => p.number) : []);
+/** Whether a request open at the last look is now merged or closed. */
+const ended = (before: ReadonlySet<number> | undefined, lookup: Sourced<PullRequestLookup>): boolean =>
+  !!before && lookup.state === 'ready' && lookup.value.pullRequests.some((p) => (p.state === 'merged' || p.state === 'closed') && before.has(p.number));
 
 export class AttentionWatch {
   private readonly raised = new Set<string>();
   /** Per session, what its request needed at the last look (whatever the session was doing). */
   private held = new Map<string, ReadonlySet<string>>();
+  /** Per session, its requests that were open at the last look: one seen ending withdraws its cards. */
+  private opened = new Map<string, ReadonlySet<number>>();
   private timer: NodeJS.Timeout | null = null;
   private running: Promise<void> | null = null;
   private again = false;
@@ -85,14 +96,19 @@ export class AttentionWatch {
   private async lookOnce(): Promise<void> {
     const [sessions, prefs] = await Promise.all([this.deps.sessions(), this.deps.prefs()]);
     const next = new Map<string, ReadonlySet<string>>();
+    const opened = new Map<string, ReadonlySet<number>>();
     for (const session of sessions) {
       if (session.hostId) continue;
       const lookup = this.deps.lookup(session.id);
       if (!lookup || lookup.state !== 'ready') {
         const kept = this.held.get(session.id);
         if (kept) next.set(session.id, kept);
+        const open = this.opened.get(session.id);
+        if (open) opened.set(session.id, open);
         continue;
       }
+      if (ended(this.opened.get(session.id), lookup)) await this.deps.withdrawGone?.(session.id);
+      opened.set(session.id, openOf(lookup));
       const now = keysOf(requestAttention(lookup, prefs));
       next.set(session.id, now);
       const before = this.held.get(session.id);
@@ -107,5 +123,6 @@ export class AttentionWatch {
       }
     }
     this.held = next;
+    this.opened = opened;
   }
 }

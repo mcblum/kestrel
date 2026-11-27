@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { SessionView } from '../model.ts';
 import { activityGarden, RECENT_DONE, overviewSection, overviewSections, showsStatus } from './overview.ts';
 
-type Row = Pick<SessionView, 'id' | 'state' | 'note' | 'landedIn' | 'request' | 'updatedAt'>;
+type Row = Pick<SessionView, 'id' | 'state' | 'note' | 'landedIn' | 'request' | 'updatedAt'> & { lastActivityAt?: number };
 const row = (id: string, over: Partial<Row> = {}): Row => ({ id, state: 'done', note: '', landedIn: null, request: null, updatedAt: 10, ...over });
 
 describe('which Overview section a session is in', () => {
@@ -47,6 +47,11 @@ describe('the Overview sections', () => {
     expect(rows.done.map((s) => s.id)).toEqual(['d1']);
     expect(rows.working.map((s) => s.id)).toEqual(['w']);
     expect(counts).toEqual({ 'needs-you': 2, unread: 2, working: 1, review: 0, interrupted: 0, done: 1 });
+  });
+
+  it('orders working sessions by their latest activity, by the one rule of recency (issue 83)', () => {
+    const { rows } = overviewSections([row('w-old', { state: 'running', updatedAt: 9, lastActivityAt: 2 }), row('w-new', { state: 'running', updatedAt: 1, lastActivityAt: 8 })], null);
+    expect(rows.working.map((s) => s.id)).toEqual(['w-new', 'w-old']);
   });
 
   it('shows the newest few done and counts them all', () => {

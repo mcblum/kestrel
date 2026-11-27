@@ -2,6 +2,9 @@
 // pull requests linked to that branch, and what its agent has cost. Types and small pure helpers,
 // shared with the UI. The sources are on the server (git-status.ts, pull-requests/, usage.ts).
 import { isHostKind, type HostKind } from './host-terms.ts';
+import { addTokens, costNotReported, realTokens, REPORTS_COST, type TurnTokens } from './plan-usage.ts';
+import { tokenCount } from './context-usage.ts';
+import type { Agent } from '../model.ts';
 
 /** The session's branch against the commit its worktree was cut from. */
 export interface GitStatus {
@@ -78,6 +81,12 @@ export interface PullRequest {
    */
   conflictsSince?: string;
   /**
+   * When the PR store first saw `headSha` (ms since the epoch), kept by the store (`carryHeadSeen`) until the
+   * head moves. Autopilot gives a new commit's checks time to start from then, so one turned on later acts on
+   * the request as it already stands. Not from the host.
+   */
+  headSeenAt?: number;
+  /**
    * While `checks` is failing: the checks or jobs that failed, required ones only where the host says
    * which are optional (GitLab's allowed-to-fail jobs are left out). Absent when the host could not
    * say cheaply; the request's `checksUrl` still leads to them.
@@ -95,8 +104,11 @@ export interface PullRequestLookup {
 
 /** What a session's agent reported spending, summed over its turns. */
 export interface SessionUsage {
+  /** Dollars, summed over the turns that reported any (0 for an agent that reports tokens only: plan-usage.ts `REPORTS_COST`). */
   costUsd: number;
   turns: number;
+  /** Tokens the agent reported, summed over its turns; absent when it reported none. */
+  tokens?: TurnTokens;
 }
 
 /**
@@ -162,19 +174,22 @@ export const isPullRequestLookup = (v: unknown): v is PullRequestLookup => {
 
 export const isSessionUsage = (v: unknown): v is SessionUsage => {
   const u = v as SessionUsage | null;
-  return typeof u === 'object' && u !== null && typeof u.costUsd === 'number' && Number.isFinite(u.costUsd) && u.costUsd >= 0 && isCount(u.turns);
+  return typeof u === 'object' && u !== null && typeof u.costUsd === 'number' && Number.isFinite(u.costUsd) && u.costUsd >= 0 && isCount(u.turns) && (u.tokens === undefined || (typeof u.tokens === 'object' && u.tokens !== null && isCount(u.tokens.input) && isCount(u.tokens.output)));
 };
 
 /** A stored usage value as it is, or null when there is none or it is not one (an older store). */
 export const readUsage = (v: unknown): SessionUsage | null => (isSessionUsage(v) ? v : null);
 
 /**
- * Usage after one more finished turn. A turn whose agent reported no cost changes nothing: a
- * guess would be worse than "not recorded". Returns a new value; `before` is not changed.
+ * Usage after one more finished turn. A turn whose agent reported neither cost nor tokens changes
+ * nothing: a guess would be worse than "not recorded". Returns a new value; `before` is not changed.
  */
-export function addTurnCost(before: SessionUsage | null, costUsd: number | undefined): SessionUsage | null {
-  if (typeof costUsd !== 'number' || !Number.isFinite(costUsd) || costUsd < 0) return before;
-  return { costUsd: (before?.costUsd ?? 0) + costUsd, turns: (before?.turns ?? 0) + 1 };
+export function addTurnCost(before: SessionUsage | null, costUsd: number | undefined, tokens?: TurnTokens): SessionUsage | null {
+  const cost = typeof costUsd === 'number' && Number.isFinite(costUsd) && costUsd >= 0 ? costUsd : undefined;
+  const counted = realTokens(tokens);
+  if (cost === undefined && !counted) return before;
+  const sum = addTokens(before?.tokens, counted);
+  return { costUsd: (before?.costUsd ?? 0) + (cost ?? 0), turns: (before?.turns ?? 0) + 1, ...(sum ? { tokens: sum } : {}) };
 }
 
 /** How the branch stands against its base, as one word. Behind and diverged are the ones that need attention. */
@@ -217,6 +232,16 @@ export function baseParts(label: string): { branch: string | null; commit: strin
 /** "$0.42"; a cost under a cent but not zero is "<$0.01". */
 export function costText(usage: Pick<SessionUsage, 'costUsd'>): string {
   return usage.costUsd < 0.01 && usage.costUsd > 0 ? '<$0.01' : `$${usage.costUsd.toFixed(2)}`;
+}
+
+/**
+ * A session's spend as every place words it (the Details pane, the usage menu under the message box): the cost, or
+ * that its agent does not report one (Codex), or that none was recorded; and the tokens, when the agent reported any.
+ */
+export function spendText(agent: Agent, usage: SessionUsage | null): { cost: string; tokens: string | null } {
+  const cost = !REPORTS_COST[agent] ? costNotReported(agent) : usage ? costText(usage) : 'Not recorded';
+  const tokens = usage?.tokens ? `${tokenCount(usage.tokens.input)} in · ${tokenCount(usage.tokens.output)} out` : null;
+  return { cost, tokens };
 }
 
 /**

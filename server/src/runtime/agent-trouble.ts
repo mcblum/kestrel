@@ -2,7 +2,7 @@
 // results.md, "Worker nodes", point 6: OpenCode was signed in and its provider refused every turn). Asking it whether
 // it is signed in costs nothing; whether its provider will take a turn is only known from a turn. So a turn that
 // failed for a reason that lasts (the sign-in ended, the usage is used up) is remembered for that agent, and the node
-// says so until a turn of it succeeds or the person signs it in again (`kestrel-node agents`). A failure that passes
+// says so until a turn of it succeeds or the person signs it in again (`kestrel node agents`). A failure that passes
 // (a rate limit, a network error) is not remembered. Kept in memory: a restart asks the agents afresh.
 import type { AgentEvent, AvailabilityAnswer } from '../agents/types.ts';
 import type { Agent } from '../model.ts';

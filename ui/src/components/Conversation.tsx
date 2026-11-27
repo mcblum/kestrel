@@ -4,6 +4,8 @@ import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'reac
 import { ArrowRight, Check, CornerDownLeft, FileDiff, Info, MessageSquareText, Plane, Split, Square, Terminal, TriangleAlert, X } from 'lucide-react';
 import { isDisengagedLine } from '@kestrel/server/autopilot';
 import { noteLine } from '@kestrel/server/notes';
+import { messagePreview } from '@kestrel/server/message-preview';
+import { setExpanded, useExpanded } from '../expandedMessages.ts';
 import type { ChatActivity, ChatMessage } from '@kestrel/server/model';
 import { Markdown } from './Markdown.tsx';
 import { SentFoot } from './SentFoot.tsx';
@@ -118,17 +120,41 @@ interface MessageProps {
   withoutSteps?: boolean;
 }
 
+/** Show all / Show less on a long message from another session, which opens or folds it in place. */
+function ShowAllToggle({ sessionId, messageId, expanded }: { sessionId: string; messageId: string; expanded: boolean }) {
+  return (
+    <button type="button" className="link-button message-fold" aria-expanded={expanded} onClick={() => setExpanded(sessionId, messageId, !expanded)}>
+      {expanded ? 'Show less' : 'Show all'}
+    </button>
+  );
+}
+
+/**
+ * A long message from another session (a report back, a hand-back, work it sent, a note, a child's brief)
+ * is drawn as its first part with Show all (shared/message-preview.ts); the text to draw and the toggle,
+ * or the whole text and no toggle. Whether it is open is this window's (expandedMessages.ts).
+ */
+function useFolded(message: ChatMessage, sessionId: string): { text: string; toggle: ReactNode } {
+  const preview = useMemo(() => (message.id ? messagePreview(message) : null), [message]);
+  const expanded = useExpanded(sessionId, message.id);
+  if (preview === null || !message.id) return { text: message.text, toggle: null };
+  return { text: expanded ? message.text : `${preview} …`, toggle: <ShowAllToggle sessionId={sessionId} messageId={message.id} expanded={expanded} /> };
+}
+
 /** One message. Yours sit on the right in a bubble; the agent's run down the left, unlabelled. */
 export const Message = memo(function Message({ message, sessionId, onChoice, onReply, onReuse, withoutSteps }: MessageProps) {
   const mine = message.author === 'you';
   const source = useMemo(() => (message.id ? { sessionId, messageId: message.id } : undefined), [sessionId, message.id]);
+  const folded = useFolded(message, sessionId);
   // Start warnings stored by earlier builds; they now go to the agent output log instead.
   if (message.notice === 'warning' && message.id?.startsWith('warning-')) return null;
   // A note from another session (shared/notes.ts): a quiet line saying who it is from.
   if (message.from)
     return (
       <div className="chat-message chat-info chat-note" role="note">
-        <MessageSquareText aria-hidden /> <span className="chat-note-from">{noteLine(message.from.title, '').trim()}</span> {message.text.slice(noteLine(message.from.title, '').length)}
+        <MessageSquareText aria-hidden /> <span className="chat-note-from">{noteLine(message.from.title, '').trim()}</span> {folded.text.slice(noteLine(message.from.title, '').length)}
+        {folded.toggle && ' '}
+        {folded.toggle}
       </div>
     );
   if (message.notice)
@@ -139,6 +165,11 @@ export const Message = memo(function Message({ message, sessionId, onChoice, onR
           <div className="chat-error-body">
             {message.text}
             <SignInOffer sessionId={sessionId} />
+          </div>
+        ) : folded.toggle ? (
+          <div className="chat-error-body">
+            <span>{folded.text}</span>
+            {folded.toggle}
           </div>
         ) : (
           message.text
@@ -154,7 +185,8 @@ export const Message = memo(function Message({ message, sessionId, onChoice, onR
       {message.text &&
         (mine ? (
           <>
-            <UserText text={message.text} source={source} />
+            <UserText text={folded.text} source={source} />
+            {folded.toggle}
             <SentFoot text={message.text} sentAt={message.sentAt} midTurn={message.midTurn} onReuse={onReuse} />
           </>
         ) : (

@@ -339,6 +339,9 @@ body { background: light-dark(#fafbf9, #171a19); }
 .kestrel .chat-info svg { color: var(--s-accent); }
 .kestrel .chat-note { white-space: pre-wrap; word-break: break-word; }
 .kestrel .chat-note-from { color: var(--s-ink); }
+/* Show all / Show less on a long message from another session (Conversation.tsx, `useFolded`): quiet, in the ink colour like every link-button, no padding of its own. */
+.kestrel .message-fold { padding: 0; justify-self: start; font-size: 11px; white-space: nowrap; }
+.kestrel .chat-message.mine .message-fold { font-size: 12px; }
 .kestrel .move-summary { min-height: 220px; width: 100%; }
 
 /* ---- pages: compact headers, one table, queue (design doc 2026-11-13, "Page hierarchy") ------ */
@@ -857,6 +860,8 @@ body { background: light-dark(#fafbf9, #171a19); }
    text its padding left the word hanging short of that line. */
 .kestrel .mode-enable { flex: none; padding: 3px 9px; background: transparent; border: 1px solid var(--s-line); border-radius: 6px; font: inherit; font-size: 12px; line-height: 1.3; color: var(--s-ink); cursor: pointer; }
 .kestrel .mode-enable:hover { background: var(--s-soft); border-color: var(--s-muted); }
+/* A session on another computer: where Bypass is chosen, in place of Enable. */
+.kestrel .mode-refusal { flex: none; max-width: 150px; font-size: 11.5px; color: var(--s-muted); text-align: right; }
 .kestrel .ctl .picker-button.ctl-danger { color: var(--s-amber); }
 
 /* ---- rich rendering: tasks, plans, questions, widgets, files, next step, pictures ---------- */
@@ -954,11 +959,14 @@ body { background: light-dark(#fafbf9, #171a19); }
 
 
 /* Pictures: thumbnails in a wrapping row; groups and the viewer are in pictures.css. */
-.kestrel .thumb-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; }
+.kestrel .thumb-row { display: flex; flex-wrap: wrap; gap: 8px; max-width: 100%; margin: 0 0 10px; }
 .kestrel .thumb { display: inline-block; max-width: 100%; padding: 0; background: var(--s-soft); border: 1px solid var(--s-line); border-radius: 6px; overflow: hidden; line-height: 0; vertical-align: top; cursor: zoom-in; }
 /* No percentage width on the picture: inside a shrink-to-fit button it would size the button to the
-   picture's natural width. The button's own max-width keeps a wide one inside the column. */
-.kestrel .thumb img, .kestrel .prose .thumb img { display: block; width: auto; height: auto; max-width: none; max-height: 160px; }
+   picture's natural width. Its cap is a length instead, --picture-max (conversation-width.css): the
+   column's width, so a wide picture scales down whole, keeping its shape, and never pushes the row
+   wider than the column (a wide one in your message used to stick out to the left; issue 73). Outside
+   a conversation there is no cap, and the button's own max-width keeps it inside what holds it. */
+.kestrel .thumb img, .kestrel .prose .thumb img { display: block; width: auto; height: auto; max-width: var(--picture-max, none); max-height: 160px; }
 /* A paragraph of pictures (markdown puts each in its own) flows beside the next one, 8px apart. */
 .kestrel .prose p:has(> .thumb) { display: inline-flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; max-width: 100%; margin: 0 8px 8px 0; vertical-align: top; }
 .kestrel .thumb:focus-visible { outline: 2px solid var(--s-muted); outline-offset: 2px; }

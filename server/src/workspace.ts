@@ -7,7 +7,7 @@ import type { ProjectSetup } from './shared/setup.ts';
 import { randomUUID } from 'node:crypto';
 import { Onboarding } from './onboarding/setup.ts';
 import { addTag, parseTag, removeTag } from './shared/tags.ts';
-import { isPermutation, storedPinOrder, visiblePins, type PinRef } from './shared/pins.ts';
+import { isPermutation, pinKey, storedPinOrder, visiblePins, type PinRef } from './shared/pins.ts';
 import { DelegationLimitsPrefs, limitMessage } from './limits.ts';
 import { handoffChain, subtreeIds } from './tree.ts';
 
@@ -132,13 +132,26 @@ export class Workspace {
     const load = Promise.all([this.state(), this.db.listAccountSessions(), this.db.listAccountRecords()]).then(async ([state, heads, records]) => {
       const projects = heldProjects(records).map((h) => h.project);
       const keys = heads.length > 0 || projects.length > 0 ? new Map(await Promise.all(state.projects.map(async (p) => [p.id, await this.repos.ofProject(p)] as const))) : new Map<string, string[]>();
-      const view = withRemote(state, heads, machineCards(records), keys, projects);
+      const view = await this.withViewPins(withRemote(state, heads, machineCards(records), keys, projects), state);
       if (version === this.version) this.viewCache = view;
       if (this.viewLoading === load) this.viewLoading = null;
       return view;
     });
     this.viewLoading = load;
     return load;
+  }
+
+  /**
+   * The pins in sight in the view: `state()` knows only this computer's sessions, so a pinned session
+   * that runs on another computer is put back here once the view has it (issue 76). With nothing from
+   * elsewhere the view is the state, pins and all.
+   */
+  private async withViewPins(view: WorkspaceState, state: WorkspaceState): Promise<WorkspaceState> {
+    if (view === state) return view;
+    const shown = { sessions: new Set(view.sessions.map((x) => x.id)), projects: new Set(view.projects.map((x) => x.id)), groups: new Set(view.groups.map((x) => x.id)) };
+    const pins = visiblePins(await this.db.listPins(), shown);
+    const same = pins.length === state.pins.length && pins.every((p, i) => pinKey(p) === pinKey(state.pins[i]!));
+    return same ? view : { ...view, pins };
   }
 
   async detail(sessionId: string): Promise<SessionDetail | null> {
@@ -376,16 +389,17 @@ export class Workspace {
     await this.db.transaction(async (tx) => {
       // One row for a session; there is no single-row read for a project or a group.
       // A review request is not the workspace's to check (review-requests/store.ts holds them): its key is taken as given.
-      const exists = kind === 'review' || (kind === 'session' ? (await tx.getSession(id)) !== null : (await (kind === 'project' ? tx.listProjects() : tx.listGroups())).some((x) => x.id === id));
+      // A session another computer of the account runs (the replica's head) is pinned here like this computer's own.
+      const exists = kind === 'review' || (kind === 'session' ? (await tx.getSession(id)) !== null || (await tx.listAccountSessions()).some((h) => h.id === id) : (await (kind === 'project' ? tx.listProjects() : tx.listGroups())).some((x) => x.id === id));
       if (!exists) throw new Refused(`No such ${kind}.`);
       await tx.putPin({ kind, id, pinnedAt });
     });
     this.changed();
   }
 
-  /** Put the pins in sight in this order. Refused unless it lists exactly those pins, each once. */
+  /** Put the pins in sight in this order. Refused unless it lists exactly those pins, each once. In sight is what a window draws: the view. */
   async setPinOrder(order: readonly PinRef[]): Promise<void> {
-    const shown = (await this.state()).pins;
+    const shown = (await this.view()).pins;
     if (!isPermutation(shown, order)) throw new Refused('The pinned items changed. Try again.');
     await this.db.transaction(async (tx) => tx.setPinOrder(storedPinOrder(await tx.listPins(), order)));
     this.changed();

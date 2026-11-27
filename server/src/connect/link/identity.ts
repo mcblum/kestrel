@@ -56,8 +56,8 @@ export class SignInEnded extends Error {}
 /** A device authorization that cannot finish: its code expired, or the person refused it. Its message says which. */
 export class DeviceGrantEnded extends Error {}
 
-export const DEVICE_CODE_EXPIRED = 'The sign-in code expired before anyone signed in with it. Run "kestrel-node join" again for a new one.';
-export const DEVICE_SIGN_IN_DENIED = 'The sign-in was refused on the other device. Run "kestrel-node join" again to try once more.';
+export const DEVICE_CODE_EXPIRED = 'The sign-in code expired before anyone signed in with it. Run "kestrel node join" again for a new one.';
+export const DEVICE_SIGN_IN_DENIED = 'The sign-in was refused on the other device. Run "kestrel node join" again to try once more.';
 /** RFC 8628, 3.5: on `slow_down` the interval grows by 5 seconds. */
 export const SLOW_DOWN_MS = 5_000;
 /** RFC 8628, 3.2: when the provider names no interval. */

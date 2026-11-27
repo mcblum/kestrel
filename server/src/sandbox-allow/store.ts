@@ -8,6 +8,7 @@ import type { InputCard } from '../model.ts';
 import { Refused } from '../refused.ts';
 import { entryId, type FolderAccess, type InactiveEntry, type SandboxAllowEntry, type SandboxAllowView, type SandboxOffer } from '../shared/sandbox-allow.ts';
 import { memorySettings, type SettingStore } from '../suggestions/prefs.ts';
+import { ALWAYS_CHILDREN, INHERIT_UNCONFIRMED } from '../shared/sandbox-inherit.ts';
 import { allowAnswer, chosenEntry, sandboxOffer } from './offer.ts';
 import type { Bounds } from './match.ts';
 import { commandEntryFromText, folderEntry, staleReason, type FolderContext } from './validate.ts';
@@ -36,6 +37,9 @@ export function sanitizeEntries(raw: unknown): SandboxAllowEntry[] {
   return Array.isArray(list) ? list.filter(isEntry) : [];
 }
 
+/** The stored switch for sessions started by another session (issue 74): on only when stored as true. */
+const sanitizeInherit = (raw: unknown): boolean => (raw as { inherit?: unknown } | null)?.inherit === true;
+
 /** The list with `entry` in it: a folder already there takes the new access; a duplicate changes nothing. */
 const withEntry = (list: readonly SandboxAllowEntry[], entry: SandboxAllowEntry): SandboxAllowEntry[] => [...list.filter((e) => entryId(e) !== entryId(entry)), entry];
 
@@ -52,9 +56,10 @@ interface Held {
   stored: readonly SandboxAllowEntry[];
   applied: readonly SandboxAllowEntry[];
   inactive: readonly InactiveEntry[];
+  inherit: boolean;
 }
 
-const holding = (stored: readonly SandboxAllowEntry[]): Held => ({ stored, ...splitStored(stored) });
+const holding = (stored: readonly SandboxAllowEntry[], inherit: boolean): Held => ({ stored, ...splitStored(stored), inherit });
 
 export class SandboxAllowList {
   private writes: Promise<unknown> = Promise.resolve();
@@ -78,7 +83,7 @@ export class SandboxAllowList {
     } catch {
       parsed = null; // unreadable: empty, and the next write replaces it
     }
-    this.held = this.held ?? holding(sanitizeEntries(parsed));
+    this.held = this.held ?? holding(sanitizeEntries(parsed), sanitizeInherit(parsed));
     return this.held;
   }
 
@@ -90,7 +95,7 @@ export class SandboxAllowList {
   /** What Settings shows: the entries in effect, and stored ones the rules now refuse, with the reason. */
   async view(): Promise<SandboxAllowView> {
     const held = await this.load();
-    return { entries: [...held.applied], ...(held.inactive.length ? { inactive: [...held.inactive] } : {}) };
+    return { entries: [...held.applied], ...(held.inactive.length ? { inactive: [...held.inactive] } : {}), inherit: held.inherit };
   }
 
   /** The entries in effect as last read or written; empty before the first read. */
@@ -98,15 +103,27 @@ export class SandboxAllowList {
     return this.held?.applied ?? [];
   }
 
-  private write(change: (list: readonly SandboxAllowEntry[]) => SandboxAllowEntry[]): Promise<SandboxAllowView> {
+  /** Whether sessions started by another session inherit their starter's freedom to leave the sandbox, as last read or written; off before the first read. */
+  inherits(): boolean {
+    return this.held?.inherit ?? false;
+  }
+
+  private write(change: (list: readonly SandboxAllowEntry[]) => SandboxAllowEntry[], inherit?: boolean): Promise<SandboxAllowView> {
     const work = this.writes.then(async () => {
-      const next = change((await this.load()).stored);
-      await this.store.putSetting(SANDBOX_ALLOW_KEY, JSON.stringify({ entries: next }));
-      this.held = holding(next);
+      const held = await this.load();
+      const next = change(held.stored);
+      const on = inherit ?? held.inherit;
+      await this.store.putSetting(SANDBOX_ALLOW_KEY, JSON.stringify({ entries: next, ...(on ? { inherit: true } : {}) }));
+      this.held = holding(next, on);
       return this.view();
     });
     this.writes = work.catch(() => undefined);
     return work;
+  }
+
+  /** The switch for sessions started by another session (issue 74): from Settings, or the sandbox card's choice. */
+  setInherit(on: boolean): Promise<SandboxAllowView> {
+    return this.write((list) => [...list], on);
   }
 
   add(entry: SandboxAllowEntry): Promise<SandboxAllowView> {
@@ -134,6 +151,15 @@ export class SandboxAllowList {
    * card's own offer to the list first (refused, with the reason, if it no longer passes), then allows.
    */
   async answerCard(card: InputCard | undefined, answer: InputAnswer): Promise<InputAnswer> {
+    // "Always allow for sessions started by another session": only from a card that offered it (the adapter put it
+    // there for a child whose starter would not be asked), and only when the answer says the person confirmed it where
+    // they answered: a fact the server requires, so no client turns the switch on unasked.
+    if (answer.optionId === ALWAYS_CHILDREN) {
+      if (!card?.options.some((o) => o.id === ALWAYS_CHILDREN)) throw new Refused('This card does not offer to allow commands outside the sandbox for sessions started by another session.');
+      if (answer.confirmed !== true) throw new Refused(INHERIT_UNCONFIRMED);
+      await this.setInherit(true);
+      return allowAnswer(answer);
+    }
     const entry = chosenEntry(card?.sandboxOffer, answer.optionId, await this.context());
     if (!entry) return answer;
     await this.add(entry);

@@ -44,7 +44,7 @@ const GITHUB_HOSTS = new Set(['github.com', 'ssh.github.com', 'www.github.com'])
 
 /**
  * The one rule for which kind of service a git host is, used by the pull-request code (pull-requests/choose.ts) and a
- * worker node's `kestrel-node git` alike: GitHub's own hosts are GitHub (gh speaks to them); any other host is taken
+ * worker node's `kestrel node git` alike: GitHub's own hosts are GitHub (gh speaks to them); any other host is taken
  * as a GitLab (glab speaks to it), since a self-hosted GitLab rarely says "gitlab" in its name. Pure.
  */
 export const isGithubHost = (host: string): boolean => GITHUB_HOSTS.has(host.toLowerCase());

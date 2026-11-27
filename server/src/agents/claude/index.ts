@@ -3,6 +3,7 @@
 // sent while it is quiet on that work goes into the same query (see Run below and run-phase.ts), and
 // so does one sent while it works (`sendNow`, mid-turn.ts): the CLI folds it into the running turn.
 // Tool calls are gated with a PreToolUse hook (sees everything); approvals come from canUseTool.
+import { askPlanUsage } from './usage.ts';
 import { readTaskOutput } from './task-output.ts';
 import { stopClaudeTask } from './stop-task.ts';
 import { forkSession, query, type CanUseTool, type HookCallback, type Options, type Query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
@@ -25,6 +26,7 @@ import { baseOptions, isConnectorTool } from './options.ts';
 import { kestrelMcpServer } from './tools.ts';
 import { claudeAvailability, claudeThrown } from './failure.ts';
 import { claudeSignIn } from './sign-in.ts';
+import { ALWAYS_CHILDREN, ALWAYS_CHILDREN_LABEL, INHERITED_NOTE } from '../../shared/sandbox-inherit.ts';
 import { cardOffer, isUnconfinedCommand, isUnsandboxed, offersAllowList, ON_LIST_NOTE, onAllowList, rewrittenDetail, shellSandbox, unconfinedNote, unconfinedReason, UNSANDBOXED_NOTE } from './sandbox.ts';
 import { offerOptions } from '../../sandbox-allow/offer.ts';
 import type { SandboxOffer } from '../../shared/sandbox-allow.ts';
@@ -223,7 +225,12 @@ class ClaudeHandle implements AgentHandle {
    */
   private passesOutside(tool: string, input: Record<string, unknown>): boolean {
     const outside = (shellSandbox(this.opts) && isUnsandboxed(tool, input)) || isUnconfinedCommand(tool, input, this.opts);
-    return outside ? this.outsideAllowed || onAllowList(input, this.opts) : false;
+    return outside ? this.outsideAllowed || this.inherited() || onAllowList(input, this.opts) : false;
+  }
+
+  /** A session another session started, let out of its sandbox's ask by the user's switch while its starter would not be asked (issue 74). */
+  private inherited(): boolean {
+    return this.opts.outsideInherit?.allows() === true;
   }
 
   private canUseTool: CanUseTool = (tool, input, context) => {
@@ -239,7 +246,7 @@ class ClaudeHandle implements AgentHandle {
   private ask(tool: string, input: Record<string, unknown>, { signal, toolUseID }: Parameters<CanUseTool>[2], offer: SandboxOffer, written?: string): ReturnType<CanUseTool> {
     return new Promise((resolve) => {
       const id = toolUseID || randomUUID();
-      const request = buildRequest(id, tool, input, this.opts.directory, this.planFile, this.opts.browserElement, offer, written, isUnconfinedCommand(tool, input, this.opts) ? unconfinedReason(this.opts) : null);
+      const request = buildRequest(id, tool, input, this.opts.directory, this.planFile, this.opts.browserElement, offer, written, isUnconfinedCommand(tool, input, this.opts) ? unconfinedReason(this.opts) : null, this.opts.outsideInherit?.offerable() === true);
       const settle: Pending['settle'] = (result) => resolve(result);
       this.pending.set(id, { request, input, settle });
       signal.addEventListener('abort', () => {
@@ -273,6 +280,8 @@ class ClaudeHandle implements AgentHandle {
       if (typeof useId === 'string' && typeof toolInput.command === 'string') this.written.set(useId, toolInput.command);
       // ...unless the user said, on such a card, to allow them all for this session.
       if (this.outsideAllowed) return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'allow' as const, permissionDecisionReason: 'The user allowed every command outside the sandbox for this session.' } };
+      // ...or the user let sessions started by another session do so while their starter could (issue 74).
+      if (this.inherited()) return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'allow' as const, permissionDecisionReason: INHERITED_NOTE } };
       // ...or the command is on the user's always-allowed list (Settings → Workflow).
       if (onAllowList(toolInput, this.opts)) return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'allow' as const, permissionDecisionReason: ON_LIST_NOTE } };
       return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'ask' as const, permissionDecisionReason: UNSANDBOXED_NOTE } };
@@ -281,6 +290,7 @@ class ClaudeHandle implements AgentHandle {
     // holds its commands to its folder, so each one is put to the user, with the same two ways past.
     if (isUnconfinedCommand(name, toolInput, this.opts)) {
       if (this.outsideAllowed) return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'allow' as const, permissionDecisionReason: 'The user allowed every unsandboxed command for this session.' } };
+      if (this.inherited()) return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'allow' as const, permissionDecisionReason: INHERITED_NOTE } };
       if (onAllowList(toolInput, this.opts)) return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'allow' as const, permissionDecisionReason: ON_LIST_NOTE } };
       return { hookSpecificOutput: { hookEventName: 'PreToolUse' as const, permissionDecision: 'ask' as const, permissionDecisionReason: unconfinedNote(unconfinedReason(this.opts)!) } };
     }
@@ -304,10 +314,11 @@ class ClaudeHandle implements AgentHandle {
     };
   }
 
-  /** How full the context window is, as a turn ends; nothing when the SDK cannot say. */
+  /** How full the context window is, and the plan's every window, as a turn ends; nothing when the SDK cannot say. */
   private async measureContext(current: Query): Promise<void> {
-    const usage = await askContextUsage(current, CONTEXT_WAIT_MS);
+    const [usage, limits] = await Promise.all([askContextUsage(current, CONTEXT_WAIT_MS), askPlanUsage(current, CONTEXT_WAIT_MS)]);
     if (usage) this.emit({ type: 'context', usage });
+    if (limits) this.emit({ type: 'limits', usage: limits });
   }
 
   /** What a change of phase means outside: the agent went quiet on background work or woke on its own; an ending run takes no more input. */
@@ -377,7 +388,7 @@ class ClaudeHandle implements AgentHandle {
 
   /** The run's terminal event: stopped when the user stopped it (with what it cost), else how its last turn ended. */
   private ending(outcome: Terminal | null): AgentEvent {
-    if (this.stopping) return { type: 'done', reason: 'stopped', ...(outcome?.type === 'done' && outcome.costUsd !== undefined ? { costUsd: outcome.costUsd } : {}) };
+    if (this.stopping) return { type: 'done', reason: 'stopped', ...(outcome?.type === 'done' && outcome.costUsd !== undefined ? { costUsd: outcome.costUsd } : {}), ...(outcome?.type === 'done' && outcome.tokens ? { tokens: outcome.tokens } : {}) };
     return outcome ?? { type: 'failed', reason: 'The agent ended without finishing.', kind: 'other' };
   }
 }
@@ -426,7 +437,9 @@ export function planText(input: Record<string, unknown>, planFile: string | null
 
 const questionsOf = (input: Record<string, unknown>): Question[] => (Array.isArray(input.questions) ? (input.questions as Question[]) : []);
 
-function buildRequest(id: string, tool: string, input: Record<string, unknown>, cwd: string, planFile: string | null = null, element?: ElementLookup, offer: SandboxOffer = {}, written?: string, unconfined: string | null = null): InputRequest {
+function buildRequest(id: string, tool: string, input: Record<string, unknown>, cwd: string, planFile: string | null = null, element?: ElementLookup, offer: SandboxOffer = {}, written?: string, unconfined: string | null = null, offerChildren = false): InputRequest {
+  // A child whose starter would not be asked may also turn on the switch for every such session (issue 74).
+  const children = offerChildren ? [{ id: ALWAYS_CHILDREN, label: ALWAYS_CHILDREN_LABEL, role: 'allow' as const }] : [];
   if (tool === 'AskUserQuestion') {
     const questions = questionsOf(input).map((q) => ({ question: q.question, header: q.header, multi: q.multiSelect === true, options: (q.options ?? []).map((o) => ({ label: o.label, description: o.description })) }));
     const only = questions.length === 1 && !questions[0]!.multi ? questions[0]! : null;
@@ -450,13 +463,13 @@ function buildRequest(id: string, tool: string, input: Record<string, unknown>, 
   // It may also offer to put the command, or the folder it names, on the always-allowed list.
   if (isUnsandboxed(tool, input)) {
     const always = offerOptions(offer);
-    const options = [ALLOW[0]!, ...always, ...ALLOW_OR_ALL_OUTSIDE.slice(1)];
+    const options = [ALLOW[0]!, ...always, ...children, ...ALLOW_OR_ALL_OUTSIDE.slice(1)];
     return { id, kind: 'approval', tool, title: `${title} (outside the sandbox)`, detail: `${UNSANDBOXED_NOTE}.\n\n${rewrittenDetail(input, written) ?? detail}`, options, ...(always.length ? { sandboxOffer: offer } : {}) };
   }
   // A command of a confined session on a computer with no sandbox: the card says why it asks, and
   // offers to stop asking for this session, as the card for leaving the sandbox does.
   if (unconfined) {
-    const options = [ALLOW[0]!, { id: ALLOW_OUTSIDE, label: 'Allow all commands in this session', role: 'allow' as const }, ALLOW[1]!];
+    const options = [ALLOW[0]!, ...children, { id: ALLOW_OUTSIDE, label: 'Allow all commands in this session', role: 'allow' as const }, ALLOW[1]!];
     return { id, kind: 'approval', tool, title: `${title} (not sandboxed)`, detail: `${unconfinedNote(unconfined)}.\n\n${detail}`, options };
   }
   return { id, kind: 'approval', tool, title, detail, options: ALLOW };

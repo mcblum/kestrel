@@ -1,8 +1,8 @@
 import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { CircleCheck, CircleHelp, Folder, GitFork } from 'lucide-react';
+import { CircleCheck, CircleHelp, Folder } from 'lucide-react';
 import type { SessionView, TreeNode, WorkspaceState } from '@kestrel/server/model';
 import { buildTree } from '@kestrel/server/tree';
-import { activityAt, orderTree } from '@kestrel/server/session-order';
+import { activeSince, activityAt, orderTree } from '@kestrel/server/session-order';
 import { sessionDot } from '@kestrel/server/unread';
 import { useApp } from '../store.ts';
 import { statusOf } from '@kestrel/server/status';
@@ -55,7 +55,7 @@ export function SessionCanvas({ sessions, workspace, needs }: {
   });
   const trees = useMemo(() => forest.map(root => ({ root, ids: members(root) })), [forest]);
   const shown = useMemo(() => trees.filter(({ ids }) => !minutes ||
-    ids.some(id => activityAt(byId.get(id)!) >= now - minutes * 60_000)), [trees, minutes, now, byId]);
+    ids.some(id => activeSince(byId.get(id)!, now - minutes * 60_000))), [trees, minutes, now, byId]);
   const visible = new Set(shown.flatMap(tree => tree.ids));
   const working = sessions.filter(s => visible.has(s.id) && statusOf(s) === 'working').length;
   const attention = new Set(needs.map(s => s.id));
@@ -118,7 +118,6 @@ export function SessionCanvas({ sessions, workspace, needs }: {
     </li>;
   }
   return <section className="session-canvas">
-    <header><GitFork size={22}/><h1>Session map</h1></header>
     <div className="canvas-filter" role="group" aria-label="Session tree activity window">
       <span>Active within</span>
       {windows.map(([value, label]) => <button type="button" key={value} aria-pressed={minutes === value}

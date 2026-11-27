@@ -260,3 +260,43 @@ describe('one rule for the window and for push (Kestrel Connect phase 6)', () =>
     expect(notificationsOf(first.seen, now([], [], []), DEFAULT_NOTIFY, AWAY).events.some((e) => e.kind === 'setup-values')).toBe(false);
   });
 });
+
+describe('a device asking to join the account (issue 72)', () => {
+  const none = { sessions: [], links: [], pullRequests: new Map(), reviewRequests: { requests: [], unread: [] }, tickets: { tickets: [], unread: [], sources: [], settings: { on: false, off: [], show: 'page' as const } } };
+  const node = { id: 'j1', name: 'kestrel-node01', kind: 'node' as const, state: 'waiting' as const };
+  const FRONT: Looking = { focused: true, openSessionId: 'a' };
+
+  it('is told when the window is not in front, even on the first look and with everything off, and once', () => {
+    const off = { ...DEFAULT_NOTIFY, enabled: false, banner: false };
+    const first = notificationsOf(NOTHING_SEEN, { ...none, joinRequests: [node] }, off, AWAY);
+    expect(first.events).toEqual([{ kind: 'join-request', sessionId: '', joinRequestId: 'j1', title: 'kestrel-node01, a worker node, wants to join your account', body: 'Let it in only if you are setting it up now. Open Kestrel to type the code it shows.' }]);
+    expect(deskOnlyEvent(first.events[0]!)).toBe(true);
+    expect(parseTarget(targetOf(first.events[0]!))).toEqual({ joinRequestId: 'j1' });
+    expect(notificationsOf(first.seen, { ...none, joinRequests: [node] }, off, AWAY).events).toEqual([]);
+  });
+
+  it('is not told while the window is in front, where its card is drawn over the page, and not later either', () => {
+    const first = notificationsOf(NOTHING_SEEN, { ...none, joinRequests: [node] }, DEFAULT_NOTIFY, FRONT);
+    expect(first.events).toEqual([]);
+    expect(notificationsOf(first.seen, { ...none, joinRequests: [node] }, DEFAULT_NOTIFY, AWAY).events).toEqual([]);
+  });
+
+  it('only a request still waiting is news: one opened, being let in or finished is not', () => {
+    for (const state of ['opening', 'typing', 'letting-in', 'showing', 'done'] as const) {
+      expect(notificationsOf(NOTHING_SEEN, { ...none, joinRequests: [{ ...node, state }] }, DEFAULT_NOTIFY, AWAY).events).toEqual([]);
+    }
+  });
+
+  it('a phone or computer is named without a kind; a new request after the first is told too', () => {
+    const first = notificationsOf(NOTHING_SEEN, { ...none, joinRequests: [node] }, DEFAULT_NOTIFY, AWAY);
+    const phone = { id: 'j2', name: 'Pocket', kind: 'phone' as const, state: 'waiting' as const };
+    const second = notificationsOf(first.seen, { ...none, joinRequests: [node, phone] }, DEFAULT_NOTIFY, AWAY);
+    expect(second.events.map((e) => e.title)).toEqual(['Pocket wants to join your account']);
+  });
+
+  it('never makes one where no requests are handed in, as the push sender hands none (the service pushes a request to join to every phone itself)', () => {
+    const first = notificationsOf(NOTHING_SEEN, none, DEFAULT_NOTIFY, AWAY);
+    expect(first.events).toEqual([]);
+    expect(first.seen.joinRequests).toBeNull();
+  });
+});

@@ -43,7 +43,8 @@ import { useMinuteNow } from '../useNow.ts';
 import { cardTrigger } from '../hoverCardState.ts';
 import { cameFromText } from '@kestrel/server/session-card';
 import { HoverCardHost } from './HoverCard.tsx';
-import { FoldChevron, foldClick, RowMore, RowOpen } from './SidebarRowParts.tsx';
+import { FoldChevron, foldClick, FoldToggle, RollupDots, RowMore, RowOpen, useFold } from './SidebarRowParts.tsx';
+import { workstreamDots } from '@kestrel/server/status';
 import { openRowMenu } from './sidebarMenuTarget.ts';
 import { filingMark, GROUP_MIME, MENU_MIME, projectName, PROJECT_MIME, SESSION_MIME, statusText, UNSCOPED } from '../labels.ts';
 import { opener, openSession, openView, type Route, type View } from '../route.ts';
@@ -99,6 +100,29 @@ function ReviewWhere({ review, fallback, inProject }: { review: ReviewMark; fall
   );
 }
 
+/** A session row with sessions under it folds them as a workstream's lead does: open until folded, remembered with the sidebar's other folds (issue 75). */
+const sessionFoldKey = (sessionId: string) => `session:${sessionId}`;
+
+/** The ids of the sessions drawn under a row, at every depth. */
+function idsUnder(node: TreeNode): string[] {
+  return node.children.flatMap((child) => [child.sessionId, ...idsUnder(child)]);
+}
+
+/**
+ * Folded, a row's dots stand for it and everything under it, one per kind of state, as a folded
+ * workstream's do (status.ts, `workstreamDots`), so a folded parent still shows a session under it that
+ * is working or needs you. One string, so the row redraws only when the dots change.
+ */
+function useFoldedDots(node: TreeNode, folded: boolean): readonly string[] {
+  const dots = useApp((s) => {
+    if (!folded) return '';
+    const ids = [node.sessionId, ...idsUnder(node)];
+    const sessions = ids.flatMap((id) => s.sessionsById.get(id) ?? []);
+    return workstreamDots(sessions, ids, node.sessionId, true, s.seen).map(rowDotClass).join(' ');
+  });
+  return useMemo(() => (dots ? dots.split(' ') : []), [dots]);
+}
+
 const TreeRow = memo(function TreeRow({ node, depth, activeId, rootId, groupId, parentId }: { node: TreeNode; depth: number; activeId: string | null; /** The top session of this row's tree. */ rootId: string; /** The group this row is listed in; `undefined` in a project's list, where a drop only reorders. */ groupId: string | null | undefined; /** The row this one is drawn under, if any. */ parentId?: string }) {
   const [edge, setEdge] = useDragHighlight<Edge>(null);
   const session = useApp((s) => s.sessionsById.get(node.sessionId));
@@ -123,7 +147,22 @@ const TreeRow = memo(function TreeRow({ node, depth, activeId, rootId, groupId, 
   const reorders = useSessionOrder() === 'custom';
   // A coloured tag or group colours the title, over the review colour (Settings → Colours; colours.ts).
   const tint = useSessionTint(session);
+  const hasUnder = node.children.length > 0;
+  const fold = useFold(sessionFoldKey(node.sessionId));
+  const folded = hasUnder && !fold.open;
+  const foldedDots = useFoldedDots(node, folded);
   if (!session || !projects) return null;
+  // The chevron after the title, on a row with sessions under it.
+  const foldToggle = hasUnder ? <FoldToggle open={fold.open} toggle={fold.toggle} label={`the sessions under ${session.title}`} /> : null;
+  const firstLine = (title: string) =>
+    foldToggle ? (
+      <span className="tree-first">
+        <span className="tree-main">{title}</span>
+        {foldToggle}
+      </span>
+    ) : (
+      <span className="tree-main">{title}</span>
+    );
   const isOpen = activeId === session.id;
   const primary = isOpen && (reference ? viaReference : !viaReference);
   const delegates = node.children.filter((c) => c.via === 'delegate').length;
@@ -183,7 +222,7 @@ const TreeRow = memo(function TreeRow({ node, depth, activeId, rootId, groupId, 
               {/* A reference under a workstream is two lines: what it is, then, quieter, its project and status. */}
               {inWorkstream ? (
                 <>
-                  <span className="tree-main">{session.title}</span>
+                  {firstLine(session.title)}
                   <span className="tree-where">
                     {projectName(session, projects)} · {statusText(session)}
                   </span>
@@ -191,24 +230,27 @@ const TreeRow = memo(function TreeRow({ node, depth, activeId, rootId, groupId, 
               ) : session.review ? (
                 // A review also says which request and who asked; outside its project, where too.
                 <>
-                  <span className="tree-main">{session.title}</span>
+                  {firstLine(session.title)}
                   <span className="tree-where">
                     <ReviewWhere review={session.review} fallback={projectName(session, projects)} inProject={inProject} />
                   </span>
                 </>
+              ) : foldToggle ? (
+                firstLine(session.title)
               ) : (
                 session.title
               )}
             </span>
           )}
           {machine && <span className="row-machine" title={`Runs on ${machine}`}>{machine}</span>}
-          {dot.className !== 'none' && <span className={`status-dot row-dot ${dot.className}`} aria-label={dot.label || undefined} title={dot.label || undefined} />}
+          {/* Folded, the dots stand for the sessions under it too (useFoldedDots). */}
+          {folded ? <RollupDots dots={foldedDots} folded /> : dot.className !== 'none' && <span className={`status-dot row-dot ${dot.className}`} aria-label={dot.label || undefined} title={dot.label || undefined} />}
           {/* A review always says where it stands: with nothing new and nothing waiting, a quiet ring with its status. */}
-          {dot.className === 'none' && session.review && !inWorkstream ? <span className="status-dot row-dot idle" role="img" aria-label={statusText(session)} title={statusText(session)} /> : <RowIcons session={session} hasDot={dot.className !== 'none'} />}
+          {dot.className === 'none' && !folded && session.review && !inWorkstream ? <span className="status-dot row-dot idle" role="img" aria-label={statusText(session)} title={statusText(session)} /> : <RowIcons session={session} hasDot={folded ? foldedDots.length > 0 : dot.className !== 'none'} />}
         </button>
         {offersArchive(session.state, renaming) && <RowArchive sessionId={session.id} title={session.title} />}
       </div>
-      {node.children.length > 0 && (
+      {hasUnder && fold.open && (
         <ul className="tree-children">
           {node.children.map((child) => (
             <TreeRow key={child.sessionId} node={child} depth={depth + 1} activeId={activeId} rootId={rootId} groupId={groupId} parentId={session.id} />

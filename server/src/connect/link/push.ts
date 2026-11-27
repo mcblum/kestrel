@@ -230,9 +230,10 @@ export class PushNotices {
   }
 
   private async send(api: PushApi, key: ReadyKey, desk: { id: string; name: string }, event: NotifyEvent): Promise<void> {
-    // A desk-only kind is never handed here (the source passes no set-up requests); were one, it would not leave.
+    // A desk-only kind is never handed here (the source passes no set-up requests, and no requests to join, which the
+    // service pushes to every phone itself); were one, it would not leave.
     const kind = event.kind;
-    if (kind === 'setup-values') return;
+    if (kind === 'setup-values' || kind === 'join-request') return;
     const to = (this.phones ?? []).filter((p) => p.events[kind]).map((p) => p.deviceId).slice(0, TO_MAX);
     if (to.length === 0) return;
     const id = pushId();

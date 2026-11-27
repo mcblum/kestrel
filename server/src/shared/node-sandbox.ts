@@ -1,7 +1,8 @@
 // The command sandbox on a worker node (docs/designs/worker-nodes.md, section 6): Claude Code's sandbox on Linux runs
 // bubblewrap, with socat for the network. Installing them needs an administrator, so the node only says the one
-// command for its distribution and what happens without them. The install script (scripts/release/install-node.sh)
-// is POSIX sh and says the same; its test reads this list, so the two cannot drift.
+// command for its distribution and what happens without them: `kestrel node agents` and `kestrel node configure` from this list. The
+// install script (scripts/release/install.sh) says none of it and leaves it to `kestrel node configure`; its test reads
+// this list to hold it to that.
 //
 // Erasable TypeScript only: the install script's test imports this file with Node's own type stripping.
 
@@ -27,7 +28,7 @@ export const SANDBOX_PROGRAMS: readonly { program: string; name: string }[] = [
 export const WITHOUT_SANDBOX = 'Without them every command of a confined Claude session asks first.';
 
 /** The restart they need: sandbox support is worked out once, when the node starts. */
-export const SANDBOX_RESTART = 'kestrel-node stop && kestrel-node start';
+export const SANDBOX_RESTART = 'kestrel node stop && kestrel node start';
 
 /** The install command for the first package manager present, or null when none on the list is. */
 export function sandboxInstallCommand(has: (program: string) => boolean): string | null {
@@ -39,5 +40,5 @@ export function missingSandboxPackages(has: (program: string) => boolean): strin
   return SANDBOX_PROGRAMS.filter((p) => !has(p.program)).map((p) => p.name);
 }
 
-/** What `kestrel-node status` says when the sandbox could not be used at the node's start. */
-export const NODE_SANDBOX_MISSING = `bubblewrap and socat were not both installed when the node started. ${WITHOUT_SANDBOX} Run "kestrel-node agents" for the command that installs them, then restart the node: ${SANDBOX_RESTART}`;
+/** What `kestrel node status` says when the sandbox could not be used at the node's start. */
+export const NODE_SANDBOX_MISSING = `bubblewrap and socat were not both installed when the node started. ${WITHOUT_SANDBOX} Run "kestrel node agents" for the command that installs them, then restart the node: ${SANDBOX_RESTART}`;

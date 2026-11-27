@@ -1,4 +1,4 @@
-// How `kestrel-node join` looks in the terminal: the node says what happens as typed events (shared/node-commands.ts,
+// How `kestrel node join` looks in the terminal: the node says what happens as typed events (shared/node-commands.ts,
 // `NodeJoinEvent`), and this lays them out, one event at a time, as lines. Nothing here decides what is said.
 //
 //   Kestrel worker node: join <name> to your account
@@ -15,7 +15,7 @@
 //
 //   ✓ <name> is in your account and connected to Kestrel Connect.
 //
-//   Next: kestrel-node status
+//   Next: kestrel node status
 //
 // Steps are set apart by a blank line, a code stands on a line of its own, a step done is a tick, and a problem is a
 // whole sentence set off by blank lines. Where the output is not a terminal (piped, NO_COLOR, TERM=dumb) the same

@@ -1,12 +1,12 @@
 // Git on a worker node (docs/designs/worker-nodes.md, section 7), purely: where the node's own key and Kestrel's git
 // settings live, what is kept, and the environment Kestrel's git runs in there. The key is made on the node by
-// `kestrel-node git` and never leaves it; it is never one of the user's ~/.ssh keys. Kestrel's own git calls, and the
+// `kestrel node git` and never leaves it; it is never one of the user's ~/.ssh keys. Kestrel's own git calls, and the
 // commands its sessions' agents run, get the key, the commit name and email and the signing choice through their
 // environment (`GIT_SSH_COMMAND`, and `GIT_CONFIG_*` pairs for the identity, per host, and signing); nothing is
 // written into the user's git configuration, so git run by the person on the node is unchanged. The app gets none of it.
 import type { KestrelKind } from './host-kind.ts';
 
-export const NODE_GIT_COMMAND = 'kestrel-node git';
+export const NODE_GIT_COMMAND = 'kestrel node git';
 
 /** The files of the node's git, all in one folder of Kestrel's, the user's alone. */
 export interface NodeGitPaths {
@@ -16,7 +16,7 @@ export interface NodeGitPaths {
   publicKey: string;
   /** Host keys accepted for Kestrel's git, never the user's ~/.ssh/known_hosts. */
   knownHosts: string;
-  /** What `kestrel-node git` chose and found (`NodeGitSettings`), mode 600. */
+  /** What `kestrel node git` chose and found (`NodeGitSettings`), mode 600. */
   settings: string;
   /** One small git configuration file per host whose commit identity differs from the default (`identityIncludes`). */
   identity: string;
@@ -27,7 +27,7 @@ export const nodeGitPaths = (dataDir: string): NodeGitPaths => {
   return { folder, key: `${folder}/id_ed25519`, publicKey: `${folder}/id_ed25519.pub`, knownHosts: `${folder}/known_hosts`, settings: `${folder}/git.json`, identity: `${folder}/identity` };
 };
 
-/** How a host answered the key, the last time `kestrel-node git` asked. */
+/** How a host answered the key, the last time `kestrel node git` asked. */
 export type HostAnswer = 'works' | 'not-added' | 'unreachable' | 'host-key-changed' | 'unknown';
 
 /** Whether the node's key is registered for signing at a host: known only when Kestrel registered it or asked the host's tool. */
@@ -51,7 +51,7 @@ export type ToolState = { installed: false } | { installed: true; by?: 'kestrel'
 
 export type SigningChoice = 'node-key' | 'off';
 
-/** Kestrel's own git settings on a node: one file, read by the node at start and whenever `kestrel-node git` is done. */
+/** Kestrel's own git settings on a node: one file, read by the node at start and whenever `kestrel node git` is done. */
 export interface NodeGitSettings {
   /** The key, once made: its fingerprint (SHA256:…), so `status` and `uninstall` name it without running anything. */
   key: { fingerprint: string; madeAt: number } | null;
@@ -87,7 +87,7 @@ function toolOf(raw: unknown): ToolState | null {
   return r.installed === true ? { installed: true, ...(r.by === 'kestrel' || r.by === 'elsewhere' ? { by: r.by } : {}), ...(typeof r.version === 'string' && /^\d+\.\d+\.\d+$/.test(r.version) ? { version: r.version } : {}), signedIn: strings(r.signedIn), notSignedIn: strings(r.notSignedIn) } : { installed: false };
 }
 
-/** The settings file as read, made safe: anything that is not what `kestrel-node git` writes is left out. Never throws. */
+/** The settings file as read, made safe: anything that is not what `kestrel node git` writes is left out. Never throws. */
 export function parseNodeGitSettings(text: string | null): NodeGitSettings {
   let raw: unknown = null;
   try {
@@ -141,7 +141,7 @@ export function identityProblem(value: string, what: 'name' | 'email'): string |
 /**
  * ssh's options for Kestrel's git on a node: the node's key only (no agent, no key of the user's, no ssh config file,
  * so nothing of ~/.ssh is used), Kestrel's own known hosts, and never a question. `accept-new` is for the check
- * `kestrel-node git` runs, which says which host keys it accepted; git itself trusts only those (`yes`).
+ * `kestrel node git` runs, which says which host keys it accepted; git itself trusts only those (`yes`).
  */
 export function sshOptions(paths: NodeGitPaths, hostKeys: 'accept-new' | 'yes'): string[] {
   return ['-F', 'none', '-i', paths.key, '-o', 'IdentitiesOnly=yes', '-o', 'IdentityAgent=none', '-o', `UserKnownHostsFile=${paths.knownHosts}`, '-o', `StrictHostKeyChecking=${hostKeys}`, '-o', 'BatchMode=yes'];

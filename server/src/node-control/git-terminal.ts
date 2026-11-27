@@ -1,4 +1,4 @@
-// `kestrel-node git` in a real terminal: the checklist (git-checklist.ts) drawn as `agents` is, questions read from the
+// `kestrel node git` in a real terminal: the checklist (git-checklist.ts) drawn as `agents` is, questions read from the
 // keyboard one at a time, ssh-keygen, ssh, gh and glab run here with their output collected (git-programs.ts) except a
 // tool's own sign-in, which has the terminal, and the running node asked for its part over its socket. With `--yes`,
 // or when input or output is not a terminal, nothing is asked.
@@ -8,6 +8,7 @@ import type { GitArgs } from './args.ts';
 import { runProgram } from './agents-programs.ts';
 import { terminalIo } from './agents-terminal.ts';
 import { askNode, nodeAnswers } from './client.ts';
+import type { ChecklistIo } from './agents-checklist.ts';
 import { runGitChecklist } from './git-checklist.ts';
 import { gitPrograms } from './git-programs.ts';
 import { nodeSocketPath } from './socket-path.ts';
@@ -20,7 +21,8 @@ async function fromNode(path: string): Promise<NodeGitFacts | null> {
   return reply?.ok && reply.git ? reply.git : null;
 }
 
-export async function gitFromTerminal(home: string, dataDir: string, args: GitArgs): Promise<number> {
+/** `io`: where it is drawn; `kestrel node configure` passes its own (agents-terminal.ts). */
+export async function gitFromTerminal(home: string, dataDir: string, args: GitArgs, io: ChecklistIo = terminalIo()): Promise<number> {
   const terminal = process.stdin.isTTY === true && process.stdout.isTTY === true;
   const path = nodeSocketPath(dataDir);
   const pins = toolPins(home);
@@ -34,7 +36,7 @@ export async function gitFromTerminal(home: string, dataDir: string, args: GitAr
       now: Date.now,
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     },
-    terminalIo(),
+    io,
     { unattended: args.yes || !terminal, manual: args.manual },
   );
 }

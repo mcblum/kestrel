@@ -1,6 +1,8 @@
-// What `kestrel-node <command>` does in the terminal (shared/node-commands.ts). `start` and `logs` are the
-// terminal's alone and work with no node running; `status`, `stop`, `agents` and `uninstall` begin here and ask the
-// running node, over its socket, only what the node alone can answer; `join`, `git` and `setup` are the node's.
+// What `kestrel node <command>` and `kestrel upgrade` do in the terminal (shared/node-commands.ts). `start`, `logs`,
+// `configure` and `upgrade` are the terminal's alone and work with no node running (`configure` asks a running node only
+// `status`); `status`, `stop`,
+// `agents` and `uninstall` begin here and ask the running node, over its socket, only what the node alone can answer;
+// `join` and `git` are the node's.
 // `agents` runs the agents' own programs here, where the person's keyboard and screen are, and asks the node only to
 // look again and say what it now tells other devices (agents-terminal.ts).
 import { existsSync } from 'node:fs';
@@ -10,15 +12,21 @@ import { offlineStatusLines } from '../shared/node-host.ts';
 import { nodeInstallPaths } from '../shared/node-service.ts';
 import type { AgentsArgs, CliCommand, GitArgs, LogOptions } from './args.ts';
 import { gitFromTerminal } from './git-terminal.ts';
-import { agentsFromTerminal } from './agents-terminal.ts';
+import { agentsFromTerminal, onPath } from './agents-terminal.ts';
+import { nodeAgentsEnv } from '../agents/kestrel-agents.ts';
+import { setupSummary } from '../shared/node-configure.ts';
+import { missingSandboxPackages, sandboxInstallCommand } from '../shared/node-sandbox.ts';
+import { overviewText } from './help.ts';
 import { askNode, nodeAnswers, runClient, waitUntil } from './client.ts';
 import { hostFacts, hostProbe, runForOutput, serviceState } from './host-facts.ts';
 import { joinFromTerminal } from './join-terminal.ts';
+import { setupFromTerminal } from './setup-terminal.ts';
+import { upgradeFromTerminal } from './upgrade.ts';
 import { nodeLogFile } from './log-file.ts';
 import { logSourceOf, showLog } from './logs.ts';
 import { startPlan, stopPlan, systemctl, unitAction } from './service.ts';
 import { nodeSocketPath } from './socket-path.ts';
-import { agentSignIns, isSymlink, nodeGitKey, removePath, sshPublicKeys, toolSignIns, uninstallFromTerminal } from './uninstall-terminal.ts';
+import { agentSignIns, isKestrelLink, nodeGitKey, removePath, sshPublicKeys, toolSignIns, uninstallFromTerminal } from './uninstall-terminal.ts';
 
 export interface Terminal {
   home: string;
@@ -31,7 +39,7 @@ const err = (line: string) => console.error(line);
 /** What `status --json` prints when no node answers: the one fact there is. */
 export const NOT_RUNNING_JSON = '{"running":false}';
 
-/** `status --json`: the status value as the node built it (shared/node-status.ts), one line, for a script (install-node.sh). */
+/** `status --json`: the status value as the node built it (shared/node-status.ts), one line, for a script (install.sh). */
 async function statusJson(path: string): Promise<number> {
   const reply = (await nodeAnswers(path)) ? await askNode(path, 'status').catch(() => null) : null;
   if (!reply?.ok || !reply.status) return out(NOT_RUNNING_JSON), 1;
@@ -103,7 +111,7 @@ async function uninstall(t: Terminal): Promise<number> {
         waitStopped: (ms) => waitUntil(path, false, ms),
         waitAnswers: (ms) => waitUntil(path, true, ms),
         remove: removePath,
-        isLink: isSymlink,
+        isLink: isKestrelLink,
         exists: existsSync,
         sshPublicKeys: () => sshPublicKeys(t.home),
         agentSignIns: () => agentSignIns(t.home, existsSync),
@@ -117,8 +125,17 @@ async function uninstall(t: Terminal): Promise<number> {
   }
 }
 
+/** `kestrel` with no command: the commands, and one line of how the node is (shared/node-configure.ts). Exit 0. */
+export async function overview(t: Terminal): Promise<number> {
+  const path = nodeSocketPath(t.dataDir);
+  const reply = (await nodeAnswers(path)) ? await askNode(path, 'status').catch(() => null) : null;
+  const has = onPath(nodeAgentsEnv(process.env, t.dataDir));
+  out(overviewText(setupSummary(reply?.ok && reply.status ? reply.status : null, { missing: missingSandboxPackages(has), install: sandboxInstallCommand(has) })));
+  return 0;
+}
+
 /** Runs one command; resolves with the exit code. */
-export function runCommand(t: Terminal, command: CliCommand, logOptions?: LogOptions, agents?: AgentsArgs, extra: { git?: GitArgs; json?: boolean } = {}): Promise<number> {
+export function runCommand(t: Terminal, command: CliCommand, logOptions?: LogOptions, agents?: AgentsArgs, extra: { git?: GitArgs; json?: boolean; version?: string } = {}): Promise<number> {
   const path = nodeSocketPath(t.dataDir);
   switch (command) {
     case 'status':
@@ -137,6 +154,10 @@ export function runCommand(t: Terminal, command: CliCommand, logOptions?: LogOpt
       return joinFromTerminal(path);
     case 'agents':
       return agentsFromTerminal(t.home, t.dataDir, agents ?? { only: null, yes: false, check: false });
+    case 'configure':
+      return setupFromTerminal(t.home, t.dataDir);
+    case 'upgrade':
+      return upgradeFromTerminal(t.home, extra.version);
     default:
       return runClient(path, command, out, err);
   }

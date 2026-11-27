@@ -337,17 +337,21 @@ scripts/release/node-bundle/build.sh x64      # or arm64; on Linux, after `pnpm 
 
 It leaves `dist/node/kestrel-node-linux-<arch>.tar.gz` and `.tar.gz.sha256`. Inside, under the version's folder
 once installed: `VERSION`; `bin/kestrel-node`, the launcher, which puts the bundle's Node first on `PATH` and sets
-`KESTREL_PACKAGED=1`, `KESTREL_APP_VERSION` (from `VERSION`) and `KESTREL_CLAUDE_EXECUTABLE`; `node/`, Node of the
+`KESTREL_PACKAGED=1`, `KESTREL_APP_VERSION` (from `VERSION`) and `KESTREL_CLAUDE_EXECUTABLE`; `bin/kestrel`, a link
+to it by the name the unit runs (`kestrel node run`); `node/`, Node of the
 version `scripts/release/node-bundle/node-runtime.json` pins, from nodejs.org, its tarball's checksum checked against
 the pin before it is used; `server/kestrel-node.mjs`, the server with the `kestrel-node` entry built to one JavaScript
 file by the same `build-server.mjs` the app uses; `server/node_modules/node-pty` with a `pty.node` built for the
 architecture and laid out by the same `server-parts.mjs` as the app's; Claude Code's program for the architecture,
 as the Agent SDK ships it (`@anthropic-ai/claude-agent-sdk-linux-<arch>`); `share/kestrel-node.service`, the systemd
-user unit (`serviceUnitText` in `server/src/shared/node-service.ts`); and `LICENSE`. Every program in it is checked
+user unit (`serviceUnitText` in `server/src/shared/node-service.ts`, which runs `bin/kestrel node run`; a bundle still
+takes the first version's `kestrel-node run`, so an upgrade does not break the running service whichever unit systemd
+has loaded); `share/install.sh`, the install script as in the checkout, which `kestrel upgrade` runs (a bundle from
+before the rename carries it as `share/install-node.sh`, run only where the new name is missing); and `LICENSE`. Every program in it is checked
 to be a Linux ELF of the right architecture before it is packed.
 
 - **x64** is built natively on the k3s runner: node-pty is compiled by `pnpm install`, and the bundle's own check
-  runs (`kestrel-node help`, and node-pty opens a terminal with the bundle's Node).
+  runs (`kestrel-node help` and `kestrel node help`, and node-pty opens a terminal with the bundle's Node).
 - **arm64** has no runner of its own, so it is built on the same x64 runner: `build-pty.sh` cross-compiles
   `pty.node` with `aarch64-linux-gnu-g++` (installed with apt in the job) against Node's own headers, and Claude
   Code's arm64 program is fetched from npm at the Agent SDK's exact version (`fetch-claude-binary.mjs`). Its files'
@@ -359,24 +363,30 @@ On a version bump on `main` both jobs start by themselves, and `release` takes t
 `artifacts: true`, `optional`). Either may fail without holding up the Mac release (`allow_failure`); `publish.sh`
 publishes whatever bundles are there and says which are not.
 
-Published, by `publish.sh` (below) with the release: each bundle and its checksum to the same package version as the
-Mac files, linked from the Release as `/kestrel-node-linux-<arch>.tar.gz` and `.sha256`, and, for a release (not a
-beta), `scripts/release/install-node.sh` committed to `main` of `kestrel/releases` beside the feeds. On the server,
-as the user the node runs as (not root):
+Published, by `publish.sh` (below), with a release or a beta: each bundle and its checksum to the same package
+version as the Mac files (a release also links them from its Release as `/kestrel-node-linux-<arch>.tar.gz` and
+`.sha256`), and the install script committed to `main` of `kestrel/releases` beside the feeds, with the version and
+its channel written into it (`KESTREL_LATEST`, `KESTREL_CHANNEL`): a beta as `install-beta.sh`; a release as
+`install.sh`, and as `install-beta.sh` too when the betas move to it (the `beta-mac.yml` rule). Which one is
+fetched says the channel. On the server, as the user the node runs as (not root):
 
 ```bash
-curl -fsSL https://starfish.nationalmachine.io/kestrel/releases/-/raw/main/install-node.sh | sh
-curl -fsSL https://starfish.nationalmachine.io/kestrel/releases/-/raw/main/install-node.sh | sh -s -- 0.0.34   # a given version
+curl -fsSL https://starfish.nationalmachine.io/kestrel/releases/-/raw/main/install.sh | sh        # the newest release
+curl -fsSL https://starfish.nationalmachine.io/kestrel/releases/-/raw/main/install-beta.sh | sh   # the newest beta
+curl -fsSL https://starfish.nationalmachine.io/kestrel/releases/-/raw/main/install.sh | sh -s -- 0.0.34   # a given version
 ```
 
-The newest is fetched through the Release's permanent link, so a release published without node bundles leaves
-the script with nothing to fetch until the next one that has them; the given-version form reads the package
-registry, where a beta's bundles are too. `KESTREL_NODE_URL` points the script somewhere else (a folder over https,
-or `file://` for a test). What the script does, and the two steps it prints that need an administrator, are in its
+Each fetches the version it names from the package registry, checksum first, so only a publish that carries the
+node's bundles writes them (a Mac-only publish leaves both as they were). Then it goes straight on to `kestrel node configure`
+on the terminal (join, agents, git, and the two steps an administrator runs, shown to paste). `kestrel upgrade` runs
+the copy inside the bundle, which names no version and reads its channel's published copy. A node on 0.0.34-beta.1
+carries the script by its old name, which reads a published name that was never served (`install-node-beta.sh`), so it
+upgrades with the version given (`kestrel upgrade 0.0.34-beta.2`) or by the install command above. `KESTREL_NODE_URL` points
+the script at a folder of bundles instead (over https, or `file://` for a test). What the script does is in its
 header.
 
 Not checked yet (2026-11-27): neither CI job has run; no bundle has been installed on a real server. The install
-script's whole flow is tested against stubs (`scripts/release/install-node.test.mjs`).
+script's whole flow is tested against stubs (`scripts/release/install.test.mjs`).
 
 ## Publishing
 

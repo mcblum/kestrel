@@ -3,8 +3,10 @@
 // later item builds is on the list from the start and answers with a plain refusal, so the list never grows
 // by accident: adding to it is a design change.
 //
-// `kestrel-node` takes more words than the socket answers. What must work while no node is running is done by the
-// terminal itself and never reaches the socket (`TERMINAL_COMMANDS`: `start`, `logs`); `status`, `stop`, `agents` and
+// `kestrel` is a general command; the worker node's are under its `node` group (`kestrel node <command>`), and its old
+// name `kestrel-node` still takes them as they were first typed, with no group (`kestrel-node run`). It takes more words
+// than the socket answers. What must work while no node is running, or drives the others, is done by the terminal itself
+// and never reaches the socket (`TERMINAL_COMMANDS`: `configure`, `start`, `logs`, `upgrade`); `status`, `stop`, `agents` and
 // `uninstall` are begun in the terminal, which asks the running node for the part only it can do
 // (node-control/terminal.ts). `agents` is the checklist: installing and signing in run in the terminal, which has the
 // person's keyboard and screen (an agent's own sign-in needs a real terminal); the node's part is to forget what it
@@ -24,15 +26,14 @@ export const NODE_COMMANDS = {
   status: { built: true, about: 'Say whether this node is running, signed in, in the account, and what it can do.' },
   stop: { built: true, about: 'End the sessions’ turns cleanly and stop the node.' },
   join: { built: true, about: 'Sign in and ask to join the account.' },
-  // The node's part of `kestrel-node agents`: ask the agents again (forgetting what it knew of those named in
+  // The node's part of `kestrel node agents`: ask the agents again (forgetting what it knew of those named in
   // `recheck`) and answer whether each can run, as it tells other devices. The checklist itself runs in the terminal.
   agents: { built: true, about: 'Install and sign in Claude Code, Codex and OpenCode on this node ([claude|codex|opencode] [--yes] [--check]).' },
-  // The node's part of `kestrel-node git`: read its git settings again (what Kestrel's git runs with) and say what only
+  // The node's part of `kestrel node git`: read its git settings again (what Kestrel's git runs with) and say what only
   // it knows: the hosts of the account's projects, and the commit name, email and signing other computers publish.
   // Making the key, testing it and asking the person run in the terminal.
   git: { built: true, about: 'Make this node’s git key, check it at your git hosts, and set the commit name and email ([--yes]).' },
-  setup: { built: false, about: 'Set this computer up like the others of the account.' },
-  // The node's part of `kestrel-node uninstall`: refuse while a session has work that is not pushed, then leave the
+  // The node's part of `kestrel node uninstall`: refuse while a session has work that is not pushed, then leave the
   // account. Deleting the service and the folder is the terminal's part, once the node has stopped.
   uninstall: { built: true, about: 'Remove this node from the account and delete it from this computer.' },
 } as const satisfies Record<string, NodeCommandInfo>;
@@ -43,10 +44,16 @@ export const NODE_COMMAND_NAMES = Object.keys(NODE_COMMANDS) as readonly NodeCom
 
 export const isNodeCommand = (value: unknown): value is NodeCommand => typeof value === 'string' && Object.hasOwn(NODE_COMMANDS, value);
 
-/** What `kestrel-node` does in the terminal alone, with or without a node running. Never sent on the socket. */
+/**
+ * What `kestrel` does in the terminal alone, with or without a node running. Never sent on the socket. `configure`
+ * runs the other steps in order and asks the node only `status`; `upgrade` (`kestrel upgrade`, the one of these not in
+ * the `node` group) runs the install script the bundle carries.
+ */
 export const TERMINAL_COMMANDS = {
+  configure: { about: 'Set this node up, one step at a time: join your account, the agents, git, and what needs an administrator.' },
   start: { about: 'Start the node’s service (systemctl --user).' },
   logs: { about: 'Read the node’s log (-f to follow, -n <lines> for more or fewer).' },
+  upgrade: { about: 'Install the newest version of this node’s channel (or the version given), as the install command does.' },
 } as const;
 
 export type TerminalCommand = keyof typeof TERMINAL_COMMANDS;
@@ -55,14 +62,45 @@ export const TERMINAL_COMMAND_NAMES = Object.keys(TERMINAL_COMMANDS) as readonly
 
 export const isTerminalCommand = (value: unknown): value is TerminalCommand => typeof value === 'string' && Object.hasOwn(TERMINAL_COMMANDS, value);
 
-/** Every word `kestrel-node` takes after `run`, in the order `--help` lists them. */
-export const CLI_COMMAND_NAMES: readonly (NodeCommand | TerminalCommand)[] = ['status', 'start', 'stop', 'logs', 'join', 'agents', 'git', 'setup', 'uninstall'];
+/** The command people type: `kestrel`. `kestrel-node`, its first name, still works (a node installed before has it). */
+export const NODE_CLI = 'kestrel';
+
+/** The group the worker node's commands are under: `kestrel node <command>`. */
+export const NODE_GROUP = 'node';
+
+/** A node command as it is typed in full, for every sentence that names one: `kestrel node agents`. */
+export const nodeCommandLine = (command: string): string => `${NODE_CLI} ${NODE_GROUP} ${command}`;
+
+/** Every command of the `node` group, in the order its list shows them: setting up first, then running, then the rest. */
+export const NODE_GROUP_COMMAND_NAMES: readonly (NodeCommand | TerminalCommand)[] = ['configure', 'status', 'join', 'agents', 'git', 'start', 'stop', 'logs', 'uninstall'];
+
+/** `kestrel`'s own commands, beside the `node` group, each with its line. */
+export const TOP_COMMANDS = {
+  node: { about: `This computer as a worker node: set it up, run it, and see how it is (${NODE_CLI} ${NODE_GROUP} <command>).` },
+  upgrade: TERMINAL_COMMANDS.upgrade,
+  version: { about: 'Print the version of Kestrel installed here.' },
+  help: { about: `Say more about a command: ${NODE_CLI} help <command>.` },
+} as const;
+
+export type TopCommand = keyof typeof TOP_COMMANDS;
+
+export const TOP_COMMAND_NAMES = Object.keys(TOP_COMMANDS) as readonly TopCommand[];
+
+/** The words the first version took with no group (`kestrel-node run`, `kestrel setup`), still taken as the node's. */
+export const OLD_NODE_WORDS: Readonly<Record<string, NodeCommand | TerminalCommand | 'run'>> = {
+  setup: 'configure',
+  run: 'run',
+  ...Object.fromEntries(NODE_GROUP_COMMAND_NAMES.map((name) => [name, name])),
+};
+
+/** What a command does, in one line, from whichever list it is on. */
+export const commandAbout = (command: NodeCommand | TerminalCommand): string => (isTerminalCommand(command) ? TERMINAL_COMMANDS[command].about : NODE_COMMANDS[command].about);
 
 /** The refusal for a command the design names and a later item builds. */
-export const notBuiltReason = (command: NodeCommand): string => `"${command}" is not built yet in this version of kestrel-node.`;
+export const notBuiltReason = (command: NodeCommand): string => `"${command}" is not built yet in this version of kestrel.`;
 
 /** The refusal for anything not on the list. */
-export const unknownCommandReason = (given: string): string => `"${given.slice(0, 40)}" is not a kestrel-node command. The commands are ${NODE_COMMAND_NAMES.join(', ')}.`;
+export const unknownCommandReason = (given: string): string => `"${given.slice(0, 40)}" is not a command the node answers. The commands are ${NODE_COMMAND_NAMES.join(', ')}.`;
 
 /**
  * One request on the socket: a line of JSON, `{"command":"status"}`. `agents` alone may name the agents the terminal
@@ -97,7 +135,7 @@ export interface PublishedGit {
   signs: boolean;
 }
 
-/** What only the running node knows for `kestrel-node git`. */
+/** What only the running node knows for `kestrel node git`. */
 export interface NodeGitFacts {
   /** This node's name, as other devices see it. */
   name: string;
@@ -157,8 +195,8 @@ export function parseNodeRequest(line: string): { ok: true; command: NodeCommand
  * and the terminal lays it out: a heading, a plain line, a wait, a labelled field, a code on a line of its own, a
  * step done (a tick), a problem set off by blank lines.
  */
-// The same events draw `kestrel-node agents` (node-control/agents-checklist.ts), whose sections are 1 to 4, and
-// `kestrel-node git` (node-control/git-checklist.ts), whose sections are 1 to 6.
+// The same events draw `kestrel node agents` (node-control/agents-checklist.ts), whose sections are 1 to 4, and
+// `kestrel node git` (node-control/git-checklist.ts), whose sections are 1 to 6.
 export const JOIN_STEPS = [0, 1, 2, 3, 4, 5, 6] as const;
 export type JoinStep = (typeof JOIN_STEPS)[number];
 
@@ -182,7 +220,7 @@ export type NodeJoinEvent =
 /** What to run once a node is in: the agents' checklist. */
 export const JOIN_NEXT = NODE_AGENTS_COMMAND;
 /** What to run after a join that did not finish, when its reason does not already say. */
-export const JOIN_AGAIN = 'kestrel-node join';
+export const JOIN_AGAIN = nodeCommandLine('join');
 
 /** What the terminal sends for an `ask`: one line of JSON, `{"answer":"157 640"}`. */
 export interface NodeJoinAnswer {

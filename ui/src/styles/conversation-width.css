@@ -17,3 +17,11 @@
 .kestrel .conversation .conversation-inner { width: var(--column-width); max-width: none; margin-inline: auto; }
 .kestrel .conversation .composer-dock .composer-wrap { width: var(--composer-width); max-width: none; margin-inline: auto; padding-inline: 0; }
 .kestrel .conversation .composer-dock .queued { margin-inline: var(--column-inset); }
+
+/* How wide a picture in the conversation may be (.thumb img, app.css): a length, never a percentage, so
+   a wide picture cannot make the row that holds it wider than the column. The column's width; in your
+   own message the width your files and text may take (.att-sent, attachments.css: 78% of the column,
+   at most 520px); in a file card the card's inside. */
+.kestrel .conversation { --picture-max: var(--column-width); }
+.kestrel .conversation .chat-message.mine { --picture-max: min(var(--column-width) * .78, 520px); }
+.kestrel .conversation .file-card { --picture-max: calc(var(--column-width) - 20px); }

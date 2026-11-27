@@ -124,6 +124,11 @@
 .kestrel .studio-sidebar .workstream-label .workstream-first { display: flex; align-items: center; gap: 2px; min-width: 0; }
 .kestrel .studio-sidebar .workstream-label .workstream-first > .tree-main { flex: 0 1 auto; min-width: 0; }
 .kestrel .studio-sidebar .workstream-label .workstream-first > .fold-toggle { flex: none; display: inline-flex; margin-left: 4px; }
+/* A session row with sessions under it has the same chevron right after its title (issue 75; Sidebar.tsx,
+   TreeRow), which folds them as a workstream's does; the title still shortens before the chevron goes. */
+.kestrel .studio-sidebar .tree-title .tree-first { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.kestrel .studio-sidebar .tree-title .tree-first > .tree-main { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kestrel .studio-sidebar .tree-title .tree-first > .fold-toggle { flex: none; display: inline-flex; margin-left: 4px; }
 /* Its end, as a project row's (sidebar-rows.css): the ↗ and … show on hover or keyboard focus in place
    of the marks (Matt, 2026-11-24). Here they are centred on both lines, and the marks (the dots, the lead's
    own request and the brought-in count) sit in one box at least as wide as the two buttons, so the title

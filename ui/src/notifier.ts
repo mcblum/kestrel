@@ -14,6 +14,7 @@ import { playSound } from './sounds.ts';
 import { heldAttentionPrefs } from './attentionPrefs.ts';
 import { appStore, call, putResource } from './store.ts';
 import { activeTab, tabsView } from './tabsStore.ts';
+import { joinOverlay } from './joinOverlay.ts';
 // Registers the `setup-` socket handler, which fills the set-up value requests this watches, from the start.
 import './setupSteps.ts';
 
@@ -70,14 +71,16 @@ export async function sendTestBanner(): Promise<'shown' | 'refused' | 'blocked'>
 function openTarget(target: string): void {
   const named = parseTarget(target);
   if (!named) return;
-  if ('setupRequestId' in named) openView({ kind: 'settings', section: 'connections/setup' });
+  // The window is in front now and the request's card is drawn over the page, even if it was put aside.
+  if ('joinRequestId' in named) joinOverlay.bringBack(named.joinRequestId);
+  else if ('setupRequestId' in named) openView({ kind: 'settings', section: 'connections/setup' });
   else if ('requestKey' in named) openView({ kind: 'review-request', id: named.requestKey });
   else if ('ticketKey' in named) openView({ kind: 'ticket', id: named.ticketKey });
   else openSession(named.sessionId);
 }
 
 function show(event: NotifyEvent, prefs: NotifyPrefs): void {
-  // A desk-only kind (another computer asking for set-up values) shows whatever the settings say (onboarding.md 19.13).
+  // A desk-only kind (another computer asking for set-up values, a device asking to join) shows whatever the settings say (onboarding.md 19.13; issue 72).
   if (!prefs.banner && !deskOnlyEvent(event)) return;
   // The shell hands back what it was given as `sessionId` when the banner is clicked: the target.
   if (shellShowsBanners()) return void shellBanner({ title: event.title, body: event.body, sessionId: targetOf(event) });
@@ -93,24 +96,26 @@ function show(event: NotifyEvent, prefs: NotifyPrefs): void {
 }
 
 /** What the last look saw (shared/notifications.ts); nothing until the server's first push, so what was already there is never news. */
-let seen: { rule: NotifySeen; sessions: unknown; reviewRequests: unknown; tickets: unknown; pullRequests: unknown; setupRequests: unknown } = { rule: NOTHING_SEEN, sessions: null, reviewRequests: null, tickets: null, pullRequests: null, setupRequests: null };
+let seen: { rule: NotifySeen; sessions: unknown; reviewRequests: unknown; tickets: unknown; pullRequests: unknown; setupRequests: unknown; joinRequests: unknown } = { rule: NOTHING_SEEN, sessions: null, reviewRequests: null, tickets: null, pullRequests: null, setupRequests: null, joinRequests: null };
 let asked = false;
 
 function check(): void {
   const state = appStore.get();
   const ws = state.workspace;
   if (!ws) return;
+  // Devices asking to join, as Settings → Connections lists them (the `connect` slice the server pushes); a desktop only.
+  const joinRequests = state.connect?.requests;
   // The settings are asked for once, when the server is first there; the page that edits them writes the same entry.
   if (!asked) {
     asked = true;
     void call<NotifyAnswer>(NOTIFICATIONS_PATH).then((answer) => putResource(NOTIFICATIONS_PATH, asNotifyPrefs(answer)), () => void (asked = false));
   }
-  if (seen.sessions === ws.sessions && seen.reviewRequests === state.reviewRequests && seen.tickets === state.tickets && seen.pullRequests === state.pullRequests && seen.setupRequests === state.setupValueRequests) return;
+  if (seen.sessions === ws.sessions && seen.reviewRequests === state.reviewRequests && seen.tickets === state.tickets && seen.pullRequests === state.pullRequests && seen.setupRequests === state.setupValueRequests && seen.joinRequests === joinRequests) return;
   const prefs = heldPrefs();
   const tab = tabsView().loaded ? activeTab(tabsView()) : undefined;
   // The one rule, which the desk's push sender also runs (server/src/connect/link/push.ts).
-  const next = notificationsOf(seen.rule, { sessions: ws.sessions, links: ws.links, pullRequests: state.pullRequests, attention: heldAttentionPrefs(), reviewRequests: state.reviewRequests, tickets: state.tickets, setupRequests: state.setupValueRequests }, prefs, { focused: document.hasFocus(), openSessionId: tab?.kind === 'session' ? tab.sessionId : null });
-  seen = { rule: next.seen, sessions: ws.sessions, reviewRequests: state.reviewRequests, tickets: state.tickets, pullRequests: state.pullRequests, setupRequests: state.setupValueRequests };
+  const next = notificationsOf(seen.rule, { sessions: ws.sessions, links: ws.links, pullRequests: state.pullRequests, attention: heldAttentionPrefs(), reviewRequests: state.reviewRequests, tickets: state.tickets, setupRequests: state.setupValueRequests, joinRequests: joinRequests ?? [] }, prefs, { focused: document.hasFocus(), openSessionId: tab?.kind === 'session' ? tab.sessionId : null });
+  seen = { rule: next.seen, sessions: ws.sessions, reviewRequests: state.reviewRequests, tickets: state.tickets, pullRequests: state.pullRequests, setupRequests: state.setupValueRequests, joinRequests };
   const told = notifies(prefs) ? next.events : next.events.filter(deskOnlyEvent);
   if (told.length === 0) return;
   told.forEach((event) => show(event, prefs));

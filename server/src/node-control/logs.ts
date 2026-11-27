@@ -1,4 +1,4 @@
-// `kestrel-node logs`: the terminal reads the node's log itself, so it works whether or not a node is running.
+// `kestrel node logs`: the terminal reads the node's log itself, so it works whether or not a node is running.
 // Under systemd the node logs to the journal (journalctl, for the unit); started by hand it writes Kestrel's own
 // log file (log-file.ts). Which one is decided purely (`logSourceOf`); reading it hands the terminal to that program.
 import { spawn } from 'node:child_process';
@@ -18,7 +18,7 @@ export interface LogFacts {
 export function logSourceOf(f: LogFacts): LogSource {
   if (f.service.manager === 'systemd' && f.service.installed && f.journalctl) return { from: 'journal' };
   if (f.logFileExists) return { from: 'file', path: f.logFile };
-  return { from: 'none', reason: `No log yet: the node is not installed as a service, and nothing has been written to ${f.logFile}. A node started by hand with "kestrel-node run" writes there.` };
+  return { from: 'none', reason: `No log yet: the node is not installed as a service, and nothing has been written to ${f.logFile}. A node started by hand with "kestrel node run" writes there.` };
 }
 
 /** The program and arguments that print (and, with -f, follow) the log. */

@@ -15,7 +15,7 @@ describe('startPlan', () => {
   });
 
   test('no user manager, no unit, or a node run by hand is refused with what to do instead', () => {
-    expect(startPlan({ manager: 'none' }, false)).toMatchObject({ do: 'refuse', reason: expect.stringContaining('kestrel-node run') });
+    expect(startPlan({ manager: 'none' }, false)).toMatchObject({ do: 'refuse', reason: expect.stringContaining('kestrel node run') });
     expect(startPlan({ manager: 'systemd', installed: false }, false)).toMatchObject({ do: 'refuse', reason: expect.stringContaining('Run the install again') });
     expect(startPlan(stopped, true)).toMatchObject({ do: 'refuse', reason: expect.stringContaining('started by hand is running') });
   });
@@ -41,7 +41,7 @@ describe('unitAction', () => {
     const asked: string[][] = [];
     const ok = await unitAction('start', async (args) => (asked.push([...args]), { ok: true, error: '' }));
     expect(asked).toEqual([['start', 'kestrel-node.service']]);
-    expect(ok).toEqual({ ok: true, line: 'Started kestrel-node.service. "kestrel-node status" says how it is.' });
+    expect(ok).toEqual({ ok: true, line: 'Started kestrel-node.service. "kestrel node status" says how it is.' });
     expect(await unitAction('stop', async () => ({ ok: false, error: 'Unit not loaded.' }))).toEqual({ ok: false, line: 'systemctl --user stop kestrel-node.service failed: Unit not loaded.' });
   });
 });

@@ -5,6 +5,7 @@
 import { SettingSection } from './SettingHelp.tsx';
 import { useState } from 'react';
 import { describeEntry, entryId, type FolderAccess, type InactiveEntry, type SandboxAllowView } from '@kestrel/server/sandbox-allow';
+import { INHERIT_LABEL } from '@kestrel/server/sandbox-inherit';
 import { ready, type Sourced } from '@kestrel/server/sourced';
 import { useResource } from '../data/resources.ts';
 import { act, call, OLDER_SERVER, putResource, RESTART_REASON } from '../store.ts';
@@ -83,9 +84,16 @@ function InactiveEntries({ inactive }: { inactive: readonly InactiveEntry[] }) {
 function SandboxAllowSettingControls() {
   const loaded = useResource(SANDBOX_ALLOW_PATH, asView).value;
   if (loaded.state !== 'ready') return <p className="settings-help">{loaded.state === 'loading' ? 'Loading…' : loaded.reason === RESTART_REASON ? OLDER_SERVER : loaded.reason}</p>;
-  const { entries, inactive = [] } = loaded.value;
+  const { entries, inactive = [], inherit } = loaded.value;
   return (
     <>
+      {/* Saves as it is changed (issue 74); an older server has no such switch. */}
+      {inherit !== undefined && (
+        <label className="tag-rule-switch">
+          <input type="checkbox" checked={inherit} onChange={(e) => void change({ method: 'PATCH', body: JSON.stringify({ inherit: e.target.checked }) })} />
+          {INHERIT_LABEL}
+        </label>
+      )}
       {entries.length > 0 ? (
         <ul className="tag-rules sandbox-allow-list">
           {entries.map((entry) => (
@@ -119,6 +127,11 @@ const HELP = (
     <p className="settings-help">
       Claude: applies to sessions started by another session (handoff, delegate, spawn), the ones whose commands run in a sandbox; a folder change takes effect from the session's next message. Codex: every session is sandboxed; read-and-write folders are
       writable in each turn, and in Auto a listed command or a request for more access to listed folders is accepted without a card. In Manual and Accept edits Codex still asks about every command.
+    </p>
+    <p className="settings-help">
+      The switch at the top is for sessions started by another session (handoff, delegate, spawn), which ask before a command leaves their sandbox. On, such a session in Auto runs those commands without asking whenever the session that
+      started it would not be asked either: one you started in Auto, or another such session that inherits. A session started by a Manual session still asks. It never puts a session in Bypass, and its file edits stay in its own worktree. Off
+      by default; the card that asks can turn it on too. OpenCode has no sandbox: there it is the commands OpenCode sees reaching outside the session's folder that stop asking.
     </p>
   </>
 );

@@ -127,7 +127,9 @@ export class AskDesk {
     }
     const opts = this.deps.opts();
     const call = ask.callID ? mapper.calls.get(ask.callID) : undefined;
-    const ctx = { policy: opencodePolicy(opts.permission), directory: opts.directory, root: mapper.root, confined: opts.confineShell === true, readable: opts.readableDirectories ?? [], sandboxAllow: opts.sandboxAllow, element: opts.browserElement };
+    const confined = opts.confineShell === true;
+    // Read at each ask: the switch and the modes above this session count as they are now (issue 74).
+    const ctx = { policy: opencodePolicy(opts.permission), directory: opts.directory, root: mapper.root, confined, inherits: confined && opts.outsideInherit?.allows() === true, offersChildren: confined && opts.outsideInherit?.offerable() === true, readable: opts.readableDirectories ?? [], sandboxAllow: opts.sandboxAllow, element: opts.browserElement };
     const decision = decide(ask, call, ctx, await this.offerFor(ask, mapper));
     if (decision.kind === 'reply') return this.reply(ask, decision.answer);
     const id = `opencode-${++this.seq}`;

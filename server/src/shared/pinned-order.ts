@@ -1,6 +1,6 @@
 // The order of the PINNED section. Pure, shared with the UI.
 //   - custom: the order the user dragged the pins into (as stored).
-//   - recent: pinned SESSIONS are ordered newest activity first, by the same rule and tie-breaks as
+//   - recent: pinned SESSIONS are ordered most recent first (working now ahead of the rest), by the same rule and tie-breaks as
 //     every other sidebar list (session-order.ts); a session is placed by the newest activity in
 //     its own row (itself and what hangs under it). Pinned PROJECTS and GROUPS do not move: they
 //     keep the places the user gave them, exactly as the PROJECTS list and the groups do outside
@@ -9,7 +9,7 @@
 import type { TreeNode } from '../model.ts';
 import type { PinnedRow } from './pinned-homes.ts';
 import { pinKey } from './pins.ts';
-import { keyOf, newestFirst, type Lookup, type OrderKey, type SessionOrder } from './session-order.ts';
+import { keyOf, newestFirst, recencyOfAll, type Lookup, type OrderKey, type SessionOrder } from './session-order.ts';
 
 const walk = (nodes: readonly TreeNode[], into: string[] = []): string[] => {
   for (const n of nodes) {
@@ -19,15 +19,17 @@ const walk = (nodes: readonly TreeNode[], into: string[] = []): string[] => {
   return into;
 };
 
-/** The newest key among `ids`, or null when none of them is known. */
+/** The newest key among `ids` (working when any is, as late as the latest: `recencyOfAll`), or null when none of them is known. */
 function newestOf(ids: readonly string[], lookup: Lookup): OrderKey | null {
   let best: OrderKey | null = null;
+  const keys: OrderKey[] = [];
   for (const id of ids) {
     if (!lookup(id)) continue;
     const key = keyOf(id, lookup);
+    keys.push(key);
     if (!best || newestFirst(key, best) < 0) best = key;
   }
-  return best;
+  return best && { ...best, ...recencyOfAll(keys) };
 }
 
 type SessionRow = Extract<PinnedRow, { kind: 'session' }>;

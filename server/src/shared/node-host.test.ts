@@ -35,10 +35,10 @@ describe('serviceLine', () => {
   });
 
   test('with no node answering, it says how to start one', () => {
-    expect(serviceLine({ manager: 'systemd', installed: true, active: false, mainPid: null }, null)).toContain('Start it with "kestrel-node start"');
-    expect(serviceLine({ manager: 'systemd', installed: false }, null)).toContain('"kestrel-node run"');
+    expect(serviceLine({ manager: 'systemd', installed: true, active: false, mainPid: null }, null)).toContain('Start it with "kestrel node start"');
+    expect(serviceLine({ manager: 'systemd', installed: false }, null)).toContain('"kestrel node run"');
     expect(serviceLine({ manager: 'none' }, null)).toContain('no systemd user manager');
-    expect(serviceLine(facts().service, null)).toContain('does not answer yet. See "kestrel-node logs"');
+    expect(serviceLine(facts().service, null)).toContain('does not answer yet. See "kestrel node logs"');
   });
 });
 
@@ -73,7 +73,7 @@ describe('hostLines and the offline status', () => {
   test('with no node answering, the terminal says so first, then what it can see', () => {
     const lines = offlineStatusLines('/home/user/.kestrel/node.sock', facts({ service: { manager: 'systemd', installed: true, active: false, mainPid: null } }));
     expect(lines[0]).toBe('No worker node is running here: nothing answers at /home/user/.kestrel/node.sock.');
-    expect(lines[1]).toContain('kestrel-node start');
+    expect(lines[1]).toContain('kestrel node start');
     expect(lines).toHaveLength(5);
   });
 });

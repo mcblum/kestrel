@@ -56,6 +56,29 @@ describe.each([
     expect((await ws.view()).sessions.map((s) => s.id)).toEqual(['own', 'r1', 'r2']);
   });
 
+  test('a session another computer runs can be pinned, reordered and unpinned here (issue 76)', async () => {
+    const { ws, take } = await desk();
+    await take([head('r1'), head('r2')]);
+    await ws.setPinned('session', 'r1', true);
+    await ws.setPinned('session', 'own', true);
+    expect((await ws.view()).pins.map((p) => p.id)).toEqual(['r1', 'own']);
+    // The state holds this computer's own sessions only, so only its own pins are in sight there.
+    expect((await ws.state()).pins.map((p) => p.id)).toEqual(['own']);
+    await ws.setPinOrder([{ kind: 'session', id: 'own' }, { kind: 'session', id: 'r1' }]);
+    expect((await ws.view()).pins.map((p) => p.id)).toEqual(['own', 'r1']);
+    await ws.setPinned('session', 'r1', false);
+    expect((await ws.view()).pins.map((p) => p.id)).toEqual(['own']);
+  });
+
+  test('a pinned session gone from the replica is out of sight, and one no computer has is refused', async () => {
+    const { ws, take } = await desk();
+    await take([head('r1')]);
+    await ws.setPinned('session', 'r1', true);
+    await take([]);
+    expect((await ws.view()).pins).toEqual([]);
+    await expect(ws.setPinned('session', 'nowhere', true)).rejects.toThrow(/No such session/);
+  });
+
   test('a remote session can be marked seen here', async () => {
     const { ws, take } = await desk();
     await take([head('r1')]);

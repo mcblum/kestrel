@@ -20,9 +20,11 @@ interface Props {
   /** The tooltip of the label itself: what the current mode does. On the label only, never on the
    *  menu under it, where it would show over every row as if it were that row's own. */
   help?: string;
+  /** Why Bypass cannot be switched on from here (a session on another computer): its row says so in place of Enable. */
+  bypassRefusal?: string;
 }
 
-export function ModePicker({ value, onChange, levels = ALL, agent, help }: Props) {
+export function ModePicker({ value, onChange, levels = ALL, agent, help, bypassRefusal }: Props) {
   const LISTED = PERMISSION_LEVELS.filter((m) => m.place === 'listed' && levels.includes(m.id));
   const BYPASS = PERMISSION_LEVELS.find((m) => m.place === 'bypass' && levels.includes(m.id));
   const [open, setOpen] = useState(false);
@@ -34,6 +36,7 @@ export function ModePicker({ value, onChange, levels = ALL, agent, help }: Props
   const choose = (next: PermissionLevel) => {
     setOpen(false);
     if (next === value) return;
+    if (next === SKIP_PROMPTS && bypassRefusal) return;
     // Bypassing every prompt is confirmed each time it is switched on; declining changes nothing.
     if (next === SKIP_PROMPTS && !window.confirm(SKIP_PROMPTS_CONFIRM)) return;
     onChange(next);
@@ -85,6 +88,8 @@ export function ModePicker({ value, onChange, levels = ALL, agent, help }: Props
               </span>
               {bypassing ? (
                 <Check className="mode-check" aria-label="On" />
+              ) : bypassRefusal ? (
+                <small className="mode-refusal">{bypassRefusal}</small>
               ) : (
                 <button type="button" className="mode-enable" onClick={() => choose(SKIP_PROMPTS)}>
                   Enable

@@ -7,6 +7,7 @@
 // (conversation-folds.ts, turns.ts, conversation-ends.ts).
 import type { ChatMessage } from '../model.ts';
 import { drawnInPlace } from './conversation-ends.ts';
+import { messagePreview } from './message-preview.ts';
 import { foldConversation, foldRoles, type Fold } from './conversation-folds.ts';
 import { turnFooters, type TurnFooter } from './turns.ts';
 
@@ -116,7 +117,9 @@ export function estimateRowHeight(row: ConversationRow): number {
   const footer = row.footer ? ESTIMATE.footer : 0;
   if (row.kind === 'place') return ESTIMATE.place + footer;
   if (row.kind === 'fold') return ESTIMATE.fold + footer;
-  const { text, activity } = row.message;
+  const { activity } = row.message;
+  // A long message from another session is drawn folded until the user opens it (message-preview.ts).
+  const text = messagePreview(row.message) ?? row.message.text;
   const lines = text.split('\n').reduce((n, line) => n + Math.max(1, Math.ceil(line.length / ESTIMATE.charsPerLine)), 0);
   const blocks = Math.floor((text.match(/```/g)?.length ?? 0) / 2);
   const steps = activity?.length && !row.textOnly ? ESTIMATE.steps : 0;

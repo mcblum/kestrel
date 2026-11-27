@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import type { NodeCommand, NodeReply } from '../shared/node-commands.ts';
 import { nodeInstallPaths, type ServiceState } from '../shared/node-service.ts';
 import { EMPTY_GIT_SETTINGS, nodeGitPaths, nodeGitSettingsText } from '../shared/node-git.ts';
-import { agentSignIns, isSymlink, nodeGitKey, NOT_RUNNING, removePath, sshPublicKeys, toolSignIns, uninstallFromTerminal, type UninstallDeps } from './uninstall-terminal.ts';
+import { agentSignIns, isKestrelLink, isSymlink, nodeGitKey, NOT_RUNNING, removePath, sshPublicKeys, toolSignIns, uninstallFromTerminal, type UninstallDeps } from './uninstall-terminal.ts';
 
 let home: string;
 beforeEach(() => {
@@ -20,6 +20,7 @@ function installed() {
   symlinkSync(join(paths.bundles, '0.0.34'), paths.current);
   mkdirSync(join(home, '.local', 'bin'), { recursive: true });
   symlinkSync(join(paths.current, 'bin', 'kestrel-node'), paths.link);
+  symlinkSync(join(paths.current, 'bin', 'kestrel-node'), paths.cli);
   mkdirSync(join(home, '.config', 'systemd', 'user'), { recursive: true });
   writeFileSync(paths.unit, '[Unit]\n');
   writeFileSync(join(paths.kestrel, 'kestrel.sqlite'), '');
@@ -72,7 +73,7 @@ function run(world: World) {
 
 const SERVICE_RUNNING: ServiceState = { manager: 'systemd', installed: true, active: true, mainPid: 5 };
 
-describe('kestrel-node uninstall', () => {
+describe('kestrel node uninstall', () => {
   test('asks first; anything but yes changes nothing', async () => {
     const paths = installed();
     const r = run({ answers: ['y'], service: SERVICE_RUNNING, running: true, reply: { ok: true, command: 'uninstall', message: 'left' } });
@@ -101,7 +102,7 @@ describe('kestrel-node uninstall', () => {
     expect(await r.done).toBe(0);
     expect(r.asked).toEqual(['uninstall']);
     expect(r.systemctl).toEqual([['disable', '--now', 'kestrel-node.service'], ['daemon-reload']]);
-    expect(existsSync(paths.unit) || existsSync(paths.bundles) || isSymlink(paths.link)).toBe(false);
+    expect(existsSync(paths.unit) || existsSync(paths.bundles) || isSymlink(paths.link) || isSymlink(paths.cli)).toBe(false);
     expect(existsSync(join(paths.kestrel, 'kestrel.sqlite'))).toBe(true);
     const text = r.lines.join('\n');
     expect(text).toContain('Removed this node from your Kestrel Connect account.');
@@ -195,6 +196,15 @@ describe('kestrel-node uninstall', () => {
     const r = run({ answers: ['yes', 'no'], service: SERVICE_RUNNING, running: true, reply: { ok: true, command: 'uninstall', message: 'left' } });
     expect(await r.done).toBe(0);
     expect(existsSync(paths.link)).toBe(true);
+  });
+
+  test('isKestrelLink: only a symlink into Kestrel’s bundles is the install’s own, never another program’s kestrel', () => {
+    const paths = installed();
+    expect(isKestrelLink(paths.cli)).toBe(true);
+    rmSync(paths.cli);
+    symlinkSync('/usr/local/lib/other/kestrel', paths.cli);
+    expect(isKestrelLink(paths.cli)).toBe(false);
+    expect(isKestrelLink(join(paths.kestrel, 'nothing-here'))).toBe(false);
   });
 
   test("deletes the node's git key even when the data folder is kept, and names its fingerprint and the hosts it was added to", async () => {

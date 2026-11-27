@@ -1,4 +1,4 @@
-// `kestrel-node git`'s checklist, drawn as the terminal draws it, against fake programs: every line, in both modes.
+// `kestrel node git`'s checklist, drawn as the terminal draws it, against fake programs: every line, in both modes.
 // The programs themselves (the stubs on PATH) are git-programs.test.ts; the tools' installer is git-tools-install.test.ts.
 import { describe, expect, test } from 'vitest';
 import type { JoinStep, NodeGitFacts, NodeJoinEvent } from '../shared/node-commands.ts';
@@ -160,7 +160,7 @@ const FRESH = (): Machine => ({
 /** The whole default path at a terminal: every answer as the person types it. */
 const DEFAULT_ANSWERS = ['', '', '', '', '', '', 'y', '', 'y', ''];
 
-describe('kestrel-node git, at a terminal: the default path', () => {
+describe('kestrel node git, at a terminal: the default path', () => {
   test('a fresh node: key, both hosts ticked, signing, name, gh installed and signed in, one yes per host, the email read, nothing left', async () => {
     const r = play(FRESH(), ASK, [...DEFAULT_ANSWERS], PRETTY);
     expect(await r.done).toBe(0);
@@ -259,7 +259,7 @@ describe('kestrel-node git, at a terminal: the default path', () => {
       '',
       '✓ Git on Worker node 1: the key works at 2 of 2 hosts; commits as Sam Rivera <sam@example.com>.',
       '',
-      'Next: kestrel-node status',
+      'Next: kestrel node status',
     ].join('\n'));
     expect(r.calls.filter((c) => / add |install|sign in/.test(c))).toEqual([
       'install gh',
@@ -331,7 +331,7 @@ describe('kestrel-node git, at a terminal: the default path', () => {
     expect(text).toContain('   gh could not read user/keys at github.com: HTTP 403: Resource not accessible by integration');
     expect(r.calls.filter((c) => c.startsWith('gh add github.com'))).toEqual([]);
     expect(text).toContain(
-      '6  Still to do\n   1. Add the key at github.com. At github.com: Settings -> SSH and GPG keys -> New SSH key, and paste the public half.\n   Then run kestrel-node git again to check it.\n\n' +
+      '6  Still to do\n   1. Add the key at github.com. At github.com: Settings -> SSH and GPG keys -> New SSH key, and paste the public half.\n   Then run kestrel node git again to check it.\n\n' +
         `       ${PUBLIC}\n`,
     );
     expect(r.lines.at(-3)).toBe('! Git on Worker node 1: the key works at 1 of 2 hosts; commits as Sam Rivera <sam@example.com>. 2 things to do.');
@@ -340,7 +340,7 @@ describe('kestrel-node git, at a terminal: the default path', () => {
   });
 });
 
-describe('kestrel-node git, by hand', () => {
+describe('kestrel node git, by hand', () => {
   test('--manual: no tool is installed, signed in or run; where to paste the key, and checked again on Enter', async () => {
     const m = { ...FRESH(), pastes: ['github.com', 'git.example.org'] };
     const r = play(m, { unattended: false, manual: true }, ['', 'n', '', '', '', '', 'sam@git.example.org', ''], PRETTY);
@@ -399,7 +399,7 @@ describe('kestrel-node git, by hand', () => {
       '',
       '! Git on Worker node 1: the key works at 2 of 2 hosts; commits as Sam Rivera <sam@example.com>. 2 things to do.',
       '',
-      '! Next: kestrel-node status',
+      '! Next: kestrel node status',
     ].join('\n'));
     expect(r.saved()).toMatchObject({ email: 'sam@example.com', hosts: { 'git.example.org': { answer: 'works', email: 'sam@git.example.org' }, 'github.com': { answer: 'works' } } });
     expect(r.saved()!.hosts['github.com']!.email).toBeUndefined();
@@ -436,7 +436,7 @@ describe('kestrel-node git, by hand', () => {
   });
 });
 
-describe('kestrel-node git when the account’s hosts are not known yet', () => {
+describe('kestrel node git when the account’s hosts are not known yet', () => {
   test('says why, never "none"; Enter checks again, w waits; once read, the hosts are offered', async () => {
     const unknown = { ...FACTS, repositories: [], accountUnknown: 'The account’s projects are not read yet: the node reads them shortly after it connects.' };
     const m = { ...FRESH(), node: unknown, later: [unknown, unknown, FACTS] };
@@ -452,18 +452,18 @@ describe('kestrel-node git when the account’s hosts are not known yet', () => 
   });
 
   test('carried on without them: the still-to-do list says to add the key at each git host, in general words', async () => {
-    const unknown = { ...FACTS, repositories: [], accountUnknown: 'This node is not in an account yet (`kestrel-node join`), so the account’s projects are not known.' };
+    const unknown = { ...FACTS, repositories: [], accountUnknown: 'This node is not in an account yet (`kestrel node join`), so the account’s projects are not known.' };
     const r = play({ ...FRESH(), node: unknown }, ASK, ['', 'c', '', 'n', '', ''], PLAIN);
     expect(await r.done).toBe(1);
     const text = r.lines.join('\n');
     expect(text).toContain('4  At your git hosts\n   No host to set up yet.');
-    expect(text).toContain('6  Still to do\n   1. Add the key at each git host your account\'s projects use (GitHub: Settings -> SSH and GPG keys -> New SSH key;\n   GitLab: Preferences -> SSH Keys), then run kestrel-node git again once the node has read your account.');
+    expect(text).toContain('6  Still to do\n   1. Add the key at each git host your account\'s projects use (GitHub: Settings -> SSH and GPG keys -> New SSH key;\n   GitLab: Preferences -> SSH Keys), then run kestrel node git again once the node has read your account.');
     expect(r.lines.at(-3)).toBe("! Git on Worker node 1: your account's hosts are not known yet; commits as Sam Rivera <sam@example.com>. 1 thing to do.");
     expect(text).not.toMatch(/0 of 0/);
   });
 
   test('the person may type a host the account could not tell', async () => {
-    const unknown = { ...FACTS, repositories: [], accountUnknown: 'This node is not in an account yet (`kestrel-node join`), so the account’s projects are not known.' };
+    const unknown = { ...FACTS, repositories: [], accountUnknown: 'This node is not in an account yet (`kestrel node join`), so the account’s projects are not known.' };
     const r = play({ ...FRESH(), node: unknown }, ASK, ['', 'c', 'github.com', 'n', '', '', '', 'y', ''], PLAIN);
     await r.done;
     expect(r.calls).toContain('sign in gh github.com');
@@ -471,7 +471,7 @@ describe('kestrel-node git when the account’s hosts are not known yet', () => 
   });
 });
 
-describe('kestrel-node git with --yes, or with no terminal', () => {
+describe('kestrel node git with --yes, or with no terminal', () => {
   test('installs the tools, prints the sign-in commands, does nothing at a host, keeps what is chosen, and lists what is left', async () => {
     const r = play(FRESH(), UNATTENDED, [], PLAIN);
     expect(await r.done).toBe(1);
@@ -494,7 +494,7 @@ describe('kestrel-node git with --yes, or with no terminal', () => {
       '3  Signing and your name',
       '   Mac mini signs its commits. A key never comes here from another computer, so commits made here are signed with this',
       '   node\'s own key, or not at all.',
-      '   Signing is not chosen. Run kestrel-node git at a terminal to choose.',
+      '   Signing is not chosen. Run kestrel node git at a terminal to choose.',
       '   Filled in from Mac mini\'s git settings.',
       '   ok: Commits made here are by Sam Rivera',
       '',
@@ -541,12 +541,12 @@ describe('kestrel-node git with --yes, or with no terminal', () => {
       '',
       '6  Still to do',
       '   1. Add the key at git.example.org. At git.example.org: Preferences -> SSH Keys -> Add new key, and paste the public',
-      '   half. Then run kestrel-node git again to check it.',
+      '   half. Then run kestrel node git again to check it.',
       '',
       `       ${PUBLIC}`,
       '',
       '   2. Add the key at github.com. At github.com: Settings -> SSH and GPG keys -> New SSH key, and paste the public half.',
-      '   Then run kestrel-node git again to check it.',
+      '   Then run kestrel node git again to check it.',
       '',
       `       ${PUBLIC}`,
       '',
@@ -560,7 +560,7 @@ describe('kestrel-node git with --yes, or with no terminal', () => {
       '',
       '! Git on Worker node 1: the key works at 0 of 2 hosts; commits as Sam Rivera <sam@example.com>. 4 things to do.',
       '',
-      '! Next: kestrel-node status',
+      '! Next: kestrel node status',
     ].join('\n'));
     expect(r.calls.filter((c) => /sign in|api| add /.test(c))).toEqual([]);
     expect(r.calls).toContain('install gh');
@@ -570,9 +570,9 @@ describe('kestrel-node git with --yes, or with no terminal', () => {
     const r = play({ ...FRESH(), node: null }, UNATTENDED, [], PLAIN);
     expect(await r.done).toBe(1);
     const text = r.lines.join('\n');
-    expect(text).toContain("The node is not running, so it cannot say which hosts your account's projects use. Start it (kestrel-node start).");
+    expect(text).toContain("The node is not running, so it cannot say which hosts your account's projects use. Start it (kestrel node start).");
     expect(text).toContain("Git on this-host: your account's hosts are not known yet; no commit name and email yet.");
-    expect(text).toContain('The node is not running; it uses this when it starts (kestrel-node start).');
+    expect(text).toContain('The node is not running; it uses this when it starts (kestrel node start).');
     expect(text).not.toMatch(/0 of 0/);
     expect(r.asked()).toBe(1);
   });

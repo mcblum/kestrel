@@ -1,4 +1,4 @@
-// The terminal's side of `kestrel-node join`: it sends the request, draws what the node says (join-draw.ts), asks the
+// The terminal's side of `kestrel node join`: it sends the request, draws what the node says (join-draw.ts), asks the
 // person for each answer the node asks for and sends it back, until the node says how it ended. Closing it (Ctrl-C, a
 // closed window) closes the connection, and the node withdraws what was under way (join-socket.ts).
 import { connect, type Socket } from 'node:net';
@@ -13,7 +13,7 @@ export interface JoinTerminal {
   ask(prompt: string): Promise<string>;
 }
 
-const NOT_UNDERSTOOD = 'The node sent something this kestrel-node does not understand, so the join was stopped.';
+const NOT_UNDERSTOOD = 'The node sent something this version of kestrel does not understand, so the join was stopped.';
 
 /** Plain ASCII at 80 columns: what a log or a script reads, and what tests read. */
 export const PLAIN_JOIN_STYLE: JoinStyle = { plain: true, width: 80 };
@@ -22,10 +22,10 @@ export const PLAIN_JOIN_STYLE: JoinStyle = { plain: true, width: 80 };
 export const STOPPED_EXIT = 130;
 
 /**
- * Holds the conversation; `done` resolves with the exit code (0 in, 1 not, `STOPPED_EXIT` stopped). `stop` ends it
+ * Holds the conversation (`options.next`: whether the closing "Next:" line is drawn); `done` resolves with the exit code (0 in, 1 not, `STOPPED_EXIT` stopped). `stop` ends it
  * from this side (Ctrl-C): the connection closes, and the node withdraws.
  */
-export function runJoinClient(path: string, terminal: JoinTerminal, style: JoinStyle = PLAIN_JOIN_STYLE): { done: Promise<number>; stop(): void } {
+export function runJoinClient(path: string, terminal: JoinTerminal, style: JoinStyle = PLAIN_JOIN_STYLE, options: { next: boolean } = { next: true }): { done: Promise<number>; stop(): void } {
   const socket: Socket = connect(path);
   let end: (code: number, last?: NodeJoinEvent & { event: 'end' }) => void = () => undefined;
   let drawing = JOIN_DRAW_START;
@@ -44,7 +44,8 @@ export function runJoinClient(path: string, terminal: JoinTerminal, style: JoinS
     end = (code, last) => {
       if (ended) return;
       ended = true;
-      if (last) draw(last);
+      // Inside `kestrel node configure` the last line names no next command: setup goes on to it.
+      if (last) draw(options.next ? last : { event: 'end', ok: last.ok, text: last.text });
       socket.end();
       resolve(code);
     };

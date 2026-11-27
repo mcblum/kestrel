@@ -28,6 +28,8 @@ import { appendFileSync, existsSync, readFileSync, realpathSync, statSync, write
 import { dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 
+/** The account's plan, as `account/rateLimits/read` answers it (codex-cli 0.167.2's RateLimitSnapshot). */
+const RATE_LIMITS = { limitId: 'codex', limitName: null, normalModelSlug: null, primary: { usedPercent: 37, windowDurationMins: 300, resetsAt: 1795010000 }, secondary: { usedPercent: 12, windowDurationMins: 10080, resetsAt: 1795400000 }, credits: null, individualLimit: null, spendControlReached: null, planType: 'plus', rateLimitReachedType: null };
 const scenario = process.env.FAKE_CODEX_SCENARIO ?? 'reply';
 const logFile = process.env.FAKE_CODEX_LOG;
 const send = (msg) => process.stdout.write(`${JSON.stringify(msg)}\n`);
@@ -153,6 +155,8 @@ async function runTurn(turnId, params) {
   notify('item/completed', { threadId: THREAD, turnId, item: { type: 'agentMessage', id: 'msg-1', text: 'hello' } });
   const usage = { totalTokens: 1000, inputTokens: 990, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 10, reasoningOutputTokens: 0 };
   notify('thread/tokenUsage/updated', { threadId: THREAD, turnId, tokenUsage: { total: usage, last: usage, modelContextWindow: 10000 } });
+  // A sparse rate-limit update, as codex-cli 0.167 sends one while a turn runs (RateLimitSnapshot): the 5-hour window only.
+  notify('account/rateLimits/updated', { rateLimits: { ...RATE_LIMITS, secondary: null, primary: { ...RATE_LIMITS.primary, usedPercent: 38 } } });
   complete(turnId, 'completed');
 }
 
@@ -170,6 +174,8 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       return reply({ userAgent: 'fake/0.0.0', codexHome: '/nonexistent', platformFamily: 'unix', platformOs: 'macos' });
     case 'initialized':
       return;
+    case 'account/rateLimits/read':
+      return reply({ ordinaryUsageAllowed: true, rateLimits: RATE_LIMITS, rateLimitsByLimitId: { codex: RATE_LIMITS }, rateLimitResetCredits: null, accountId: null, rateLimitUpsell: null });
     case 'account/read':
       return reply(scenario === 'signedout' ? { account: null, requiresOpenaiAuth: true } : { account: { type: 'chatgpt', email: null, planType: 'plus' }, requiresOpenaiAuth: true });
     case 'model/list':

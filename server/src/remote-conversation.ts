@@ -13,7 +13,7 @@
 //   answer (or there is no account to ask through). A finished session with a whole copy never says it.
 // - A page (`?last=` or `?before=&limit=`): from the kept copy; asked of the other computer only when the copy does
 //   not have the message the page starts from.
-import type { ChatMessage, SessionDetail, SessionView } from './model.ts';
+import type { ChatMessage, SessionDetail, SessionSettings, SessionView } from './model.ts';
 import type { RemoteRead } from './connect/link/remote-sessions.ts';
 import { PAGE_MAX } from './shared/connect-ops.ts';
 import type { Machine } from './shared/machines.ts';
@@ -33,6 +33,8 @@ export interface Kept {
   readAt: number | null;
   /** The head's stamp the copy was compared with; what the other computer answered is kept while it is the same. */
   stamp?: string;
+  /** Its model and mode as its head says them (issue 79): the row under the message box shows them at once. */
+  settings?: SessionSettings;
 }
 
 /** Reads a page of a session from the computer that runs it; `fresh` when the person asked again. */
@@ -107,7 +109,7 @@ export class RemoteConversations {
    */
   async detail(session: SessionView, machine: Machine, ask: PageAsk | null, again = false, archived = false): Promise<RemoteAnswer> {
     const kept = await this.deps.kept(session.id);
-    const base = { session, ...EMPTY_DETAIL, kestrelTools: 'unknown' as const, trail: [] };
+    const base = { session, ...EMPTY_DETAIL, kestrelTools: 'unknown' as const, trail: [], ...(kept.settings ? { settings: kept.settings } : {}) };
     if (ask) return this.page(session, machine, ask, kept, base);
 
     const asked = this.asked.get(session.id);

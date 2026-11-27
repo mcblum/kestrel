@@ -16,7 +16,7 @@
 //   - Under it, joined by the parent-to-child line, are the sessions the lead started (each with
 //     its own), then any other member, most recent activity first at each level. Each is two
 //     lines: its title, then its project and status.
-//   - Workstream rows reorder by drag. The rows under one are references: each session stays in
+//   - Workstream rows are most recent first where the session order is recent (`byWorkstreamRecency`), and reorder by drag; a dragged one keeps its place. The rows under one are references: each session stays in
 //     its own home too. They take no drops and cannot be reordered; dragging one out to a group, a
 //     project or PINNED moves the session itself, not the reference.
 // Not drawn at all while there is no workstream.
@@ -27,18 +27,18 @@ import type { TreeNode, WorkspaceState, Workstream } from '@kestrel/server/model
 import { arrange } from '@kestrel/server/sidebar';
 import { orderTree } from '@kestrel/server/session-order';
 import { workstreamDots } from '@kestrel/server/status';
-import { delegatedText, isComplete, workstreamShape, workstreamSummary } from '@kestrel/server/workstreams';
+import { byWorkstreamRecency, delegatedText, isComplete, workstreamShape, workstreamSummary } from '@kestrel/server/workstreams';
 import { WORKSTREAM_MIME } from '../labels.ts';
 import { cardTrigger } from '../hoverCardState.ts';
 import { opener, openSession, openView, type Route } from '../route.ts';
 import { actions, useApp } from '../store.ts';
-import { tabActions, useTabs } from '../tabsStore.ts';
+import { tabActions, useSessionOrder, useTabs } from '../tabsStore.ts';
 import { Heading, useSectionOpen } from './SidebarHeading.tsx';
 import { RenameInput } from './SidebarRename.tsx';
-import { FoldChevron, RowMore, RowOpen } from './SidebarRowParts.tsx';
+import { FoldToggle, RollupDots, RowMore, RowOpen, useFold } from './SidebarRowParts.tsx';
 import { RowIcons } from './RowIcons.tsx';
 import { InTag, InWorkstream, startDrag, useReorderTarget } from './sidebarDrag.ts';
-import { rollupLabel, rowDotClass } from './useRowDot.ts';
+import { rowDotClass } from './useRowDot.ts';
 import { useBroughtIn } from '../broughtIn.ts';
 import { BroughtInMark } from './BroughtInRequests.tsx';
 import { workstreamRequestsDescription } from '@kestrel/server/brought-in-requests';
@@ -61,7 +61,7 @@ interface BlockProps {
 
 function WorkstreamBlock({ workstream, present, onPage, activeId, workspace, renderNode }: BlockProps) {
   const { id, name, sessionIds } = workstream;
-  const open = useTabs((v) => !v.sidebar.collapsed.includes(foldKey(id)));
+  const { open, toggle } = useFold(foldKey(id));
   const seen = useApp((s) => s.seen);
   const renaming = useApp((s) => s.renaming === id);
   const byId = useApp((s) => s.sessionsById);
@@ -84,7 +84,6 @@ function WorkstreamBlock({ workstream, present, onPage, activeId, workspace, ren
   const state = onPage || (leadOpen && viaReference) ? ' active' : leadOpen ? ' open-elsewhere' : '';
   // The workstream's own colour, if it has one: its icon and the line down the side of its sessions (colours.ts).
   const tint = useWorkstreamTint(id);
-  const toggle = () => tabActions.toggleCollapsed(foldKey(id));
   const openLead = (newTab: boolean) => {
     if (!lead) return openView({ kind: 'workstream', id }, newTab);
     actions.openedFrom(lead.id, true);
@@ -102,7 +101,8 @@ function WorkstreamBlock({ workstream, present, onPage, activeId, workspace, ren
           draggable={!renaming && !renamingLead}
           onDragStart={startDrag(WORKSTREAM_MIME, id)}
           {...opener(openLead)}
-          onDoubleClick={() => actions.startRename(lead ? leadRename(lead.id) : id)}
+          // The lead's title renames as a session's does; with no lead the second line names the workstream, renamed only on the computer that holds it.
+          onDoubleClick={() => (lead || !workstream.heldOn) && actions.startRename(lead ? leadRename(lead.id) : id)}
           {...(lead && !renaming && !renamingLead ? cardTrigger({ kind: 'session', id: lead.id, lineage: { text: `Leads the workstream ${name} · ${summary}` } }) : {})}
           aria-description={`Leads the workstream ${name}: ${summary}`}
         >
@@ -114,18 +114,7 @@ function WorkstreamBlock({ workstream, present, onPage, activeId, workspace, ren
               </span>
               {/* After the title, as a project's chevron follows its name (Matt, 2026-11-22). */}
               {/* The fold; the row itself opens the lead's conversation. A span, since a button cannot hold a button. */}
-              <span
-                className="fold-toggle"
-                role="button"
-                tabIndex={0}
-                aria-expanded={open}
-                aria-label={`${open ? 'Hide' : 'Show'} the sessions of ${name}`}
-                onClick={(event) => (event.stopPropagation(), toggle())}
-                onDoubleClick={(event) => event.stopPropagation()}
-                onKeyDown={(event) => (event.key === 'Enter' || event.key === ' ') && (event.preventDefault(), event.stopPropagation(), toggle())}
-              >
-                <FoldChevron open={open} />
-              </span>
+              <FoldToggle open={open} toggle={toggle} label={`the sessions of ${name}`} />
             </span>
             <span className="tree-where">
               {renaming ? (
@@ -142,13 +131,7 @@ function WorkstreamBlock({ workstream, present, onPage, activeId, workspace, ren
           {/* The row's end marks, in one box at least as wide as the ↗ and … that take their place on hover or
               focus (organize.css), so the title does not move between the two. */}
           <span className="workstream-marks">
-            {dots.length > 0 && (
-              <span className="row-dots row-dot">
-                {dots.map((dot) => (
-                  <span key={dot} className={`status-dot ${dot}`} title={open ? undefined : rollupLabel(dot)} />
-                ))}
-              </span>
-            )}
+            <RollupDots dots={dots} folded={!open} />
             {/* The lead's own pull request and changed files, as on its row anywhere else. */}
             {lead && <RowIcons session={lead} hasDot={dots.length > 0} />}
             {/* After them, on the first line: how many open requests the sessions under it have, as the icon and a number, red with a cross when one needs you. */}
@@ -171,7 +154,11 @@ function WorkstreamBlock({ workstream, present, onPage, activeId, workspace, ren
 
 export function SidebarWorkstreams({ workspace, route, activeId, renderNode }: { workspace: WorkspaceState; route: Route | null; activeId: string | null; renderNode: (node: TreeNode) => ReactNode }) {
   const order = useTabs((v) => v.sidebar.workstreamOrder ?? NO_ORDER);
-  const workstreams = useMemo(() => arrange(workspace.workstreams, (w) => w.id, order), [workspace.workstreams, order]);
+  const recent = useSessionOrder() === 'recent';
+  const byId = useApp((s) => s.sessionsById);
+  // Most recent first (its most recent session's, working now first: `byWorkstreamRecency`) where the order is recent;
+  // a workstream the user dragged into place keeps that place either way.
+  const workstreams = useMemo(() => arrange(recent ? byWorkstreamRecency(workspace.workstreams, (id) => byId.get(id)) : workspace.workstreams, (w) => w.id, order), [workspace.workstreams, order, recent, byId]);
   const open = useSectionOpen('workstreams');
   if (workstreams.length === 0) return null;
   const shown = route?.view.kind === 'workstream' ? route.view.id : null;

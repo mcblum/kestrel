@@ -1,5 +1,6 @@
 // Settings, in the main canvas: a list of sections on the left, the chosen one on the right. App-wide
 // only: a project's own settings are on its page's Settings tab. Nothing opens in a panel from the side.
+import { PlanUsageOverview } from '../components/controls/PlanUsage.tsx';
 import type { SettingsSection } from '@kestrel/server/routes';
 import { useEffect } from 'react';
 import { TicketsSettings } from '../components/TicketsSetting.tsx';
@@ -95,6 +96,9 @@ function AgentSetup() {
         title="Agent setup"
         help={<p className="settings-help">What every session gets from your own agent setup, in every project and with no project. Set it once here. A project can be given its own setup on its Settings tab. Changes apply to sessions started from now on.</p>}
       />
+      <SettingSection title="Plan usage" help={<p className="settings-help">How much of each agent account's plan is used, as the agent itself reports it: Claude and Codex report their limit windows while a turn runs (and Codex once when it starts), so the figures are as of the last turn. OpenCode reports no plan limits; its cost and tokens are shown for each session. The same figures are under the message box. Kestrel never asks a provider itself.</p>}>
+        <PlanUsageOverview />
+      </SettingSection>
       <McpServersSetting />
       <section className="settings-section wide">
         <ProjectSetup mcpHelp={MCP_HELP} />

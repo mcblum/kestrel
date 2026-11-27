@@ -33,7 +33,7 @@ export interface NodeOptions extends Pick<StartOptions, 'dataDir' | 'port' | 'en
 export interface NodeHandle {
   server: KestrelHandle;
   control: ControlSocket;
-  /** The status as `kestrel-node status` shows it. */
+  /** The status as `kestrel node status` shows it. */
   status(): Promise<NodeStatus>;
   /** Stops the sessions' turns and the server (the timed shutdown), then closes the control socket. Once. */
   close(): Promise<void>;
@@ -105,7 +105,7 @@ export async function startNode(options: NodeOptions): Promise<NodeHandle> {
     if (!server) throw new Error('The node is still starting. Try again in a moment.');
     return agentStatesOf(server.runtime.availableAgents(), await server.runtime.recheckAgents(recheck));
   };
-  // `kestrel-node git` changed what Kestrel's git runs with: read again into the node's environment (the one it was
+  // `kestrel node git` changed what Kestrel's git runs with: read again into the node's environment (the one it was
   // started with; a test that gives none changes nothing), then say what only the node knows.
   const git = async () => {
     if (!server) throw new Error('The node is still starting. Try again in a moment.');

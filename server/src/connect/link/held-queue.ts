@@ -4,6 +4,8 @@
 // sent per session (token counts and the agent's category names): no conversation text and no key.
 import { existsSync, readFileSync } from 'node:fs';
 import type { ContextRow, ContextUsage } from '../../shared/context-usage.ts';
+import type { SessionSettings } from '../../model.ts';
+import { asSessionSettings } from '../../shared/machines.ts';
 import { writeAtomically } from './vault.ts';
 
 /** What one session's records held when they were last sent. */
@@ -18,6 +20,11 @@ export interface HeldSession {
   stamp: number;
   /** How many messages the conversation had. */
   count: number;
+  /**
+   * Its model and mode when it was last read, for its head (issue 79); null when it has none, absent when it was held
+   * before heads carried them (it is read again once).
+   */
+  settings?: SessionSettings | null;
 }
 
 export interface Delivery {
@@ -81,7 +88,7 @@ function asQueue(raw: unknown): QueueState {
   }
   const held: Record<string, HeldSession> = {};
   for (const [id, h] of Object.entries(q.held ?? {})) {
-    if (typeof h?.project === 'string') held[id] = { project: h.project, chunks: strings(h.chunks), files: strings(h.files), stamp: typeof h.stamp === 'number' ? h.stamp : 0, count: typeof h.count === 'number' ? h.count : 0 };
+    if (typeof h?.project === 'string') held[id] = { project: h.project, chunks: strings(h.chunks), files: strings(h.files), stamp: typeof h.stamp === 'number' ? h.stamp : 0, count: typeof h.count === 'number' ? h.count : 0, ...(h.settings === null ? { settings: null } : asSessionSettings(h.settings) ? { settings: asSessionSettings(h.settings) } : {}) };
   }
   return {
     v: 1,

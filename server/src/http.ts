@@ -1,11 +1,12 @@
 import { autopilotRoute } from './pull-requests/autopilot-api.ts';
 import { WORKSTREAM_NAME_MAX, WORKSTREAM_OBJECTIVE_MAX } from './shared/workstreams.ts';
+import { remoteWorkstreamRefusal } from './shared/account-workstreams.ts';
 import { landingRoute, worktreesRoute } from './landing-api.ts';
 // HTTP and WebSocket API. Thin: checks access, validates input, calls the Workspace.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { isSelectableAgent, SELECTABLE_AGENTS, type Agent, type ChatMessage, type Project, type SessionView } from './model.ts';
-import { conversationStamp, notReachedRead, remoteRefusal, whereIsMachine, type Machine } from './shared/machines.ts';
+import { conversationStamp, notReachedRead, notReachedSettings, remoteRefusal, whereIsMachine, type Machine } from './shared/machines.ts';
 import { notChangedHereRefusal, notHereRefusal } from './shared/account-projects.ts';
 import { thisComputer } from './shared/platform.ts';
 import { isPermissionLevel } from './shared/permissions.ts';
@@ -271,11 +272,11 @@ export function createKestrelServer(workspace: Workspace, givenPolicy: AccessPol
     read: options.connect ? (machine, id, page, opts) => options.connect!.remote.read(machine, id, page, opts) : null,
     kept: async (id) => {
       const kept = await options.connect?.replica?.conversation(id);
-      if (kept) return { messages: kept.messages, current: kept.current, readAt: kept.readAt, stamp: conversationStamp(kept.head) };
+      if (kept) return { messages: kept.messages, current: kept.current, readAt: kept.readAt, stamp: conversationStamp(kept.head), ...(kept.head.settings ? { settings: kept.head.settings } : {}) };
       // No account link here: the copy is whatever was kept, current when it was read whole at its head's stamp.
       const [head, mark] = await Promise.all([workspace.account.head(id), workspace.account.detailMark(id)]);
       const stamp = head ? conversationStamp(head) : undefined;
-      return { messages: await workspace.account.messages(id), current: stamp !== undefined && mark?.stamp === stamp, readAt: mark?.readAt ?? null, ...(stamp ? { stamp } : {}) };
+      return { messages: await workspace.account.messages(id), current: stamp !== undefined && mark?.stamp === stamp, readAt: mark?.readAt ?? null, ...(stamp ? { stamp } : {}), ...(head?.settings ? { settings: head.settings } : {}) };
     },
     publish: (id, messages) => live.publish(id, { messages }),
   });
@@ -362,7 +363,9 @@ export function createKestrelServer(workspace: Workspace, givenPolicy: AccessPol
     if (first) {
       void remote.readPullRequests(found.machine.id);
       void remote.snapshot(found.machine.id, id).then((answer) => {
-        if (!answer.ok) live.publish(id, { filesProblem: answer.reached ? answer.reason : notReachedRead('its changes', found.machine.name) });
+        // The model and mode row says why too, rather than vanishing (issue 79); null once that computer answered.
+        if (answer.ok) live.publish(id, { unreached: null });
+        else live.publish(id, { filesProblem: answer.reached ? answer.reason : notReachedRead('its changes', found.machine.name), unreached: answer.reached ? answer.reason : notReachedSettings(found.machine.name) });
       });
     }
     // Still watched once found: a window that closed meanwhile asks for nothing.
@@ -670,7 +673,7 @@ export function createKestrelServer(workspace: Workspace, givenPolicy: AccessPol
           return send(req, res, 200, { outcome });
         }
         else if (parts[3] === 'stop') await runtime.stop(id);
-        else await runtime.answer(id, str(body.requestId, 'requestId', 200), { optionId: typeof body.optionId === 'string' ? body.optionId : undefined, text: typeof body.text === 'string' ? body.text : undefined, answers: answersOf(body.answers) });
+        else await runtime.answer(id, str(body.requestId, 'requestId', 200), { optionId: typeof body.optionId === 'string' ? body.optionId : undefined, text: typeof body.text === 'string' ? body.text : undefined, answers: answersOf(body.answers), ...(body.confirmed === true ? { confirmed: true } : {}) });
         return send(req, res, 204);
       }
       if (runtime && method === 'POST' && parts.length === 4 && parts[3] === 'draft-summary') {
@@ -790,6 +793,13 @@ export function createKestrelServer(workspace: Workspace, givenPolicy: AccessPol
     // thinned, stopped and deleted. None of it moves or deletes a session.
     if (parts[1] === 'workstreams' && parts[2]) {
       const id = parts[2];
+      // One another computer holds is drawn here and changed only there (issue 83).
+      if (method !== 'GET') {
+        const view = await workspace.view();
+        const elsewhere = [...view.workstreams, ...view.archivedWorkstreams].find((w) => w.id === id);
+        const refusal = elsewhere ? remoteWorkstreamRefusal(elsewhere) : null;
+        if (refusal) throw new Refused(refusal);
+      }
       if (method === 'PATCH' && parts.length === 3) {
         const body = await readJson(req);
         if (body.name !== undefined) await workspace.renameWorkstream(id, str(body.name, 'name', WORKSTREAM_NAME_MAX));
@@ -941,6 +951,13 @@ async function files(req: IncomingMessage, res: ServerResponse, runtime: Session
     workspace.seen.view().then((seen) => ws.readyState === ws.OPEN && ws.send(JSON.stringify({ type: 'seen', seen })), (error) => console.error('[kestrel] could not send what was seen', error));
     workspace.accountOffers.view().then((offers) => ws.readyState === ws.OPEN && ws.send(JSON.stringify({ type: 'machine-offers', offers })), (error) => console.error('[kestrel] could not send what the other computers offer', error));
     options.whatsNew?.store.view().then((view) => ws.readyState === ws.OPEN && ws.send(JSON.stringify({ type: 'whats-new', view })), (error) => console.error('[kestrel] could not send what is new', error));
+    if (runtime && ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'plan-usage', usage: runtime.planUsage.view() }));
+  });
+
+  // Each agent account's plan usage, whole, whenever what a window draws changed (plan-usage.ts): never per token.
+  const unsubscribePlanUsage = runtime?.planUsage.onChange((usage) => {
+    const json = JSON.stringify({ type: 'plan-usage', usage });
+    for (const ws of sockets.clients) if (ws.readyState === ws.OPEN) ws.send(json);
   });
 
   // What's new, whole, whenever it changes: notes shown, or the switch.
@@ -1074,6 +1091,7 @@ async function files(req: IncomingMessage, res: ServerResponse, runtime: Session
         unsubscribeSeen();
         unsubscribeOffers();
         unsubscribeWhatsNew?.();
+        unsubscribePlanUsage?.();
         unsubscribeReviewRequests?.();
         unsubscribeTickets?.();
         unsubscribeConnect?.();

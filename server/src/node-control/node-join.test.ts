@@ -1,4 +1,4 @@
-// `kestrel-node join` end to end, with no network: a worker node (the real Connect module as kind `node`, its
+// `kestrel node join` end to end, with no network: a worker node (the real Connect module as kind `node`, its
 // control socket, the join flow) and a desktop of the account (two-desks.ts), on the fake service, relay and
 // identity provider. The node is driven through its socket as a terminal would drive it (join-client.ts).
 import { gitStatusOf } from '../shared/node-git-status.ts';
@@ -72,7 +72,7 @@ async function setup() {
 
 type Setup = Awaited<ReturnType<typeof setup>>;
 
-/** `kestrel-node join` in a terminal: every line printed, and each question answered by `answer`. */
+/** `kestrel node join` in a terminal: every line printed, and each question answered by `answer`. */
 function terminal(path: string, answer: (prompt: string) => Promise<string> = () => new Promise(() => undefined)) {
   const lines: string[] = [];
   const asked: string[] = [];
@@ -98,7 +98,7 @@ async function openAndReadCode(laptop: Desk, id: string, t: ReturnType<typeof te
   return t.said(/^ {7}\d{3} \d{3}$/)!.trim();
 }
 
-describe('kestrel-node join', () => {
+describe('kestrel node join', () => {
   test('signs in by a code typed on another device, asks to join as a node, and is let in by the two codes', async () => {
     // Arrange
     const s = await setup();
@@ -180,7 +180,7 @@ describe('kestrel-node join', () => {
     await openAndReadCode(s.laptop, request.id, t);
     for (let i = 0; i < 3; i++) await s.laptop.desk.typeCode(request.id, '000 000').catch(() => undefined);
     expect(await t.done).toBe(1);
-    expect(t.text()).toMatch(/Three wrong codes were typed on MacBook Pro\. Ask again if this was you\. Next: kestrel-node join$/);
+    expect(t.text()).toMatch(/Three wrong codes were typed on MacBook Pro\. Ask again if this was you\. Next: kestrel node join$/);
     expect(s.node.inAccount()).toBe(false);
   });
 
@@ -192,7 +192,7 @@ describe('kestrel-node join', () => {
     expect(await t.done).toBe(1);
     expect(t.asked).toHaveLength(3);
     expect(t.said(/That is not the code MacBook Pro shows\. 2 tries left\./)).toBeDefined();
-    expect(t.text()).toMatch(/Three wrong codes were typed, so Worker node 1 did not keep the key it was offered\..* Next: kestrel-node join$/);
+    expect(t.text()).toMatch(/Three wrong codes were typed, so Worker node 1 did not keep the key it was offered\..* Next: kestrel node join$/);
     expect(s.node.keys.ready()).toBeNull();
     expect(s.service.held.copies.has(s.node.device()!.id)).toBe(false);
   });

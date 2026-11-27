@@ -1,4 +1,4 @@
-// `kestrel-node git`'s programs for real, against stub ssh-keygen, ssh, gh and glab on PATH in a temporary HOME. The
+// `kestrel node git`'s programs for real, against stub ssh-keygen, ssh, gh and glab on PATH in a temporary HOME. The
 // stubs record how they were called; ssh accepts a host key into whatever known-hosts file it is told and answers as a
 // host would. No network, and the person's ~/.ssh and git configuration are checked to be untouched.
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -136,7 +136,7 @@ describe("the node's key", () => {
   test('a private half with no public half is left alone, with what to do', async () => {
     mkdirSync(join(dataDir, 'git'), { recursive: true });
     writeFileSync(join(dataDir, 'git', 'id_ed25519'), 'x');
-    expect(await programs().makeKey('c')).toEqual({ ok: false, reason: `${join(dataDir, 'git', 'id_ed25519')} is there without its public half. Move it away, then run kestrel-node git again.` });
+    expect(await programs().makeKey('c')).toEqual({ ok: false, reason: `${join(dataDir, 'git', 'id_ed25519')} is there without its public half. Move it away, then run kestrel node git again.` });
     expect(log()).toEqual([]);
   });
 

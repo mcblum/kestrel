@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { createProject } from '../../project-store.ts';
 import { BYPASS_FROM_ELSEWHERE } from '../../shared/connect-ops.ts';
 import { account, closeDesks, laptopWindow, remoteSession, type Desk } from './two-desks.ts';
+import { remoteRunningModes } from '../../shared/start-computer.ts';
 
 afterEach(closeDesks);
 
@@ -296,5 +297,60 @@ describe('a session on another computer, opened in a window here', () => {
     await until(() => w.live.some((l) => typeof l.patch.filesProblem === 'string'), 'the pane says why');
     expect(w.live.find((l) => typeof l.patch.filesProblem === 'string')!.patch.filesProblem).toMatch(/^Mac mini cannot be reached, so its changes cannot be shown now\./);
     expect((await w.call('GET', `/api/sessions/${session.id}/git`)).body?.error).toMatch(/^Mac mini cannot be reached/);
+  });
+});
+
+// Issue 79 (Matt, 2026-11-27: "why not just allow the user to see / change as if it were local?"). Through the desks
+// and the fake relay alone, no window here, so these run where a test may not open a port.
+describe.each(SELECTABLE_AGENTS)('the model and mode of a %s session on another computer (issue 79)', (agent) => {
+  const headHere = async (laptop: Desk, id: string) => (await laptop.workspace.account.head(id))?.settings;
+
+  it('are read here from its head, and changed there by a desktop’s reply, every mode its agent has but Bypass', async () => {
+    const a = await account();
+    const session = await remoteSession(a, agent, 1);
+    const there = a.mini.runtime.overlay(session.id)!.settings!;
+    expect(await headHere(a.laptop, session.id)).toEqual(there);
+
+    const modes = remoteRunningModes((await a.mini.runtime.capabilities(agent)).permissions, there.permission).filter((m) => m !== 'bypass' && m !== there.permission);
+    expect(modes.length).toBeGreaterThan(0);
+    for (const permission of modes) {
+      const answer = await a.laptop.desk.remote.ask(a.mini.id(), 'session.reply', { sessionId: session.id, text: `now in ${permission}`, model: 'faster-model', permission });
+      expect(answer).toMatchObject({ ok: true });
+      await a.mini.settle();
+      expect(a.mini.runtime.overlay(session.id)!.settings).toMatchObject({ model: 'faster-model', permission });
+    }
+    // Said in its head, so every computer of the account shows it at once.
+    await a.mini.desk.held!.run();
+    await a.laptop.desk.replica!.run();
+    await until(async () => (await headHere(a.laptop, session.id))?.permission === modes.at(-1), 'the new mode reaches the head here');
+    expect(await headHere(a.laptop, session.id)).toMatchObject({ model: 'faster-model' });
+  });
+
+  it('never switches Bypass on from another computer, and a session in Bypass there shows it and may leave it', async () => {
+    const a = await account();
+    const session = await remoteSession(a, agent, 1);
+    const refused = await a.laptop.desk.remote.ask(a.mini.id(), 'session.reply', { sessionId: session.id, text: 'go', permission: 'bypass' });
+    expect(refused).toEqual({ ok: false, reached: true, reason: BYPASS_FROM_ELSEWHERE });
+    await a.mini.settle();
+    expect(a.mini.runtime.overlay(session.id)!.settings?.permission).not.toBe('bypass');
+
+    // Switched on at that computer's own window: shown here as Bypass, and changed away from it from here.
+    await a.mini.runtime.reply(session.id, 'at the desk', { permission: 'bypass' });
+    await a.mini.settle();
+    await a.mini.desk.held!.run();
+    await a.laptop.desk.replica!.run();
+    await until(async () => (await headHere(a.laptop, session.id))?.permission === 'bypass', 'Bypass shows here');
+    expect(await a.laptop.desk.remote.ask(a.mini.id(), 'session.reply', { sessionId: session.id, text: 'calmer', permission: 'auto' })).toMatchObject({ ok: true });
+    await a.mini.settle();
+    expect(a.mini.runtime.overlay(session.id)!.settings?.permission).toBe('auto');
+  });
+
+  it('are still shown from the head while that computer cannot be reached, and a change is refused naming it', async () => {
+    const a = await account();
+    const session = await remoteSession(a, agent, 1);
+    await a.mini.desk.setEnabled(false);
+    expect(await headHere(a.laptop, session.id)).toMatchObject({ permission: a.mini.runtime.overlay(session.id)!.settings!.permission });
+    const answer = await a.laptop.desk.remote.ask(a.mini.id(), 'session.reply', { sessionId: session.id, text: 'go', permission: 'auto' });
+    expect(answer).toMatchObject({ ok: false, reached: false });
   });
 });

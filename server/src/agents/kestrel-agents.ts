@@ -1,4 +1,4 @@
-// Kestrel's own agents folder on a worker node (docs/designs/worker-nodes.md, section 6): `kestrel-node agents`
+// Kestrel's own agents folder on a worker node (docs/designs/worker-nodes.md, section 6): `kestrel node agents`
 // installs Codex and OpenCode there with the bundle's npm, never globally, and the node looks there first. One place
 // says where it is and how a program in it is run, so "installed for the terminal" and "found by the node" are the
 // same thing. The desktop app never looks there: the lookup asks `hostKind`.
@@ -15,7 +15,7 @@ export const agentsFolder = (dataDir: string): string => join(dataDir, 'agents')
 /** Where npm puts the agents' programs inside it. */
 export const agentsBin = (dataDir: string): string => join(agentsFolder(dataDir), 'node_modules', '.bin');
 
-/** Kestrel's tools folder on a node: gh and glab, as `kestrel-node git` installs them (shared/node-git-tools.ts). Programs only. */
+/** Kestrel's tools folder on a node: gh and glab, as `kestrel node git` installs them (shared/node-git-tools.ts). Programs only. */
 export const toolsFolder = (dataDir: string): string => join(dataDir, 'tools');
 
 /** Where the tools' programs are, first on the node's PATH after the agents' so the pull-request code finds them. */

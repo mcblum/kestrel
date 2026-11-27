@@ -38,7 +38,8 @@ export function PageHeader({
   actions,
   mark,
 }: {
-  title: string;
+  /** None where the page's name is said elsewhere (the Overview's, in its top bar): the line and the actions lead. */
+  title?: string;
   /** `newTab` is a shift, Cmd or middle click. */
   onNewSession?: (newTab: boolean) => void;
   newLabel?: string;
@@ -53,10 +54,12 @@ export function PageHeader({
   return (
     <header className="page-head">
       <div className="page-head-top">
-        <div className="page-head-title">
-          {mark}
-          <h1>{title}</h1>
-        </div>
+        {title !== undefined && (
+          <div className="page-head-title">
+            {mark}
+            <h1>{title}</h1>
+          </div>
+        )}
         {(onNewSession || menu || actions) && (
           <div className="page-head-actions">
             {actions}
@@ -65,7 +68,7 @@ export function PageHeader({
                 <Plus aria-hidden /> {newLabel}
               </button>
             )}
-            {menu && <HeaderMore kind={menu.kind} id={menu.id} name={title} />}
+            {menu && <HeaderMore kind={menu.kind} id={menu.id} name={title ?? ''} />}
           </div>
         )}
       </div>

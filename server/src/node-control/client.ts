@@ -1,4 +1,4 @@
-// The terminal's side of the control socket: `kestrel-node status` and `kestrel-node stop` ask a running node and
+// The terminal's side of the control socket: `kestrel node status` and `kestrel node stop` ask a running node and
 // print its answer. When no node is running, a plain sentence and a non-zero exit, never a stack trace.
 import { connect } from 'node:net';
 import type { Agent } from '../model.ts';
@@ -9,7 +9,7 @@ const ANSWER_TIMEOUT_MS = 10_000;
 /** Uninstalling asks git about every worktree and the service to remove the node, `agents` starts each agent to ask it, and `git` reads the other computers' records: they are given longer. */
 const SLOW_ANSWER_MS: Partial<Record<NodeCommand, number>> = { uninstall: 120_000, agents: 60_000, git: 30_000 };
 
-export const noNodeRunning = (path: string): string => `No worker node is running here: nothing answers at ${path}. Start it with "kestrel-node run".`;
+export const noNodeRunning = (path: string): string => `No worker node is running here: nothing answers at ${path}. Start it with "kestrel node run".`;
 
 /**
  * Sends one command and resolves with the node's answer, or rejects with a sentence saying why there is none.

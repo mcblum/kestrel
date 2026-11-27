@@ -1,4 +1,4 @@
-// What `kestrel-node git` runs, in the terminal (git-checklist.ts): `ssh-keygen` to make the node's key and read
+// What `kestrel node git` runs, in the terminal (git-checklist.ts): `ssh-keygen` to make the node's key and read
 // fingerprints, `ssh -T` to test the key at a host with Kestrel's own known hosts, and `gh` and `glab`: installed into
 // Kestrel's tools folder at their pins (git-tools-install.ts), signed in by their own sign-in with the person's
 // terminal, asked whether they are signed in (by exit code only), and used for three read-only API calls (the key
@@ -109,7 +109,7 @@ export function gitPrograms(ctx: GitProgramsContext): GitPrograms {
         return found ? { ok: true, fingerprint: found, made: false } : { ok: false, reason: `The key in ${paths.folder} could not be read by ssh-keygen.` };
       }
       if (!has('ssh-keygen')) return { ok: false, reason: 'ssh-keygen is not installed here. An administrator installs it with the openssh-client package (openssh on some systems).' };
-      if (existsSync(paths.key)) return { ok: false, reason: `${paths.key} is there without its public half. Move it away, then run kestrel-node git again.` };
+      if (existsSync(paths.key)) return { ok: false, reason: `${paths.key} is there without its public half. Move it away, then run kestrel node git again.` };
       folder();
       const made = await run('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', comment, '-f', paths.key]);
       if (made.code !== 0 || !existsSync(paths.key)) return { ok: false, reason: `ssh-keygen could not make the key: ${lastLineOf(made.output) ?? `it ended with exit code ${made.code}`}.` };

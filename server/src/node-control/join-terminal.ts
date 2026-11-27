@@ -1,11 +1,12 @@
-// `kestrel-node join` in a real terminal: lines printed, answers read from the keyboard, and Ctrl-C or a closed
+// `kestrel node join` in a real terminal: lines printed, answers read from the keyboard, and Ctrl-C or a closed
 // terminal stopping the join (the node withdraws what was under way). The conversation itself is join-client.ts; how
 // it looks is join-draw.ts, plain ASCII when the output is not a terminal, NO_COLOR is set or TERM is dumb.
 import { createInterface } from 'node:readline';
 import { runJoinClient, STOPPED_EXIT } from './join-client.ts';
 import { joinStyleOf } from './join-draw.ts';
 
-export async function joinFromTerminal(path: string): Promise<number> {
+/** `options.next`: whether the closing "Next:" line is drawn (`kestrel node configure` goes on to it itself). */
+export async function joinFromTerminal(path: string, options: { next: boolean } = { next: true }): Promise<number> {
   const lines = createInterface({ input: process.stdin, output: process.stdout, terminal: process.stdin.isTTY === true });
   const waiting = new Set<(error: Error) => void>();
   let finished = false;
@@ -20,7 +21,7 @@ export async function joinFromTerminal(path: string): Promise<number> {
           resolve(answer);
         });
       }),
-  }, joinStyleOf({ isTTY: process.stdout.isTTY === true, columns: process.stdout.columns }, process.env));
+  }, joinStyleOf({ isTTY: process.stdout.isTTY === true, columns: process.stdout.columns }, process.env), options);
   const stopped = () => {
     if (finished) return;
     finished = true;

@@ -3,6 +3,7 @@
 // child's event stream is read for as long as it lives; a turn ends when OpenCode says the session
 // is idle. A child that dies is reported as a failed turn with what it printed; the next message
 // starts a new child and resumes the session, as a restart of Kestrel does.
+import { addTokens, type TurnTokens } from '../../shared/plan-usage.ts';
 import type { ContextUsage } from '../../shared/context-usage.ts';
 import type { PermissionLevel } from '../../shared/permissions.ts';
 import type { ElementLookup } from '../claude/describe.ts';
@@ -174,10 +175,12 @@ export class OpencodeHandle implements AgentHandle {
       if (this.stopping) return { type: 'done', reason: 'stopped' };
       let message: { text: string; attachments?: readonly AgentAttachment[] } | null = { text, attachments };
       let cost = 0;
+      let tokens: TurnTokens | null = null;
       while (message) {
         const outcome = await this.oneTurn(client, message.text, message.attachments);
         cost += outcome.costUsd;
-        const end = turnEnd(outcome, this.stopping, this.gaveUp, cost);
+        tokens = addTokens(tokens, outcome.tokens);
+        const end = turnEnd(outcome, this.stopping, this.gaveUp, cost, tokens);
         if (end.type !== 'done' || end.reason !== 'complete' || !opencodePolicy(this.opts.permission).plan || !outcome.text) return end;
         message = await this.afterPlan(outcome.text);
         if (!message) return { ...end, reason: this.stopping ? 'stopped' : 'complete' };
@@ -208,7 +211,7 @@ export class OpencodeHandle implements AgentHandle {
       late.abort();
       this.waiter = null;
       await this.reportContext(mapper);
-      return turnEnd({ error: mapper.lastError, text: mapper.lastText, costUsd: mapper.usage.costUsd }, this.stopping, this.gaveUp, mapper.usage.costUsd);
+      return turnEnd({ error: mapper.lastError, text: mapper.lastText, costUsd: mapper.usage.costUsd }, this.stopping, this.gaveUp, mapper.usage.costUsd, mapper.usage.tokens);
     } catch (error) {
       if (this.stopping || error instanceof TurnAbandoned) return { type: 'done', reason: 'stopped' };
       if (error instanceof OpencodeUnavailable) return { type: 'failed', reason: error.message, kind: error.kind === 'auth' ? 'auth' : 'other' };
@@ -245,7 +248,7 @@ export class OpencodeHandle implements AgentHandle {
       const unread = this.midTurn.unread();
       if (unread.length) this.emit({ type: 'unread', ids: unread });
     }
-    const outcome: TurnOutcome = { error: mapper.lastError, text: mapper.lastText, costUsd: mapper.usage.costUsd };
+    const outcome: TurnOutcome = { error: mapper.lastError, text: mapper.lastText, costUsd: mapper.usage.costUsd, tokens: mapper.usage.tokens };
     await this.reportContext(mapper);
     return outcome;
   }

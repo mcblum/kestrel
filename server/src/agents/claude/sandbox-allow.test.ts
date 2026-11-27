@@ -2,7 +2,8 @@
 // with, commands on it skip the card, and the card offers to add the command or folder.
 import { describe, expect, it } from 'vitest';
 import { NO_TOOLS } from '../test-support.ts';
-import type { AgentEvent, InputRequest, SandboxAllowAccess } from '../types.ts';
+import type { AgentEvent, InputRequest, OutsideInherit, SandboxAllowAccess } from '../types.ts';
+import { ALWAYS_CHILDREN, ALWAYS_CHILDREN_LABEL } from '../../shared/sandbox-inherit.ts';
 import type { SandboxAllowEntry, SandboxOffer } from '../../shared/sandbox-allow.ts';
 import { claudeAdapter } from './index.ts';
 import { sandboxBounds, shellSandbox } from './sandbox.ts';
@@ -24,7 +25,7 @@ function listOf(initial: SandboxAllowEntry[], offer: SandboxOffer = {}) {
   return { access, offers, set: (next: SandboxAllowEntry[]) => (entries = next) };
 }
 
-function child(access: SandboxAllowAccess, permission: 'ask' | 'auto' = 'auto') {
+function child(access: SandboxAllowAccess, permission: 'ask' | 'auto' = 'auto', outsideInherit?: OutsideInherit) {
   let hook: any;
   let canUseTool: any;
   const calls: any[] = [];
@@ -35,7 +36,7 @@ function child(access: SandboxAllowAccess, permission: 'ask' | 'auto' = 'auto') 
     return Object.assign((async function* () { yield done; })(), { interrupt: async () => undefined });
   }) as any;
   const events: AgentEvent[] = [];
-  const handle = claudeAdapter(runQuery).start({ directory: '/w/child', instruction: 'x', tools: NO_TOOLS, permission, confineShell: true, sandboxAllow: access }, 'go', (e) => events.push(e));
+  const handle = claudeAdapter(runQuery).start({ directory: '/w/child', instruction: 'x', tools: NO_TOOLS, permission, confineShell: true, sandboxAllow: access, ...(outsideInherit ? { outsideInherit } : {}) }, 'go', (e) => events.push(e));
   const verdict = async (input: Record<string, unknown>, useId?: string) => (await hook({ tool_name: 'Bash', tool_input: input, ...(useId ? { tool_use_id: useId } : {}) }))?.hookSpecificOutput?.permissionDecision;
   const card = async (input: Record<string, unknown>, id = 'b1') => {
     const pending = canUseTool('Bash', input, { signal: new AbortController().signal, toolUseID: id });
@@ -170,5 +171,40 @@ describe('a command another hook rewrote', () => {
     s.handle.answer('u5', { optionId: 'allow-outside' });
     await pending;
     expect(await s.approve(outside('rtk make again'), 'u6')).toMatchObject({ behavior: 'allow' });
+  });
+});
+
+// Issue 74: a child whose starter would not be asked, once the user switched it on, is not asked either.
+describe('a session another session started, with the switch for such sessions', () => {
+  it('runs a command outside the sandbox without a card while the switch lets it, read at each command', async () => {
+    let on = true;
+    const s = child(listOf([]).access, 'auto', { allows: () => on, offerable: () => !on });
+    expect(await s.verdict(outside('git push'))).toBe('allow');
+    expect(await s.approve(outside('git push'), 'i1')).toMatchObject({ behavior: 'allow' });
+    on = false;
+    expect(await s.verdict(outside('git push'))).toBe('ask');
+    // A command inside the sandbox still follows the mode.
+    on = true;
+    expect(await s.verdict({ command: 'ls' })).toBeUndefined();
+  });
+
+  it('offers to turn the switch on, on the card of a child it would let through; the choice passed on as Allow allows it', async () => {
+    const s = child(listOf([]).access, 'auto', { allows: () => false, offerable: () => true });
+    const { request, pending } = await s.card(outside('make $(x)'));
+    expect(request.options).toEqual([
+      { id: 'allow', label: 'Allow', role: 'allow' },
+      { id: ALWAYS_CHILDREN, label: ALWAYS_CHILDREN_LABEL, role: 'allow' },
+      { id: 'allow-outside', label: 'Allow all outside the sandbox', role: 'allow' },
+      { id: 'deny', label: 'Deny', role: 'deny' },
+    ]);
+    // The runtime turns the switch on and passes the choice on as Allow (sandbox-allow/store.ts answerCard).
+    s.handle.answer('b1', { optionId: 'allow' });
+    expect(await pending).toMatchObject({ behavior: 'allow' });
+  });
+
+  it('does not offer it where it would change nothing for this session (its starter would be asked)', async () => {
+    const s = child(listOf([]).access, 'ask', { allows: () => false, offerable: () => false });
+    const { request } = await s.card(outside('make $(x)'));
+    expect(request.options.map((o) => o.id)).toEqual(['allow', 'allow-outside', 'deny']);
   });
 });

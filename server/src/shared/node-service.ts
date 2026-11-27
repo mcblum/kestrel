@@ -13,8 +13,13 @@ export const NODE_UNIT_NAME = 'kestrel-node.service';
  */
 export const UNIT_STOP_TIMEOUT_S = Math.ceil(SHUTDOWN_DEADLINE_MS / 1000) + 12;
 
-/** The installed bundle's launcher, as the unit names it (`%h` is the user's home folder). */
-export const UNIT_LAUNCHER = '%h/.kestrel/node/current/bin/kestrel-node';
+/**
+ * The installed bundle's launcher, as the unit names it (`%h` is the user's home folder): `bin/kestrel`, the bundle's
+ * link to `bin/kestrel-node`. The install switches `current` to the new bundle before it writes this unit and restarts,
+ * and the new bundle still takes the old unit's `kestrel-node run`, so the service runs whichever unit systemd has
+ * loaded. Going back to an older version is `kestrel upgrade <version>`, which writes that version's unit again.
+ */
+export const UNIT_LAUNCHER = '%h/.kestrel/node/current/bin/kestrel';
 
 /**
  * The `systemd --user` unit. Everything a node needs from its environment (the bundle's Node first on PATH, the
@@ -23,9 +28,9 @@ export const UNIT_LAUNCHER = '%h/.kestrel/node/current/bin/kestrel-node';
  */
 export function serviceUnitText(): string {
   return [
-    '# Kestrel worker node. Written by the install (install-node.sh) from the bundle; an upgrade writes it again.',
+    '# Kestrel worker node. Written by the install (install.sh) from the bundle; an upgrade writes it again.',
     '# Lingering keeps it running with nobody logged in, and starts it after a reboot. Only an administrator can',
-    '# turn it on:  sudo loginctl enable-linger <user>      Status: kestrel-node status',
+    '# turn it on:  sudo loginctl enable-linger <user>      Status: kestrel node status',
     '[Unit]',
     'Description=Kestrel worker node',
     'After=network-online.target',
@@ -33,7 +38,7 @@ export function serviceUnitText(): string {
     '',
     '[Service]',
     'Type=simple',
-    `ExecStart=${UNIT_LAUNCHER} run`,
+    `ExecStart=${UNIT_LAUNCHER} node run`,
     // The server ends its sessions' turns on SIGTERM, within SHUTDOWN_DEADLINE_MS.
     'KillSignal=SIGTERM',
     `TimeoutStopSec=${UNIT_STOP_TIMEOUT_S}`,
@@ -56,8 +61,10 @@ export interface NodeInstallPaths {
   bundles: string;
   current: string;
   unit: string;
-  /** The link on the user's PATH. */
+  /** The link on the user's PATH by the command's first name, `kestrel-node`. */
   link: string;
+  /** The link on the user's PATH by the name people type, `kestrel`. */
+  cli: string;
 }
 
 /** Joined with `/`: a node is Linux, and this file stays free of Node's modules. */
@@ -69,6 +76,7 @@ export function nodeInstallPaths(home: string): NodeInstallPaths {
     current: at('.kestrel', 'node', 'current'),
     unit: at('.config', 'systemd', 'user', NODE_UNIT_NAME),
     link: at('.local', 'bin', 'kestrel-node'),
+    cli: at('.local', 'bin', 'kestrel'),
   };
 }
 

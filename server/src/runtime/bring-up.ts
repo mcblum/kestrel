@@ -239,12 +239,13 @@ export async function restartUnstarted(host: BringUpHost, session: Session, rec:
  * brief as its first message. Failure is returned, not thrown, so the caller's tool can tell its
  * agent plainly.
  */
-export async function launchChild(host: BringUpHost, child: Session, project: Project, source: ProjectFolder | null, prompt: string, origin: ChildOrigin, model: string, parentPermission: PermissionLevel | undefined, speed: Pick<SessionSettings, 'effort' | 'fast'> = {}, hosted?: { guest: Guest; host: Pick<Session, 'worktreePath' | 'branch'> }, roleRun: RoleRun | null = null): Promise<{ ok: true } | { ok: false; reason: string }> {
+export async function launchChild(host: BringUpHost, child: Session, project: Project, source: ProjectFolder | null, prompt: string, origin: ChildOrigin, model: string, parentPermission: PermissionLevel | undefined, speed: Pick<SessionSettings, 'effort' | 'fast'> = {}, hosted?: { guest: Guest; host: Pick<Session, 'worktreePath' | 'branch'> }, roleRun: RoleRun | null = null, spawnedBy: string | null = null): Promise<{ ok: true } | { ok: false; reason: string }> {
+  // `spawnedBy`: the session that spawned it (no link says so), for whether it inherits leaving the sandbox (issue 74).
   // `speed`: the effort and fast mode of the role's preset, when the child was started for a role (shared/who-does-what.ts).
   const settings: SessionSettings = { model, permission: childPermission(parentPermission), ...(speed.effort ? { effort: speed.effort } : {}), ...(speed.fast ? { fast: true } : {}) };
-  const rec = newRecord({ settings, spawned: origin === 'spawn', guest: hosted?.guest ?? null, roleRun }, null);
+  const rec = newRecord({ settings, spawned: origin === 'spawn', spawnedBy: origin === 'spawn' ? spawnedBy : null, guest: hosted?.guest ?? null, roleRun }, null);
   host.records.set(child.id, rec);
-  host.apply(child.id, rec, { type: 'user', id: `user-${randomUUID()}`, text: prompt });
+  host.apply(child.id, rec, { type: 'user', id: `user-${randomUUID()}`, text: prompt, byAgent: true });
   // Nobody is there to ask where it starts: the project's remembered answer, else the default branch.
   const base = effectiveBase(undefined, await host.startBase.remembered(project.id), 'default');
   // Only a title that fell back to the brief is generated: an explicit one is kept.
@@ -270,6 +271,7 @@ export async function loadRecord(host: Pick<RuntimeHost, 'workspace' | 'records'
   // News that was waiting for its next turn when the server last stopped still is.
   rec.inbox = [...(stored.inbox ?? [])];
   rec.spawned = stored.spawned === true;
+  rec.spawnedBy = typeof stored.spawnedBy === 'string' ? stored.spawnedBy : null;
   rec.guest = sanitizeGuest(stored.guest);
   rec.review = sanitizeReview(stored.review);
   rec.roleRun = sanitizeRoleRun(stored.roleRun);

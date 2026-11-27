@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import type { PullRequest } from '../shared/details.ts';
 import { CHANGING_POLL_MS, OPEN_POLL_MS, WATCHED_POLL_MS } from '../shared/pull-request-poll.ts';
 import { ready, unavailable } from '../shared/sourced.ts';
-import { PullRequestStore } from './store.ts';
+import { PullRequestStore, carryHeadSeen } from './store.ts';
 
 const pr = (over: Partial<PullRequest> = {}): PullRequest => ({ number: 7, title: 'Docs', url: 'https://example.com/7', state: 'open', checks: 'passing', review: 'none', readiness: 'ready', ...over });
 const lookup = (...pullRequests: PullRequest[]) => ready({ host: 'github' as const, pullRequests });
@@ -117,5 +117,37 @@ describe('PullRequestStore', () => {
     expect(h.asked()).toBe(before + 1);
     await h.store.tick((id) => id === 'open');
     expect(h.asked()).toBe(before + 1);
+  });
+
+  test('a head commit keeps the time the store first saw it, until the head moves', async () => {
+    const h = harness();
+    h.tick(1_000);
+    h.set(lookup(pr({ headSha: 'a' })));
+    await h.store.get('s', 'k', h.load);
+    h.tick(5_000);
+    h.set(lookup(pr({ headSha: 'a', checks: 'failing' })));
+    await h.store.get('s', 'k', h.load, true);
+    expect(h.store.peek('s')).toEqual(lookup(pr({ headSha: 'a', checks: 'failing', headSeenAt: 1_000 })));
+    h.set(lookup(pr({ headSha: 'b' })));
+    await h.store.get('s', 'k', h.load, true);
+    expect(h.store.peek('s')).toEqual(lookup(pr({ headSha: 'b', headSeenAt: 6_000 })));
+    // Nothing to carry: the answer itself comes back.
+    const plain = lookup(pr());
+    expect(carryHeadSeen(undefined, plain, 0)).toBe(plain);
+  });
+
+  test('current: the held answer while it is fresh, asked again first when it is due or missing', async () => {
+    const h = harness();
+    expect(await h.store.current('s')).toBeUndefined();
+    await h.store.get('s', 'k', h.load);
+    expect(await h.store.current('s')).toEqual(lookup(pr()));
+    expect(h.asked()).toBe(1);
+    h.tick(OPEN_POLL_MS);
+    h.set(lookup(pr({ checks: 'failing' })));
+    expect(await h.store.current('s')).toEqual(lookup(pr({ checks: 'failing' })));
+    expect(h.asked()).toBe(2);
+    h.store.due('s');
+    await h.store.current('s');
+    expect(h.asked()).toBe(3);
   });
 });

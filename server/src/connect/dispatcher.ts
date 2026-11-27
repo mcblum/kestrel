@@ -384,14 +384,14 @@ export class ConnectDispatcher {
     return { outcome };
   }
 
-  private async answerCard({ sessionId, requestId, optionId, text, answers }: ConnectOpArgs['session.answer']) {
+  private async answerCard({ sessionId, requestId, optionId, text, answers, confirmed }: ConnectOpArgs['session.answer']) {
     const { messages } = await this.messages(sessionId);
     const card = messages.find((m) => m.input?.id === requestId)?.input;
     if (!card || card.resolved) throw new Refused('That card is no longer waiting for an answer.');
     // A set-up command runs on this computer only on the word of the person at it (onboarding.md 18.14).
     if (isSetupRunTool(card.tool)) throw new Refused(SETUP_AT_DESK);
     if (optionId !== undefined && !card.options.some((o) => o.id === optionId)) throw new Refused('That is not one of the card\'s choices.');
-    await this.deps.runtime.answer(sessionId, requestId, { ...(optionId !== undefined ? { optionId } : {}), ...(text !== undefined ? { text } : {}), ...(answers ? { answers } : {}) });
+    await this.deps.runtime.answer(sessionId, requestId, { ...(optionId !== undefined ? { optionId } : {}), ...(text !== undefined ? { text } : {}), ...(answers ? { answers } : {}), ...(confirmed === true ? { confirmed: true } : {}) });
     return { answered: true };
   }
 

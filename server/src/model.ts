@@ -102,6 +102,11 @@ export interface Workstream {
   status?: WorkstreamStatus;
   /** When it was archived (out of the sidebar, still searchable); null or absent while it is not. */
   archivedAt?: number | null;
+  /**
+   * Set on a workstream another computer of the account holds (shared/account-workstreams.ts): that computer. It is
+   * drawn here as it is there, and changed only there (`remoteWorkstreamRefusal`). Never stored.
+   */
+  heldOn?: Machine;
 }
 
 /** Did the work finish. Says nothing about whether the workstream is still in the sidebar: that is archiving. */
@@ -458,6 +463,12 @@ export interface ChatMessage {
   midTurn?: MidTurnState;
   /** A note from another session (shared/notes.ts): which one. Its text is the whole line, "From <title>: …". Absent from older servers. */
   from?: { sessionId: string; title: string };
+  /**
+   * On a message in the user's place that the user did not type: a child's brief, work another session
+   * sent with `ask_session`, or Kestrel's own words. Drawn as a preview when long (shared/message-preview.ts).
+   * Added 0.0.34; absent from older servers.
+   */
+  byAgent?: true;
 }
 
 export interface ChangedFile {
@@ -566,6 +577,11 @@ export interface LivePatch {
   /** The slash commands the session's agent offers, as it last listed them (shared/slash-commands.ts). Absent until it has. */
   slashCommands?: SlashCommand[];
   settings?: SessionSettings;
+  /**
+   * A session on another computer: why that computer could not be asked for its page when it was opened here (issue
+   * 79), so the model and mode row says so instead of vanishing; null once it answered. Live only, never carried.
+   */
+  unreached?: string | null;
   /** What the agent is doing right now ("Thinking…"); empty when it is not working. */
   status?: string;
   /** Helpers the agent started inside its own process. Live only; never stored. */

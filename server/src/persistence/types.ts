@@ -21,6 +21,8 @@ export type StoredDetail = Pick<SessionDetail, 'messages' | 'files' | 'agentOutp
   inbox?: readonly string[];
   /** Started by `spawn`: it has no link to say so, and it is held to its own worktree like any other child. */
   spawned?: boolean;
+  /** For a spawned session: the session that spawned it (issue 74). */
+  spawnedBy?: string;
   /** The user chose "Allow all outside the sandbox" in this session: it is not asked again, restarts included. */
   outsideAllowed?: boolean;
   /** Sessions that asked this one for work (`ask_session`) and have not yet heard how its turn ended. */

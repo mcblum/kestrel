@@ -104,7 +104,7 @@
 .kestrel .menu-item .menu-key { flex: none; min-width: 10px; font: inherit; font-size: 10.5px; color: var(--s-muted); background: none; border: 0; padding: 0; text-align: right; }
 .kestrel .menu-item .menu-value { font-size: 11px; }
 .kestrel .menu-heading { padding: 4px 9px 0; font-size: 10px; color: var(--s-muted); }
-.kestrel .menu-item .menu-switch { flex: none; position: relative; width: 24px; height: 14px; border-radius: 7px; background: var(--s-line); transition: background .12s; }
+.kestrel .menu-item .menu-switch { flex: none; position: relative; width: 24px; height: 14px; border-radius: 7px; background: color-mix(in srgb, var(--s-muted) 60%, var(--s-line)); transition: background .12s; }
 .kestrel .menu-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--s-paper); box-shadow: 0 1px 2px #0003; transition: transform .12s; }
 .kestrel .menu-switch.on { background: var(--s-accent); }
 .kestrel .menu-switch.on::after { transform: translateX(10px); }
@@ -115,3 +115,27 @@
    commits, the next-step card), gently. Its words say the state; the colour only says it belongs to the request. */
 .kestrel .ctl-autopilot .ctl-autopilot-on { color: color-mix(in srgb, var(--s-git-blue) 85%, var(--s-label)); }
 .kestrel .ctl-autopilot .ctl-autopilot-on:hover { color: var(--s-git-blue); }
+
+/* ---- plan usage (issue 80): the readout under the message box, its menu, and Settings' overview ---------------- */
+.kestrel .ctl-usage { position: relative; flex-shrink: 0 !important; }
+.kestrel .usage-button { font-variant-numeric: tabular-nums; }
+.kestrel .usage-button.none { color: var(--s-muted); }
+.kestrel .usage-button.near { color: var(--s-amber); }
+.kestrel .usage-button.full { color: var(--s-red); }
+.kestrel .plan-pop { width: 270px; }
+.kestrel .plan-usage { display: grid; gap: 4px; }
+.kestrel .plan-usage-head { display: flex; align-items: baseline; gap: 6px; font-size: 12px; }
+.kestrel .plan-usage-head strong { font-weight: 600; }
+.kestrel .plan-usage-plan { font-size: 10px; color: var(--s-muted); text-transform: capitalize; }
+.kestrel .plan-windows { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.kestrel .plan-window { display: grid; gap: 3px; }
+.kestrel .plan-window-text { color: var(--s-label); font-variant-numeric: tabular-nums; }
+.kestrel .plan-window.past .plan-window-text { color: var(--s-muted); }
+.kestrel .plan-bar { display: block; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--s-muted) 25%, transparent); overflow: hidden; }
+.kestrel .plan-bar-fill { display: block; height: 100%; border-radius: 2px; background: var(--s-label); }
+.kestrel .plan-window.near .plan-bar-fill { background: var(--s-amber); }
+.kestrel .plan-window.full .plan-bar-fill { background: var(--s-red); }
+.kestrel .plan-usage-note { margin: 0; color: var(--s-muted); }
+.kestrel .plan-usage-foot { font-size: 10px; color: var(--s-muted); }
+.kestrel .plan-session { margin-top: 2px; }
+.kestrel .plan-overview { display: grid; gap: 14px; max-width: 420px; font-size: 11px; }

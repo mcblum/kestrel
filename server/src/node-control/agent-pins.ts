@@ -19,6 +19,6 @@ export function agentPins(home: string, read: (path: string) => string | null = 
   const bundled = parseAgentPins(read(join(nodeInstallPaths(home).current, AGENT_PINS_FILE)));
   if (bundled) return bundled;
   const text = checkoutPackage();
-  if (!text) throw new Error(`This kestrel-node has no ${AGENT_PINS_FILE} in its bundle. Install the node again.`);
+  if (!text) throw new Error(`This node's bundle has no ${AGENT_PINS_FILE}. Install the node again (kestrel upgrade).`);
   return agentPinsOf(JSON.parse(text) as { dependencies?: Record<string, string> });
 }

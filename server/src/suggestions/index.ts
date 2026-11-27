@@ -19,6 +19,9 @@ export interface SuggestionOptions {
   testKinds?: boolean;
   /** Kinds that need the runtime to do their work (the review offer), built by it. */
   kinds?: readonly SuggestionKind[];
+  /** Where a card about a session's pull request is shown, and why one no longer applies (shared/request-cards.ts). */
+  homeOf?: (sessionId: string) => Promise<string>;
+  gone?: (suggestion: Suggestion) => string | null;
 }
 
 /** The kinds a session's agent may suggest. */
@@ -42,6 +45,6 @@ export function createSuggestions(runtime: SuggestionRuntime, workspace: Workspa
       },
       show: (id, suggestion: Suggestion) => runtime.showCard(id, { type: 'card', id: suggestionMessageId(suggestion.id), suggestion }),
     },
-    { registry: suggestionKinds(opts.testKinds, opts.kinds), workspace, prefs: new SuggestionPrefs(opts.settings ?? memorySettings()) },
+    { registry: suggestionKinds(opts.testKinds, opts.kinds), workspace, prefs: new SuggestionPrefs(opts.settings ?? memorySettings()), ...(opts.homeOf ? { homeOf: opts.homeOf } : {}), ...(opts.gone ? { gone: opts.gone } : {}) },
   );
 }

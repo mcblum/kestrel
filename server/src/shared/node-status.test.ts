@@ -21,7 +21,7 @@ const inputs = (change: Partial<NodeStatusInputs> = {}, connect: Partial<NodeSta
 describe('nodeStatusOf', () => {
   test('a node signed out says it is not signed in, not in the account, and why it is not connected', () => {
     const status = nodeStatusOf(inputs());
-    expect(status.connect).toEqual({ signedIn: false, email: null, inAccount: false, removed: false, connected: false, notConnected: 'Not signed in to Kestrel Connect. Run "kestrel-node join" to sign in and join your account.' });
+    expect(status.connect).toEqual({ signedIn: false, email: null, inAccount: false, removed: false, connected: false, notConnected: 'Not signed in to Kestrel Connect. Run "kestrel node join" to sign in and join your account.' });
     expect(status).toMatchObject({ version: '0.0.34', kind: 'node', platform: 'linux', name: 'Worker node 1' });
   });
 
@@ -38,12 +38,12 @@ describe('nodeStatusOf', () => {
     // Assert
     expect(status.connect).toMatchObject({ inAccount: false, removed: true, connected: false, notConnected: REMOVED_NODE });
     expect(statusLines(status).join('\n')).toContain(`In the account: no. ${REMOVED_NODE}`);
-    expect(REMOVED_NODE).toContain('kestrel-node join');
+    expect(REMOVED_NODE).toContain('kestrel node join');
   });
 
   test('a node signed in but not let in yet says to run join', () => {
     const text = statusLines(nodeStatusOf(inputs({}, { account: { state: 'signed-in', email: 'a@b.c' }, link: { state: 'connected', since: 1 } }))).join('\n');
-    expect(text).toContain('In the account: no. Run "kestrel-node join"');
+    expect(text).toContain('In the account: no. Run "kestrel node join"');
   });
 
   test('why it is not connected follows what is wrong, in order', () => {
@@ -65,11 +65,11 @@ describe('nodeStatusOf', () => {
   });
 
   test('read on the node itself, an agent is worded without "on <node> … there", by the name the checklist uses', () => {
-    const elsewhere = 'Claude Code is not signed in on Worker node 1. Run `kestrel-node agents` there.';
+    const elsewhere = 'Claude Code is not signed in on Worker node 1. Run `kestrel node agents` there.';
     const text = statusLines(nodeStatusOf(inputs({ availability: { available: [], notes: { claude: elsewhere }, problems: { claude: { trouble: 'signed-out' }, codex: { trouble: 'missing' }, opencode: { trouble: 'out-of-usage', detail: 'Free usage exceeded' } } } }))).join('\n');
-    expect(text).toContain('  Claude Code: cannot run. Claude Code is not signed in. Run `kestrel-node agents`.');
-    expect(text).toContain('  Codex: cannot run. Codex is not installed. Run `kestrel-node agents`.');
-    expect(text).toContain("  OpenCode: cannot run. OpenCode's provider refused the last turn (Free usage exceeded). Run `kestrel-node agents`.");
+    expect(text).toContain('  Claude Code: cannot run. Claude Code is not signed in. Run `kestrel node agents`.');
+    expect(text).toContain('  Codex: cannot run. Codex is not installed. Run `kestrel node agents`.');
+    expect(text).toContain("  OpenCode: cannot run. OpenCode's provider refused the last turn (Free usage exceeded). Run `kestrel node agents`.");
     expect(text).not.toContain('there.');
     expect(text).not.toMatch(/^ {2}Claude:/m);
   });

@@ -1,7 +1,7 @@
 // The worker node's bundle (docs/designs/worker-nodes.md, section 4): which machines it is built for, what its
 // files are called, and how a checksum is written and checked. Pure, so the build script
 // (scripts/release/node-bundle/), the release scripts and the tests share one copy. The install script
-// (scripts/release/install-node.sh) is POSIX sh and says the same in its own words; its test holds the two together.
+// (scripts/release/install.sh) is POSIX sh and says the same in its own words; its test holds the two together.
 //
 // Erasable TypeScript only: the build script imports this file with Node's own type stripping.
 

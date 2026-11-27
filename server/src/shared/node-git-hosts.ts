@@ -59,6 +59,6 @@ export function hostAnswerText(host: string, answer: string, detail: string | nu
   if (answer === 'works') return `${host}: the key works`;
   if (answer === 'not-added') return `${host}: the key is not added there yet`;
   if (answer === 'unreachable') return `${host}: could not be reached${detail ? ` (${detail})` : ''}`;
-  if (answer === 'host-key-changed') return `${host}: its host key is not the one Kestrel accepted before. Check it with the host's published fingerprints; if it really changed, delete its line from Kestrel's known hosts and run kestrel-node git again`;
+  if (answer === 'host-key-changed') return `${host}: its host key is not the one Kestrel accepted before. Check it with the host's published fingerprints; if it really changed, delete its line from Kestrel's known hosts and run kestrel node git again`;
   return `${host}: did not say whether the key works${detail ? ` (${detail})` : ''}`;
 }

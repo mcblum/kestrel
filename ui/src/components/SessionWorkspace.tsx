@@ -185,6 +185,9 @@ export function SessionWorkspace({ id }: { id: string }) {
   if (!session) return <section className="session-workspace"><div className="empty-list pad">{loaded ? 'This session no longer exists.' : 'Loading…'}</div></section>;
 
   const settings = live?.settings ?? detail?.settings;
+  // A session on another computer that could not be asked for its page: said beside its model and mode, until that
+  // computer has sent them live (it answered then).
+  const unreached = machine && !live?.settings ? (live?.unreached ?? null) : null;
   const current: Controls = { agent: session.agent, model: pending.model ?? settings?.model ?? '', effort: pending.effort ?? settings?.effort ?? '', fast: pending.fast ?? settings?.fast ?? false, permission: pending.permission ?? settings?.permission ?? (session.startedIn ? 'ask' : 'readonly'), projectId: session.startedIn, groupId: session.groupId };
   const change = changedSettings(pending, settings);
   const changed = Object.keys(change).length > 0;
@@ -313,12 +316,13 @@ export function SessionWorkspace({ id }: { id: string }) {
             controls={
               <>
                 {machine && !settings ? (
-                  // Its real model and mode come from its computer; nothing stands in for them until it has said.
-                  <span className="ctl-note">{machine} has not said this session’s model and mode yet</span>
+                  // Its real model and mode come from its computer (its head, or the page it sends); nothing stands in
+                  // for them until it has said, and when it cannot be reached the row says why (issue 79).
+                  <span className="ctl-note">{unreached ?? `${machine} has not said this session’s model and mode yet`}</span>
                 ) : (
                   <ComposerControls value={current} mode="running" sessionId={id} {...(session.runsOn ? { runsOn: session.runsOn } : {})} onChange={(c) => setPending({ model: c.model, effort: c.effort ?? '', fast: c.fast ?? false, permission: c.permission })} />
                 )}
-                {changed && <span className="ctl-note">Applies from your next message</span>}
+                {machine && settings && unreached ? <span className="ctl-note">{unreached}</span> : changed && <span className="ctl-note">Applies from your next message</span>}
               </>
             }
           />

@@ -1,7 +1,7 @@
 #!/bin/sh
-# kestrel-node: the worker node's launcher, written into each bundle by make-node-bundle.mjs. The service
-# (kestrel-node.service) and every command typed in a terminal come through here, so they agree on where Kestrel's
-# data is and which version this is.
+# kestrel-node: the worker node's launcher, written into each bundle by make-node-bundle.mjs and linked onto PATH as
+# `kestrel` (and `kestrel-node`). The service (kestrel-node.service) and every command typed in a terminal come
+# through here, so they agree on where Kestrel's data is and which version this is.
 set -eu
 self="$(readlink -f -- "$0")"
 root="$(cd -- "$(dirname -- "$self")/.." && pwd -P)"

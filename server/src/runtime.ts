@@ -19,6 +19,7 @@
 // (handoff, delegate, spawn), `display.ts` (widgets, files, next steps and pictures shown in the
 // conversation), `suggestions/` (optional actions the agent drops in), `browser-tools.ts` (the browser
 // pane, driven through the window that shows it) and `sim-tools.ts` (the iOS Simulator, driven by the server itself).
+import { PlanUsageStore } from './plan-usage.ts';
 import type { McpServerStore } from './mcp-servers/store.ts';
 import { finishedProposal, pullRequestProposals } from './tickets/moments.ts';
 import { sameTag } from './shared/tags.ts';
@@ -94,6 +95,7 @@ import { AUTOPILOT_KIND, autopilotKind } from './suggestions/autopilot-kind.ts';
 import { isWanted } from './shared/autopilot.ts';
 import type { PullRequestStore } from './pull-requests/store.ts';
 import { requestAttention } from './shared/request-attention.ts';
+import { cardSession, requestCardGone, requestCardHome } from './shared/request-cards.ts';
 import { ticketMention } from './shared/ticket-mention.ts';
 import { NO_SESSION_TICKETS, type SessionTickets } from './tickets/session.ts';
 import { ticketLead, ticketOf, type Ticket } from './shared/tickets.ts';
@@ -251,6 +253,8 @@ export class SessionRuntime implements McpSessions {
   private readonly checkouts: SessionWorktrees;
   /** Models, capabilities, slash commands and context use, asked of the agents (runtime/agent-info.ts). */
   private readonly info: AgentInfo;
+  /** Each agent account's plan usage as its sessions last reported it, pushed to every window (plan-usage.ts). */
+  readonly planUsage = new PlanUsageStore();
 
   constructor(
     private readonly workspace: Workspace,
@@ -332,6 +336,12 @@ export class SessionRuntime implements McpSessions {
     this.requestComment = opts.requestComment ?? ((cwd, number, body, host) => commentOnPR(cwd, number, body, { commands: host === 'gitlab' ? gitlabCommands : githubCommands }));
     this.suggestions = createSuggestions(this, workspace, {
       ...opts.suggestions,
+      // A delegate child's cards about its pull request are shown on the top of its tree, and go once the request is merged or closed (shared/request-cards.ts).
+      homeOf: async (id) => {
+        const state = await workspace.state();
+        return requestCardHome(id, state.links, state.workstreams, (home) => state.sessions.some((s) => s.id === home));
+      },
+      gone: (suggestion) => requestCardGone(suggestion, this.requestStore?.peek(cardSession(suggestion))),
       kinds: [
         reviewKind({
           who: () => this.whoDoesWhat.current(),
@@ -496,6 +506,7 @@ export class SessionRuntime implements McpSessions {
       onEvent: (id, rec, event) => onAgentEvent(this.host, id, rec, event),
       flushQueue: (id) => flushQueue(this.host, id),
       agentTurns: { failed: (agent, event) => this.info.turnFailed(agent, event), succeeded: (agent) => this.info.turnSucceeded(agent) },
+      planUsage: this.planUsage,
       turnComplete: (id) => {
         void this.proposeTicketFinished(id).catch((error: unknown) => console.error('[kestrel] could not propose the ticket’s summary', error));
         void this.startWaitingReview(id);
@@ -560,7 +571,7 @@ export class SessionRuntime implements McpSessions {
     return this.info.availability();
   }
 
-  /** A worker node's `kestrel-node agents` changed these agents: forget what was known of them and ask again (runtime/agent-info.ts). */
+  /** A worker node's `kestrel node agents` changed these agents: forget what was known of them and ask again (runtime/agent-info.ts). */
   recheckAgents(agents: readonly Agent[]): Promise<AgentAvailability> {
     return this.info.recheck(agents);
   }
@@ -1073,12 +1084,14 @@ export class SessionRuntime implements McpSessions {
       },
       raise: (id, card) => this.suggestions.suggest(id, { kind: REQUEST_KIND, ...card }),
       withdraw: (id, line) => this.suggestions.settle(id, REQUEST_KIND, (payload) => line(payload) !== null, (payload) => line(payload) ?? ''),
+      withdrawGone: (id) => this.suggestions.withdrawGone(id),
       autopilotOn: (id) => this.autopilot?.isOn(id) ?? false,
     });
     this.autopilot?.stop();
     this.autopilot = new Autopilot({
       sessions: async () => (await this.workspace.state()).sessions,
       lookup: (id) => store.peek(id),
+      current: (id) => store.current(id),
       attention: () => this.gitPrefs.attention(),
       prefs: () => this.gitPrefs.autopilot(),
       save: (id, record) => this.workspace.setAutopilot(id, record),
@@ -1307,7 +1320,7 @@ export class SessionRuntime implements McpSessions {
   private offerReview(sessionId: string, link: RequestLink, fromForm: boolean): void {
     if (fromForm) return;
     if (link.state !== 'open' && link.state !== 'draft') return;
-    void this.suggestions.suggest(sessionId, { kind: REVIEW_KIND });
+    void this.suggestions.suggest(sessionId, { kind: REVIEW_KIND, host: link.host, number: link.number });
   }
 
   /**
@@ -1411,7 +1424,8 @@ export class SessionRuntime implements McpSessions {
    * start reviews". What the agent is told.
    */
   async reviewAsked(sessionId: string): Promise<ToolResult> {
-    const result = await this.suggestions.suggest(sessionId, { kind: REVIEW_KIND, asked: true });
+    const open = [...(await this.workspace.requestLinks(sessionId))].reverse().find((l) => l.state === 'open' || l.state === 'draft');
+    const result = await this.suggestions.suggest(sessionId, { kind: REVIEW_KIND, asked: true, ...(open ? { host: open.host, number: open.number } : {}) });
     if (result.isError) return result;
     if (this.reviewsWaiting.has(sessionId)) return { text: REVIEW_STARTS };
     return { text: result.text === SHOWN_TEXT ? REVIEW_ASKED : `No review was started. ${result.text}` };
@@ -1488,7 +1502,7 @@ export class SessionRuntime implements McpSessions {
    * the brief as its first message (runtime/bring-up.ts). Failure is returned, not thrown, so the
    * caller's tool can tell its agent plainly.
    */
-  launchChild(child: Session, project: Project, source: ProjectFolder | null, prompt: string, origin: ChildOrigin, model: string, parentPermission: PermissionLevel | undefined, speed: Pick<SessionSettings, 'effort' | 'fast'> = {}, hosted?: { guest: Guest; host: Pick<Session, 'worktreePath' | 'branch'> }, roleRun: RoleRun | null = null): Promise<{ ok: true } | { ok: false; reason: string }> {
-    return launchChild(this.host, child, project, source, prompt, origin, model, parentPermission, speed, hosted, roleRun);
+  launchChild(child: Session, project: Project, source: ProjectFolder | null, prompt: string, origin: ChildOrigin, model: string, parentPermission: PermissionLevel | undefined, speed: Pick<SessionSettings, 'effort' | 'fast'> = {}, hosted?: { guest: Guest; host: Pick<Session, 'worktreePath' | 'branch'> }, roleRun: RoleRun | null = null, spawnedBy: string | null = null): Promise<{ ok: true } | { ok: false; reason: string }> {
+    return launchChild(this.host, child, project, source, prompt, origin, model, parentPermission, speed, hosted, roleRun, spawnedBy);
   }
 }

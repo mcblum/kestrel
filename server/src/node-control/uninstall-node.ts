@@ -1,4 +1,4 @@
-// The running node's part of `kestrel-node uninstall` (the socket's `uninstall`): refuse while a session's worktree
+// The running node's part of `kestrel node uninstall` (the socket's `uninstall`): refuse while a session's worktree
 // has work that is not pushed, naming the sessions (shared/node-uninstall.ts), then leave the account. It deletes
 // nothing: the terminal stops the node and deletes the service and the folder once this has answered
 // (uninstall-terminal.ts).

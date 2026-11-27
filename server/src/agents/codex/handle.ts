@@ -2,6 +2,8 @@
 // until the session is closed or the server stops), one thread on it, one turn at a time.
 // A child that dies is reported as a failed turn with its stderr; the next message starts a new
 // child and resumes the thread, as a restart of Kestrel does.
+import { addRequestTokens, limitsFromNotification, limitsFromRead } from './usage.ts';
+import { realTokens, type PlanUsage, type TurnTokens } from '../../shared/plan-usage.ts';
 import { codexServerStates } from './servers.ts';
 import { FILE_CHANGE_APPROVAL } from './approvals.ts';
 import type { ElementLookup } from '../claude/describe.ts';
@@ -17,7 +19,7 @@ import { codexInput, textInput, type CodexInput } from './input.ts';
 import { listSkills, startsWithSlash } from './skills.ts';
 import { CodexMapper, fileChanges, turnEnd, type FileChange } from './map.ts';
 import { codexPolicy, policyParams, sandboxPolicy } from './policy.ts';
-import { listAnswer, withListChoices, writableRoots } from './allow-list.ts';
+import { listAnswer, withChildrenChoice, withListChoices, writableRoots } from './allow-list.ts';
 import { gitFolders } from '../../worktree-repo.ts';
 import { commandNamesProtected } from '../../shared/protected-files.ts';
 import { CodexUnavailable, type AppServer, type ExitInfo, type Launch } from './process.ts';
@@ -103,6 +105,8 @@ export class CodexHandle implements AgentHandle {
   private lastExit: ExitInfo | null = null;
   /** The latest `thread/tokenUsage/updated` of the running turn, sent as `context` when it ends. */
   private usage: unknown = null;
+  /** The tokens of the run so far (a plan's turn and the one implementing it are one run), sent with its `done` (usage.ts). */
+  private runTokens: TurnTokens | null = null;
   /** What Kestrel has to tell the agent that found no running turn: it goes with the next message. */
   private notes: string[] = [];
   /** File changes of this turn Codex asked about (the edit rule saw them before they were made), by item id. */
@@ -120,18 +124,21 @@ export class CodexHandle implements AgentHandle {
   }
 
   agentSessionId = () => this.threadId;
-  /** What the session's level means for Codex now; a session another session started is confined (policy.ts). */
-  private policy = () => codexPolicy(this.opts.permission, this.opts.confineShell === true);
+  /**
+   * What the session's level means for Codex now; a session another session started is confined (policy.ts), unless the
+   * user let such sessions leave their sandbox unasked and its starter would not be asked (issue 74), read as it is now.
+   */
+  private policy = () => codexPolicy(this.opts.permission, this.opts.confineShell === true && this.opts.outsideInherit?.allows() !== true);
   busy = () => this.running;
 
   send(text: string, attachments?: readonly AgentAttachment[]): void {
-    this.begin(() => this.runTurn(text, attachments));
+    this.begin(() => this.counted(() => this.runTurn(text, attachments)));
   }
 
   /** `thread/compact/start` on the thread: a compaction turn Codex starts and ends, followed as any turn. */
   compact(): void {
     if (!this.threadId) throw new Error('This conversation has not started yet, so there is nothing to compact.');
-    this.begin(() => this.runCompaction());
+    this.begin(() => this.counted(() => this.runCompaction()));
   }
 
   private begin(run: () => Promise<AgentEvent>): void {
@@ -215,6 +222,14 @@ export class CodexHandle implements AgentHandle {
 
   // ---- turn ---------------------------------------------------------------------------
 
+  /** A run with its tokens: counted from its first request, and sent with how it ended. */
+  private async counted(run: () => Promise<AgentEvent>): Promise<AgentEvent> {
+    this.runTokens = null;
+    const end = await run();
+    const tokens = realTokens(this.runTokens);
+    return end.type === 'done' && tokens ? { ...end, tokens } : end;
+  }
+
   /** Runs one turn (and, after an approved plan, the turn that implements it). Never rejects. */
   private async runTurn(text: string, attachments?: readonly AgentAttachment[]): Promise<AgentEvent> {
     try {
@@ -272,6 +287,11 @@ export class CodexHandle implements AgentHandle {
   private reportPoint(turn: unknown): void {
     const point = (isObj(turn) ? str(turn.id) : '') || this.turnId;
     if (point) this.emit({ type: 'turn-point', point });
+  }
+
+  /** A plan usage report, when there is one. */
+  private reportLimits(usage: PlanUsage | null): void {
+    if (usage) this.emit({ type: 'limits', usage });
   }
 
     /** The context window as the turn left it, when Codex measured it. */
@@ -413,6 +433,8 @@ export class CodexHandle implements AgentHandle {
     try {
       await initialize(server.rpc, this.deps.version);
       await requireSignIn(server.rpc);
+      // Where the account's plan stands now, asked once of this app-server: it runs no turn. Not waited for.
+      void server.rpc.request('account/rateLimits/read', { excludeResetCreditDetails: true }).then((answer) => this.reportLimits(limitsFromRead(answer)), () => undefined);
       const params = {
         cwd: this.opts.directory,
         ...policyParams(policy),
@@ -468,7 +490,12 @@ export class CodexHandle implements AgentHandle {
   private onNotification(method: string, params: Obj): void {
     if (typeof params.threadId === 'string' && this.threadId && params.threadId !== this.threadId) return;
     if (method === 'turn/started' && isObj(params.turn) && !this.turnId) this.turnId = str(params.turn.id) || null;
-    if (method === 'thread/tokenUsage/updated') return void (this.usage = params.tokenUsage);
+    if (method === 'thread/tokenUsage/updated') {
+      this.runTokens = addRequestTokens(this.runTokens, params.tokenUsage);
+      return void (this.usage = params.tokenUsage);
+    }
+    // The account's plan usage, sparse: merged into what the server holds (plan-usage.ts).
+    if (method === 'account/rateLimits/updated') return this.reportLimits(limitsFromNotification(params));
     if (this.readSteer(method, params)) return;
     if (method === 'turn/completed') {
       const turn = isObj(params.turn) ? params.turn : {};
@@ -529,7 +556,7 @@ export class CodexHandle implements AgentHandle {
       await this.tell(verdict.message);
       return server.rpc.respond(request.id, reply.result);
     }
-    const card = await withListChoices(handling.request, request.method, params, this.policy(), this.opts);
+    const card = withChildrenChoice(await withListChoices(handling.request, request.method, params, this.policy(), this.opts), request.method, this.policy(), this.opts);
     if (this.stopping) return server.rpc.respond(request.id, handling.cancel);
     this.cards.set(cardId, { rpcId: request.id, reply: handling.reply, cancel: handling.cancel });
     this.emit({ type: 'needs-input', request: card });

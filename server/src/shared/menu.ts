@@ -247,6 +247,8 @@ export type MenuTarget =
       complete?: boolean;
       /** It is archived: the menu offers Restore. */
       archived?: boolean;
+      /** Another computer holds it (`remoteWorkstreamRefusal`): why it is only opened from here, each change dimmed with this. */
+      elsewhere?: string | null;
     }
   | {
       kind: 'session';
@@ -414,6 +416,18 @@ export function sidebarMenu(target: MenuTarget): MenuItem[] {
       return [{ id: 'open-tag', label: 'Open tag page', action: { type: 'open-tag', tag: target.tag } }, item.openNewTab({ kind: 'tag', id: target.tag })];
     case 'workstream': {
       const w = target.workstreamId;
+      const open: MenuItem[] = [...(target.onPage ? [] : [{ id: 'open-workstream', label: 'Open workstream page', action: { type: 'open-workstream', workstreamId: w } as MenuAction }]), item.openNewTab({ kind: 'workstream', id: w })];
+      // One another computer holds (issue 83): opened from here, changed only there, each change dimmed with the reason.
+      if (target.elsewhere) {
+        const hint = target.elsewhere;
+        return [
+          ...open,
+          { id: 'rename-workstream', label: `Rename ${target.name}`, disabled: true, hint, separatorBefore: true },
+          { id: target.complete ? 'reopen-workstream' : 'complete-workstream', label: target.complete ? 'Mark as not complete' : 'Mark complete', disabled: true, hint, separatorBefore: true },
+          { id: target.archived ? 'restore-workstream' : 'archive-workstream', label: target.archived ? 'Restore workstream' : 'Archive workstream', disabled: true, hint },
+          { id: 'delete-workstream', label: 'Delete workstream', disabled: true, hint, separatorBefore: true },
+        ];
+      }
       // Like a group's: open · rename · stop · delete. No "New session": a session joins by being delegated to.
       return [
         ...(target.onPage ? [] : [{ id: 'open-workstream', label: 'Open workstream page', action: { type: 'open-workstream', workstreamId: w } as MenuAction }]),

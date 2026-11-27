@@ -45,7 +45,7 @@ describe('moving an installed agent to its pin', () => {
   });
 
   test('why this version, said only when the newest differs', () => {
-    expect(pinNote('opencode', '1.14.25', '1.19.6')).toBe('It installs 1.14.25, the version of the OpenCode SDK this Kestrel is built with; the newest is 1.19.6. A new kestrel-node brings newer pins.');
+    expect(pinNote('opencode', '1.14.25', '1.19.6')).toBe('It installs 1.14.25, the version of the OpenCode SDK this Kestrel is built with; the newest is 1.19.6. Upgrading the node (kestrel upgrade) brings newer pins.');
     expect(pinNote('codex', '0.172.0', '0.172.0')).toBeNull();
     expect(pinNote('codex', '0.172.0', null)).toBeNull();
   });

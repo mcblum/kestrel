@@ -3,6 +3,7 @@
 // the others in its replica and draws them beside its own. What another machine sends is read through
 // the parsers here and nowhere else: it is sealed under the account key, but it is still outside data.
 import type { Agent, ChangedFile, ChatMessage, FilingStatus, LivePatch, SessionQueue, SessionSettings, SessionState } from '../model.ts';
+import { asHeadLink, asHeadWorkstream, type HeadLink, type HeadWorkstream } from './account-workstreams.ts';
 import { isPermissionLevel } from './permissions.ts';
 import type { PullRequestState } from './details.ts';
 
@@ -50,6 +51,15 @@ export interface AccountHead {
   /** How many messages its conversation has, and in how many chunks they are held. */
   messages: number;
   chunks: number;
+  /**
+   * Its model, effort, fast mode and mode as its machine last said them (issue 79): a window here shows them from the
+   * account's copy at once, whether or not that machine can be reached now. Absent from an older machine's head.
+   */
+  settings?: SessionSettings;
+  /** The session that started it and how, when that session's head is published too (issue 83). Absent from an older machine's head. */
+  link?: HeadLink;
+  /** The workstream it is in, as its machine holds it (shared/account-workstreams.ts). */
+  workstream?: HeadWorkstream;
 }
 
 /** A head as its machine holds it on the service: one sealed record per session, saying which machine wrote it. */
@@ -109,7 +119,15 @@ function asHead(raw: unknown, runsOn: string): AccountHead | null {
     lastActivityAt: count(r.lastActivityAt) ?? updatedAt,
     messages: count(r.messages) ?? 0,
     chunks: count(r.chunks) ?? 0,
+    ...(asSessionSettings(r.settings) ? { settings: asSessionSettings(r.settings)! } : {}),
+    ...linkAndWorkstream(r),
   };
+}
+
+function linkAndWorkstream(r: Record<string, unknown>): Pick<AccountHead, 'link' | 'workstream'> {
+  const link = asHeadLink(r.link);
+  const workstream = asHeadWorkstream(r.workstream);
+  return { ...(link ? { link } : {}), ...(workstream ? { workstream } : {}) };
 }
 
 /**
@@ -169,7 +187,7 @@ export function asRemotePatch(raw: unknown): LivePatch | null {
     ...(Array.isArray(r.messages) ? { messages: asMessages(r.messages) } : {}),
     ...(removed.length > 0 ? { removedMessages: removed } : {}),
     ...(typeof r.status === 'string' ? { status: r.status } : {}),
-    ...(asSettings(r.settings) ? { settings: asSettings(r.settings)! } : {}),
+    ...(asSessionSettings(r.settings) ? { settings: asSessionSettings(r.settings)! } : {}),
     ...(asQueue(r.queue) ? { queue: asQueue(r.queue)! } : {}),
     ...(r.context === null || obj(r.context) ? { context: r.context as LivePatch['context'] } : {}),
     ...(Array.isArray(r.files) ? { files: asFiles(r.files) } : {}),
@@ -186,8 +204,8 @@ export function asRemotePatch(raw: unknown): LivePatch | null {
   return Object.keys(out).length > 0 ? out : null;
 }
 
-/** A session's model and mode as another machine sent them, or null. */
-function asSettings(raw: unknown): SessionSettings | null {
+/** A session's model and mode as another machine sent them (a head, a live patch, the held queue's own file), or null. */
+export function asSessionSettings(raw: unknown): SessionSettings | null {
   const r = obj(raw);
   if (!r || typeof r.model !== 'string' || !isPermissionLevel(r.permission)) return null;
   return { model: r.model, permission: r.permission, ...(typeof r.effort === 'string' ? { effort: r.effort } : {}), ...(typeof r.fast === 'boolean' ? { fast: r.fast } : {}) };
@@ -235,6 +253,11 @@ export function unreachableRefusal(machineName: string, why: string): string {
 /** Why something read from a session's own machine is not shown: that machine could not be reached. Nothing is held for later. */
 export function notReachedRead(what: string, machineName: string): string {
   return `${machineName} cannot be reached, so ${what} cannot be shown now. Try again when it is back.`;
+}
+
+/** Why a session's model and mode cannot be changed from here now: its machine could not be reached (issue 79). */
+export function notReachedSettings(machineName: string): string {
+  return `${machineName} cannot be reached, so this session's model and mode cannot be changed from here now. Try again when it is back.`;
 }
 
 /** What of a head says its conversation changed: kept with the chunks fetched, and compared before fetching again. */

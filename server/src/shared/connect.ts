@@ -43,7 +43,7 @@ export const DEVICE_KIND_NAME: Readonly<Record<DeviceKind, string>> = { desktop:
  * or takes them, and joins by the two codes only.
  */
 export const recoveryWordsRefusal = (kind: KestrelKind): string | null =>
-  kind === 'node' ? 'A worker node never shows or takes the recovery words. See them on a computer with a screen; join this node from another of your devices with "kestrel-node join".' : null;
+  kind === 'node' ? 'A worker node never shows or takes the recovery words. See them on a computer with a screen; join this node from another of your devices with "kestrel node join".' : null;
 
 export type ConnectAccount =
   | { state: 'signed-out'; reason: string | null }
@@ -104,6 +104,9 @@ export interface ConnectJoinRequest {
   /** What happened, once `done` (step 8c). */
   outcome: string | null;
 }
+
+/** A request's first line, on its card (Settings → Connections and over any page) and in the banner: one wording. */
+export const joinRequestTitle = (request: Pick<ConnectJoinRequest, 'name' | 'kind'>): string => `${request.name}${request.kind === 'node' ? `, a ${DEVICE_KIND_NAME.node.toLowerCase()},` : ''} wants to join your account`;
 
 /** The account data key on this computer (connect/link/account-keys.ts). */
 export type ConnectKeys =

@@ -14,6 +14,7 @@
 import type { SessionView } from '../model.ts';
 import { statusOf, type StatusKey, type Statused } from './status.ts';
 import { sessionDot, type Seen } from './unread.ts';
+import { keyOf, newestFirst } from './session-order.ts';
 
 export type OverviewSection = 'needs-you' | 'unread' | 'working' | 'review' | 'interrupted' | 'done';
 export const OVERVIEW_SECTIONS: readonly OverviewSection[] = ['needs-you', 'unread', 'working', 'review', 'interrupted', 'done'];
@@ -43,14 +44,16 @@ export interface OverviewSections<T> {
 }
 
 const NONE: ReadonlyMap<string, unknown> = new Map();
-const newest = (a: { updatedAt: number }, b: { updatedAt: number }) => b.updatedAt - a.updatedAt;
+const waitedLongest = (a: { updatedAt: number }, b: { updatedAt: number }) => a.updatedAt - b.updatedAt;
+/** The most recent first, by the one rule (session-order.ts): working now ahead of the rest, then the latest activity. */
+const newest = (a: Listed & { createdAt?: number }, b: Listed & { createdAt?: number }) => newestFirst(keyOf(a.id, () => ({ createdAt: 0, ...a })), keyOf(b.id, () => ({ createdAt: 0, ...b })));
 
-/** The sessions sorted into sections: needs you waiting longest first, the rest newest first. `attention`: the sessions whose pull request needs the user, by id. */
+/** The sessions sorted into sections: needs you waiting longest first, the rest most recent first (`newestFirst`). `attention`: the sessions whose pull request needs the user, by id. */
 export function overviewSections<T extends Listed>(sessions: readonly T[], seen: Seen | null, attention: ReadonlyMap<string, unknown> = NONE): OverviewSections<T> {
   const rows = Object.fromEntries(OVERVIEW_SECTIONS.map((k) => [k, [] as T[]])) as Record<OverviewSection, T[]>;
   for (const s of sessions) rows[overviewSection(s, seen, attention.has(s.id))].push(s);
   const counts = Object.fromEntries(OVERVIEW_SECTIONS.map((k) => [k, rows[k].length])) as Record<OverviewSection, number>;
-  for (const k of OVERVIEW_SECTIONS) rows[k].sort(k === 'needs-you' ? (a, b) => -newest(a, b) : newest);
+  for (const k of OVERVIEW_SECTIONS) rows[k].sort(k === 'needs-you' ? waitedLongest : newest);
   rows.done = rows.done.slice(0, RECENT_DONE);
   return { rows, counts };
 }

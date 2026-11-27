@@ -42,10 +42,10 @@ export function lingeringLine(lingering: Lingering, user: string): string {
  * when the terminal answers because no node does.
  */
 export function serviceLine(service: ServiceState, nodePid: number | null): string {
-  if (service.manager === 'none') return 'Service: none (no systemd user manager here). Start the node by hand with "kestrel-node run".';
-  if (!service.installed) return nodePid === null ? 'Service: not installed. Start the node by hand with "kestrel-node run".' : 'Service: not installed; this node was started by hand.';
-  if (!service.active) return nodePid === null ? `Service: installed (${NODE_UNIT_NAME}), not running. Start it with "kestrel-node start".` : `Service: installed (${NODE_UNIT_NAME}) but not running; this node was started by hand.`;
-  if (nodePid === null) return `Service: running (${NODE_UNIT_NAME}), but the node does not answer yet. See "kestrel-node logs".`;
+  if (service.manager === 'none') return 'Service: none (no systemd user manager here). Start the node by hand with "kestrel node run".';
+  if (!service.installed) return nodePid === null ? 'Service: not installed. Start the node by hand with "kestrel node run".' : 'Service: not installed; this node was started by hand.';
+  if (!service.active) return nodePid === null ? `Service: installed (${NODE_UNIT_NAME}), not running. Start it with "kestrel node start".` : `Service: installed (${NODE_UNIT_NAME}) but not running; this node was started by hand.`;
+  if (nodePid === null) return `Service: running (${NODE_UNIT_NAME}), but the node does not answer yet. See "kestrel node logs".`;
   return service.mainPid === nodePid ? `Service: running under systemd (${NODE_UNIT_NAME})` : `Service: ${NODE_UNIT_NAME} is running too; this node was started by hand.`;
 }
 
@@ -58,7 +58,7 @@ export function diskLine(disk: HostFacts['disk']): string {
 /** The installed bundle, and a restart to take it when the running node is older. `running` is the running node's version, or null when none answers. */
 export function bundleLine(bundle: HostFacts['bundle'], running: string | null): string {
   if (!bundle) return 'Installed bundle: none (this node runs from a checkout).';
-  const restart = running && running !== bundle.version ? ` The node runs ${running}: restart it to use ${bundle.version} ("kestrel-node stop", then "kestrel-node start").` : '';
+  const restart = running && running !== bundle.version ? ` The node runs ${running}: restart it to use ${bundle.version} ("kestrel node stop", then "kestrel node start").` : '';
   return `Installed bundle: ${bundle.version} (${bundle.path}).${restart}`;
 }
 
@@ -67,7 +67,7 @@ export function hostLines(host: HostFacts, nodePid: number | null, running: stri
   return [serviceLine(host.service, nodePid), lingeringLine(host.lingering, host.user), diskLine(host.disk), bundleLine(host.bundle, running)];
 }
 
-/** `kestrel-node status` when no node answers: that, and what the terminal can see of the machine. */
+/** `kestrel node status` when no node answers: that, and what the terminal can see of the machine. */
 export function offlineStatusLines(socketPath: string, host: HostFacts): string[] {
   return [`No worker node is running here: nothing answers at ${socketPath}.`, ...hostLines(host, null, null)];
 }

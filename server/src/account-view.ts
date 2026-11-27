@@ -9,9 +9,14 @@
 //   sessions and marked `away`.
 // - Every project another computer has is listed (its record, shared/account-projects.ts), once per
 //   repository: two computers' clones are one project. A plain folder is listed as its computer's only.
+// - A remote session's tree and workstream are as its machine says them in its head (issue 83,
+//   shared/account-workstreams.ts): its start link joins `links`, so the sidebar, a workstream's page and the
+//   session map draw its tree, and the workstreams other computers hold are listed beside this computer's own,
+//   each marked with the computer that holds it.
 // - Objects this computer already had keep their identity, so a row that did not change is not redrawn.
 import type { Project, SessionView, WorkspaceState } from './model.ts';
 import { awayIdOfFolder, awayIdOfRepo, type AccountProject } from './shared/account-projects.ts';
+import { remoteLinks, remoteWorkstreams } from './shared/account-workstreams.ts';
 import type { AccountHead, Machine } from './shared/machines.ts';
 import { buildTree } from './tree.ts';
 
@@ -131,11 +136,20 @@ export function withRemote(state: WorkspaceState, heads: readonly AccountHead[],
   const sessions = remote.length > 0 ? [...state.sessions, ...remote] : state.sessions;
   const ungrouped = sessions.filter((s) => s.groupId === null && !s.aside).map((s) => s.id);
   const ownProjects = alsoOn.size > 0 ? state.projects.map((p) => (alsoOn.has(p.id) ? { ...p, alsoOn: alsoOn.get(p.id)! } : p)) : state.projects;
+  const listed = new Set([...remote, ...remoteArchived].map((s) => s.id));
+  const shownHeads = heads.filter((h) => listed.has(h.id));
+  const extraLinks = remoteLinks(shownHeads, own);
+  const links = extraLinks.length > 0 ? [...state.links, ...extraLinks] : state.links;
+  const ownWorkstreams = new Set([...state.workstreams, ...state.archivedWorkstreams].map((w) => w.id));
+  const elsewhere = remoteWorkstreams(shownHeads, machines, ownWorkstreams, new Set(sessions.map((s) => s.id)));
   return {
     ...state,
     projects: away.byId.size > 0 ? [...ownProjects, ...away.byId.values()] : ownProjects,
     sessions,
-    trees: remote.length > 0 ? { ...state.trees, ungrouped: buildTree(ungrouped, state.links) } : state.trees,
+    links,
+    trees: remote.length > 0 ? { ...state.trees, ungrouped: buildTree(ungrouped, links) } : state.trees,
+    ...(elsewhere.active.length > 0 ? { workstreams: [...state.workstreams, ...elsewhere.active] } : {}),
+    ...(elsewhere.archived.length > 0 ? { archivedWorkstreams: [...state.archivedWorkstreams, ...elsewhere.archived] } : {}),
     ...(remoteArchived.length > 0 ? { archived: { ...state.archived, sessions: [...state.archived.sessions, ...remoteArchived] } } : {}),
     machines: machines.filter((m) => remote.some((s) => s.runsOn === m.id) || remoteArchived.some((s) => s.runsOn === m.id)),
   };

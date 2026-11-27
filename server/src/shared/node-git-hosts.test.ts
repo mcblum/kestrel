@@ -62,9 +62,9 @@ describe('ssh’s answer', () => {
   });
 });
 
-describe('the git lines of kestrel-node status', () => {
+describe('the git lines of kestrel node status', () => {
   test('no key yet: one line, with the command', () => {
-    expect(gitStatusLines(gitStatusOf(EMPTY_GIT_SETTINGS, false))).toEqual(['Git: no key of this node\'s yet. Run "kestrel-node git".']);
+    expect(gitStatusLines(gitStatusOf(EMPTY_GIT_SETTINGS, false))).toEqual(['Git: no key of this node\'s yet. Run "kestrel node git".']);
   });
 
   test('a key whose file is gone is no key', () => {
@@ -82,7 +82,7 @@ describe('the git lines of kestrel-node status', () => {
       tools: { gh: { installed: true, by: 'kestrel', version: '2.96.0', signedIn: ['github.com'], notSignedIn: [] }, glab: { installed: true, by: 'elsewhere', signedIn: [], notSignedIn: ['git.example.org'] } },
     };
     expect(gitStatusLines(gitStatusOf(settings, true))).toEqual([
-      'Git: key made (SHA256:abc); not yet accepted at git.example.org; signing key not checked at git.example.org; accepted at github.com; signing key registered at github.com (as "kestrel-node git" last found it)',
+      'Git: key made (SHA256:abc); not yet accepted at git.example.org; signing key not checked at git.example.org; accepted at github.com; signing key registered at github.com (as "kestrel node git" last found it)',
       '  Commits: Sam Rivera <sam@example.com>; at git.example.org: sam@git.example.org; signed with this key',
       '  gh 2.96.0, installed by Kestrel, signed in to github.com; glab, found elsewhere on PATH, not signed in to git.example.org',
     ]);
@@ -93,7 +93,7 @@ describe('the git lines of kestrel-node status', () => {
     const settings: NodeGitSettings = { ...EMPTY_GIT_SETTINGS, key: { fingerprint: 'SHA256:abc', madeAt: 1 }, signing: 'node-key', hosts: { 'git.example.org': { answer: 'unreachable', at: 1, signing: 'not-registered' } } };
     expect(gitToDoSummary(settings, true)).toBe('key made (SHA256:abc); not checked at git.example.org (unreachable); signing key not registered at git.example.org');
     expect(gitToDoSummary({ ...settings, hosts: {} }, true)).toBe('key made (SHA256:abc); no host checked yet');
-    expect(gitToDoSummary(settings, false)).toBe('no key yet; run "kestrel-node git"');
+    expect(gitToDoSummary(settings, false)).toBe('no key yet; run "kestrel node git"');
   });
 
   test('the tools’ sign-ins, named for uninstall with their sign-out commands', () => {

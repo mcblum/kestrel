@@ -16,6 +16,7 @@ import type { ReviewRequestsView } from './review-requests.ts';
 import { statusOf, type StatusKey } from './status.ts';
 import { ticketsOn, type TicketsView } from './tickets.ts';
 import type { ValueRequestView } from './setup-values.ts';
+import { joinRequestTitle, type ConnectJoinRequest } from './connect.ts';
 
 export type NotifyKind = 'done' | 'failed' | 'needs-you' | 'review-request' | 'ticket' | 'pull-request';
 export const NOTIFY_KINDS: readonly NotifyKind[] = ['needs-you', 'failed', 'done', 'pull-request', 'review-request', 'ticket'];
@@ -67,10 +68,14 @@ export function sanitizeNotify(value: unknown): NotifyPrefs {
 
 /**
  * Kinds told at the desk only, whatever the settings say (onboarding.md 19.7 and 19.13): another computer
- * asking this one's person for set-up values, which cannot wait. No setting turns one off, and a phone is
- * never told (`deskOnlyEvent`; push.ts drops one, and is never handed what makes one).
+ * asking this one's person for set-up values, and (issue 72) a device asking to join the account, neither of
+ * which can wait: someone at the other device is waiting, and the request runs out. No setting turns one off,
+ * and the desk never pushes one to a phone (`deskOnlyEvent`; push.ts drops one, and is never handed what makes
+ * one): set-up values are the desk's alone, and a request to join already reaches every phone of the account as
+ * the service's own push, which the phone answers itself (kestrel-connect.md, "Joining: what the service
+ * carries"), so a second one from each desk would only repeat it.
  */
-export type DeskKind = 'setup-values';
+export type DeskKind = 'setup-values' | 'join-request';
 
 export interface NotifyEvent {
   kind: NotifyKind | DeskKind;
@@ -82,6 +87,8 @@ export interface NotifyEvent {
   ticketKey?: string;
   /** Another computer's request for set-up values (its id): a click opens the request's page. */
   setupRequestId?: string;
+  /** A device's request to join the account (its id): a click brings the window forward with the request's card. */
+  joinRequestId?: string;
   /** The banner's first line: the session's title. */
   title: string;
   /** Its second line: what happened, in the status vocabulary, with the session's own note where it says more. */
@@ -262,12 +269,14 @@ export interface NotifySeen {
   checks: RequestsSeenBefore | null;
   /** The ids of other computers' requests for set-up values; absent where none are shown (a phone's push). */
   setupRequests?: readonly string[] | null;
+  /** The ids of the requests to join the account seen waiting; absent where none are shown (a phone's push). */
+  joinRequests?: readonly string[] | null;
 }
 
 export const NOTHING_SEEN: NotifySeen = { sessions: null, requests: null, tickets: null, checks: null };
 
 /** Whether an event is one only the desk is told of. */
-export const deskOnlyEvent = (event: Pick<NotifyEvent, 'kind'>): event is NotifyEvent & { kind: DeskKind } => event.kind === 'setup-values';
+export const deskOnlyEvent = (event: Pick<NotifyEvent, 'kind'>): event is NotifyEvent & { kind: DeskKind } => event.kind === 'setup-values' || event.kind === 'join-request';
 
 /** One request another computer made for set-up values, as the rule needs it: names, never values. */
 export type SetupRequestNotice = Pick<ValueRequestView, 'id' | 'from' | 'step' | 'names'>;
@@ -285,6 +294,25 @@ function setupValueEvents(before: readonly string[] | null | undefined, now: rea
   return { events, seen: now.map((r) => r.id) };
 }
 
+/** One device asking to join the account, as the rule needs it (the window's `connect.requests`). */
+export type JoinRequestNotice = Pick<ConnectJoinRequest, 'id' | 'name' | 'kind' | 'state'>;
+
+/**
+ * A device asking to join is news when it is first seen waiting (issue 72), even on the first look (it runs out,
+ * and someone at that device is waiting), and whatever the settings say. Only while the window is not in front: in
+ * front, the request's own card is drawn over the page. What is seen moves on either way, so the same request is
+ * never told twice. Pure.
+ */
+function joinRequestEvents(before: readonly string[] | null | undefined, now: readonly JoinRequestNotice[] | undefined, looking: Looking): { events: NotifyEvent[]; seen: readonly string[] | null } {
+  if (!now) return { events: [], seen: before ?? null };
+  const had = new Set(before ?? []);
+  const waiting = now.filter((r) => r.state === 'waiting');
+  const events = looking.focused
+    ? []
+    : waiting.filter((r) => !had.has(r.id)).map((r): NotifyEvent => ({ kind: 'join-request', sessionId: '', joinRequestId: r.id, title: joinRequestTitle(r), body: 'Let it in only if you are setting it up now. Open Kestrel to type the code it shows.' }));
+  return { events, seen: waiting.map((r) => r.id) };
+}
+
 /** What is there now: the workspace's sessions and links, their pull requests (the PR store's, by session), the review requests and the tickets. */
 export interface NotifyNow {
   sessions: readonly RequestSession[];
@@ -296,6 +324,8 @@ export interface NotifyNow {
   tickets: Pick<TicketsView, 'tickets' | 'unread' | 'sources' | 'settings'>;
   /** Other computers' requests for set-up values waiting here: the window passes them, a phone's push never does. */
   setupRequests?: readonly SetupRequestNotice[];
+  /** Devices asking to join the account, as this computer shows them: the window passes them, a phone's push never does. */
+  joinRequests?: readonly JoinRequestNotice[];
 }
 
 /**
@@ -314,18 +344,21 @@ export function notificationsOf(seen: NotifySeen, now: NotifyNow, prefs: NotifyP
     ...ticketNotifyEvents(seen.tickets, now.tickets, prefs),
   ];
   const setup = setupValueEvents(seen.setupRequests, now.setupRequests);
-  return { events: [...setup.events, ...events], seen: { sessions: now.sessions, requests: now.reviewRequests.requests.map((r) => r.key), tickets: ticketsBefore(now.tickets), checks: checks.seen, setupRequests: setup.seen } };
+  const joins = joinRequestEvents(seen.joinRequests, now.joinRequests, looking);
+  return { events: [...joins.events, ...setup.events, ...events], seen: { sessions: now.sessions, requests: now.reviewRequests.requests.map((r) => r.key), tickets: ticketsBefore(now.tickets), checks: checks.seen, setupRequests: setup.seen, joinRequests: joins.seen } };
 }
 
 /** A banner's click target as the desktop shell carries it back: a session's id, or a review request's key behind this mark. */
 export const REVIEW_TARGET = 'review:';
 export const TICKET_TARGET = 'ticket:';
 export const SETUP_REQUEST_TARGET = 'setup-request:';
-export const targetOf = (event: Pick<NotifyEvent, 'sessionId' | 'requestKey' | 'ticketKey' | 'setupRequestId'>): string =>
-  event.setupRequestId ? `${SETUP_REQUEST_TARGET}${event.setupRequestId}` : event.requestKey ? `${REVIEW_TARGET}${event.requestKey}` : event.ticketKey ? `${TICKET_TARGET}${event.ticketKey}` : event.sessionId;
-/** What a target names: `{ setupRequestId }`, `{ requestKey }`, `{ ticketKey }`, `{ sessionId }`, or null for none (a test banner). */
-export function parseTarget(target: string): { setupRequestId: string } | { requestKey: string } | { ticketKey: string } | { sessionId: string } | null {
+export const JOIN_REQUEST_TARGET = 'join-request:';
+export const targetOf = (event: Pick<NotifyEvent, 'sessionId' | 'requestKey' | 'ticketKey' | 'setupRequestId' | 'joinRequestId'>): string =>
+  event.joinRequestId ? `${JOIN_REQUEST_TARGET}${event.joinRequestId}` : event.setupRequestId ? `${SETUP_REQUEST_TARGET}${event.setupRequestId}` : event.requestKey ? `${REVIEW_TARGET}${event.requestKey}` : event.ticketKey ? `${TICKET_TARGET}${event.ticketKey}` : event.sessionId;
+/** What a target names: `{ joinRequestId }`, `{ setupRequestId }`, `{ requestKey }`, `{ ticketKey }`, `{ sessionId }`, or null for none (a test banner). */
+export function parseTarget(target: string): { joinRequestId: string } | { setupRequestId: string } | { requestKey: string } | { ticketKey: string } | { sessionId: string } | null {
   if (!target) return null;
+  if (target.startsWith(JOIN_REQUEST_TARGET)) return { joinRequestId: target.slice(JOIN_REQUEST_TARGET.length) };
   if (target.startsWith(SETUP_REQUEST_TARGET)) return { setupRequestId: target.slice(SETUP_REQUEST_TARGET.length) };
   if (target.startsWith(REVIEW_TARGET)) return { requestKey: target.slice(REVIEW_TARGET.length) };
   if (target.startsWith(TICKET_TARGET)) return { ticketKey: target.slice(TICKET_TARGET.length) };

@@ -493,7 +493,7 @@ export class Delegation {
     if (!(await this.approve(caller, 'spawn', 'Start a new session', [`• ${named ? `${named} · ` : ''}${targetName(task!)} · ${runnerText(task!)}\n  ${task!.brief}`]))) return { text: 'The user declined. Nothing was started.' };
     const child = await this.ws.spawn(callerId, { projectId: task!.project.id, folderId: task!.folder?.id ?? null, title: named ?? titleFrom(task!.brief), agent: task!.agent });
     this.noteStarted(callerId, child.id, 'spawn');
-    const launched = await this.rt.launchChild(child, task!.project, task!.folder, task!.brief, 'spawn', this.modelOf(callerId, caller, task!), this.modeOf(callerId), speedOf(task!), undefined, roleRunOf(task!, task!.brief));
+    const launched = await this.rt.launchChild(child, task!.project, task!.folder, task!.brief, 'spawn', this.modelOf(callerId, caller, task!), this.modeOf(callerId), speedOf(task!), undefined, roleRunOf(task!, task!.brief), callerId);
     if (!launched.ok) return { isError: true, text: `The session was created (${child.id}) but could not start: ${launched.reason}` };
     return { text: `Started a separate session "${child.title}" (${child.id}) in ${targetName(task!)}. It is not linked to you and you will not hear back from it.` };
   }

@@ -38,9 +38,9 @@ describe('the words', () => {
     expect(noOriginRefusal('Shop', 'Mac mini')).toBe('Shop has no `origin` on Mac mini, so there is nothing to clone it from. Add one there and push it first.');
     expect(unmappedRefusal('Shop', 'Mac mini')).toBe('Mac mini does not say which repository each folder of Shop is. Update Kestrel there, then start the session again.');
     expect(baseOnlyThereRefusal('feature/x', 'Mac mini')).toBe('Push `feature/x` from Mac mini first.');
-    expect(keyCannotReadRefusal('Worker node 1', 'github.com/acme/shop')).toBe("Worker node 1's key cannot read `acme/shop`. Run `kestrel-node git` on Worker node 1 to add it at github.com.");
+    expect(keyCannotReadRefusal('Worker node 1', 'github.com/acme/shop')).toBe("Worker node 1's key cannot read `acme/shop`. Run `kestrel node git` on Worker node 1 to add it at github.com.");
     expect(hostSilentRefusal('Worker node 1', 'github.com/acme/shop')).toBe('github.com did not answer Worker node 1 in 20 seconds about `acme/shop`. Try again in a moment.');
-    expect(noKeyRefusal('Worker node 1')).toBe('Worker node 1 has no git key of its own yet. Run `kestrel-node git` on Worker node 1, then start the session again.');
+    expect(noKeyRefusal('Worker node 1')).toBe('Worker node 1 has no git key of its own yet. Run `kestrel node git` on Worker node 1, then start the session again.');
     expect(lowDiskRefusal('Worker node 1', 512 * 1024 ** 2)).toBe('Worker node 1 has 512 MB free, and a new clone wants at least 2.0 GB. Free some space there first.');
     expect(keptOffRefusal('Shop')).toBe('Shop is kept off Kestrel Connect, so it is not cloned on other computers.');
     expect(cloneFailedText('github.com/acme/shop', 'fatal: repository not found\n')).toBe('Could not clone `acme/shop`: fatal: repository not found. Nothing of it was kept.');

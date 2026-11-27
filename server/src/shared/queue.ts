@@ -67,6 +67,8 @@ export interface OutgoingPart {
   attachments?: readonly Attachment[];
   /** Another session sent it: a note shows as its quiet line, not as a message of the user's. */
   from?: MessageFrom;
+  /** Not typed by the user (another session's work, or Kestrel's own words): shown as a preview when long (shared/message-preview.ts). */
+  byAgent?: true;
 }
 
 const hasFiles = (m: { attachments?: readonly Attachment[] }) => (m.attachments?.length ?? 0) > 0;
@@ -138,7 +140,7 @@ export function takeAll(
   const current = now && (now.text.trim() || hasFiles(now)) ? [{ text: now.text.trim(), change: now.change, attachments: now.attachments, fromAgent: now.fromAgent, from: now.from }] : [];
   const all = [...queue.items, ...current];
   const change = all.reduce<QueuedChange>((acc, m) => ({ ...acc, ...cleanChange(m.change) }), {});
-  const parts = all.map((m): OutgoingPart => ({ text: m.text, ...(hasFiles(m) ? { attachments: m.attachments } : {}), ...(m.from ? { from: m.from } : {}) }));
+  const parts = all.map((m): OutgoingPart => ({ text: m.text, ...(hasFiles(m) ? { attachments: m.attachments } : {}), ...(m.from ? { from: m.from } : {}), ...(m.fromAgent ? { byAgent: true as const } : {}) }));
   const text = parts.map((p) => p.text).filter(Boolean).join('\n\n');
   return { text, parts, attachments: parts.flatMap((p) => p.attachments ?? []), change, queue: EMPTY_QUEUE, byUser: all.some((m) => !m.fromAgent) };
 }

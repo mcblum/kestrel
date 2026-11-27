@@ -29,6 +29,11 @@ export interface InactiveEntry {
 export interface SandboxAllowView {
   /** The entries in effect. */
   entries: SandboxAllowEntry[];
+  /**
+   * Sessions started by another session may run commands outside their sandbox without asking, when the session that
+   * started them could (shared/sandbox-inherit.ts; issue 74). Off by default; absent from an older server.
+   */
+  inherit?: boolean;
   /** Entries stored before a rule changed that would be refused now: shown, not applied. */
   inactive?: InactiveEntry[];
 }

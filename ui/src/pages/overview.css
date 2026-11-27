@@ -30,10 +30,10 @@
   column-gap: 12px;
 }
 .kestrel .overview-content .page-head-top { display: contents; }
-.kestrel .overview-content .page-head-title { grid-area: 1 / 1; min-height: 30px; }
-.kestrel .overview-content .page-head-line { grid-area: 2 / 1; }
+/* No title here (it is in the top bar): the line of counts and New session share the first row. */
+.kestrel .overview-content .page-head-line { grid-area: 1 / 1; }
 .kestrel .overview-content .page-head-actions {
-  grid-area: 1 / 2 / span 2;
+  grid-area: 1 / 2;
   align-self: center;
   justify-self: end;
 }

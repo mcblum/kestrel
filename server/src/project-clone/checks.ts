@@ -14,7 +14,7 @@ import { baseRefusal, CLONE_DISK_MIN_BYTES, cloneRefusal, clonePlanOf, hostSilen
 export type LsRemote = { ok: true; heads: string[] } | { ok: false; why: 'denied' | 'timeout' };
 
 export interface CloneProbe {
-  /** Whether the node has its own key (`kestrel-node git`) that its git uses. */
+  /** Whether the node has its own key (`kestrel node git`) that its git uses. */
   keyReady(): boolean;
   /** Free bytes where the clones are kept (the nearest folder that exists). */
   freeBytes(): number;

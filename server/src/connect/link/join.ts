@@ -276,6 +276,12 @@ export class AccountJoin {
     const me = this.deps.me();
     if (!me || request.device.id === me.id || this.opened.has(request.id)) return;
     this.opened.set(request.id, { request, state: 'waiting', nonce: null, theirKeys: null, theirNonce: null, code: null, wrong: 0, problem: null, confirmCode: null, granted: null, outcome: null });
+    // A request nobody answers runs out: the window is told then, so the card over any page goes away by itself (issue 72).
+    this.after(request.expiresAt - this.now(), () => {
+      const o = this.opened.get(request.id);
+      if (o?.state === 'waiting' || o?.state === 'opening' || o?.state === 'typing') this.opened.delete(request.id);
+      this.deps.changed();
+    });
     if (announce) this.deps.changed();
   }
 

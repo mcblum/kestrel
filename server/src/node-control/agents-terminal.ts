@@ -1,4 +1,4 @@
-// `kestrel-node agents` in a real terminal: the checklist (agents-checklist.ts) drawn as `join` is (join-draw.ts),
+// `kestrel node agents` in a real terminal: the checklist (agents-checklist.ts) drawn as `join` is (join-draw.ts),
 // questions read from the keyboard one at a time, the agents' own programs run here with the terminal handed to them
 // (agents-programs.ts), and the running node asked for its part over its socket. With `--yes`, or when input or
 // output is not a terminal, nothing is asked: what is missing is installed and the sign-in commands are printed.
@@ -21,7 +21,7 @@ import { nodeSocketPath } from './socket-path.ts';
 type Env = Record<string, string | undefined>;
 
 /** Whether a program is on the PATH the node's agents run with. */
-const onPath = (env: Env) => (program: string): boolean => (env.PATH ?? '').split(delimiter).filter(Boolean).some((dir) => existsSync(join(dir, program)));
+export const onPath = (env: Env) => (program: string): boolean => (env.PATH ?? '').split(delimiter).filter(Boolean).some((dir) => existsSync(join(dir, program)));
 
 /** What the running node says, or null when none answers (or it refuses). Never rejects. */
 async function fromNode<T>(path: string, ask: () => Promise<T | null>): Promise<T | null> {
@@ -101,7 +101,8 @@ export function terminalIo(): ChecklistIo {
   };
 }
 
-export async function agentsFromTerminal(home: string, dataDir: string, args: AgentsArgs): Promise<number> {
+/** `io`: where it is drawn; `kestrel node configure` passes its own, which leaves out the "Next:" line (setup says what is next). */
+export async function agentsFromTerminal(home: string, dataDir: string, args: AgentsArgs, io: ChecklistIo = terminalIo()): Promise<number> {
   const terminal = process.stdin.isTTY === true && process.stdout.isTTY === true;
-  return runAgentsChecklist(await terminalDeps(home, dataDir), terminalIo(), { only: args.only, unattended: args.yes || !terminal, check: args.check });
+  return runAgentsChecklist(await terminalDeps(home, dataDir), io, { only: args.only, unattended: args.yes || !terminal, check: args.check });
 }

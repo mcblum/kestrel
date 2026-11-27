@@ -3,6 +3,9 @@
 //   or a middle click, opens the container's page in a new tab instead. The page itself is reached
 //   from the row's menu ("Open … page").
 // - `FoldChevron`: the chevron after the name, which only shows the state (it is not a button).
+// - `useFold`, `FoldToggle`, `RollupDots`: a row that opens a conversation and also folds the rows under
+//   it (a workstream's lead, a session with sessions under it): the remembered fold, the chevron after
+//   the title that folds it, and, folded, one dot per kind of state among what is under it.
 // - `RowOpen`: the arrow shown on hover or focus left of the …, which opens the container's page
 //   (in a new tab with Shift or Cmd, as everywhere).
 // - `RowMore`: the … shown on hover or focus just left of the + (or at the far right where there is
@@ -11,6 +14,8 @@ import type { DragEvent, MouseEvent } from 'react';
 import { ArrowUpRight, ChevronDown, ChevronRight, Ellipsis } from 'lucide-react';
 import { openView, wantsNewTab, type View } from '../route.ts';
 import { openRowMenu, type RowKind } from './sidebarMenuTarget.ts';
+import { tabActions, useTabs } from '../tabsStore.ts';
+import { rollupLabel } from './useRowDot.ts';
 
 /** The click handlers of a container row's name: fold it, or open its page in a new tab. */
 export function foldClick(view: View, toggle: () => void) {
@@ -22,6 +27,52 @@ export function foldClick(view: View, toggle: () => void) {
 
 export function FoldChevron({ open }: { open: boolean }) {
   return open ? <ChevronDown className="fold-chevron" aria-hidden /> : <ChevronRight className="fold-chevron" aria-hidden />;
+}
+
+/**
+ * Whether the rows under a row are shown, and the way to fold them: remembered with the sidebar's other
+ * folds (`collapsed`, by `key`), open until folded. A workstream's lead row and a session row with
+ * sessions under it (issue 75) both use it.
+ */
+export function useFold(key: string): { open: boolean; toggle: () => void } {
+  const open = useTabs((v) => !v.sidebar.collapsed.includes(key));
+  return { open, toggle: () => tabActions.toggleCollapsed(key) };
+}
+
+/**
+ * The chevron right after the title of a row that opens a conversation (a workstream's lead, a session
+ * with sessions under it): the row itself opens the conversation, so this folds what is under it. A
+ * span, since a button cannot hold a button.
+ */
+export function FoldToggle({ open, toggle, label }: { open: boolean; toggle: () => void; /** What it shows or hides, after "Show" or "Hide". */ label: string }) {
+  return (
+    <span
+      className="fold-toggle"
+      role="button"
+      tabIndex={0}
+      aria-expanded={open}
+      aria-label={`${open ? 'Hide' : 'Show'} ${label}`}
+      draggable={false}
+      onDragStart={noDrag}
+      onClick={(event) => (event.stopPropagation(), toggle())}
+      onDoubleClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => (event.key === 'Enter' || event.key === ' ') && (event.preventDefault(), event.stopPropagation(), toggle())}
+    >
+      <FoldChevron open={open} />
+    </span>
+  );
+}
+
+/** The dots of a row that stands for the sessions under it too (status.ts, `workstreamDots`): folded, one per kind of state among them, each saying so. */
+export function RollupDots({ dots, folded }: { dots: readonly string[]; folded: boolean }) {
+  if (dots.length === 0) return null;
+  return (
+    <span className="row-dots row-dot">
+      {dots.map((dot) => (
+        <span key={dot} className={`status-dot ${dot}`} title={folded ? rollupLabel(dot) : undefined} />
+      ))}
+    </span>
+  );
 }
 
 /** A button inside a draggable row: pressing it must never start dragging the row. */

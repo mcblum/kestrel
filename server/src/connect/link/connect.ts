@@ -651,7 +651,7 @@ export class KestrelConnect {
 
   /**
    * What the account's other computers publish about their git (their set-up records: name, email, whether they sign),
-   * newest first, for a worker node's `kestrel-node git`. Refused, with the reason, when this computer cannot read them.
+   * newest first, for a worker node's `kestrel node git`. Refused, with the reason, when this computer cannot read them.
    */
   async publishedGit(): Promise<PublishedGit[]> {
     if (!this.setup) throw new Refused('This copy of Kestrel does not read set-up records.');
@@ -716,7 +716,7 @@ export class KestrelConnect {
   /** Begins a sign-in: the browser is sent to the returned address and comes back to a loopback listener. */
   async signIn(): Promise<{ url: string }> {
     if (this.deps.unavailable) throw new Refused(this.deps.unavailable);
-    if (CONNECT_SIGN_IN[this.kind].grant !== 'loopback') throw new Refused('A worker node has no browser. Sign it in from its terminal with "kestrel-node join".');
+    if (CONNECT_SIGN_IN[this.kind].grant !== 'loopback') throw new Refused('A worker node has no browser. Sign it in from its terminal with "kestrel node join".');
     if (this.account.state === 'signed-in') throw new Refused(`Already signed in as ${this.account.email}. Sign out first to use another account.`);
     if (this.signInUnderWay) return { url: this.signInUnderWay.request.url };
     let callback: LoopbackCallback | null = null;
@@ -859,7 +859,7 @@ export class KestrelConnect {
   }
 
   /**
-   * This computer leaves the account for good (`kestrel-node uninstall`): the service removes it as Remove does from
+   * This computer leaves the account for good (`kestrel node uninstall`): the service removes it as Remove does from
    * another device, which leaves the key's rotation due for the next device that may rotate it; then it signs out
    * and forgets its device keys. Nothing is dropped when the service refuses: the caller deletes nothing then.
    */

@@ -2,6 +2,7 @@
 // one facade callers use; the modules it hands work to (`events.ts`, `turns.ts`, `bring-up.ts`,
 // `agent-options.ts`, `agent-info.ts`, `session-worktrees.ts`) each take the part of this they
 // need (`Pick<RuntimeHost, …>`), built once by the runtime. Nothing here holds state of its own.
+import type { PlanUsageStore } from '../plan-usage.ts';
 import type { McpServerStore } from '../mcp-servers/store.ts';
 import type { WhoDoesWhatPrefs } from '../who-does-what/prefs.ts';
 import type { GitDefaultsPrefs } from '../git-defaults/prefs.ts';
@@ -95,6 +96,8 @@ export interface RuntimeHost {
     failed(agent: Agent, event: Extract<AgentEvent, { type: 'failed' }>): Extract<AgentEvent, { type: 'failed' }>;
     succeeded(agent: Agent): void;
   };
+  /** Each agent account's plan usage, merged from the `limits` events its sessions report (plan-usage.ts). */
+  readonly planUsage: PlanUsageStore;
   /** A turn ended complete (not stopped): what follows on it that is not the turn's own (a ticket's summary proposal). Not waited for. */
   turnComplete(id: string): void;
   /** Nothing the agent's process ran is running any more. */

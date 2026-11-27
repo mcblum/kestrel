@@ -39,17 +39,17 @@ describe('the agents’ own answers, read', () => {
 
   test('read on another device, the sentence names the agent, the node and the one command to run there', () => {
     const elsewhere = { elsewhere: 'Worker node 1' };
-    expect(nodeAgentReason('opencode', { trouble: 'signed-out' }, elsewhere)).toBe('OpenCode is not signed in on Worker node 1. Run `kestrel-node agents` there.');
-    expect(nodeAgentReason('claude', { trouble: 'missing' }, elsewhere)).toBe('Claude Code is not installed on Worker node 1. Run `kestrel-node agents` there.');
-    expect(nodeAgentReason('codex', { trouble: 'out-of-usage', detail: `${'x'.repeat(300)}.` }, { elsewhere: 'build-01' })).toBe("Codex's provider refused the last turn on build-01. Run `kestrel-node agents` there.");
-    expect(nodeAgentReason('opencode', { trouble: 'other', detail: 'port in use.' }, elsewhere)).toBe('OpenCode cannot run on Worker node 1: port in use. Run `kestrel-node agents` there.');
+    expect(nodeAgentReason('opencode', { trouble: 'signed-out' }, elsewhere)).toBe('OpenCode is not signed in on Worker node 1. Run `kestrel node agents` there.');
+    expect(nodeAgentReason('claude', { trouble: 'missing' }, elsewhere)).toBe('Claude Code is not installed on Worker node 1. Run `kestrel node agents` there.');
+    expect(nodeAgentReason('codex', { trouble: 'out-of-usage', detail: `${'x'.repeat(300)}.` }, { elsewhere: 'build-01' })).toBe("Codex's provider refused the last turn on build-01. Run `kestrel node agents` there.");
+    expect(nodeAgentReason('opencode', { trouble: 'other', detail: 'port in use.' }, elsewhere)).toBe('OpenCode cannot run on Worker node 1: port in use. Run `kestrel node agents` there.');
   });
 
   test('read in the node’s own terminal, the same sentence without where, and the same names as the checklist', () => {
-    expect(nodeAgentReason('claude', { trouble: 'signed-out' }, 'here')).toBe('Claude Code is not signed in. Run `kestrel-node agents`.');
-    expect(nodeAgentReason('codex', { trouble: 'missing' }, 'here')).toBe('Codex is not installed. Run `kestrel-node agents`.');
-    expect(nodeAgentReason('opencode', { trouble: 'out-of-usage', detail: 'Free usage exceeded' }, 'here')).toBe("OpenCode's provider refused the last turn (Free usage exceeded). Run `kestrel-node agents`.");
-    expect(nodeAgentReason('opencode', { trouble: 'other', detail: '' }, 'here')).toBe('OpenCode cannot run: it did not say why. Run `kestrel-node agents`.');
+    expect(nodeAgentReason('claude', { trouble: 'signed-out' }, 'here')).toBe('Claude Code is not signed in. Run `kestrel node agents`.');
+    expect(nodeAgentReason('codex', { trouble: 'missing' }, 'here')).toBe('Codex is not installed. Run `kestrel node agents`.');
+    expect(nodeAgentReason('opencode', { trouble: 'out-of-usage', detail: 'Free usage exceeded' }, 'here')).toBe("OpenCode's provider refused the last turn (Free usage exceeded). Run `kestrel node agents`.");
+    expect(nodeAgentReason('opencode', { trouble: 'other', detail: '' }, 'here')).toBe('OpenCode cannot run: it did not say why. Run `kestrel node agents`.');
   });
 });
 
@@ -91,7 +91,7 @@ describe('the sandbox line', () => {
   test('status on a node says what happens without them, what to run there, and the restart; available stays available', () => {
     expect(nodeSandbox({ available: false, reason: 'the command sandbox on Linux needs bubblewrap installed (then restart Kestrel)' })).toEqual({
       available: false,
-      reason: 'bubblewrap and socat were not both installed when the node started. Without them every command of a confined Claude session asks first. Run "kestrel-node agents" for the command that installs them, then restart the node: kestrel-node stop && kestrel-node start',
+      reason: 'bubblewrap and socat were not both installed when the node started. Without them every command of a confined Claude session asks first. Run "kestrel node agents" for the command that installs them, then restart the node: kestrel node stop && kestrel node start',
     });
     expect(nodeSandbox({ available: true })).toEqual({ available: true });
   });

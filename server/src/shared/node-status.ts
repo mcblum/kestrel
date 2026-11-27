@@ -1,4 +1,4 @@
-// What `kestrel-node status` answers (docs/designs/worker-nodes.md, sections 3 and 4): a typed value built by
+// What `kestrel node status` answers (docs/designs/worker-nodes.md, sections 3 and 4): a typed value built by
 // one pure function from what the running server already knows, and a second that words it for a terminal.
 // What it says about the machine (the service, lingering, free disk, the installed bundle) is worded in node-host.ts.
 import type { Agent } from '../model.ts';
@@ -35,7 +35,7 @@ export interface NodeStatusInputs {
   agents: readonly Agent[];
   availability: { available: readonly Agent[]; notes: Readonly<Partial<Record<Agent, string>>>; problems?: Readonly<Partial<Record<Agent, NodeAgentProblem>>> };
   sandbox: { available: true } | { available: false; reason: string };
-  /** What `kestrel-node git` made and found (shared/node-git-status.ts). */
+  /** What `kestrel node git` made and found (shared/node-git-status.ts). */
   git: NodeGitStatus;
   /** The machine: the service, lingering, free disk, the installed bundle (node-control/host-facts.ts). */
   host: HostFacts;
@@ -86,8 +86,8 @@ export interface NodeStatus {
 const KEYSTORE_WHERE = "Secrets are kept in the system's keystore.";
 
 /** What a node removed from the account is told, in `status` and wherever it is not connected. */
-export const REMOVED_NODE = 'This node was removed from your account. Run "kestrel-node join" to join it again.';
-const JOIN_HINT = 'Run "kestrel-node join" to sign in and join your account.';
+export const REMOVED_NODE = 'This node was removed from your account. Run "kestrel node join" to join it again.';
+const JOIN_HINT = 'Run "kestrel node join" to sign in and join your account.';
 
 /** Why this computer is not talking to the relay, or null when it is. */
 function notConnectedBecause(i: NodeStatusInputs['connect']): string | null {

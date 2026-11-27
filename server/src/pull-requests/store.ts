@@ -15,6 +15,25 @@ import { reasonOf, unavailable, type Sourced } from '../shared/sourced.ts';
 type Lookup = Sourced<PullRequestLookup>;
 type Load = () => Promise<Lookup>;
 
+/**
+ * Each request's `headSeenAt` carried over from the last answer while its head commit is the same, else
+ * `now`: when the store first saw that commit. Returns `after` itself when nothing changes. Pure.
+ */
+export function carryHeadSeen(before: Lookup | undefined, after: Lookup, now: number): Lookup {
+  if (after.state !== 'ready') return after;
+  const was = before?.state === 'ready' ? before.value.pullRequests : [];
+  let changed = false;
+  const pullRequests = after.value.pullRequests.map((p) => {
+    if (!p.headSha) return p;
+    const earlier = was.find((w) => w.number === p.number && w.headSha === p.headSha);
+    const seen = earlier?.headSeenAt ?? p.headSeenAt ?? now;
+    if (seen === p.headSeenAt) return p;
+    changed = true;
+    return { ...p, headSeenAt: seen };
+  });
+  return changed ? { ...after, value: { ...after.value, pullRequests } } : after;
+}
+
 /** How many background lookups run at once: each may run gh or glab. */
 export const BACKGROUND_CONCURRENCY = 4;
 
@@ -69,6 +88,22 @@ export class PullRequestStore {
     return this.entries.get(sessionId)?.value;
   }
 
+  /**
+   * The session's answer, asked again first when it has none yet or its time to be asked has come
+   * (`nextPullRequestAsk`): what Autopilot reads when it is turned on. A question on its way is waited
+   * for. Undefined when the store has never been told how to ask about the session.
+   */
+  current(sessionId: string): Promise<Lookup | undefined> {
+    const entry = this.entries.get(sessionId);
+    if (!entry) return Promise.resolve(undefined);
+    if (entry.inFlight) return entry.inFlight;
+    if (entry.value && entry.askedAt !== null && !entry.dueNow) {
+      const next = nextPullRequestAsk(entry.value, entry.askedAt, false);
+      if (next === null || next > this.now()) return Promise.resolve(entry.value);
+    }
+    return this.run(sessionId, entry);
+  }
+
   /** Ask about this session again on the next tick (after a merge, say). Its answer stays shown meanwhile. */
   due(sessionId: string): void {
     const entry = this.entries.get(sessionId);
@@ -116,7 +151,8 @@ export class PullRequestStore {
     const flight = asked.then((answered) => {
       entry.inFlight = undefined;
       // A request that keeps conflicting keeps the commit it was first seen conflicting at (shared/request-attention.ts).
-      const value = carryConflictsSince(entry.value, answered);
+      // And each head commit keeps the time it was first seen (Autopilot measures a new commit's checks from it).
+      const value = carryHeadSeen(entry.value, carryConflictsSince(entry.value, answered), this.now());
       // Forgotten, or replaced by a newer key, while it was on its way: the answer is not this entry's any more.
       if (this.entries.get(sessionId) !== entry) return value;
       entry.askedAt = this.now();

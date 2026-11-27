@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TreeNode } from '../model.ts';
-import { activityAt, orderSessions, orderTree, parseSessionOrder, type Timed } from './session-order.ts';
+import { activeSince, activityAt, moreRecent, orderSessions, orderTree, parseSessionOrder, recencyOf, recencyOfAll, treeRecency, type Timed } from './session-order.ts';
 
 const node = (sessionId: string, children: TreeNode[] = []): TreeNode => ({ sessionId, via: null, movedFrom: null, children });
 const s = (id: string, at: number | undefined, createdAt = 0, updatedAt = 0): Timed => ({ id, createdAt, updatedAt, ...(at === undefined ? {} : { lastActivityAt: at }) });
@@ -86,5 +86,48 @@ describe('custom order', () => {
     const list = [s('a', 1), s('b', 2), s('c', 3)];
     expect(orderSessions(list, 'custom', ['c', 'a']).map((x) => x.id)).toEqual(['b', 'c', 'a']);
     expect(orderSessions(list, 'custom', null).map((x) => x.id)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+// Issue 83 (Matt, 2026-11-27): a session working now is the most recent, however lately another finished.
+describe('how recent a session is: working now first', () => {
+  const MIN = 60_000;
+  const now = 100 * MIN;
+  // Finished a minute ago; started five minutes ago and still going (its last activity was when it started).
+  const finished: Timed = { id: 'finished', createdAt: now - 30 * MIN, updatedAt: now - MIN, lastActivityAt: now - MIN, state: 'done' };
+  const going: Timed = { id: 'going', createdAt: now - 5 * MIN, updatedAt: now - 5 * MIN, lastActivityAt: now - 5 * MIN, state: 'running' };
+
+  it('puts a session that is still going ahead of one that finished more lately', () => {
+    expect(moreRecent(recencyOf(going), recencyOf(finished))).toBeLessThan(0);
+    expect(orderSessions([finished, going], 'recent', null).map((x) => x.id)).toEqual(['going', 'finished']);
+    expect(ids(orderTree([node('finished'), node('going')], lookupOf([finished, going]), 'recent', []))).toEqual(['going', 'finished']);
+  });
+
+  it('orders working sessions by their latest activity, and the rest as before', () => {
+    const older: Timed = { ...going, id: 'older', lastActivityAt: now - 9 * MIN };
+    const idle: Timed = { ...finished, id: 'idle', lastActivityAt: now - 20 * MIN };
+    expect(orderSessions([idle, older, finished, going], 'recent', null).map((x) => x.id)).toEqual(['going', 'older', 'finished', 'idle']);
+  });
+
+  it('places a tree by its most recent session: a parent whose child is working rises above one that finished lately', () => {
+    const parent: Timed = { id: 'parent', createdAt: 0, updatedAt: now - 40 * MIN, lastActivityAt: now - 40 * MIN, state: 'done' };
+    const lookup = lookupOf([parent, going, finished]);
+    expect(ids(orderTree([node('finished'), node('parent', [node('going')])], lookup, 'recent', []))).toEqual([['parent', ['going']], 'finished']);
+    expect(treeRecency(node('parent', [node('going')]), lookup)).toEqual({ working: true, at: now - 5 * MIN });
+  });
+
+  it('keeps a hand-dragged order as it is', () => {
+    expect(orderSessions([finished, going], 'custom', ['finished', 'going']).map((x) => x.id)).toEqual(['finished', 'going']);
+  });
+
+  it('counts a working session as active in any window', () => {
+    expect(activeSince(going, now - MIN)).toBe(true);
+    expect(activeSince(finished, now - 30_000)).toBe(false);
+    expect(activeSince(finished, now - 2 * MIN)).toBe(true);
+  });
+
+  it('several together are working when any is, as late as the latest', () => {
+    expect(recencyOfAll([recencyOf(finished), recencyOf(going)])).toEqual({ working: true, at: now - MIN });
+    expect(recencyOfAll([])).toEqual({ working: false, at: -Infinity });
   });
 });

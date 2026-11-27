@@ -5,17 +5,21 @@
 // It holds, at its top (the install script unpacks it into ~/.kestrel/node/<version>/):
 //
 //   VERSION                     the release, app/package.json's
-//   agents.json                 the versions `kestrel-node agents` installs Codex and OpenCode at
+//   agents.json                 the versions `kestrel node agents` installs Codex and OpenCode at
 //                               (server/src/shared/node-agent-versions.ts: OpenCode's is the server's SDK's)
-//   tools.json                  the versions and checksums `kestrel-node git` installs gh and glab at
+//   tools.json                  the versions and checksums `kestrel node git` installs gh and glab at
 //                               (server/src/shared/node-git-tools.ts)
-//   bin/kestrel-node            the launcher (launcher.sh): the bundle's Node first on PATH, then the server
+//   bin/kestrel-node            the launcher (launcher.sh): the bundle's Node first on PATH, then the server. The install
+//                               links it into ~/.local/bin as `kestrel` and `kestrel-node`
+//   bin/kestrel                 a link to it, by the name the unit runs it by (`kestrel node run`)
 //   node/                       Node for this architecture, the version node-runtime.json pins, from nodejs.org,
 //                               its checksum checked against the pin before it is used
 //   server/kestrel-node.mjs     the server with the kestrel-node entry, built to one JavaScript file (no tsx)
 //   server/node_modules/node-pty                                    with a pty.node built for this architecture
 //   server/node_modules/@anthropic-ai/claude-agent-sdk-linux-<arch>  Claude Code's program, as the Agent SDK ships it
 //   share/kestrel-node.service  the systemd --user unit (shared/node-service.ts)
+//   share/install.sh            the install script, as in the checkout (it names no version): what `kestrel upgrade`
+//                               runs, on the installed version's channel (server/src/node-control/upgrade.ts)
 //   LICENSE
 //
 //   node scripts/release/node-bundle/make-node-bundle.mjs --arch x64|arm64 [--pty <pty.node>] [--version x.y.z]
@@ -29,7 +33,7 @@
 // parts beside it are laid out by server-parts.mjs, as for the app. Nothing is uploaded.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, cpSync, createReadStream, existsSync, mkdirSync, openSync, readFileSync, readSync, closeSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, createReadStream, existsSync, mkdirSync, openSync, readFileSync, readSync, closeSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -146,8 +150,13 @@ function stageFiles() {
   mkdirSync(join(STAGE, 'bin'), { recursive: true });
   writeFileSync(join(STAGE, 'bin', 'kestrel-node'), readFileSync(join(here, 'launcher.sh'), 'utf8').replaceAll('@ARCH@', ARCH));
   chmodSync(join(STAGE, 'bin', 'kestrel-node'), 0o755);
+  // The same launcher by the name people type, which the unit runs (`kestrel node run`). A relative link, so it stays
+  // right wherever the bundle is unpacked; the launcher reads the bundle's folder through it.
+  symlinkSync('kestrel-node', join(STAGE, 'bin', 'kestrel'));
   mkdirSync(join(STAGE, 'share'), { recursive: true });
   writeFileSync(join(STAGE, 'share', 'kestrel-node.service'), serviceUnitText());
+  cpSync(join(root, 'scripts', 'release', 'install.sh'), join(STAGE, 'share', 'install.sh'));
+  chmodSync(join(STAGE, 'share', 'install.sh'), 0o755);
   cpSync(join(root, 'LICENSE'), join(STAGE, 'LICENSE'));
 }
 
@@ -158,6 +167,7 @@ function smokeTest() {
     return;
   }
   execFileSync(join(STAGE, 'bin', 'kestrel-node'), ['help'], { stdio: 'ignore' });
+  execFileSync(join(STAGE, 'bin', 'kestrel'), ['node', 'help'], { stdio: 'ignore' });
   const script = "const pty = require(process.argv[1]); const t = pty.spawn('/bin/echo', ['pty-ok'], {}); let out = ''; t.onData((d) => (out += d)); t.onExit(() => { if (!out.includes('pty-ok')) process.exit(1); });";
   execFileSync(join(STAGE, 'node', 'bin', 'node'), ['-e', script, join(STAGE, 'server', 'node_modules', 'node-pty')], { stdio: 'inherit', timeout: 20_000 });
   step('checked: the bundle starts, and node-pty opens a terminal');

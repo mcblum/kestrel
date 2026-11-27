@@ -9,6 +9,8 @@
 //   POST   /api/sandbox-allow  { kind: 'command', command: string }        200 { entries, inactive? } | 400 { error }
 //   POST   /api/sandbox-allow  { kind: 'folder', path: string, access }    200 { entries, inactive? } | 400 { error }
 //   DELETE /api/sandbox-allow  { id: string }                              200 { entries, inactive? } | 400 { error }
+//   PATCH  /api/sandbox-allow  { inherit: boolean }                        200 { entries, inactive?, inherit } | 400 { error }
+//          (issue 74: sessions started by another session may leave their sandbox unasked when their starter could)
 import { Refused } from '../refused.ts';
 import type { SandboxAllowList } from './store.ts';
 
@@ -34,6 +36,11 @@ async function answer(method: string, readBody: ReadBody, list: SandboxAllowList
   if (method === 'POST') {
     const result = await added(await readBody(), list);
     return 'status' in result ? result : { status: 200, body: result };
+  }
+  if (method === 'PATCH') {
+    const body = await readBody();
+    if (typeof body.inherit !== 'boolean') return bad('inherit must be true or false.');
+    return { status: 200, body: await list.setInherit(body.inherit) };
   }
   if (method !== 'DELETE') return null;
   const body = await readBody();

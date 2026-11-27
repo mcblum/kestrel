@@ -20,7 +20,7 @@ function source(published: () => Promise<Published>, opts: { projects?: unknown[
   } as unknown as GitFactsSource;
 }
 
-describe("the node's part of kestrel-node git", () => {
+describe("the node's part of kestrel node git", () => {
   test("the repositories of this node's projects and the account's, once each; and the others' published git", async () => {
     const others = [{ computer: 'Mac mini', name: 'Sam Rivera', email: 'sam@example.com', signs: true }];
     expect(await nodeGitFacts(source(async () => others), 'Worker node 1')).toEqual({
@@ -48,7 +48,7 @@ describe("the node's part of kestrel-node git", () => {
     const facts = await nodeGitFacts(source(async () => [], { projects: [], feedRead: false }), 'n');
     expect(facts.repositories).toEqual([]);
     expect(facts.accountUnknown).toBe('The account’s projects are not read yet: the node reads them shortly after it connects.');
-    expect(accountUnknownOf({ state: 'signed-out', reason: null }, { state: 'off' }, false)).toBe('This node is not in an account yet (`kestrel-node join`), so the account’s projects are not known.');
+    expect(accountUnknownOf({ state: 'signed-out', reason: null }, { state: 'off' }, false)).toBe('This node is not in an account yet (`kestrel node join`), so the account’s projects are not known.');
     expect(accountUnknownOf({ state: 'signed-in', email: 'e' }, { state: 'offline', reason: 'the service did not answer', retryAt: 1 }, false)).toBe(
       'The account’s projects are not known yet: Kestrel Connect is offline: the service did not answer.',
     );

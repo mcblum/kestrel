@@ -89,7 +89,8 @@ export interface ConnectOpArgs {
    * send them (a phone is refused with `NEVER_REMOTE['session.model']` or `['session.permission']`), never Bypass.
    */
   'session.reply': { sessionId: string; text: string; draftId?: string; attachments?: string[]; model?: string; permission?: PermissionLevel; effort?: string; fast?: boolean };
-  'session.answer': { sessionId: string; requestId: string; optionId?: string; text?: string; answers?: Record<string, string> };
+  /** `confirmed`: the person confirmed, on that device, a choice that asks first (issue 74); refused without it. */
+  'session.answer': { sessionId: string; requestId: string; optionId?: string; text?: string; answers?: Record<string, string>; confirmed?: boolean };
   'session.stop': { sessionId: string };
   /**
    * Archive or restore a session, from any device of the account (Matt, 2026-11-27: "Archive should be allowed from
@@ -347,8 +348,8 @@ export const CONNECT_OPS: { readonly [K in ConnectOp]: OpSpec } = {
   },
   'session.answer': {
     mapsTo: 'POST /api/sessions/:id/answer',
-    fields: ['sessionId', 'requestId', 'optionId', 'text', 'answers'],
-    check: (a) => all({ sessionId: id(a, 'sessionId'), requestId: id(a, 'requestId'), optionId: optional(a, 'optionId', id), text: optional(a, 'text', text(2000, true)), answers: answers(a) }),
+    fields: ['sessionId', 'requestId', 'optionId', 'text', 'answers', 'confirmed'],
+    check: (a) => all({ sessionId: id(a, 'sessionId'), requestId: id(a, 'requestId'), optionId: optional(a, 'optionId', id), text: optional(a, 'text', text(2000, true)), answers: answers(a), confirmed: optional(a, 'confirmed', flag) }),
   },
   'session.stop': { mapsTo: 'POST /api/sessions/:id/stop', fields: ['sessionId'], check: (a) => all({ sessionId: id(a, 'sessionId') }) },
   'session.archive': { mapsTo: 'POST /api/archive (kind session)', fields: ['sessionId', 'archived', 'skipScript'], check: (a) => all({ sessionId: id(a, 'sessionId'), archived: flag(a, 'archived'), skipScript: optional(a, 'skipScript', flag) }) },

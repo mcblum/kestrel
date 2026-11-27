@@ -4,13 +4,14 @@
 // slice (connectStore.ts); nothing here keeps a copy.
 import { useState } from 'react';
 import { ExternalLink, ListChecks, LogIn, LogOut, Monitor, Smartphone } from 'lucide-react';
-import { DEVICE_KIND_NAME, DEVICE_NAME_MAX, deviceNameOf, isComputerKind, linkText, type ConnectDevice, type ConnectJoinRequest, type ConnectView } from '@kestrel/server/connect';
+import { DEVICE_KIND_NAME, DEVICE_NAME_MAX, deviceNameOf, isComputerKind, linkText, type ConnectDevice, type ConnectView } from '@kestrel/server/connect';
 import { connectActions, useConnect } from '../connectStore.ts';
 import { thisComputer } from '../platform.ts';
 import { opener, openView } from '../route.ts';
 import { useDraft } from '../unsaved.ts';
 import { SettingSection } from './SettingHelp.tsx';
 import { ConnectHeldSetting, ConnectPushSetting } from './ConnectHeldSetting.tsx';
+import { JoinRequestCard, untilText } from './JoinRequestCard.tsx';
 
 function Account({ view }: { view: ConnectView }) {
   const { account } = view;
@@ -72,8 +73,6 @@ function SetupOffer({ view }: { view: ConnectView }) {
   );
 }
 
-const until = (at: number) => new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-
 /** Step 8a on this computer: the second code, shown on the device that let it in, typed here. */
 function SecondCode({ by, problem, name }: { by: string; problem: string | null; name: string }) {
   const [code, setCode] = useState('');
@@ -127,14 +126,14 @@ function ThisComputerJoining({ view }: { view: ConnectView }) {
       <div className="connect-join" role="status">
         <p className="connect-join-title">Type this code on {joining.by}</p>
         <code className="connect-join-code">{joining.code}</code>
-        <p className="settings-help">Until {until(joining.expiresAt)}.</p>
+        <p className="settings-help">Until {untilText(joining.expiresAt)}.</p>
       </div>
     );
   if (joining?.state === 'asking')
     return (
       <div className="connect-join" role="status">
         <p className="connect-join-title">{name} is asking to join your account</p>
-        <p className="settings-help">On your phone or another computer signed in to Kestrel Connect, open the request and choose Let in. It shows a code to type there. The request is open until {until(joining.expiresAt)}.</p>
+        <p className="settings-help">On your phone or another computer signed in to Kestrel Connect, open the request and choose Let in. It shows a code to type there. The request is open until {untilText(joining.expiresAt)}.</p>
       </div>
     );
   if (joining?.state === 'ended')
@@ -150,63 +149,6 @@ function ThisComputerJoining({ view }: { view: ConnectView }) {
       <p className="settings-help">{name} is not in your account yet. Ask to join, and let it in from a device that is.</p>
       {askAgain}
     </div>
-  );
-}
-
-/** Another device asking to be let in: Let in, the code it shows, Allow; or Not me. */
-function JoinRequest({ request }: { request: ConnectJoinRequest }) {
-  const [code, setCode] = useState('');
-  const Icon = request.kind === 'phone' ? Smartphone : Monitor;
-  const notMe = (
-    <button type="button" className="secondary-button small" onClick={() => void connectActions.refuseRequest(request.id)}>
-      Not me
-    </button>
-  );
-  return (
-    <li>
-      <Icon className="connect-device-icon" aria-hidden />
-      <div className="connect-device-detail">
-        <span className="connect-device-name">{request.state === 'showing' || request.state === 'done' ? request.name : `${request.name}${request.kind === 'node' ? `, a ${DEVICE_KIND_NAME.node.toLowerCase()},` : ''} wants to join your account`}</span>
-        {request.state === 'done' ? (
-          <span className="settings-help" role="status">{request.outcome}</span>
-        ) : request.state === 'showing' ? (
-          <>
-            <span className="settings-help">{request.name} is let in. To finish, type this code on {request.name}:</span>
-            <code className="connect-join-code">{request.code}</code>
-          </>
-        ) : request.state === 'typing' ? (
-          <form
-            className="connect-join-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void connectActions.typeCode(request.id, code).then((ok) => ok && setCode(''));
-            }}
-          >
-            <label className="settings-help" htmlFor={`join-code-${request.id}`}>
-              Type the code {request.name} shows
-            </label>
-            <input id={`join-code-${request.id}`} className="form-control connect-join-input" inputMode="numeric" autoComplete="one-time-code" maxLength={7} placeholder="000 000" value={code} onChange={(e) => setCode(e.target.value)} autoFocus />
-            <button type="submit" className="primary-button small" disabled={code.replace(/\D/g, '').length !== 6}>
-              Allow
-            </button>
-          </form>
-        ) : (
-          <span className="settings-help">{request.state === 'opening' ? `Waiting for ${request.name}…` : request.state === 'letting-in' ? `Letting ${request.name} in…` : `Open until ${until(request.expiresAt)}. Let it in only if you are setting it up now.`}</span>
-        )}
-        {request.problem && <span className="settings-help" role="alert">{request.problem}</span>}
-      </div>
-      {request.state === 'waiting' && (
-        <button type="button" className="secondary-button small" onClick={() => void connectActions.openRequest(request.id)}>
-          Let in
-        </button>
-      )}
-      {(request.state === 'showing' || request.state === 'done') && (
-        <button type="button" className="secondary-button small" onClick={() => void connectActions.dismissRequest(request.id)}>
-          Done
-        </button>
-      )}
-      {request.state !== 'letting-in' && request.state !== 'showing' && request.state !== 'done' && notMe}
-    </li>
   );
 }
 
@@ -291,7 +233,7 @@ function Devices({ view }: { view: ConnectView }) {
       {view.requests.length > 0 && (
         <ul className="connect-device-list" aria-label="Devices asking to join">
           {view.requests.map((request) => (
-            <JoinRequest key={request.id} request={request} />
+            <JoinRequestCard key={request.id} request={request} as="li" />
           ))}
         </ul>
       )}

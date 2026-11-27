@@ -5,6 +5,7 @@
 //
 // The event stream carries every session of the process's folder, so only the session's own
 // events and its children's are read; the caller filters by `belongs`.
+import { addTokens, realTokens, type TurnTokens } from '../../shared/plan-usage.ts';
 import type { TodoItem } from '../../model.ts';
 import { clip, type ElementLookup } from '../claude/describe.ts';
 import { pathsInside } from '../edited-paths.ts';
@@ -44,6 +45,8 @@ export interface ToolCall {
 /** Totals of a turn, from its steps' `step-finish` parts. */
 export interface TurnUsage {
   costUsd: number;
+  /** Every step's tokens added up: input with cache reads and writes, output with reasoning. Null until a step reports any. */
+  tokens: TurnTokens | null;
   /** The last step's input + cache read + output: what the conversation now occupies. */
   contextTokens: number;
 }
@@ -63,7 +66,7 @@ export class OpencodeMapper {
   lastError: string | null = null;
   /** The final text of the last assistant message: a plan, in Plan. */
   lastText = '';
-  usage: TurnUsage = { costUsd: 0, contextTokens: 0 };
+  usage: TurnUsage = { costUsd: 0, tokens: null, contextTokens: 0 };
   /** The model of the last assistant message, `provider/model`: whose context window the usage fills. */
   model = '';
 
@@ -87,7 +90,7 @@ export class OpencodeMapper {
 
   /** Starts a new turn's totals and text. */
   beginTurn(): void {
-    this.usage = { costUsd: 0, contextTokens: 0 };
+    this.usage = { costUsd: 0, tokens: null, contextTokens: 0 };
     this.lastError = null;
     this.lastText = '';
   }
@@ -252,7 +255,8 @@ export class OpencodeMapper {
     const cache = isObj(tokens.cache) ? tokens.cache : {};
     const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
     const cost = n(part.cost);
-    this.usage = { costUsd: this.usage.costUsd + cost, contextTokens: n(tokens.input) + n(cache.read) + n(cache.write) + n(tokens.output) || this.usage.contextTokens };
+    const step = realTokens({ input: n(tokens.input) + n(cache.read) + n(cache.write), output: n(tokens.output) + n(tokens.reasoning) });
+    this.usage = { costUsd: this.usage.costUsd + cost, tokens: addTokens(this.usage.tokens, step), contextTokens: n(tokens.input) + n(cache.read) + n(cache.write) + n(tokens.output) || this.usage.contextTokens };
     return [];
   }
 

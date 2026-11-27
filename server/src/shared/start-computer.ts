@@ -138,18 +138,22 @@ export const startMayHaveHappened = (name: string): string => `${name} did not a
 export const REMOTE_PICKER_MODES: readonly PermissionLevel[] = ['ask', 'auto'];
 
 /**
- * The modes a running session on another computer offers from here: Manual and Auto, and the mode it is in when that
- * is neither, so its own mode stays shown (a session in Bypass there shows Bypass, ticked, and is changed away from it
- * here; it is never switched on from here).
+ * The modes a running session on another computer offers from here (Matt, 2026-11-27, issue 79: "why not just allow the
+ * user to see / change as if it were local?"): every mode its agent understands, as a session here offers, Bypass
+ * included so its row shows; Bypass itself is never switched on from here (`remoteBypass`), and a session already in
+ * Bypass there shows it ticked and may be changed away from it. `levels`: the agent's own (its capabilities).
  */
-export function remoteRunningModes(permission: PermissionLevel): readonly PermissionLevel[] {
-  return REMOTE_PICKER_MODES.includes(permission) ? REMOTE_PICKER_MODES : [...REMOTE_PICKER_MODES, permission];
+export function remoteRunningModes(levels: readonly PermissionLevel[], permission: PermissionLevel): readonly PermissionLevel[] {
+  return levels.includes(permission) ? levels : [...levels, permission];
 }
+
+/** Why the Bypass row of a running session on another computer has no Enable: where it is chosen. */
+export const remoteBypass = (name: string): string => `Bypass is chosen on ${name}, the computer the session runs on.`;
 
 /** The mode picker's words for a running session on `name`. */
 export function remoteRunningNote(permission: PermissionLevel, name: string): string {
-  if (permission === 'bypass') return `Mode: Bypass on ${name}. ${BYPASS_FROM_ELSEWHERE} Manual or Auto can be chosen here, from your next message`;
-  return `Mode: Manual or Auto, on ${name}. ${BYPASS_FROM_ELSEWHERE} Changes apply from your next message`;
+  if (permission === 'bypass') return `Mode: Bypass on ${name}. ${BYPASS_FROM_ELSEWHERE} Another mode can be chosen here, from your next message`;
+  return `Mode, on ${name}: changes apply from your next message. ${BYPASS_FROM_ELSEWHERE}`;
 }
 
 /** A model menu as another computer published it (machine-offers.ts), in the shape the model picker reads. */

@@ -1,5 +1,5 @@
 // The one place a worker node puts its git settings (shared/node-git.ts) into the environment its git and its
-// sessions' agents run in: at start (run.ts) and whenever `kestrel-node git` is done (the socket's `git`). The
+// sessions' agents run in: at start (run.ts) and whenever `kestrel node git` is done (the socket's `git`). The
 // environment is the server's own (process.env in a running node), changed in place so every holder of it (git.ts,
 // each agent's adapter) sees the change. Nothing is written into the user's git configuration.
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -9,7 +9,7 @@ import { identityIncludes, isKestrelGitEnvKey, kestrelGitEnv, nodeGitPaths, pars
 
 type Env = Record<string, string | undefined>;
 
-/** What `kestrel-node git` kept, read now. Never throws: a missing or broken file is no settings. */
+/** What `kestrel node git` kept, read now. Never throws: a missing or broken file is no settings. */
 export function readNodeGitSettings(dataDir: string): NodeGitSettings {
   try {
     return parseNodeGitSettings(readFileSync(nodeGitPaths(dataDir).settings, 'utf8'));
@@ -18,7 +18,7 @@ export function readNodeGitSettings(dataDir: string): NodeGitSettings {
   }
 }
 
-/** Whether the node has its own key that its git uses: made by `kestrel-node git` and kept in its settings (as `kestrelGitEnv` decides). */
+/** Whether the node has its own key that its git uses: made by `kestrel node git` and kept in its settings (as `kestrelGitEnv` decides). */
 export function nodeKeyReady(dataDir: string, keyIsThere: (path: string) => boolean = existsSync): boolean {
   return keyIsThere(nodeGitPaths(dataDir).key) && readNodeGitSettings(dataDir).key !== null;
 }
@@ -50,7 +50,7 @@ export function applyNodeGitEnv(env: Env, dataDir: string, kind: KestrelKind, ke
 /**
  * The git environment of one session's agent: the node's, with the commit identity of the host of the session's own
  * repository (`kestrelGitEnv`). Read from the settings file each time a session starts or resumes, so a change made by
- * `kestrel-node git` holds from the next turn. The app: nothing.
+ * `kestrel node git` holds from the next turn. The app: nothing.
  */
 export function sessionGitEnv(dataDir: string, kind: KestrelKind, repoHost: string | null, keyIsThere: (path: string) => boolean = existsSync): Record<string, string> {
   if (kind !== 'node') return {};

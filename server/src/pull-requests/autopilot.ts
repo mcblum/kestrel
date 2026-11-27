@@ -4,7 +4,7 @@
 // message to the session's own agent as a turn (the same message the "needs you" cards' buttons send), a
 // merge is the Merge dialog's merge, a stop says why in the session. It reads only the store's held answers.
 import type { SessionView } from '../model.ts';
-import { AUTOPILOT_DISENGAGED, CONTROLS_YOURS, autopilotStep, autopilotText, isOn, isWanted, newRecord, offeredRequest, type AutopilotAct, type AutopilotPrefs, type AutopilotRecord } from '../shared/autopilot.ts';
+import { AUTOPILOT_DISENGAGED, CONTROLS_YOURS, autopilotStep, autopilotText, isOn, isWanted, newRecord, offeredRequest, recordFor, type AutopilotAct, type AutopilotPrefs, type AutopilotRecord } from '../shared/autopilot.ts';
 import type { PullRequest, PullRequestLookup } from '../shared/details.ts';
 import { isIdle, type AttentionPrefs } from '../shared/request-attention.ts';
 import type { Sourced } from '../shared/sourced.ts';
@@ -22,6 +22,8 @@ export type AutopilotSession = Pick<SessionView, 'id' | 'state' | 'note' | 'titl
 export interface AutopilotDeps {
   sessions(): Promise<readonly AutopilotSession[]>;
   lookup(sessionId: string): Sourced<PullRequestLookup> | undefined;
+  /** The store's answer, asked again first when it is missing or due (`PullRequestStore.current`): read when it is turned on. */
+  current?(sessionId: string): Promise<Sourced<PullRequestLookup> | undefined>;
   attention(): Promise<AttentionPrefs>;
   prefs(): Promise<AutopilotPrefs>;
   save(sessionId: string, record: AutopilotRecord | null): Promise<void>;
@@ -85,15 +87,17 @@ export class Autopilot {
   /**
    * Turn it on for the session's open request, with or without Merge when green. `number` is the request
    * the caller knows of (the card's, a link just made) for when the PR store has not answered yet.
-   * Refused with the reason when there is none.
+   * Refused with the reason when there is none. The store's copy is brought up to date first when it is
+   * stale or missing, and the step runs at once on it (issue 82): what the request already needs is
+   * started on now, not on the next change; a session on a turn is acted on when that turn ends.
    */
   async turnOn(sessionId: string, merge: boolean, number?: number): Promise<AutopilotRecord> {
     const session = await this.session(sessionId);
-    const lookup = this.deps.lookup(sessionId);
+    const lookup = (await this.deps.current?.(sessionId).catch(() => undefined)) ?? this.deps.lookup(sessionId);
     const pr = offeredRequest(lookup);
     const known = pr?.number ?? number;
     if (known === undefined) return this.arm(session.id, merge);
-    const record = { ...newRecord(known, merge, await this.deps.prefs()), ...(pr?.headSha ? { head: { sha: pr.headSha, at: this.now() } } : {}) };
+    const record = recordFor(pr, known, merge, await this.deps.prefs(), this.now());
     await this.deps.save(session.id, record);
     this.on.add(session.id);
     this.armed.delete(session.id);

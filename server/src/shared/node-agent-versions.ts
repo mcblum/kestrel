@@ -87,5 +87,5 @@ export function downgradeNote(label: string, from: string, to: string): string {
 /** The line the checklist says about the version it installs, naming the newest when it differs. Pure. */
 export function pinNote(agent: PinnedAgent, pinned: string, newest: string | null): string | null {
   if (!newest || newest === pinned) return null;
-  return `It installs ${pinned}, ${PIN_WHY[agent]}; the newest is ${newest}. A new kestrel-node brings newer pins.`;
+  return `It installs ${pinned}, ${PIN_WHY[agent]}; the newest is ${newest}. Upgrading the node (kestrel upgrade) brings newer pins.`;
 }

@@ -30,7 +30,7 @@ describe('recovery words on a worker node', () => {
     await expect(connect.recoveryPutAway()).rejects.toThrow(reason);
     await expect(connect.recover(WORDS)).rejects.toThrow(reason);
     await expect(connect.keys.recover(WORDS)).rejects.toThrow(reason);
-    expect(reason).toContain('kestrel-node join');
+    expect(reason).toContain('kestrel node join');
     await connect.close();
   });
 
@@ -54,7 +54,7 @@ describe('recovery words on a worker node', () => {
 describe('how a node signs in', () => {
   test('never through the browser: the loopback sign-in is refused with what to do instead', async () => {
     const { connect } = await connectAs('node', false);
-    await expect(connect.signIn()).rejects.toThrow('kestrel-node join');
+    await expect(connect.signIn()).rejects.toThrow('kestrel node join');
     await connect.close();
   });
 

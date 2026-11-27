@@ -7,6 +7,7 @@ import { LaunchScreen, useLaunchPhase } from './components/LaunchScreen.tsx';
 import { ContextMenuHost } from './components/ContextMenu.tsx';
 import { ToastHost } from './components/ToastHost.tsx';
 import { ValueRequestCards } from './components/SetupValueRequests.tsx';
+import { JoinRequestOverlay } from './components/JoinRequestOverlay.tsx';
 import { NewSessionTab } from './components/NewSessionTab.tsx';
 import { SearchPanel } from './components/Panels.tsx';
 import { Tooltips } from './components/Tooltips.tsx';
@@ -135,6 +136,8 @@ export function App() {
           <TabStrip />
           {/* Another computer asks for set-up values: answered here, whatever is open, within its two minutes. */}
           <ValueRequestCards />
+          {/* A device asks to join the account: its card floats over whatever is open (issue 72). */}
+          <JoinRequestOverlay route={route} />
           <div className="tab-body">
             {tab.kind === 'session' ? (
               <SessionWorkspace key={tab.id} id={tab.sessionId} />

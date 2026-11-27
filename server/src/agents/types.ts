@@ -10,6 +10,7 @@ import type { SandboxSupport } from './claude/sandbox-support.ts';
 import type { Agent, CardQuestion, TodoItem, WidgetCard } from '../model.ts';
 import type { PermissionLevel } from '../shared/permissions.ts';
 import type { ContextUsage } from '../shared/context-usage.ts';
+import type { PlanUsage, TurnTokens } from '../shared/plan-usage.ts';
 import type { BackgroundTask } from '../shared/background-tasks.ts';
 import type { SandboxAllowEntry, SandboxOffer } from '../shared/sandbox-allow.ts';
 import type { SigningAccess } from '../shared/commit-signing.ts';
@@ -78,8 +79,13 @@ export type AgentEvent =
    * it left running finished and it reacts). A later `done` or `failed` ends the run. Claude only.
    */
   | { type: 'phase'; phase: 'background' | 'working' }
-  /** A run ended (its last turn, and any background work it left). The session is idle until the next `send`. `costUsd` is the run's total. */
-  | { type: 'done'; reason: 'complete' | 'stopped'; costUsd?: number }
+  /** A run ended (its last turn, and any background work it left). The session is idle until the next `send`. `costUsd` and `tokens` are the run's totals, where the agent reports them. */
+  | { type: 'done'; reason: 'complete' | 'stopped'; costUsd?: number; tokens?: TurnTokens }
+  /**
+   * The account's plan limits as the agent just reported them (shared/plan-usage.ts): some windows or all,
+   * merged into the one copy the server holds per agent. The account's, not the session's: never stored with it.
+   */
+  | { type: 'limits'; usage: PlanUsage }
   /** The agent read these messages sent into its running turn (`AgentHandle.sendNow`), by their ids. Sent only by an agent that can tell. */
   | { type: 'picked-up'; ids: string[] }
   /**
@@ -138,6 +144,14 @@ export interface SandboxAllowAccess {
   offer(command: string, bounds: Bounds): Promise<SandboxOffer>;
 }
 
+/** How a session another session started stands with the switch that lets it leave its sandbox unasked (issue 74). */
+export interface OutsideInherit {
+  /** Its commands that leave the sandbox run without asking now (`inheritsOutside`). */
+  allows(): boolean;
+  /** Its sandbox card may offer to turn the switch on (`offersInherit`): it is off, and on would let this session through. */
+  offerable(): boolean;
+}
+
 export interface InputOption {
   id: string;
   label: string;
@@ -151,6 +165,12 @@ export interface InputAnswer {
   text?: string;
   /** For a card with questions: the answer to each, keyed by the question's text. */
   answers?: Record<string, string>;
+  /**
+   * The person confirmed a choice that asks first, where they answered (the window's dialog, or a device's own). A
+   * choice that needs it is refused without it (sandbox-allow/store.ts, "Always allow for sessions started by another
+   * session"). Kestrel's, never passed to the agent.
+   */
+  confirmed?: boolean;
 }
 
 /**
@@ -364,6 +384,13 @@ export interface StartOptions {
    * leave the sandbox run without asking, from its first turn after a restart too.
    */
   outsideAllowed?: boolean;
+  /**
+   * For a session another session started: whether its commands that leave the sandbox run without asking because the
+   * user switched on "Sessions started by another session may run commands outside their sandbox" and the session that
+   * started it would not be asked (shared/sandbox-inherit.ts; issue 74). Read at each such command, so the switch and
+   * the modes above it count as they are then. Absent for a session the user started.
+   */
+  outsideInherit?: OutsideInherit;
   /** The always-allowed list (Settings → Workflow): its folders widen the sandbox, its commands skip the card. */
   sandboxAllow?: SandboxAllowAccess;
   /**
@@ -509,7 +536,7 @@ export interface AgentAdapter {
   availability?(): Promise<AvailabilityAnswer>;
   /**
    * Forget any answer kept about whether it can start, so the next `availability` asks the agent again. A worker
-   * node calls it after `kestrel-node agents` installed or signed it in (node-control/agents-terminal.ts).
+   * node calls it after `kestrel node agents` installed or signed it in (node-control/agents-terminal.ts).
    */
   recheck?(): void;
   /**

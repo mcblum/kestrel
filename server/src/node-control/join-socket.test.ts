@@ -127,7 +127,7 @@ describe('the join conversation on the control socket', () => {
     const { path } = await listen(async (io) => {
       io.say({ step: 2, kind: 'code', code: '482 913' });
       const code = await io.ask(3, 'The code MacBook Pro shows: ');
-      return { ok: code === '157 640', text: 'Worker node 1 is in your account.', next: 'kestrel-node status' };
+      return { ok: code === '157 640', text: 'Worker node 1 is in your account.', next: 'kestrel node status' };
     });
     const out: string[] = [];
     const asked: string[] = [];
@@ -135,7 +135,7 @@ describe('the join conversation on the control socket', () => {
     expect(await done).toBe(0);
     expect(asked).toEqual(['   The code MacBook Pro shows: ']);
     // The prompt and the answer typed after it are the terminal's line between the two blanks.
-    expect(out).toEqual(['       482 913', '', '', 'ok: Worker node 1 is in your account.', '', 'Next: kestrel-node status']);
+    expect(out).toEqual(['       482 913', '', '', 'ok: Worker node 1 is in your account.', '', 'Next: kestrel node status']);
   });
 
   test('the terminal’s client stopped (Ctrl-C) exits 130 and the node is told', async () => {
@@ -172,7 +172,7 @@ describe('the join lines', () => {
     expect(parseJoinEvent('nonsense')).toBeNull();
     expect(parseJoinEvent('{"event":"say","step":1,"kind":"field","label":"Code","value":"WDJB-MJHT","note":"works for 10 minutes","extra":1}')).toEqual({ event: 'say', step: 1, kind: 'field', label: 'Code', value: 'WDJB-MJHT', note: 'works for 10 minutes' });
     expect(parseJoinEvent('{"event":"say","step":2,"kind":"code","code":"482 913"}')).toEqual({ event: 'say', step: 2, kind: 'code', code: '482 913' });
-    expect(parseJoinEvent('{"event":"end","ok":true,"text":"In.","next":"kestrel-node status"}')).toEqual({ event: 'end', ok: true, text: 'In.', next: 'kestrel-node status' });
+    expect(parseJoinEvent('{"event":"end","ok":true,"text":"In.","next":"kestrel node status"}')).toEqual({ event: 'end', ok: true, text: 'In.', next: 'kestrel node status' });
     expect(parseJoinEvent('{"ok":false,"reason":"The node is still starting."}')).toEqual({ event: 'end', ok: false, text: 'The node is still starting.' });
   });
 });

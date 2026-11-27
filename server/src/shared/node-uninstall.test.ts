@@ -21,7 +21,7 @@ describe('unsaved work', () => {
       'Not uninstalled: 2 sessions have work that is not pushed, and it would be lost.',
       '  "Fix login": 2 uncommitted files',
       '  "Add export": 1 uncommitted file, 1 commit not pushed',
-      'Push it (or discard it in Kestrel), then run "kestrel-node uninstall" again. Nothing was changed.',
+      'Push it (or discard it in Kestrel), then run "kestrel node uninstall" again. Nothing was changed.',
     ]);
     expect(unsavedWorkRefusal([work('One', 0, 4)])).toContain('1 session has work');
   });

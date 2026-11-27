@@ -15,6 +15,7 @@ import { unwrapShell } from '../../sandbox-allow/command-line.ts';
 import { boundsFolders, commandInBounds, type Bounds } from '../../sandbox-allow/match.ts';
 import { offerOptions } from '../../sandbox-allow/offer.ts';
 import type { SandboxAllowEntry, SandboxOffer } from '../../shared/sandbox-allow.ts';
+import { ALWAYS_CHILDREN, ALWAYS_CHILDREN_LABEL } from '../../shared/sandbox-inherit.ts';
 import { sandboxBounds } from '../claude/sandbox.ts';
 import type { CodexPolicy } from './policy.ts';
 
@@ -95,4 +96,15 @@ export async function withListChoices(request: InputRequest, method: string, par
   if (always.length === 0) return request;
   const deny = request.options.filter((o) => o.role === 'deny');
   return { ...request, options: [...request.options.filter((o) => o.role !== 'deny'), ...always, ...deny], sandboxOffer: offer };
+}
+
+/**
+ * The card of a session another session started, for a command or more access leaving its sandbox in Auto, with the
+ * choice that turns on "Sessions started by another session may run commands outside their sandbox" (issue 74), before
+ * "Deny": only while the switch is off and turning it on would let this session through (`offerable`).
+ */
+export function withChildrenChoice(request: InputRequest, method: string, policy: CodexPolicy, opts: Pick<StartOptions, 'outsideInherit'>): InputRequest {
+  if (policy.approvalPolicy !== 'on-request' || (method !== COMMAND_APPROVAL && method !== PERMISSIONS_APPROVAL) || opts.outsideInherit?.offerable() !== true) return request;
+  const deny = request.options.filter((o) => o.role === 'deny');
+  return { ...request, options: [...request.options.filter((o) => o.role !== 'deny'), { id: ALWAYS_CHILDREN, label: ALWAYS_CHILDREN_LABEL, role: 'allow' }, ...deny] };
 }

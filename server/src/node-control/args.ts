@@ -1,8 +1,13 @@
-// What `kestrel-node` was typed as: pure, so it is tested without a process. No argument (or `run`) starts the
-// node; a word from the closed lists (shared/node-commands.ts) is a command; anything else is refused with the
-// reason. Only `logs`, `agents`, `git` (--yes, --manual) and `status` (--json) take options.
+// What `kestrel` (or its old name `kestrel-node`) was typed as: pure, so it is tested without a process. No argument
+// is the overview (a line of status and the commands). `kestrel` takes `upgrade [version]`, `version`, `help [command]`
+// and the `node` group: `kestrel node <command>` is a worker node's command from the closed lists
+// (shared/node-commands.ts), and `kestrel node run` starts the node in this terminal (what the service's unit runs).
+// `kestrel node` alone lists the group's commands. The words the first version took with no group (`kestrel-node run`,
+// `kestrel status`, `kestrel setup`) are still taken as the node's (`OLD_NODE_WORDS`): a node installed before has a unit
+// that runs `kestrel-node run` and an install script that runs `kestrel setup`. Anything else is refused with the reason.
+// Only `logs`, `agents`, `git` (--yes, --manual), `status` (--json) and `upgrade` (a version) take more words.
 import type { Agent } from '../model.ts';
-import { CLI_COMMAND_NAMES, isNodeCommand, isTerminalCommand, NODE_COMMANDS, TERMINAL_COMMANDS, type NodeCommand, type TerminalCommand } from '../shared/node-commands.ts';
+import { NODE_CLI, NODE_GROUP, NODE_GROUP_COMMAND_NAMES, OLD_NODE_WORDS, TOP_COMMAND_NAMES, type NodeCommand, type TerminalCommand } from '../shared/node-commands.ts';
 
 export interface LogOptions {
   /** Keep printing what is written (`-f`). */
@@ -23,7 +28,22 @@ export interface AgentsArgs {
   check: boolean;
 }
 
-export type CliAction = { action: 'run' } | { action: 'command'; command: CliCommand; logs?: LogOptions; agents?: AgentsArgs; git?: GitArgs; json?: boolean } | { action: 'help' } | { action: 'error'; reason: string };
+/** What help can be asked about: a command, `run`, `version`, or the `node` group as a whole. */
+export type HelpTopic = CliCommand | 'run' | 'version' | 'node';
+
+/** Which list a mistake is followed by: `kestrel`'s own, or the `node` group's. */
+export type UsageScope = 'top' | 'node';
+
+export type CliAction =
+  | { action: 'run' }
+  | { action: 'overview' }
+  | { action: 'version' }
+  | { action: 'command'; command: CliCommand; logs?: LogOptions; agents?: AgentsArgs; git?: GitArgs; json?: boolean; version?: string }
+  | { action: 'help'; command?: HelpTopic }
+  | { action: 'error'; reason: string; scope: UsageScope };
+
+/** A version as the install script takes it: 1.2.3 or 1.2.3-beta.4. */
+export const isNodeVersion = (value: string): boolean => /^\d+\.\d+\.\d+(-beta\.\d+)?$/.test(value);
 
 /** `git`'s choices (git-checklist.ts): `--yes` asks nothing; `--manual` does every host by hand; whether there is a terminal is decided where it runs. */
 export interface GitArgs {
@@ -48,7 +68,9 @@ export function parseAgentsArgs(args: readonly string[]): { ok: true; options: A
   return { ok: true, options: { only, yes, check } };
 }
 
-const notACommand = (given: string): string => `"${given.slice(0, 40)}" is not a kestrel-node command. The commands are ${CLI_COMMAND_NAMES.join(', ')}.`;
+const notACommand = (given: string): string => `"${given.slice(0, 40)}" is not a ${NODE_CLI} command. The commands are ${TOP_COMMAND_NAMES.join(', ')}.`;
+const notANodeCommand = (given: string): string =>
+  `"${given.slice(0, 40)}" is not a ${NODE_CLI} ${NODE_GROUP} command. The commands are ${[...NODE_GROUP_COMMAND_NAMES, 'run'].join(', ')}.`;
 
 /** `logs`'s options: `-f`/`--follow`, `-n <lines>`/`--lines <lines>` (or `-n500`, `--lines=500`). */
 export function parseLogOptions(args: readonly string[]): { ok: true; options: LogOptions } | { ok: false; reason: string } {
@@ -72,32 +94,85 @@ export function parseLogOptions(args: readonly string[]): { ok: true; options: L
   return { ok: true, options: { follow, lines } };
 }
 
+const HELP_WORDS: readonly string[] = ['help', '--help', '-h'];
+const isHelpWord = (word: string | undefined): boolean => word !== undefined && HELP_WORDS.includes(word);
+const asksHelp = (rest: readonly string[]): boolean => rest.length === 1 && (rest[0] === '--help' || rest[0] === '-h');
+
+/** The node command an old or grouped word names (`setup` is `configure`), or null. */
+const nodeWord = (word: string | undefined): CliCommand | 'run' | null => (word !== undefined && Object.hasOwn(OLD_NODE_WORDS, word) ? OLD_NODE_WORDS[word]! : null);
+
+const fail = (reason: string, scope: UsageScope): CliAction => ({ action: 'error', reason, scope });
+
 export function parseCliArgs(args: readonly string[]): CliAction {
   const [first, ...rest] = args;
-  if (first === undefined || first === 'run') return rest.length === 0 ? { action: 'run' } : { action: 'error', reason: `"${first ?? 'run'}" takes no arguments.` };
-  if (first === 'help' || first === '--help' || first === '-h') return { action: 'help' };
-  if (first === 'logs') {
+  if (first === undefined) return { action: 'overview' };
+  if (isHelpWord(first)) return helpOf(rest);
+  if (first === 'version' || first === '--version') {
+    if (asksHelp(rest)) return { action: 'help', command: 'version' };
+    return rest.length === 0 ? { action: 'version' } : fail('"version" takes no arguments.', 'top');
+  }
+  if (first === 'upgrade') return upgradeOf(rest);
+  if (first === NODE_GROUP) return parseNodeArgs(rest);
+  // The first version's words, with no group: what an installed node's unit and install script still type.
+  if (nodeWord(first)) return parseNodeArgs(args);
+  return fail(notACommand(first), 'top');
+}
+
+function upgradeOf(rest: readonly string[]): CliAction {
+  if (asksHelp(rest)) return { action: 'help', command: 'upgrade' };
+  if (rest.length === 0) return { action: 'command', command: 'upgrade' };
+  if (rest.length === 1 && isNodeVersion(rest[0]!)) return { action: 'command', command: 'upgrade', version: rest[0]! };
+  return fail('"upgrade" takes one version, like 0.0.34 or 0.0.34-beta.1, or none for the newest.', 'top');
+}
+
+/** What follows `kestrel node` (or an old word with no group). */
+export function parseNodeArgs(args: readonly string[]): CliAction {
+  const [first, ...rest] = args;
+  if (first === undefined) return { action: 'help', command: 'node' };
+  if (isHelpWord(first)) return rest.length === 0 ? { action: 'help', command: 'node' } : nodeHelpOf(rest);
+  if (first === 'upgrade') return upgradeOf(rest);
+  const command = nodeWord(first);
+  if (!command) return fail(notANodeCommand(first), 'node');
+  if (asksHelp(rest)) return { action: 'help', command };
+  if (command === 'run') return rest.length === 0 ? { action: 'run' } : fail('"run" takes no arguments.', 'node');
+  return commandOf(command, rest);
+}
+
+/** One node command and the words after it. */
+function commandOf(command: CliCommand, rest: readonly string[]): CliAction {
+  if (command === 'logs') {
     const parsed = parseLogOptions(rest);
-    return parsed.ok ? { action: 'command', command: 'logs', logs: parsed.options } : { action: 'error', reason: parsed.reason };
+    return parsed.ok ? { action: 'command', command: 'logs', logs: parsed.options } : fail(parsed.reason, 'node');
   }
-  if (first === 'agents') {
+  if (command === 'agents') {
     const parsed = parseAgentsArgs(rest);
-    return parsed.ok ? { action: 'command', command: 'agents', agents: parsed.options } : { action: 'error', reason: parsed.reason };
+    return parsed.ok ? { action: 'command', command: 'agents', agents: parsed.options } : fail(parsed.reason, 'node');
   }
-  if (first === 'status' && rest.length > 0) {
-    return rest.length === 1 && rest[0] === '--json' ? { action: 'command', command: 'status', json: true } : { action: 'error', reason: '"status" takes only --json.' };
+  if (command === 'status' && rest.length > 0) {
+    return rest.length === 1 && rest[0] === '--json' ? { action: 'command', command: 'status', json: true } : fail('"status" takes only --json.', 'node');
   }
-  if (first === 'git') {
+  if (command === 'git') {
     const known = new Set(['--yes', '-y', '--manual']);
     const wrong = rest.filter((a) => !known.has(a));
     if (wrong.length === 0) return { action: 'command', command: 'git', git: { yes: rest.includes('--yes') || rest.includes('-y'), manual: rest.includes('--manual') } };
-    return { action: 'error', reason: `"git" does not take "${wrong.join(' ').slice(0, 40)}". It takes --yes and --manual.` };
+    return fail(`"git" does not take "${wrong.join(' ').slice(0, 40)}". It takes --yes and --manual.`, 'node');
   }
-  if (!isNodeCommand(first) && !isTerminalCommand(first)) return { action: 'error', reason: notACommand(first) };
-  return rest.length === 0 ? { action: 'command', command: first } : { action: 'error', reason: `"${first}" takes no arguments.` };
+  return rest.length === 0 ? { action: 'command', command } : fail(`"${command}" takes no arguments.`, 'node');
 }
 
-const aboutOf = (command: CliCommand): string => (isTerminalCommand(command) ? TERMINAL_COMMANDS[command].about : NODE_COMMANDS[command].about);
+/** `kestrel help [topic]`: `kestrel`'s own list, `node` (and `node <command>`), `upgrade`, `version`, or an old word. */
+function helpOf(rest: readonly string[]): CliAction {
+  if (rest.length === 0) return { action: 'help' };
+  const [word, ...more] = rest;
+  if (word === NODE_GROUP) return more.length === 0 ? { action: 'help', command: 'node' } : nodeHelpOf(more);
+  if (rest.length === 1 && (word === 'upgrade' || word === 'version')) return { action: 'help', command: word };
+  if (rest.length === 1 && isHelpWord(word)) return { action: 'help' };
+  if (rest.length === 1 && nodeWord(word)) return { action: 'help', command: nodeWord(word)! };
+  return fail(notACommand(rest.join(' ')), 'top');
+}
 
-export const usage = (): string =>
-  [`Usage: kestrel-node [run | ${CLI_COMMAND_NAMES.join(' | ')}]`, '  run (or no argument)  start the node in this terminal', ...CLI_COMMAND_NAMES.map((name) => `  ${name.padEnd(21)} ${aboutOf(name)}`)].join('\n');
+/** `kestrel node help <command>`. */
+function nodeHelpOf(rest: readonly string[]): CliAction {
+  const command = rest.length === 1 ? nodeWord(rest[0]) : null;
+  return command ? { action: 'help', command } : fail(notANodeCommand(rest.join(' ')), 'node');
+}

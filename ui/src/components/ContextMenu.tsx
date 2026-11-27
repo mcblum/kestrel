@@ -101,7 +101,8 @@ function MenuList({ items, menu, depth = 0, side }: ListProps) {
       return menu.onPick(item);
     }
     if (!item.action) return;
-    contextMenu.close();
+    // A switch flips in place and the menu stays open (its opener refreshes the items); anything else closes it.
+    if (!item.toggle) contextMenu.close();
     void runMenuAction(item.action, newTab);
   };
 

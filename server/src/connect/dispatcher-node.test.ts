@@ -45,7 +45,7 @@ const signedOut: AvailabilityAnswer = { available: false, reason: 'desk words: c
 describe.each(SELECTABLE_AGENTS)('a worker node and %s', (agent) => {
   it('lists it as missing in its offers, naming the node and the command, and refuses a start for it with the same words', async () => {
     const node = await computer('node', { [agent]: signedOut });
-    const words = `${NODE_AGENT_LABEL[agent]} is not signed in on ${NODE}. Run \`kestrel-node agents\` there.`;
+    const words = `${NODE_AGENT_LABEL[agent]} is not signed in on ${NODE}. Run \`kestrel node agents\` there.`;
     const offers = await node.ask('session.startChoices');
     expect(offers).toMatchObject({ ok: true, result: { here: NODE, missing: [{ agent, reason: words }] } });
     expect(await node.ask('session.start', { projectId: node.project.id, agent, mode: 'ask', text: 'go' })).toEqual({ ok: false, reason: words });
@@ -64,7 +64,7 @@ describe.each(SELECTABLE_AGENTS)('a worker node and %s', (agent) => {
     const session = await node.runtime.start({ agent, projectId: node.project.id, prompt: 'go' });
     await node.fakes[agent].settled();
     await node.runtime.idle(session.id);
-    const refused = `${NODE_AGENT_LABEL[agent]}'s provider refused the last turn on ${NODE} (Free usage exceeded). Run \`kestrel-node agents\` there.`;
+    const refused = `${NODE_AGENT_LABEL[agent]}'s provider refused the last turn on ${NODE} (Free usage exceeded). Run \`kestrel node agents\` there.`;
     expect(JSON.stringify(node.runtime.overlay(session.id)?.messages ?? [])).toContain(refused);
     expect((await node.runtime.agentAvailability()).notes[agent]).toBe(refused);
     expect(await node.ask('session.start', { projectId: node.project.id, agent, mode: 'ask', text: 'again' })).toEqual({ ok: false, reason: refused });
@@ -76,7 +76,7 @@ describe.each(SELECTABLE_AGENTS)('a worker node and %s', (agent) => {
     expect((await node.runtime.agentAvailability()).available).toContain(agent);
   });
 
-  it('`kestrel-node agents` signing it in again makes the node forget the refusal', async () => {
+  it('`kestrel node agents` signing it in again makes the node forget the refusal', async () => {
     const node = await computer('node', {});
     node.fakes[agent].script = (turn) => turn.emit({ type: 'failed', reason: 'Your credit balance is too low', kind: 'other' });
     const session = await node.runtime.start({ agent, projectId: node.project.id, prompt: 'go' });

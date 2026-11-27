@@ -1,7 +1,7 @@
 // OpenCode programs start one at a time per OpenCode data folder. Every OpenCode program creates and migrates its own
 // database (`opencode.db` in its data folder) as it starts, and two of them starting against a fresh database at once
 // fail together ("DrizzleError: Failed to run the query 'CREATE TABLE …'"; found live on a worker node, 2026-11-27, with
-// the node's own `opencode serve` starting while `kestrel-node agents` ran `opencode auth list`). So every OpenCode
+// the node's own `opencode serve` starting while `kestrel node agents` ran `opencode auth list`). So every OpenCode
 // program Kestrel runs goes through `startOpencode`: the adapter's `opencode serve` (each session's and each probe's)
 // until it says it is listening, and each program of the node's checklist until it ends. Once a program is past its
 // start the database exists and further programs open it as OpenCode itself allows.

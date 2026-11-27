@@ -13,7 +13,7 @@ const pr = (over: Partial<PullRequest> = {}): PullRequest => ({ number: 7, title
 const ready = (p: PullRequest): Sourced<PullRequestLookup> => ({ state: 'ready', value: { host: 'github', pullRequests: [p] } }) as Sourced<PullRequestLookup>;
 
 /** An Autopilot over a fake session, store and clock. */
-function harness(prefs: AutopilotPrefs = DEFAULT_AUTOPILOT_PREFS) {
+function harness(prefs: AutopilotPrefs = DEFAULT_AUTOPILOT_PREFS, current?: (sessionId: string) => Promise<Sourced<PullRequestLookup> | undefined>) {
   let now = 1_000_000_000;
   const session: AutopilotSession = { id: 's1', state: 'done', note: '', title: 'Polish', worktreePath: '/wt' };
   let lookup: Sourced<PullRequestLookup> | undefined = ready(pr());
@@ -24,6 +24,7 @@ function harness(prefs: AutopilotPrefs = DEFAULT_AUTOPILOT_PREFS) {
   const autopilot = new Autopilot({
     sessions: async () => [session],
     lookup: () => lookup,
+    ...(current ? { current } : {}),
     attention: async () => DEFAULT_ATTENTION_PREFS,
     prefs: async () => prefs,
     save: async (_id, record) => {
@@ -48,6 +49,7 @@ function harness(prefs: AutopilotPrefs = DEFAULT_AUTOPILOT_PREFS) {
     merged,
     setLookup: (l: Sourced<PullRequestLookup> | undefined) => (lookup = l),
     tick: (ms: number) => (now += ms),
+    now: () => now,
     foreignPush: () => (foreign = true),
   };
 }
@@ -57,8 +59,8 @@ afterEach(() => {
   live.forEach((a) => a.stop());
   live = [];
 });
-const make = (prefs?: AutopilotPrefs) => {
-  const h = harness(prefs);
+const make = (prefs?: AutopilotPrefs, current?: (sessionId: string) => Promise<Sourced<PullRequestLookup> | undefined>) => {
+  const h = harness(prefs, current);
   live.push(h.autopilot);
   return h;
 };
@@ -160,6 +162,98 @@ describe('the watcher', () => {
     h.session.autopilot = { ...(await h.autopilot.turnOn('s1', true)), head: { sha: SHA(1), at: 0 } };
     await autopilot.look();
     expect(h.session.autopilot?.stopped?.why).toMatch(/could not merge #7: Base branch is protected/);
+  });
+});
+
+describe('turned on, it starts on what the request already needs (issue 82)', () => {
+  /** The request as the store has held it for a while: its head commit was first seen ten minutes ago. */
+  const standing = (h: ReturnType<typeof make>, over: Partial<PullRequest>) => h.setLookup(ready(pr({ headSeenAt: h.now() - 10 * 60_000, ...over } as Partial<PullRequest>)));
+  /** Turned on, and the look that turning on asks for. */
+  const turnOn = async (h: ReturnType<typeof make>, merge = false) => {
+    await h.autopilot.turnOn('s1', merge);
+    await h.autopilot.look();
+  };
+
+  test('failed checks: the first round at once', async () => {
+    const h = make();
+    standing(h, { checks: 'failing', failedChecks: [{ name: 'lint' }], readiness: 'blocked' } as Partial<PullRequest>);
+    await turnOn(h);
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]).toMatch(/^Autopilot, round 1 of 3[\s\S]*The checks failed/);
+  });
+
+  test('merge conflicts: the first round at once', async () => {
+    const h = make();
+    standing(h, { readiness: 'conflicts' });
+    await turnOn(h);
+    expect(h.sent[0]).toMatch(/has merge conflicts with `main`/);
+  });
+
+  test('changes requested: the first round at once', async () => {
+    const h = make();
+    standing(h, { review: 'changes-requested', changesRequested: { id: 'R1', reviewers: ['sam'], comments: [{ body: 'Rename it.' }] } } as Partial<PullRequest>);
+    await turnOn(h);
+    expect(h.sent[0]).toMatch(/sam asked for changes/);
+  });
+
+  test('a branch the host requires to catch up: the round that merges the base in, at once', async () => {
+    const h = make();
+    standing(h, { readiness: 'behind' });
+    await turnOn(h);
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]).toMatch(/is behind `main`, and the host will not merge it/);
+  });
+
+  test('ready to merge with Merge when green: merged at once; without it, said green once', async () => {
+    const h = make();
+    standing(h, {});
+    await turnOn(h, true);
+    expect(h.merged).toEqual([7]);
+
+    const g = make();
+    standing(g, {});
+    await turnOn(g);
+    await g.autopilot.look();
+    expect(g.merged).toEqual([]);
+    expect(g.notices.filter((n) => /is green/.test(n))).toHaveLength(1);
+  });
+
+  test('a request opened just now still gives its checks time to start before it merges', async () => {
+    const h = make();
+    standing(h, { headSeenAt: h.now() } as Partial<PullRequest>);
+    await turnOn(h, true);
+    expect(h.merged).toEqual([]);
+    h.tick(CHECKS_SETTLE_MS);
+    await h.autopilot.look();
+    expect(h.merged).toEqual([7]);
+  });
+
+  test('a session on a turn is left to finish it: the round comes when the turn ends', async () => {
+    const h = make();
+    standing(h, { checks: 'failing', failedChecks: [{ name: 'lint' }] } as Partial<PullRequest>);
+    h.session.state = 'running';
+    await turnOn(h);
+    expect(h.sent).toEqual([]);
+    h.session.state = 'done';
+    await h.autopilot.look();
+    expect(h.sent).toHaveLength(1);
+  });
+
+  test('a stale copy is asked again first, through the store, and the step runs on the new answer', async () => {
+    const asked: string[] = [];
+    let fresh: Sourced<PullRequestLookup> | undefined;
+    const h = make(DEFAULT_AUTOPILOT_PREFS, async (id) => {
+      asked.push(id);
+      // The store's own refresh replaces what it holds: what the watcher reads from then on.
+      h.setLookup(fresh);
+      return fresh;
+    });
+    standing(h, { checks: 'running' });
+    fresh = ready(pr({ checks: 'failing', failedChecks: [{ name: 'test' }], headSeenAt: h.now() - 60_000 } as Partial<PullRequest>));
+    await turnOn(h);
+    expect(asked).toEqual(['s1']);
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]).toMatch(/- test/);
   });
 });
 

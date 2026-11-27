@@ -4,6 +4,7 @@ import type { PermissionLevel } from '../../shared/permissions.ts';
 import { CHANGES_NOTHING, decide, readAsk, type Ask, type DecideContext } from './decide.ts';
 import type { ToolCall } from './map.ts';
 import { opencodePolicy, sessionRules } from './policy.ts';
+import { ALWAYS_CHILDREN, ALWAYS_CHILDREN_LABEL } from '../../shared/sandbox-inherit.ts';
 
 const DIR = '/work/alpha';
 const ctx = (level: PermissionLevel, extra: Partial<DecideContext> = {}): DecideContext => ({ policy: opencodePolicy(level), directory: DIR, root: DIR, confined: false, readable: [], ...extra });
@@ -55,6 +56,28 @@ describe('decide', () => {
     expect(kind(decide(cmd, call('bash', { command: 'ls /tmp' }), ctx('auto', { confined: true })))).toBe('card');
     expect(kind(decide(cmd, call('bash', { command: 'ls /tmp' }), ctx('ask')))).toBe('card');
     expect(kind(decide(cmd, call('bash', { command: 'ls /tmp' }), ctx('bypass')))).toBe('once');
+  });
+
+  it('a child inherits leaving its folder while the switch lets it (issue 74): its commands run, its edits outside still ask', () => {
+    const cmd = ask('external_directory', ['/tmp/*']);
+    const ls = call('bash', { command: 'ls /tmp' });
+    expect(kind(decide(cmd, ls, ctx('auto', { confined: true, inherits: true })))).toBe('once');
+    expect(kind(decide(ask('external_directory', ['/srv/*']), call('webfetch', {}), ctx('auto', { confined: true, inherits: true })))).toBe('once');
+    // Its file edits stay held to its own folder.
+    expect(kind(decide(editOut, undefined, ctx('auto', { confined: true, inherits: true })))).toBe('card');
+    // Manual still asks, whatever the switch: the rule never lets a Manual child through.
+    expect(kind(decide(cmd, ls, ctx('ask', { confined: true, inherits: true })))).toBe('card');
+  });
+
+  it('the card of a child whose starter would not be asked offers the switch, and the choice allows it once', () => {
+    const cmd = ask('external_directory', ['/tmp/*']);
+    const d = decide(cmd, call('bash', { command: 'ls /tmp' }), ctx('auto', { confined: true, offersChildren: true }));
+    if (d.kind !== 'card') throw new Error('expected a card');
+    expect(d.request.options.map((o) => o.id)).toEqual(['allow', ALWAYS_CHILDREN, 'deny']);
+    expect(d.request.options.find((o) => o.id === ALWAYS_CHILDREN)?.label).toBe(ALWAYS_CHILDREN_LABEL);
+    expect(d.reply({ optionId: ALWAYS_CHILDREN })).toEqual({ reply: 'once' });
+    const plain = decide(cmd, call('bash', { command: 'ls /tmp' }), ctx('auto', { confined: true }));
+    expect(plain.kind === 'card' && plain.request.options.map((o) => o.id)).toEqual(['allow', 'deny']);
   });
 
   it('Read only: a read outside the readable folders is refused with the confinement reason', () => {

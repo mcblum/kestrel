@@ -4,6 +4,7 @@
 // buttons do is Kestrel's.
 import { offersReview, presetSummary, startsReviewAlone, type ModelPreset, type WhoDoesWhat } from '../shared/who-does-what.ts';
 import { REVIEW_CARD } from '../shared/worktree-guests.ts';
+import { isHostKind } from '../shared/host-terms.ts';
 import type { Pressed, Proposal, SuggestionKind } from './registry.ts';
 
 export interface ReviewKindDeps {
@@ -38,7 +39,10 @@ export function reviewKind(deps: ReviewKindDeps): SuggestionKind {
   return {
     kind: REVIEW_KIND,
     dismiss: 'skip',
-    /** `asked`: the session's agent asked for the review (its `delegate` with the Review role), so one that has ended does not stand in the way. */
+    /**
+     * `asked`: the session's agent asked for the review (its `delegate` with the Review role), so one that has
+     * ended does not stand in the way. `host` and `number`: the session's open request, when it has one.
+     */
     async propose(ctx, payload): Promise<Proposal> {
       const who = await deps.who();
       const alone = startsReviewAlone(who);
@@ -53,7 +57,8 @@ export function reviewKind(deps: ReviewKindDeps): SuggestionKind {
         draft: {
           title: `Have ${reviewer} review this ${payload.asked === true ? 'work' : 'pull request'}?`,
           reason: 'It reads the work in this worktree without changing it, the session answers its findings, and the result is posted to the pull request. Findings warn; they never block.',
-          payload: { reviewer },
+          // The request it is about, where there is one: the card goes once that is merged or closed (shared/request-cards.ts).
+          payload: { reviewer, ...(typeof payload.number === 'number' && isHostKind(payload.host) ? { host: payload.host, number: payload.number } : {}) },
           buttons: [
             { id: 'start', label: REVIEW_CARD.start, primary: true },
             { id: 'always', label: REVIEW_CARD.always },

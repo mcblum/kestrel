@@ -23,8 +23,8 @@ const LABEL: Record<Agent, string> = { claude: 'Claude Code', codex: 'Codex', op
 
 describe('what a node says about an agent that cannot run', () => {
   test.each(['claude', 'codex', 'opencode'] as const)('%s: not installed and not signed in, in the node’s words, naming it and the command', (agent) => {
-    expect(availabilityHere(agent, DESK_ANSWERS[agent].missing, null, NODE)).toEqual({ available: false, reason: `${LABEL[agent]} is not installed on Worker node 1. Run \`kestrel-node agents\` there.`, problem: 'missing', nodeProblem: { trouble: 'missing' } });
-    expect(availabilityHere(agent, DESK_ANSWERS[agent].auth, null, NODE)).toEqual({ available: false, reason: `${LABEL[agent]} is not signed in on Worker node 1. Run \`kestrel-node agents\` there.`, problem: 'auth', nodeProblem: { trouble: 'signed-out' } });
+    expect(availabilityHere(agent, DESK_ANSWERS[agent].missing, null, NODE)).toEqual({ available: false, reason: `${LABEL[agent]} is not installed on Worker node 1. Run \`kestrel node agents\` there.`, problem: 'missing', nodeProblem: { trouble: 'missing' } });
+    expect(availabilityHere(agent, DESK_ANSWERS[agent].auth, null, NODE)).toEqual({ available: false, reason: `${LABEL[agent]} is not signed in on Worker node 1. Run \`kestrel node agents\` there.`, problem: 'auth', nodeProblem: { trouble: 'signed-out' } });
   });
 
   test.each(['claude', 'codex', 'opencode'] as const)('%s: the desktop app’s own words are unchanged', (agent) => {
@@ -44,13 +44,13 @@ describe('what a node says about an agent that cannot run', () => {
   });
 
   test('any other reason keeps the agent’s words and says where and what to run', () => {
-    expect(availabilityHere('opencode', { available: false, reason: 'OpenCode could not start: port in use.' }, null, NODE)).toEqual({ available: false, reason: 'OpenCode cannot run on Worker node 1: it could not start: port in use. Run `kestrel-node agents` there.', nodeProblem: { trouble: 'other', detail: 'OpenCode could not start: port in use.' } });
+    expect(availabilityHere('opencode', { available: false, reason: 'OpenCode could not start: port in use.' }, null, NODE)).toEqual({ available: false, reason: 'OpenCode cannot run on Worker node 1: it could not start: port in use. Run `kestrel node agents` there.', nodeProblem: { trouble: 'other', detail: 'OpenCode could not start: port in use.' } });
   });
 
   test('a lasting refusal from the last turn counts against an agent that says it can start, until it is forgotten', () => {
     const troubles = new AgentTroubles();
     expect(troubles.failed('opencode', { kind: 'other', reason: 'Free usage exceeded' })).toBe(true);
-    expect(availabilityHere('opencode', { available: true }, troubles.of('opencode'), NODE)).toEqual({ available: false, reason: "OpenCode's provider refused the last turn on Worker node 1 (Free usage exceeded). Run `kestrel-node agents` there.", nodeProblem: { trouble: 'out-of-usage', detail: 'Free usage exceeded' } });
+    expect(availabilityHere('opencode', { available: true }, troubles.of('opencode'), NODE)).toEqual({ available: false, reason: "OpenCode's provider refused the last turn on Worker node 1 (Free usage exceeded). Run `kestrel node agents` there.", nodeProblem: { trouble: 'out-of-usage', detail: 'Free usage exceeded' } });
     expect(troubles.failed('opencode', { kind: 'other', reason: 'Free usage exceeded' })).toBe(false);
     expect(troubles.forget('opencode')).toBe(true);
     expect(availabilityHere('opencode', { available: true }, troubles.of('opencode'), NODE)).toEqual({ available: true });
@@ -76,7 +76,7 @@ describe('lastingTrouble', () => {
 describe('a turn that ends on a lasting reason, as the session shows it', () => {
   test.each(['claude', 'codex', 'opencode'] as const)('%s: on a node the session says it in the node’s words; in the app as before', (agent) => {
     const event = { type: 'failed' as const, kind: 'auth' as const, reason: 'Not logged in. Claude is not signed in: choose Sign in.' };
-    expect(failedHere(agent, event, NODE)).toEqual({ ...event, reason: `${LABEL[agent]} is not signed in on Worker node 1. Run \`kestrel-node agents\` there.` });
+    expect(failedHere(agent, event, NODE)).toEqual({ ...event, reason: `${LABEL[agent]} is not signed in on Worker node 1. Run \`kestrel node agents\` there.` });
     expect(failedHere(agent, event, APP)).toBe(event);
     const passing = { type: 'failed' as const, kind: 'other' as const, reason: 'socket hang up' };
     expect(failedHere(agent, passing, NODE)).toBe(passing);
@@ -91,15 +91,15 @@ describe('what other devices read about a node’s agents', () => {
     const agents = (['claude', 'codex', 'opencode'] as const).map((agent) => ({ agent, available: availability.available.includes(agent), models: [], ...(availability.notes[agent as 'codex'] ? { reason: availability.notes[agent as 'codex'] } : {}) }));
     const offers = remoteStartChoices('Worker node 1', true, '', [], null, agents);
     expect(offers.missing).toEqual([
-      { agent: 'codex', name: 'Codex', reason: 'Codex is not installed on Worker node 1. Run `kestrel-node agents` there.' },
-      { agent: 'opencode', name: 'OpenCode', reason: 'OpenCode is not signed in on Worker node 1. Run `kestrel-node agents` there.' },
+      { agent: 'codex', name: 'Codex', reason: 'Codex is not installed on Worker node 1. Run `kestrel node agents` there.' },
+      { agent: 'opencode', name: 'OpenCode', reason: 'OpenCode is not signed in on Worker node 1. Run `kestrel node agents` there.' },
     ]);
     expect(agentStatesOf(['claude', 'codex', 'opencode'], availability)).toEqual([
       { agent: 'claude', canRun: true, why: null, problem: null },
-      { agent: 'codex', canRun: false, why: 'Codex is not installed on Worker node 1. Run `kestrel-node agents` there.', problem: { trouble: 'missing' } },
-      { agent: 'opencode', canRun: false, why: 'OpenCode is not signed in on Worker node 1. Run `kestrel-node agents` there.', problem: { trouble: 'signed-out' } },
+      { agent: 'codex', canRun: false, why: 'Codex is not installed on Worker node 1. Run `kestrel node agents` there.', problem: { trouble: 'missing' } },
+      { agent: 'opencode', canRun: false, why: 'OpenCode is not signed in on Worker node 1. Run `kestrel node agents` there.', problem: { trouble: 'signed-out' } },
     ]);
     // The node's own terminal reads the same values without where it is.
-    expect(agentStatesOf(['claude', 'codex', 'opencode'], availability).map((s) => (s.canRun ? 'can run' : whyHere(s)))).toEqual(['can run', 'Codex is not installed. Run `kestrel-node agents`.', 'OpenCode is not signed in. Run `kestrel-node agents`.']);
+    expect(agentStatesOf(['claude', 'codex', 'opencode'], availability).map((s) => (s.canRun ? 'can run' : whyHere(s)))).toEqual(['can run', 'Codex is not installed. Run `kestrel node agents`.', 'OpenCode is not signed in. Run `kestrel node agents`.']);
   });
 });
