@@ -76,6 +76,36 @@ describe('a round', () => {
   });
 });
 
+describe('a branch behind its base', () => {
+  const behind = (head: number, over: Partial<PullRequest> = {}) => pr({ headSha: SHA(head), readiness: 'behind', ...over });
+
+  test('starts a round that merges the base in, without a force-push', () => {
+    const { record, act } = step(start(), behind(1));
+    expect(act.type === 'round' && act.message).toMatch(/^Autopilot, round 1 of 3: #7[\s\S]*is behind `main`[\s\S]*merge the remote's `main` into this branch[\s\S]*Do not force-push/);
+    expect(record.round).toMatchObject({ head: SHA(1), failed: [] });
+    expect(record.rounds).toBe(1);
+  });
+
+  test('waits while a review is still required, checks run, or the new commit is settling', () => {
+    expect(step(start(), behind(1, { review: 'review-required' })).act).toEqual({ type: 'none' });
+    expect(step(start(), behind(1, { checks: 'running' })).act).toEqual({ type: 'none' });
+    expect(step({ ...start(), head: { sha: SHA(1), at: T0 - 1000 } }, behind(1)).act).toEqual({ type: 'none' });
+  });
+
+  test('behind again after its round is another round; out of rounds it stops and says so', () => {
+    let { record } = step(start(false, 1), behind(1));
+    ({ record } = step(record, pr({ headSha: SHA(2), checks: 'running' }), { now: T0 + 60_000 }));
+    const again = step(record, behind(2), { now: T0 + 60_000 + CHECKS_SETTLE_MS });
+    expect(again.act).toMatchObject({ type: 'stop', stop: { why: `${AUTOPILOT_DISENGAGED} #7 after 1 round: its branch is behind main`, notify: true } });
+  });
+
+  test('a round that pushed nothing stops', () => {
+    const { record } = step(start(), behind(1));
+    const waited = step(record, behind(1), { now: T0 + 1000 });
+    expect(step(waited.record, behind(1), { now: T0 + 1000 + NO_PUSH_GRACE_MS }).act).toMatchObject({ type: 'stop', stop: { why: expect.stringMatching(/pushed nothing in round 1/) } });
+  });
+});
+
 describe('when it stops', () => {
   test('rounds used up: it stops and names what still fails', () => {
     let record = start(false, 1);

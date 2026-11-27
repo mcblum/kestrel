@@ -1,12 +1,13 @@
 // Autopilot for a session's pull request (docs/designs/pr-autopilot.md, approved by Matt 2026-11-24).
 // While it is on, Kestrel presses the "needs you" cards' main button itself (shared/request-attention.ts:
-// failed checks, merge conflicts, requested changes), one round at a time, and merges when the host says
-// the request is ready if the user ticked Merge when green. It stops, and says why, when the rounds run out
+// failed checks, merge conflicts, requested changes), one round at a time, brings the branch up to date when
+// the host will not merge it behind its base, and merges when the host says the request is ready if the user
+// ticked Merge when green. It stops, and says why, when the rounds run out
 // or it is stuck. Pure and browser-safe: the settings, the per-session record, the one step function and
 // the words. The impure part is pull-requests/autopilot.ts.
-import { primaryPullRequest, pullRequestStatus, type PullRequest, type PullRequestLookup } from './details.ts';
+import { mustCatchUp, primaryPullRequest, pullRequestStatus, type PullRequest, type PullRequestLookup } from './details.ts';
 import { hostTerms, requestNumber, type HostKind } from './host-terms.ts';
-import { attentionLine, fixMessage, occurrenceKey, requestAttention, type AttentionPrefs, type ReasonDetail, type RequestAttention } from './request-attention.ts';
+import { attentionLine, catchUpMessage, fixMessage, occurrenceKey, requestAttention, type AttentionPrefs, type ReasonDetail, type RequestAttention } from './request-attention.ts';
 import type { Sourced } from './sourced.ts';
 import type { MenuItem } from './menu.ts';
 
@@ -35,7 +36,7 @@ export const ROUND_MINUTE_CHOICES = [10, 20, 30, 45, 60, 90, 120, 180, 240, 360,
 
 /** Shown before "Always turn it on" is stored (Matt, 2026-11-24). */
 export const ALWAYS_WARNING =
-  'Kestrel will respond on its own to every pull request a session opens: it fixes failed checks, merge conflicts and requested changes and pushes, without asking you, up to the rounds set here. With Merge when green ticked it also merges them.';
+  'Kestrel will respond on its own to every pull request a session opens: it fixes failed checks, merge conflicts and requested changes, brings a branch up to date where the host requires it, and pushes, without asking you, up to the rounds set here. With Merge when green ticked it also merges them.';
 
 const whole = (v: unknown, min: number, max: number, fallback: number): number => (typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max ? v : fallback);
 
@@ -193,7 +194,10 @@ const sameList = (a: readonly string[], b: readonly string[]): boolean => a.leng
 
 /** The message a round sends: what the cards' buttons send, for each reason, under one heading. */
 export function roundMessage(a: Omit<RequestAttention, 'reasons'>, reasons: readonly ReasonDetail[], round: number, maxRounds: number): string {
-  const parts = reasons.map((d) => fixMessage(a, d));
+  return roundText(a, reasons.map((d) => fixMessage(a, d)), round, maxRounds);
+}
+
+function roundText(a: Where, parts: readonly string[], round: number, maxRounds: number): string {
   return [
     `Autopilot, round ${round} of ${maxRounds}: ${whereOf(a)} needs work before it can be merged.`,
     '',
@@ -273,6 +277,19 @@ export function autopilotStep(input: StepInput): Step {
   }
 
   if (!settled) return { record, act: NONE };
+  if (mustCatchUp(pr)) {
+    // Behind a base the host requires it to be level with: a round merges the base in. Once per head commit.
+    const key = `behind\n${head}`;
+    if (record.handled.includes(key)) return { record, act: NONE };
+    const base = pr.baseBranch ?? null;
+    if (record.rounds >= record.maxRounds) return stopped(record, now, `${AUTOPILOT_DISENGAGED} ${where} after ${record.rounds} ${record.rounds === 1 ? 'round' : 'rounds'}: its branch is behind ${base ?? 'its target branch'}`);
+    const n = record.rounds + 1;
+    const request = { host: input.lookup.value.host, number: pr.number, title: pr.title, url: pr.url, commit: head || `#${pr.number}` };
+    return {
+      record: { ...record, rounds: n, handled: [...record.handled, key].slice(-50), round: { startedAt: now, head, failed: [] } },
+      act: { type: 'round', message: roundText(request, [catchUpMessage(request, base)], n, record.maxRounds), round: n },
+    };
+  }
   const green = pr.state === 'open' && pullRequestStatus(pr).tone === 'green';
   if (!green) return { record, act: NONE };
   if (record.merge) return { record, act: { type: 'merge', pr } };

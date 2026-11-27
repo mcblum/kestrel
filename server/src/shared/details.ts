@@ -242,6 +242,16 @@ export function middleTruncate(text: string, max: number): string {
   return `${text.slice(0, head)}…${text.slice(text.length - (keep - head))}`;
 }
 
+const BRANCH_BEHIND = 'Branch behind';
+
+/**
+ * The request's status is "Branch behind": the host will not merge it until its branch has its base's newest
+ * commits, and nothing else is said to be in the way. A host reports behind only where it requires this
+ * (GitHub's BEHIND comes from a branch rule that requires up-to-date branches; GitLab's need_rebase from a
+ * fast-forward or semi-linear merge method), so a branch merely missing commits never counts.
+ */
+export const mustCatchUp = (pr: PullRequest): boolean => pullRequestStatus(pr).label === BRANCH_BEHIND;
+
 /** Green requires an affirmative mergeability result, not merely passing CI. */
 export function pullRequestStatus(pr: PullRequest): { label: string; tone: 'muted' | 'red' | 'green' | 'amber' | 'purple' } {
   if (pr.state === 'merged') return { label: 'Merged', tone: 'purple' };
@@ -253,7 +263,7 @@ export function pullRequestStatus(pr: PullRequest): { label: string; tone: 'mute
   if (pr.checks === 'running') return { label: 'Checks running', tone: 'amber' };
   if (pr.review === 'review-required') return { label: 'Review required', tone: 'amber' };
   if (pr.readiness === 'ready') return { label: 'Ready to merge', tone: 'green' };
-  if (pr.readiness === 'behind') return { label: 'Branch behind', tone: 'amber' };
+  if (pr.readiness === 'behind') return { label: BRANCH_BEHIND, tone: 'amber' };
   if (pr.readiness === 'blocked') return { label: 'Merge blocked', tone: 'amber' };
   return { label: 'Open', tone: 'muted' } // readiness not known: say nothing about it;
 }

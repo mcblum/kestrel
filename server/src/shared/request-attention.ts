@@ -265,6 +265,20 @@ export function fixMessage(a: Omit<RequestAttention, 'reasons'>, d: ReasonDetail
   ].join('\n');
 }
 
+/**
+ * What Autopilot sends when the host will not merge the request until its branch has its base's newest
+ * commits (`mustCatchUp`). No card sends this: a branch behind is not something that needs the user.
+ */
+export function catchUpMessage(a: Omit<RequestAttention, 'reasons'>, base: string | null): string {
+  const target = base ?? 'its target branch';
+  return [
+    `${requestIn(a)} is behind ${base ? `\`${base}\`` : 'its target branch'}, and the host will not merge it until it is up to date.`,
+    '',
+    `In this worktree: fetch from the remote, merge the remote's \`${target}\` into this branch (a merge, not a rebase, so the branch's history stays as it is), resolve any conflict keeping what both sides meant, run the tests, commit the merge and push.`,
+    'Do not force-push or rewrite the branch\'s history without asking me first.',
+  ].join('\n');
+}
+
 // ---- when a card no longer applies -------------------------------------------------------------
 
 /**
