@@ -1,46 +1,51 @@
-// How `kestrel node join` looks in the terminal: the node says what happens as typed events (shared/node-commands.ts,
-// `NodeJoinEvent`), and this lays them out, one event at a time, as lines. Nothing here decides what is said.
-//
-//   Kestrel worker node: join <name> to your account
-//
-//   1  Sign in
-//      Open   <address>
-//      Code   ABCD-EFGH   (works for 10 minutes)
-//
-//      Waiting for you to sign in…
-//      ✓ Signed in as <email>
-//
-//   2  Let this node in            (and 3  Confirm)
-//   …
-//
-//   ✓ <name> is in your account and connected to Kestrel Connect.
-//
-//   Next: kestrel node status
-//
-// Steps are set apart by a blank line, a code stands on a line of its own, a step done is a tick, and a problem is a
-// whole sentence set off by blank lines. Where the output is not a terminal (piped, NO_COLOR, TERM=dumb) the same
-// lines in the same order are plain ASCII ("ok:" for the tick), so a log or a script reads them.
+// Shared terminal presentation for configure, pairing, agents and Git. The flows choose the words and actions;
+// this renderer lays out one typed event at a time so it can also be used for transcripts.
+import { stripVTControlCharacters, styleText } from 'node:util';
+import stringWidth from 'string-width';
 import type { JoinStep, NodeJoinEvent } from '../shared/node-commands.ts';
 
 export interface JoinStyle {
-  /** ASCII only: no ticks, ellipses or arrows. */
+  /** Disable terminal styling and use plain punctuation in prose. */
   plain: boolean;
-  /** Where text is wrapped; a word longer than that stands on its own line. */
+  /** Color is only enabled for a live terminal. Transcripts can use Unicode without ANSI. */
+  color?: boolean;
   width: number;
 }
 
-const MIN_WIDTH = 40;
 const MAX_WIDTH = 100;
-const DEFAULT_WIDTH = 80;
+const DEFAULT_COLUMNS = 80;
 
-/** The style for this output: plain unless it is a terminal that is not dumb and colour is not refused. */
 export function joinStyleOf(output: { isTTY: boolean; columns?: number }, env: Record<string, string | undefined>): JoinStyle {
   const plain = !output.isTTY || env.NO_COLOR !== undefined || env.TERM === 'dumb';
-  const columns = output.columns && output.columns > 0 ? output.columns : DEFAULT_WIDTH;
-  return { plain, width: Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, columns - 1)) };
+  const columns = output.columns && output.columns > 0 ? output.columns : DEFAULT_COLUMNS;
+  return { plain, width: Math.min(MAX_WIDTH, Math.max(1, columns - 1)) };
 }
 
-/** Where the drawing is: whether anything was printed, and whether the last line was blank. */
+/** The transcript uses stdout and stderr. Keep both plain if either stream is redirected. */
+export function terminalJoinStyle(): JoinStyle {
+  const style = joinStyleOf({ isTTY: process.stdout.isTTY === true && process.stderr.isTTY === true, columns: process.stdout.columns }, process.env);
+  return { ...style, color: !style.plain };
+}
+
+/**
+ * What the renderer draws: the node's events, and one more kind the terminal makes itself. A command run inside a
+ * section of `kestrel node configure` keeps its own parts as unnumbered subheadings under that section, so the whole
+ * run reads as one hierarchy (`nestedEvent`).
+ */
+export type DrawEvent = NodeJoinEvent | { event: 'say'; step: JoinStep; kind: 'subheading'; text: string };
+
+/**
+ * One event of a command run inside configure's section `section`: its title is dropped (the section names it), its
+ * numbered parts become subheadings, everything is drawn under the section, and how it ended is a line there (configure
+ * says what is next itself). Null: drawn not at all.
+ */
+export function nestedEvent(event: NodeJoinEvent, section: JoinStep): DrawEvent | null {
+  if (event.event === 'end') return { event: 'say', step: section, kind: event.ok ? 'done' : 'line', text: event.text };
+  if (event.event === 'ask') return { ...event, step: section };
+  if (event.kind === 'heading') return event.step === 0 ? null : { event: 'say', step: section, kind: 'subheading', text: event.text };
+  return { ...event, step: section };
+}
+
 export interface JoinDrawState {
   printed: boolean;
   blank: boolean;
@@ -48,17 +53,16 @@ export interface JoinDrawState {
 
 export const JOIN_DRAW_START: JoinDrawState = { printed: false, blank: false };
 
-/** What one event draws: lines for the output (or, for a join that did not finish, the error output), and a prompt. */
 export interface JoinDrawn {
   lines: string[];
   toErr: boolean;
-  /** For an `ask`: the prompt to print before the answer is typed, on the line after `lines`. */
+  /** The input line after `lines`. Long prompts have a short input marker here. */
   prompt: string | null;
   state: JoinDrawState;
 }
 
 const STEP_INDENT = '   ';
-const CODE_INDENT = '    ';
+const CODE_INDENT = '  ';
 const FIELD_LABEL_WIDTH = 7;
 
 const TYPOGRAPHY: readonly [RegExp, string][] = [
@@ -70,94 +74,148 @@ const TYPOGRAPHY: readonly [RegExp, string][] = [
   [/ /g, ' '],
 ];
 
-const asciiOf = (text: string): string => TYPOGRAPHY.reduce((t, [from, to]) => t.replace(from, to), text);
+const plainPunctuation = (text: string): string => TYPOGRAPHY.reduce((t, [from, to]) => t.replace(from, to), text);
 
-const tick = (style: JoinStyle): string => (style.plain ? 'ok: ' : '✓ ');
+// Terminal output from other programs and names from other devices can contain control sequences.
+const visibleText = (text: string): string =>
+  stripVTControlCharacters(text).replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '');
 
 const indentOf = (step: JoinStep): string => (step === 0 ? '' : STEP_INDENT);
 
-/** A six-digit code in two groups of three; anything else as it is. */
+/** A six-digit pairing code in two groups of three. */
 export const groupedCode = (code: string): string => (/^\d{6}$/.test(code) ? `${code.slice(0, 3)} ${code.slice(3)}` : code);
 
-/** `text` broken at spaces to fit `width`, every line starting with `indent`. */
+/** Wrap at spaces using terminal cells. Keep a word such as a URL intact on its own line. */
 export function wrapped(text: string, indent: string, width: number): string[] {
-  const room = Math.max(1, width - indent.length);
+  const room = Math.max(1, width - stringWidth(indent));
   const lines: string[] = [];
-  let line = '';
-  for (const word of text.split(' ').filter(Boolean)) {
-    if (line && line.length + 1 + word.length > room) {
-      lines.push(indent + line);
-      line = word;
-    } else line = line ? `${line} ${word}` : word;
+  for (const paragraph of text.split('\n')) {
+    let line = '';
+    let used = 0;
+    for (const word of paragraph.split(/[ \t]+/).filter(Boolean)) {
+      const cells = stringWidth(word);
+      if (line && used + 1 + cells > room) {
+        lines.push(indent + line);
+        line = '';
+        used = 0;
+      }
+      if (line) {
+        line += ' ';
+        used += 1;
+      }
+      line += word;
+      used += cells;
+    }
+    lines.push(line ? indent + line : '');
   }
-  return [...lines, indent + line];
+  return lines;
 }
 
-/** The lines one event draws after `state`, in `style`. Pure. */
-export function drawJoinEvent(event: NodeJoinEvent, state: JoinDrawState, style: JoinStyle): JoinDrawn {
+export function drawJoinEvent(event: DrawEvent, state: JoinDrawState, style: JoinStyle): JoinDrawn {
   const out: string[] = [];
   let { printed, blank } = state;
   const put = (...lines: string[]) => {
     for (const line of lines) {
-      out.push(style.plain ? asciiOf(line) : line);
+      out.push(line);
       printed = true;
       blank = line === '';
     }
   };
-  // Text that is wrapped is made ASCII first, so the width holds for what is printed.
-  const wrap = (text: string, indent: string) => wrapped(style.plain ? asciiOf(text) : text, indent, style.width);
-  // A blank line, unless at the very start or after one.
+  const prose = (text: string) => style.plain ? plainPunctuation(visibleText(text)) : visibleText(text);
+  const wrap = (text: string, indent: string) => wrapped(prose(text), indent, style.width);
+  const accent = (format: 'bold' | 'green' | 'yellow' | 'red', text: string) =>
+    !style.plain && style.color && text ? styleText(format, text, { validateStream: false }) : text;
+  const labelled = (indent: string, label: string, text: string, format: 'bold' | 'green') => {
+    const left = ' '.repeat(stringWidth(indent + label));
+    const [first = '', ...rest] = wrap(text, left);
+    put(indent + accent(format, label.trimEnd()) + label.slice(label.trimEnd().length) + first.slice(left.length), ...rest);
+  };
+  const literal = (value: string, indent: string) => put(...visibleText(value).split('\n').map((line) => line ? indent + line : ''));
+  const codeIndent = style.width < 48 ? CODE_INDENT : '    ';
+  const tick = style.plain ? 'ok: ' : '✓ ';
+  const marked = (text: string, indent: string, format: 'bold' | 'yellow' | 'red') => put(...wrap(text, indent).map((line) => accent(format, line)));
   const gap = () => printed && !blank && put('');
-  const done = (toErr = false, prompt: string | null = null): JoinDrawn => ({ lines: out, toErr, prompt: prompt && style.plain ? asciiOf(prompt) : prompt, state: { printed, blank } });
+  const rendered = (toErr = false, prompt: string | null = null): JoinDrawn => ({ lines: out, toErr, prompt, state: { printed, blank } });
 
-  if (event.event === 'ask') return done(false, `${indentOf(event.step)}${event.prompt}`);
+  if (event.event === 'ask') {
+    const indent = indentOf(event.step);
+    const prompt = indent + prose(event.prompt);
+    if (stringWidth(prompt) + 8 <= style.width && !prompt.includes('\n')) return rendered(false, prompt);
+    put(...wrap(event.prompt, indent));
+    return rendered(false, indent + '> ');
+  }
   if (event.event === 'end') {
     gap();
-    if (event.ok) put(`${tick(style)}${event.text}`);
-    else put(...wrap(event.text, ''));
+    if (event.ok) labelled('', tick, event.text, 'green');
+    else marked(event.text, '', 'red');
     if (event.next) {
-      put('');
-      put(`Next: ${event.next}`);
+      gap();
+      const command = visibleText(event.next);
+      if (stringWidth(`Next: ${command}`) <= style.width && !command.includes('\n')) put(`Next: ${command}`);
+      else {
+        put('Next:');
+        literal(command, CODE_INDENT);
+      }
     }
-    return done(!event.ok);
+    return rendered(!event.ok);
   }
+
   const indent = indentOf(event.step);
   switch (event.kind) {
     case 'heading':
       gap();
-      put(event.step === 0 ? event.text : `${event.step}  ${event.text}`);
-      if (event.step === 0) put('');
+      if (event.step === 0) {
+        marked(event.text, '', 'bold');
+        put('');
+      } else labelled('', `${event.step}  `, event.text, 'bold');
+      break;
+    case 'subheading':
+      gap();
+      marked(event.text, indent, 'bold');
       break;
     case 'line':
       put(...wrap(event.text, indent));
       break;
     case 'wait':
       gap();
-      put(...wrap(event.text, indent));
+      marked(event.text, indent, 'yellow');
       break;
-    case 'field':
-      put(`${indent}${event.label.padEnd(FIELD_LABEL_WIDTH)}${event.value}${event.note ? `   (${event.note})` : ''}`);
+    case 'field': {
+      const label = prose(event.label);
+      const value = visibleText(event.value);
+      const note = event.note ? `(${prose(event.note)})` : '';
+      const spacing = ' '.repeat(Math.max(1, FIELD_LABEL_WIDTH - stringWidth(label)));
+      const row = `${indent}${label}${spacing}${value}${note ? `   ${note}` : ''}`;
+      if (stringWidth(row) <= style.width && !row.includes('\n')) put(row);
+      else {
+        put(...wrap(label, indent));
+        literal(value, indent + CODE_INDENT);
+        if (note) put(...wrapped(note, indent + CODE_INDENT, style.width));
+      }
       break;
+    }
     case 'code':
       gap();
-      put(`${indent}${CODE_INDENT}${groupedCode(event.code)}`, '');
+      literal(groupedCode(event.code), indent + codeIndent);
+      put('');
       break;
     case 'done':
-      put(`${indent}${tick(style)}${event.text}`);
+      labelled(indent, tick, event.text, 'green');
       break;
     case 'problem':
       gap();
-      put(...wrap(event.text, indent), '');
+      marked(event.text, indent, 'red');
+      put('');
       break;
     case 'quote':
-      put(`${indent}${CODE_INDENT}${event.text}`);
+      literal(event.text, indent + codeIndent);
       break;
   }
-  return done();
+  return rendered();
 }
 
-/** A whole conversation drawn, each `ask` followed by the answer typed (as a terminal echoes it). For tests and logs. */
-export function drawJoin(events: readonly NodeJoinEvent[], style: JoinStyle, answers: readonly string[] = []): string[] {
+/** Draws a conversation, including the terminal echo of each supplied answer. */
+export function drawJoin(events: readonly DrawEvent[], style: JoinStyle, answers: readonly string[] = []): string[] {
   const lines: string[] = [];
   let state = JOIN_DRAW_START;
   let answered = 0;

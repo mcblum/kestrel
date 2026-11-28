@@ -121,7 +121,7 @@ async function letIn(target: JoinTarget, io: JoinIo, signal: AbortSignal): Promi
       if (j.state === 'asking') once('asking', () => io.say({ step: 2, kind: 'wait', text: 'Waiting for you to choose Let in there…' }));
       if (j.state === 'code') {
         once(`code:${j.code}`, () => {
-          io.say({ step: 2, kind: 'line', text: `${j.by} opened it. Type this code there:` });
+          io.say({ step: 2, kind: 'line', text: `${j.by} opened it. Type this code on ${j.by}:` });
           io.say({ step: 2, kind: 'code', code: j.code });
         });
       }
@@ -129,8 +129,9 @@ async function letIn(target: JoinTarget, io: JoinIo, signal: AbortSignal): Promi
         once('confirm', () => {
           io.say({ step: 2, kind: 'done', text: `${j.by} let it in` });
           io.say({ step: 3, kind: 'heading', text: CONFIRM });
+          io.say({ step: 3, kind: 'line', text: `${j.by} now shows a code of its own. Type it here, so this node knows it was let in by your device.` });
         });
-        const typed = await io.ask(3, `Type the code ${j.by} shows now: `);
+        const typed = await io.ask(3, `Code from ${j.by}: `);
         // A wrong code with tries left is said; the last one ends the request, which says why on its own.
         await target.confirmJoin(typed).catch((error: unknown) => target.view().joining?.state === 'confirm' && io.say({ step: 3, kind: 'problem', text: message(error) }));
         continue;

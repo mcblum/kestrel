@@ -50,7 +50,7 @@ export const isNodeCommand = (value: unknown): value is NodeCommand => typeof va
  * the `node` group) runs the install script the bundle carries.
  */
 export const TERMINAL_COMMANDS = {
-  configure: { about: 'Set this node up, one step at a time: join your account, the agents, git, and what needs an administrator.' },
+  configure: { about: 'Set this node up, one step at a time: what needs an administrator, your account, the agents and git.' },
   start: { about: 'Start the node’s service (systemctl --user).' },
   logs: { about: 'Read the node’s log (-f to follow, -n <lines> for more or fewer).' },
   upgrade: { about: 'Install the newest version of this node’s channel (or the version given), as the install command does.' },

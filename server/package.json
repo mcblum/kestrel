@@ -182,17 +182,23 @@
     "@opencode-ai/sdk": "1.14.25",
     "@scure/bip39": "1.6.0",
     "@sentry/node": "11.16.0",
+    "ink": "6.8.0",
     "marklassian": "1.2.1",
     "mdast-util-from-markdown": "2.1.0",
     "node-pty": "^1.1.0",
+    "react": "^19.3.1",
     "smol-toml": "^1.9.1",
+    "string-width": "4.2.3",
+    "wrap-ansi": "9.0.2",
     "ws": "^8.18.0",
     "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/mdast": "4.0.4",
     "@types/node": "^24.0.0",
+    "@types/react": "^19.3.0",
     "@types/ws": "^8.5.13",
+    "react-devtools-core": "6.1.5",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"

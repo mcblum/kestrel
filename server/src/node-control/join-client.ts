@@ -2,15 +2,17 @@
 // person for each answer the node asks for and sends it back, until the node says how it ended. Closing it (Ctrl-C, a
 // closed window) closes the connection, and the node withdraws what was under way (join-socket.ts).
 import { connect, type Socket } from 'node:net';
-import { parseJoinEvent, type NodeJoinAnswer, type NodeJoinEvent } from '../shared/node-commands.ts';
+import { parseJoinEvent, type JoinStep, type NodeJoinAnswer, type NodeJoinEvent } from '../shared/node-commands.ts';
 import { noNodeRunning } from './client.ts';
-import { drawJoinEvent, JOIN_DRAW_START, type JoinStyle } from './join-draw.ts';
+import { drawJoinEvent, JOIN_DRAW_START, nestedEvent, type JoinStyle } from './join-draw.ts';
 
 export interface JoinTerminal {
   out(line: string): void;
   err(line: string): void;
   /** Asks the person for one line; rejects when the terminal is closed. */
   ask(prompt: string): Promise<string>;
+  /** Takes each event itself instead of drawn lines (the interactive screen, which places it under a section itself). */
+  take?(event: NodeJoinEvent): void;
 }
 
 const NOT_UNDERSTOOD = 'The node sent something this version of kestrel does not understand, so the join was stopped.';
@@ -25,12 +27,26 @@ export const STOPPED_EXIT = 130;
  * Holds the conversation (`options.next`: whether the closing "Next:" line is drawn); `done` resolves with the exit code (0 in, 1 not, `STOPPED_EXIT` stopped). `stop` ends it
  * from this side (Ctrl-C): the connection closes, and the node withdraws.
  */
-export function runJoinClient(path: string, terminal: JoinTerminal, style: JoinStyle = PLAIN_JOIN_STYLE, options: { next: boolean } = { next: true }): { done: Promise<number>; stop(): void } {
+export interface JoinClientOptions {
+  /** Whether the closing "Next:" line is drawn. */
+  next: boolean;
+  /** Drawn inside this section of `kestrel node configure`: its title left out, its steps as subheadings. */
+  section?: JoinStep;
+}
+
+export function runJoinClient(path: string, terminal: JoinTerminal, style: JoinStyle = PLAIN_JOIN_STYLE, options: JoinClientOptions = { next: true }): { done: Promise<number>; stop(): void } {
   const socket: Socket = connect(path);
   let end: (code: number, last?: NodeJoinEvent & { event: 'end' }) => void = () => undefined;
-  let drawing = JOIN_DRAW_START;
+  // Inside configure, something was printed above (the section's heading and question): the first part is set off.
+  let drawing = options.section === undefined ? JOIN_DRAW_START : { printed: true, blank: false };
   /** Draws one event; returns the prompt of an `ask`. */
-  const draw = (event: NodeJoinEvent): string | null => {
+  const draw = (given: NodeJoinEvent): string | null => {
+    if (terminal.take) {
+      terminal.take(given);
+      return given.event === 'ask' ? given.prompt : null;
+    }
+    const event = options.section === undefined ? given : nestedEvent(given, options.section);
+    if (!event) return null;
     const drawn = drawJoinEvent(event, drawing, style);
     for (const line of drawn.lines) (drawn.toErr ? terminal.err : terminal.out)(line);
     // The answer typed after a prompt ends its line.

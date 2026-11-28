@@ -17,7 +17,7 @@ const RUN_ABOUT = 'Run the node in this terminal (what the service runs).';
 const HELP: Record<Exclude<HelpTopic, 'node'>, CommandHelp> = {
   configure: {
     usage: 'node configure',
-    more: 'Runs the steps in order: join your account, the agents, git, then what only an administrator can do (lingering, and bubblewrap and socat for the command sandbox), each shown with the exact command to paste and checked again when you press Enter. Any step can be skipped. Run it again at any time: it asks the node what is left and offers only that. With no terminal it lists what is left.',
+    more: 'First what needs an administrator (lingering, and bubblewrap and socat for the command sandbox): each is said with what happens without it, the exact commands are shown, and on one yes they run here through sudo, which asks for your password itself, before anything slow. Then joining your account, the agents (one is enough; the others are optional) and git. Any step can be skipped. Run it again at any time: it asks the node what is left and offers only that. With no terminal it asks nothing and runs nothing, and lists what is left.',
   },
   status: {
     usage: 'node status [--json]',
@@ -29,11 +29,11 @@ const HELP: Record<Exclude<HelpTopic, 'node'>, CommandHelp> = {
   },
   agents: {
     usage: 'node agents [claude|codex|opencode] [--yes] [--check]',
-    more: 'Installs Codex and OpenCode into ~/.kestrel/agents at the versions this Kestrel runs (never globally, never with sudo), runs each agent’s own sign-in in this terminal, and says whether the command sandbox is ready. Name an agent to do only that one. --yes asks nothing and prints the sign-in commands; --check runs one short turn in each signed-in agent, which spends a little usage.',
+    more: 'Asks once which agents to set up (each is optional), installs Codex and OpenCode into ~/.kestrel/agents at the versions this Kestrel runs (never globally, never with sudo), runs each chosen agent’s own sign-in in this terminal, and says whether the command sandbox is ready. Name an agent to do only that one. --yes asks nothing and prints the sign-in commands; --check runs one short turn in each signed-in agent, which spends a little usage.',
   },
   git: {
     usage: 'node git [--yes] [--manual]',
-    more: 'Makes this node’s own SSH key (in ~/.kestrel/git, never ~/.ssh), installs gh or glab for your account’s git hosts and signs them in, adds the key there on one yes, sets signing and the commit name and email, and ends with what is still to do. --manual does every host by hand; --yes asks nothing.',
+    more: 'Makes this node’s own SSH key (in ~/.kestrel/git, never ~/.ssh), asks which of your account’s git sites to use (a numbered choice, all or skip), installs gh or glab for them and signs them in, adds the key there on one yes per site, sets signing and the commit name and email, and ends with what is still to do. --manual does every host by hand; --yes asks nothing.',
   },
   start: { usage: 'node start', more: 'Starts the node’s systemd user service. Where there is no systemd user manager, run "kestrel node run" instead, in tmux or screen to keep it running after you log out.' },
   stop: { usage: 'node stop', more: 'Ends the sessions’ turns cleanly and stops the node: the service, or a node started by hand.' },

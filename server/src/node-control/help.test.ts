@@ -14,7 +14,7 @@ describe('kestrel’s help', () => {
     expect(TOP_COMMAND_NAMES).toEqual(['node', 'upgrade', 'version', 'help']);
     expect(lines).toContain('Worker node commands (kestrel node <command>):');
     expect(lines).toContain('  upgrade    Install the newest version of this node’s channel (or the version given), as the install command does.');
-    expect(lines).toContain('  configure  Set this node up, one step at a time: join your account, the agents, git, and what needs an administrator.');
+    expect(lines).toContain('  configure  Set this node up, one step at a time: what needs an administrator, your account, the agents and git.');
   });
 
   test('kestrel node lists the group’s commands, configure first, with run and help after them', () => {

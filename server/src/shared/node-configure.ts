@@ -1,6 +1,8 @@
 // What `kestrel node configure` offers, in order, purely, from what the node reports (`status`) and what the terminal sees of
-// the sandbox programs (docs/designs/worker-nodes.md, section 8). Nothing is remembered between runs: a step is done
-// when the node says so, so running it again picks up where it was left. The runner is node-control/setup-flow.ts.
+// the sandbox programs (docs/designs/worker-nodes.md, section 8; docs/designs/worker-terminal-handoff.md). Nothing is
+// remembered between runs: a step is done when the node says so, so running it again picks up where it was left. What
+// needs an administrator comes first, as one plan offered once (`adminPlanOf`), so it is done before the slow steps.
+// The runner is node-control/setup-flow.ts.
 import { NODE_AGENT_LABEL } from './node-agents.ts';
 import type { NodeStatus } from './node-status.ts';
 import { REMOVED_NODE } from './node-status.ts';
@@ -8,8 +10,8 @@ import { enableLingerCommand, WITHOUT_LINGERING } from './node-service.ts';
 import { SANDBOX_INSTALL_UNKNOWN, SANDBOX_RESTART, WITHOUT_SANDBOX } from './node-sandbox.ts';
 import { nodeCommandLine } from './node-commands.ts';
 
-/** The steps, in the order they are offered: what can be done here first, then what needs an administrator. */
-export const SETUP_STEPS = ['join', 'agents', 'git', 'lingering', 'sandbox'] as const;
+/** The steps, in the order they are offered: what needs an administrator first, then the account, agents and git. */
+export const SETUP_STEPS = ['lingering', 'sandbox', 'join', 'agents', 'git'] as const;
 export type SetupStepId = (typeof SETUP_STEPS)[number];
 
 /** The kestrel commands a step runs in this terminal. */
@@ -33,7 +35,7 @@ export type SetupAction =
 
 export interface SetupStep {
   id: SetupStepId;
-  /** Its number in the list, 1 to 5, whether or not it is left. */
+  /** The section it is drawn in, 1 to 4, whether or not it is left: lingering and the sandbox share 1, System. */
   number: number;
   title: string;
   done: boolean;
@@ -44,12 +46,17 @@ export interface SetupStep {
 }
 
 const TITLES: Record<SetupStepId, string> = {
-  join: 'Join your account',
+  lingering: 'Lingering',
+  sandbox: 'Command sandbox',
+  join: 'Account',
   agents: 'Agents',
   git: 'Git',
-  lingering: 'Keep running with nobody logged in',
-  sandbox: 'Command sandbox',
 };
+
+const SECTIONS: Record<SetupStepId, number> = { lingering: 1, sandbox: 1, join: 2, agents: 3, git: 4 };
+
+/** The sections' headings, by number. */
+export const SETUP_SECTIONS: Record<number, string> = { 1: 'System', 2: 'Account', 3: 'Agents', 4: 'Git' };
 
 /** The command a step's action names, as it is typed. */
 export function setupActionText(action: SetupAction): string {
@@ -65,12 +72,13 @@ function joinStep(s: NodeStatus): Omit<SetupStep, 'id' | 'number' | 'title'> {
   return { done: false, left: s.connect.removed ? REMOVED_NODE : 'Not in your account yet: sign in and ask to join it.', action: { kind: 'run', command: 'join' } };
 }
 
+/** One agent that can run is enough: the others are optional, and `kestrel node agents` adds them any time. */
 function agentsStep(s: NodeStatus): Omit<SetupStep, 'id' | 'number' | 'title'> {
-  const can = s.agents.filter((a) => a.canRun).length;
+  const can = s.agents.filter((a) => a.canRun).map((a) => NODE_AGENT_LABEL[a.agent]);
   const cannot = s.agents.filter((a) => !a.canRun).map((a) => NODE_AGENT_LABEL[a.agent]);
-  const count = `${can} of ${s.agents.length} agents can run.`;
-  if (cannot.length === 0) return { done: true, left: count, action: null };
-  return { done: false, left: `${count} ${names(cannot)} cannot yet.`, action: { kind: 'run', command: 'agents' } };
+  if (can.length === 0) return { done: false, left: 'No agent can run yet. One is enough to start sessions here.', action: { kind: 'run', command: 'agents' } };
+  const optional = cannot.length === 0 ? '' : ` ${names(cannot)} ${cannot.length === 1 ? 'is' : 'are'} optional ("${nodeCommandLine('agents')}" adds ${cannot.length === 1 ? 'it' : 'them'}).`;
+  return { done: true, left: `${names(can)} can run.${optional}`, action: null };
 }
 
 function gitStep(s: NodeStatus): Omit<SetupStep, 'id' | 'number' | 'title'> {
@@ -81,7 +89,7 @@ function gitStep(s: NodeStatus): Omit<SetupStep, 'id' | 'number' | 'title'> {
 
 function lingeringStep(s: NodeStatus): Omit<SetupStep, 'id' | 'number' | 'title'> {
   if (s.host.lingering === 'on') return { done: true, left: 'Lingering is on.', action: null };
-  if (s.host.lingering === 'unknown') return { done: true, left: 'Not needed here: this system has no systemd.', action: null };
+  if (s.host.lingering === 'unknown') return { done: true, left: 'Lingering is not needed: this system has no systemd.', action: null };
   return { done: false, left: `Lingering is off. ${WITHOUT_LINGERING}`, action: { kind: 'admin', command: enableLingerCommand(s.host.user) } };
 }
 
@@ -95,13 +103,13 @@ function sandboxStep(s: NodeStatus, here: SandboxHere | null): Omit<SetupStep, '
 /** Every step, done or not, from the node's status and what the terminal sees. Pure. */
 export function setupStepsOf(status: NodeStatus, here: SandboxHere | null): SetupStep[] {
   const of: Record<SetupStepId, Omit<SetupStep, 'id' | 'number' | 'title'>> = {
+    lingering: lingeringStep(status),
+    sandbox: sandboxStep(status, here),
     join: joinStep(status),
     agents: agentsStep(status),
     git: gitStep(status),
-    lingering: lingeringStep(status),
-    sandbox: sandboxStep(status, here),
   };
-  return SETUP_STEPS.map((id, i) => ({ id, number: i + 1, title: TITLES[id], ...of[id] }));
+  return SETUP_STEPS.map((id) => ({ id, number: SECTIONS[id], title: TITLES[id], ...of[id] }));
 }
 
 /** The next step to offer: the first one left that this run has not offered already. */
@@ -115,4 +123,73 @@ export function setupSummary(status: NodeStatus | null, here: SandboxHere | null
   const left = setupStepsOf(status, here).filter((s) => !s.done).length;
   const setup = left === 0 ? 'set up' : `${left} setup step${left === 1 ? '' : 's'} left: run "${nodeCommandLine('configure')}"`;
   return `${status.name} (Kestrel ${status.version}): ${account}; ${can} of ${status.agents.length} agents can run; ${setup}.`;
+}
+
+/** Who can run an administrator's command here: this is root already, sudo is installed, or neither. */
+export type AdminRunner = 'root' | 'sudo' | 'none';
+
+export interface AdminCommand {
+  id: 'lingering' | 'sandbox';
+  /** As it is shown, and as it would be pasted. */
+  text: string;
+  /** As it is run: through sudo, or as it is when this is root. */
+  argv: string[];
+}
+
+/** What the System section offers, once, before the account, agents and git. */
+export interface AdminPlan {
+  /** What is missing, each said with what happens without it. */
+  needs: { id: 'lingering' | 'sandbox'; text: string }[];
+  /** The administrator's commands, in order; empty when only a restart is left. */
+  commands: AdminCommand[];
+  /** The node restarts afterwards (or only that), since it works the sandbox out when it starts. */
+  restart: boolean;
+  /** False when nothing here can run the commands (no sudo): they are shown for an administrator. */
+  canRun: boolean;
+  /** What Kestrel cannot do from here at all, with what to do instead (no package manager it knows). */
+  cannot: string[];
+}
+
+/** Said where no package manager on the list is found. */
+export const UNKNOWN_PACKAGE_MANAGER = `Kestrel does not know this system's package manager. Install bubblewrap and socat with it, then run "${nodeCommandLine('configure')}" again.`;
+
+/** Said where sudo is not installed and this is not root. */
+export const NO_SUDO = 'sudo is not installed here, so Kestrel cannot run these. Ask an administrator to run them as root:';
+
+/** The command as this computer runs it, or as an administrator types it as root where there is no sudo. */
+/** An administrator's command as it is typed here: with sudo where sudo runs it, as root otherwise. Pure. */
+export const adminCommandHere = (text: string, runner: AdminRunner): string => (runner === 'sudo' ? text : text.replace(/^sudo /, ''));
+
+const commandOf = (id: AdminCommand['id'], text: string, runner: AdminRunner): AdminCommand => {
+  const words = text.split(' ').filter(Boolean);
+  const bare = words[0] === 'sudo' ? words.slice(1) : words;
+  // Root runs it as it is, and so does an administrator where there is no sudo: it is shown for them as root.
+  return runner === 'sudo' ? { id, text, argv: ['sudo', ...bare] } : { id, text: bare.join(' '), argv: bare };
+};
+
+/** The System section's plan, from the steps and who can run an administrator's command here. Pure. */
+export function adminPlanOf(steps: readonly SetupStep[], runner: AdminRunner): AdminPlan | null {
+  const left = steps.filter((s) => (s.id === 'lingering' || s.id === 'sandbox') && !s.done);
+  if (left.length === 0) return null;
+  const needs: AdminPlan['needs'] = [];
+  const commands: AdminCommand[] = [];
+  const cannot: string[] = [];
+  let restart = false;
+  for (const step of left) {
+    const id = step.id as AdminCommand['id'];
+    const action = step.action!;
+    if (action.kind === 'restart') {
+      needs.push({ id, text: 'bubblewrap and socat are installed, but the node started before they were.' });
+      restart = true;
+    } else if (action.kind === 'admin') {
+      needs.push({ id, text: step.left });
+      if (action.command === null) cannot.push(UNKNOWN_PACKAGE_MANAGER);
+      else {
+        commands.push(commandOf(id, action.command, runner));
+        if (id === 'sandbox') restart = true;
+      }
+    }
+  }
+  const canRun = runner !== 'none' || commands.length === 0;
+  return { needs, commands, restart, canRun, cannot };
 }

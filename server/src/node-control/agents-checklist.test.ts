@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import type { Agent } from '../model.ts';
 import { nodeAgentReason, type NodeAgentProblem } from '../shared/node-agents.ts';
 import type { JoinStep, NodeAgentState, NodeJoinEvent } from '../shared/node-commands.ts';
-import { runAgentsChecklist, saidYes, type AgentsOptions, type ChecklistDeps, type SandboxFacts } from './agents-checklist.ts';
+import { agentsPicked, runAgentsChecklist, saidYes, type AgentsOptions, type ChecklistDeps, type SandboxFacts } from './agents-checklist.ts';
 import type { AgentFacts } from './agents-programs.ts';
 import { drawJoinEvent, JOIN_DRAW_START, type JoinStyle } from './join-draw.ts';
 
@@ -119,68 +119,78 @@ const FRESH = (): Machine => ({
 const ALL: AgentsOptions = { only: null, unattended: false, check: false };
 
 describe('kestrel node agents, at a terminal', () => {
-  test('a fresh node: one question at a time, each done only on a yes, drawn as join is', async () => {
-    const r = play(FRESH(), ALL, ['y', 'yes', 'y', 'n'], PRETTY);
-    expect(await r.done).toBe(1);
+  test('a fresh node: which are not ready, one choice of which to set up, then each chosen one done without asking again', async () => {
+    const r = play(FRESH(), ALL, ['claude codex'], PRETTY);
+    // The chosen two can run: that is ready. OpenCode was left out, and the sandbox is optional: neither fails it.
+    expect(await r.done).toBe(0);
     expect(r.lines).toEqual([
       'Kestrel worker node: agents on Worker node 1',
       '',
+      'Claude Code, Codex and OpenCode are not set up yet. Each agent is optional: one is enough to start',
+      'sessions here.',
+      'Setting one up installs it into ~/.kestrel/agents with npm when it is missing, then runs its own',
+      'sign-in in this terminal.',
+      'Set up which? Enter for all of them, or type names (claude, codex, opencode), or none: claude codex',
+      '',
       '1  Claude Code',
       '   ✓ Installed: Claude Code 2.1.322 (comes with Kestrel)',
-      '   Not signed in.',
-      '   Sign in to Claude Code now? It runs `claude auth login` in this terminal. [y/N] y',
       '',
-      '   Claude Code prints an address: open it on any device, sign in, and paste the code the page gives',
-      '   back here. Kestrel sees none of it.',
+      '   Signing in with `claude auth login`. Claude Code prints an address: open it on any device, sign',
+      '   in, and paste the code the page gives back here. Kestrel sees none of it.',
       '<the program’s own output>',
       '   ✓ Signed in',
       '',
       '2  Codex',
-      '   Not installed.',
-      '   Install Codex 0.172.0 into ~/.kestrel/agents with npm? [y/N] yes',
       '',
       '   Installing Codex 0.172.0 (npm install --prefix ~/.kestrel/agents @openai/codex@0.172.0)…',
       '   ✓ Installed: Codex 0.172.0 (in ~/.kestrel/agents)',
-      '   Not signed in.',
-      '   Sign in to Codex now? It runs `codex login --device-auth` in this terminal. [y/N] y',
       '',
-      "   Codex prints a code: type it on the provider's device page, on any device. Nothing is pasted back",
-      '   here. Kestrel sees none of it.',
+      "   Signing in with `codex login --device-auth`. Codex prints a code: type it on the provider's",
+      '   device page, on any device. Nothing is pasted back here. Kestrel sees none of it.',
       '<the program’s own output>',
       '   ✓ Signed in',
       '',
-      '3  OpenCode',
-      '   Not installed.',
-      '   Install OpenCode 1.14.25 into ~/.kestrel/agents with npm? [y/N] n',
-      '   Not installed. To install it later: kestrel node agents opencode',
-      '',
-      '4  Command sandbox',
-      '   bubblewrap and socat are not installed. An administrator installs them with:',
+      '3  Command sandbox (optional)',
+      '   bubblewrap and socat are not installed. Without them every command of a confined Claude session',
+      '   asks first.',
+      '   "kestrel node configure" installs them with sudo and restarts the node. Or an administrator runs',
+      '   this, and then you restart the node (kestrel node stop && kestrel node start):',
       '',
       '       sudo apt-get install -y bubblewrap socat',
-      '',
-      '   Without them every command of a confined Claude session asks first.',
-      '   After installing them, restart the node:',
-      '',
-      '       kestrel node stop && kestrel node start',
       '',
       'What Worker node 1 tells your other devices',
       '',
       '✓ Claude Code can run',
       '✓ Codex can run',
-      'OpenCode is not installed. Run `kestrel node agents`.',
-      '! ',
-      '! Agents on Worker node 1: 2 of 3 can run.',
-      '! ',
-      '! Next: kestrel node status',
+      'OpenCode: left out, not set up here.',
+      '',
+      '✓ Agents on Worker node 1: 2 of 3 can run.',
+      '',
+      'Next: kestrel node status',
     ]);
     expect(r.calls).toEqual(['sign in claude', 'install codex 0.172.0', 'sign in codex']);
     // The node is told which agents changed here, so it forgets what it knew of them and asks again.
     expect(r.rechecks).toEqual([['claude', 'codex']]);
   });
 
+  test('an agent left out that fails for a real reason still says why, with what to do', async () => {
+    const machine: Machine = { ...FRESH(), facts: { ...FRESH().facts, opencode: done('1.14.25') }, node: nodeFrom({ opencode: { trouble: 'out-of-usage', detail: 'Free usage exceeded' } }) };
+    const r = play(machine, ALL, ['claude codex'], PRETTY);
+    expect(await r.done).toBe(0);
+    expect(r.lines.join('\n')).toMatch(/OpenCode's provider refused the last turn.*Run `kestrel node agents`/s);
+    expect(r.lines).not.toContain('OpenCode: left out, not set up here.');
+  });
+
+  test('a chosen agent that cannot run is a failure, whatever the sandbox', async () => {
+    const machine: Machine = { ...FRESH(), signsIn: ['claude'], sandbox: { missing: [], install: null, nodeHasIt: true } };
+    const r = play(machine, ALL, ['claude codex'], PRETTY);
+    expect(await r.done).toBe(1);
+    expect(r.lines).toContain('Codex is not signed in. Run `kestrel node agents`.');
+    expect(r.lines).toContain('! Agents on Worker node 1: 1 of 3 can run.');
+  });
+
   test('the same in plain ASCII, as a log or a script reads it', async () => {
-    const r = play(FRESH(), ALL, ['y', 'yes', 'y', 'n'], PLAIN);
+    const r = play(FRESH(), ALL, ['claude codex'], PLAIN);
     await r.done;
     const text = r.lines.join('\n');
     expect(text).not.toMatch(/[^\x20-\x7e\n’]/);
@@ -189,7 +199,7 @@ describe('kestrel node agents, at a terminal', () => {
     expect(r.lines).toContain('ok: Claude Code can run');
   });
 
-  test('everything ready: nothing asked, a tick each, exit 0', async () => {
+  test('everything ready: nothing asked and no section per agent, a tick each, exit 0', async () => {
     const machine: Machine = {
       facts: { claude: done('2.1.322', '/b/claude'), codex: done('0.172.0', `${FOLDER}/node_modules/.bin/codex`), opencode: done('1.14.25', `${FOLDER}/node_modules/.bin/opencode`) },
       node: nodeFrom(),
@@ -200,19 +210,7 @@ describe('kestrel node agents, at a terminal', () => {
     expect(r.lines).toEqual([
       'Kestrel worker node: agents on Worker node 1',
       '',
-      '1  Claude Code',
-      '   ✓ Installed: Claude Code 2.1.322 (comes with Kestrel)',
-      '   ✓ Signed in',
-      '',
-      '2  Codex',
-      '   ✓ Installed: Codex 0.172.0 (in ~/.kestrel/agents)',
-      '   ✓ Signed in',
-      '',
-      '3  OpenCode',
-      '   ✓ Installed: OpenCode 1.14.25 (in ~/.kestrel/agents)',
-      '   ✓ Signed in',
-      '',
-      '4  Command sandbox',
+      '1  Command sandbox (optional)',
       '   ✓ bubblewrap and socat are installed',
       '',
       'What Worker node 1 tells your other devices',
@@ -272,30 +270,30 @@ describe('kestrel node agents, at a terminal', () => {
 
   test('no node running: it says so, and how to start it', async () => {
     const machine = { ...FRESH(), node: null };
-    const r = play(machine, { only: 'claude', unattended: false, check: false }, ['n'], PRETTY);
+    const r = play({ ...machine, signsIn: [] }, { only: 'claude', unattended: false, check: false }, [], PRETTY);
     expect(await r.done).toBe(1);
     expect(r.lines.join(' ')).toContain('The node is not running, so it has not said which agents can run. Start it with kestrel node start; then kestrel node status says.');
-    expect(r.lines).toContain('   Not signed in. To sign in later: kestrel node agents claude');
+    expect(r.lines).toContain('   Claude Code still says it is not signed in. Run kestrel node agents claude to try again.');
   });
 
   test('the sandbox programs installed after the node started: restart it', async () => {
     const machine = { ...FRESH(), sandbox: { missing: [], install: null, nodeHasIt: false } };
-    const r = play(machine, ALL, ['n', 'n', 'n'], PRETTY);
+    const r = play(machine, ALL, ['none'], PRETTY);
     await r.done;
-    expect(r.lines.join('\n')).toContain(['4  Command sandbox', '   ✓ bubblewrap and socat are installed', '   The node started before they were installed. Restart it to use them:', '', '       kestrel node stop && kestrel node start'].join('\n'));
+    expect(r.lines.join('\n')).toContain(['1  Command sandbox (optional)', '   ✓ bubblewrap and socat are installed', '   The node started before they were installed. Restart it to use them:', '', '       kestrel node stop && kestrel node start'].join('\n'));
   });
 
   test('a package manager Kestrel does not know: the packages are named', async () => {
     const machine = { ...FRESH(), sandbox: { missing: ['bubblewrap'], install: null, nodeHasIt: false } };
-    const r = play(machine, ALL, ['n', 'n', 'n'], PRETTY);
+    const r = play(machine, ALL, ['none'], PRETTY);
     await r.done;
-    expect(r.lines).toContain('   bubblewrap is not installed. An administrator installs them with:');
-    expect(r.lines).toContain("       your distribution's package manager (the packages are bubblewrap and socat)");
+    expect(r.lines.join(' ')).toContain("bubblewrap is not installed. Without them every command of a confined Claude session asks first.");
+    expect(r.lines.join(' ').replace(/\s+/g, ' ')).toContain("Install them with your distribution's package manager (the packages are bubblewrap and socat), then restart the node: kestrel node stop && kestrel node start");
   });
 
   test('an install npm could not finish: its reason, and the sign-in is not offered', async () => {
     const machine = { ...FRESH(), installs: {} };
-    const r = play(machine, { only: 'codex', unattended: false, check: false }, ['y'], PRETTY);
+    const r = play(machine, { only: 'codex', unattended: false, check: false }, [], PRETTY);
     expect(await r.done).toBe(1);
     const at = r.lines.findIndex((l) => l.includes('Installing Codex'));
     expect(r.lines.slice(at, at + 7)).toEqual([
@@ -323,21 +321,22 @@ describe('kestrel node agents and the pinned versions', () => {
       sandbox: { missing: [], install: null, nodeHasIt: true },
     };
     const codex = play(machine, { only: 'codex', unattended: false, check: false }, ['y'], PRETTY);
-    // Moved to the pin; the new program is then asked whether it is signed in (here it is not, and nothing is typed).
+    // Moved to the pin, on its own yes; named on the command line, the new program's sign-in then runs without asking again.
     expect(await codex.done).toBe(1);
-    expect(codex.lines.slice(2, 11)).toEqual([
+    expect(codex.lines.slice(2, 12)).toEqual([
       '1  Codex',
       '   Installed: Codex 0.180.0 (in ~/.kestrel/agents). This Kestrel runs Codex 0.172.0.',
       // Moving down is said before the yes: what the newer one wrote may not open in the older.
       "   0.172.0 is older than the 0.180.0 installed: Codex's own data, written by 0.180.0, may not open",
       '   in 0.172.0.',
-      '   Install Codex 0.172.0 into ~/.kestrel/agents with npm? The node uses that one from then on. [y/N] y',
+      '   Install Codex 0.172.0 into ~/.kestrel/agents with npm? The node uses that one from then on. [y/N]',
+      '   > y',
       '   It installs 0.172.0, the version Kestrel was tried with; the newest is 0.180.0. Upgrading the',
       '   node (kestrel upgrade) brings newer pins.',
       '',
       '   Installing Codex 0.172.0 (npm install --prefix ~/.kestrel/agents @openai/codex@0.172.0)…',
     ]);
-    expect(codex.calls).toEqual(['install codex 0.172.0']);
+    expect(codex.calls).toEqual(['install codex 0.172.0', 'sign in codex']);
     const opencode = play(machine, { only: 'opencode', unattended: true, check: false }, [], PLAIN);
     await opencode.done;
     expect(opencode.lines).toContain('   It installs 1.14.25, the version of the OpenCode SDK this Kestrel is built with; the newest is');
@@ -391,15 +390,13 @@ describe('kestrel node agents with --yes, or with no terminal', () => {
       '   Not signed in.',
       '   To sign in, run kestrel node agents opencode in a terminal (it runs `opencode auth login` there).',
       '',
-      '4  Command sandbox',
-      '   bubblewrap and socat are not installed. An administrator installs them with:',
+      '4  Command sandbox (optional)',
+      '   bubblewrap and socat are not installed. Without them every command of a confined Claude session',
+      '   asks first.',
+      '   "kestrel node configure" installs them with sudo and restarts the node. Or an administrator runs',
+      '   this, and then you restart the node (kestrel node stop && kestrel node start):',
       '',
       '       sudo apt-get install -y bubblewrap socat',
-      '',
-      '   Without them every command of a confined Claude session asks first.',
-      '   After installing them, restart the node:',
-      '',
-      '       kestrel node stop && kestrel node start',
       '',
       'What Worker node 1 tells your other devices',
       '',
@@ -412,6 +409,47 @@ describe('kestrel node agents with --yes, or with no terminal', () => {
       '! Next: kestrel node status',
     ]);
     expect(r.rechecks).toEqual([['codex', 'opencode']]);
+  });
+});
+
+describe('which agents: one choice, every agent optional', () => {
+  test('Enter or all is every one offered; none or n is none; names pick those; anything else is asked again', () => {
+    const offered = ['codex', 'opencode'] as const;
+    for (const all of ['', 'all', ' ALL ']) expect(agentsPicked(all, offered)).toEqual(['codex', 'opencode']);
+    for (const none of ['none', 'n', 'no']) expect(agentsPicked(none, offered)).toEqual([]);
+    expect(agentsPicked('opencode', offered)).toEqual(['opencode']);
+    expect(agentsPicked('opencode, codex', offered)).toEqual(['codex', 'opencode']);
+    expect(agentsPicked('claude', offered)).toBeNull();
+    expect(agentsPicked('maybe', offered)).toBeNull();
+    // With one offered, the question is a yes or no.
+    expect(agentsPicked('y', ['codex'])).toEqual(['codex']);
+  });
+
+  test('none: nothing is installed or signed in, and how to add one later is said', async () => {
+    const r = play(FRESH(), ALL, ['none'], PLAIN);
+    expect(await r.done).toBe(1);
+    expect(r.calls).toEqual([]);
+    expect(r.lines).toContain('None set up. To add one later: kestrel node agents');
+  });
+
+  test('a wrong answer is said, with what to type, and asked again', async () => {
+    const r = play(FRESH(), ALL, ['gemini', 'claude'], PLAIN);
+    await r.done;
+    expect(r.lines).toContain('Type agent names (claude, codex, opencode), all, or none.');
+    expect(r.calls).toEqual(['sign in claude']);
+  });
+
+  test('inside kestrel node configure the sandbox is left out: configure dealt with it already', async () => {
+    const r = play(FRESH(), { ...ALL, sandbox: false }, ['claude'], PLAIN);
+    await r.done;
+    expect(r.lines.join('\n')).not.toContain('Command sandbox');
+  });
+
+  test('one that can run is enough: the chosen ones ready ends ok, the others optional', async () => {
+    const machine = { ...FRESH(), sandbox: { missing: [], install: null, nodeHasIt: true } };
+    const r = play(machine, ALL, ['claude'], PLAIN);
+    expect(await r.done).toBe(0);
+    expect(r.lines).toContain('ok: Agents on Worker node 1: 1 of 3 can run.');
   });
 });
 

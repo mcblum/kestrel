@@ -40,6 +40,7 @@ import {
 } from '../shared/node-git-tools.ts';
 import { identityProblem, isHostName, NODE_GIT_COMMAND, type HostCheck, type NodeGitSettings, type SigningAt, type ToolState } from '../shared/node-git.ts';
 import { saidYes, type ChecklistIo } from './agents-checklist.ts';
+import { confirm, type AskHint } from './worker-onboarding/ask.ts';
 import type { GitPrograms } from './git-programs.ts';
 
 export interface GitOptions {
@@ -75,6 +76,44 @@ const WAIT_FOR_MS = 60_000;
 
 const tilde = (path: string, home: string): string => (home && path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path);
 const shellWord = (word: string): string => (/^[\w@%+=:,./~-]+$/.test(word) ? word : `"${word.replaceAll('"', '\\"')}"`);
+/**
+ * The hosts an answer picks from the numbered list `all`: Enter, a, all, both or yes is every one; s, skip, n, no or
+ * none is none; numbers (1 2, or 1,2) or the hosts' own names pick those. Null when the answer is none of these.
+ */
+export function hostsPicked(answer: string, all: readonly string[]): string[] | null {
+  const typed = answer.trim().toLowerCase();
+  if (/^(|a|all|both|y|yes)$/.test(typed)) return [...all];
+  if (/^(s|skip|n|no|none)$/.test(typed)) return [];
+  const picked = new Set<string>();
+  for (const word of typed.split(/[\s,]+/).filter(Boolean)) {
+    const host = /^\d+$/.test(word) ? all[Number(word) - 1] : all.find((h) => h === word);
+    if (!host) return null;
+    picked.add(host);
+  }
+  return all.filter((h) => picked.has(h));
+}
+
+/** The account's projects are not known yet: check again, wait for them, or carry on. */
+const UNTIL_KNOWN: AskHint = {
+  kind: 'choose',
+  choices: [
+    { answer: '', label: 'Check again' },
+    { answer: 'w', label: 'Wait for it', note: 'up to a minute', shortcut: 'w' },
+    { answer: 'c', label: 'Carry on without them', shortcut: 'c' },
+  ],
+  initial: '',
+};
+
+/** The key pasted at a site by hand: check again, or skip. */
+const BY_HAND: AskHint = {
+  kind: 'choose',
+  choices: [
+    { answer: '', label: 'Check again', note: 'once the key is added' },
+    { answer: 's', label: 'Skip', shortcut: 's' },
+  ],
+  initial: '',
+};
+
 /** Enter is yes: for what is offered as the way to go ([Y/n]). */
 const yesByDefault = (answer: string | null): boolean => answer !== null && (answer.trim() === '' || saidYes(answer));
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
@@ -117,8 +156,8 @@ class GitChecklist {
     this.io.say({ event: 'say', step, ...line });
   }
 
-  private async agreed(step: JoinStep, prompt: string, byDefault: boolean): Promise<boolean> {
-    const answer = await this.io.ask(step, `${prompt} ${byDefault ? '[Y/n]' : '[y/N]'} `);
+  private async agreed(step: JoinStep, prompt: string, byDefault: boolean, hint: AskHint = confirm(byDefault)): Promise<boolean> {
+    const answer = await this.io.ask(step, `${prompt} ${byDefault ? '[Y/n]' : '[y/N]'} `, hint);
     return byDefault ? yesByDefault(answer) : saidYes(answer);
   }
 
@@ -139,7 +178,7 @@ class GitChecklist {
     const { paths } = this.deps.programs;
     this.say(KEY, { kind: 'heading', text: "This node's key" });
     const there = this.deps.programs.publicKey() !== null;
-    if (!there && !this.options.unattended && !(await this.agreed(KEY, "Make an SSH key for Kestrel's git on this node? It is used only by Kestrel here and never leaves this node.", true))) {
+    if (!there && !this.options.unattended && !(await this.agreed(KEY, "Make an SSH key for Kestrel's git on this node? It is used only by Kestrel here and never leaves this node.", true, confirm(true, { yes: 'Make a key', no: 'Not now' })))) {
       this.say(KEY, { kind: 'line', text: `No key. Without one Kestrel's git on this node cannot reach your git hosts. To make it later: ${NODE_GIT_COMMAND}` });
       return false;
     }
@@ -158,7 +197,7 @@ class GitChecklist {
     for (let i = 0; i < TRIES && (!now || now.accountUnknown); i++) {
       this.say(HOSTS, { kind: 'line', text: now ? now.accountUnknown! : `The node is not running, so it cannot say which hosts your account's projects use. Start it (kestrel node start).` });
       if (this.options.unattended) return now;
-      const answer = await this.io.ask(HOSTS, 'Press Enter to check again, type w to wait for it (up to a minute), or c to carry on without them: ');
+      const answer = await this.io.ask(HOSTS, 'Press Enter to check again, type w to wait for it (up to a minute), or c to carry on without them: ', UNTIL_KNOWN);
       if (answer === null || /^\s*c/i.test(answer)) return now;
       if (/^\s*w/i.test(answer)) {
         this.say(HOSTS, { kind: 'wait', text: "Waiting for the node to read your account's projects…" });
@@ -173,7 +212,7 @@ class GitChecklist {
 
   /** 2: the GitHub and GitLab hosts, each ticked when the account's projects use it; one question for all of them. */
   async hosts(given: NodeGitFacts | null): Promise<{ facts: NodeGitFacts | null; hosts: Hosts }> {
-    this.say(HOSTS, { kind: 'heading', text: 'Your git hosts' });
+    this.say(HOSTS, { kind: 'heading', text: 'Where your repositories are' });
     const facts = await this.untilKnown(given);
     const known = Boolean(facts && !facts.accountUnknown);
     const fromAccount = facts ? hostsOfRepositories(facts.repositories) : [];
@@ -185,24 +224,58 @@ class GitChecklist {
       if (all.length > 0) this.say(HOSTS, { kind: 'line', text: `By hand (--manual): ${all.join(', ')}.` });
       return { facts, hosts: { all, ticked: [], known } };
     }
-    if (all.length > 0) {
-      this.say(HOSTS, { kind: 'line', text: known ? "Your account's projects use these. Kestrel can set each up with its own tool: install it, sign it in, add this node's key there and read your address." : 'Kestrel can set each up with its own tool: install it, sign it in, add this node\'s key there and read your address.' });
-      for (const host of all) this.say(HOSTS, { kind: 'line', text: `[x] ${host}: ${hostKindOf(host) === 'github' ? 'GitHub' : 'GitLab'}, with ${toolForHost(host)}` });
+    if (this.options.unattended) {
+      if (all.length > 0) this.say(HOSTS, { kind: 'line', text: `${known ? "Your account's projects use" : 'Hosts'}: ${all.map((h) => `${h} (${hostKindOf(h) === 'github' ? 'GitHub' : 'GitLab'}, with ${toolForHost(h)})`).join(', ')}.` });
+      return { facts, hosts: { all, ticked: all, known } };
     }
-    if (this.options.unattended) return { facts, hosts: { all, ticked: all, known } };
-    const prompt = all.length > 0 ? 'Set them up with their tools? Enter for all, n for none, or type the hosts to set up: ' : 'Type the hosts to set up (like github.com), or press Enter to go on: ';
+    const ticked = all.length > 0 ? await this.pickHosts(all) : await this.typedHosts();
+    return { facts, hosts: { all: [...new Set([...all, ...ticked])].sort(), ticked, known } };
+  }
+
+  /**
+   * Which of the hosts found this node should reach repositories on: a numbered choice per host, all of them, or
+   * skip, the default shown. Choosing one starts its guided sign-in and then offers, as a question of its own, to add
+   * this node's public key there; nothing changes at a host before that yes.
+   */
+  private async pickHosts(all: readonly string[]): Promise<string[]> {
+    this.say(HOSTS, { kind: 'line', text: "Which sites should this node use to reach your repositories? Choosing one signs in to it here with its own tool, then offers to add this node's public key there." });
+    // A short list of choices, a key each: a line apiece, so a key sits beside its choice and not in a field's wide column.
+    const kind = (host: string) => `${hostKindOf(host) === 'github' ? 'GitHub' : 'GitLab'}, with ${toolForHost(host)}`;
+    if (!this.io.drawsChoices) {
+      all.forEach((host, i) => this.say(HOSTS, { kind: 'line', text: `${i + 1}) ${host} (${kind(host)})` }));
+      if (all.length > 1) this.say(HOSTS, { kind: 'line', text: `a) ${all.length === 2 ? 'Both' : 'All of them'}` });
+      this.say(HOSTS, { kind: 'line', text: 's) Skip (add the key by hand later)' });
+    }
+    const fallback = all.length > 1 ? 'a' : '1';
+    const hint: AskHint = {
+      kind: 'pick',
+      label: 'Which sites should this node use?',
+      choices: all.map((host, i) => ({ answer: String(i + 1), label: host, note: kind(host) })),
+      initial: all.map((_, i) => String(i + 1)),
+      answer: (chosen) => (chosen.length === 0 ? 's' : chosen.join(' ')),
+    };
     for (let i = 0; i < TRIES; i++) {
-      const answer = await this.io.ask(HOSTS, prompt);
-      if (answer === null) return { facts, hosts: { all, ticked: [], known } };
-      const typed = answer.trim().toLowerCase();
-      if (typed === '') return { facts, hosts: { all, ticked: all, known } };
-      if (/^no?$/.test(typed)) return { facts, hosts: { all, ticked: [], known } };
-      const words = typed.split(/[\s,]+/).filter(Boolean);
-      const wrong = words.filter((w) => !isHostName(w) || !w.includes('.'));
-      if (wrong.length === 0) return { facts, hosts: { all: [...new Set([...all, ...words])].sort(), ticked: [...new Set(words)].sort(), known } };
-      this.say(HOSTS, { kind: 'line', text: `Not a host name: ${wrong.join(', ')}. A host is like github.com.` });
+      const answer = await this.io.ask(HOSTS, `Choose${all.length > 1 ? ` (1-${all.length}, a or s)` : ' (1 or s)'} [${fallback}]: `, hint);
+      if (answer === null) return [];
+      const picked = hostsPicked(answer, all);
+      if (picked) return picked;
+      this.say(HOSTS, { kind: 'line', text: `Type ${all.length > 1 ? `a number from 1 to ${all.length}, several (like 1 2), a for ${all.length === 2 ? 'both' : 'all'},` : '1'} or s to skip.` });
     }
-    return { facts, hosts: { all, ticked: [], known } };
+    return [];
+  }
+
+  /** No host found in the account's projects: one may be typed, or none. */
+  private async typedHosts(): Promise<string[]> {
+    for (let i = 0; i < TRIES; i++) {
+      const answer = await this.io.ask(HOSTS, 'Type a site to set up (like github.com), or press Enter to skip: ', { kind: 'text', label: 'Type a site to set up, or leave it empty to skip', placeholder: 'github.com', maxLength: 253 });
+      if (answer === null) return [];
+      const words = answer.trim().toLowerCase().split(/[\s,]+/).filter(Boolean);
+      if (words.length === 0 || (words.length === 1 && /^(s|skip|n|no|none)$/.test(words[0]!))) return [];
+      const wrong = words.filter((w) => !isHostName(w) || !w.includes('.'));
+      if (wrong.length === 0) return [...new Set(words)].sort();
+      this.say(HOSTS, { kind: 'line', text: `Not a site: ${wrong.join(', ')}. A site is like github.com.` });
+    }
+    return [];
   }
 
   /** 3: signing first (asked once, yes offered when a computer of the account signs), then the commit name, asked once. */
@@ -213,7 +286,8 @@ class GitChecklist {
     else {
       if (signers.length > 0) this.say(CHOICES, { kind: 'line', text: `${signers.join(', ')} ${plural(signers.length, 'signs its', 'sign their')} commits. A key never comes here from another computer, so commits made here are signed with this node's own key, or not at all.` });
       if (!this.options.unattended) {
-        const sign = await this.agreed(CHOICES, `Sign commits made on ${this.name} with this node's key?`, signers.length > 0 || this.settings.signing === 'node-key');
+        const byDefault = signers.length > 0 || this.settings.signing === 'node-key';
+        const sign = await this.agreed(CHOICES, `Sign commits made on ${this.name} with this node's key?`, byDefault, confirm(byDefault, { yes: "Sign with this node's key", no: 'Do not sign' }));
         this.settings = { ...this.settings, signing: sign ? 'node-key' : 'off' };
       } else if (this.settings.signing === null && signers.length > 0) this.say(CHOICES, { kind: 'line', text: `Signing is not chosen. Run ${NODE_GIT_COMMAND} at a terminal to choose.` });
     }
@@ -238,7 +312,7 @@ class GitChecklist {
   /** Asks for one value, offering `given`; a valid answer, `given` on Enter, or null after three tries or a closed terminal. */
   private async value(step: JoinStep, label: string, what: 'name' | 'email', given: string | null): Promise<string | null> {
     for (let i = 0; i < TRIES; i++) {
-      const answer = await this.io.ask(step, `${label}${given ? ` [${given}]` : ''}: `);
+      const answer = await this.io.ask(step, `${label}${given ? ` [${given}]` : ''}: `, { kind: 'text', label, ...(given ? { initial: given } : {}), placeholder: what === 'name' ? 'Your Name' : 'you@example.com', maxLength: 254 });
       if (answer === null) return given;
       const value = answer.trim() || given || '';
       const problem = identityProblem(value, what);
@@ -254,7 +328,7 @@ class GitChecklist {
     if (!state.installed) {
       const pin = this.deps.pins[tool].version;
       const folder = this.shown(this.deps.programs.toolsFolder);
-      const yes = this.options.unattended || (await this.agreed(AT_HOSTS, `Install ${TOOL_LABEL[tool]} ${pin} into ${folder}, for Kestrel only?`, true));
+      const yes = this.options.unattended || (await this.agreed(AT_HOSTS, `Install ${TOOL_LABEL[tool]} ${pin} into ${folder}, for Kestrel only?`, true, confirm(true, { yes: 'Install', no: 'Not now' })));
       if (!yes) {
         this.say(AT_HOSTS, { kind: 'line', text: `${tool} is not installed. ${withoutTool(tool, hosts.join(', '))}` });
       } else {
@@ -288,7 +362,14 @@ class GitChecklist {
       this.say(AT_HOSTS, { kind: 'code', code: signInCommand(tool, host, this.signs()) });
       return false;
     }
-    if (!(await this.agreed(AT_HOSTS, `Sign ${tool} in to ${host} now?`, true))) return false;
+    const signIn = {
+      label: 'Sign in at the site',
+      action: `Run ${tool}'s own sign-in for ${host} in this terminal. Kestrel reads no token.`,
+      destination: host,
+      reason: signInWhy(tool, host, this.signs()),
+      commands: [signInCommand(tool, host, this.signs())],
+    };
+    if (!(await this.agreed(AT_HOSTS, `Sign ${tool} in to ${host} now?`, true, confirm(true, { yes: 'Sign in now', no: 'Not now', trust: signIn })))) return false;
     await this.deps.programs.signIn(tool, host, this.signs());
     this.io.ran();
     const state = await this.deps.programs.tool(tool, [host]);
@@ -372,9 +453,15 @@ class GitChecklist {
     if ('none' in choice) return (this.say(AT_HOSTS, { kind: 'line', text: `${host} listed no verified address.` }), null);
     if ('email' in choice) return (this.say(AT_HOSTS, { kind: 'done', text: `Commit email at ${host}: ${choice.email} (verified there)` }), choice.email);
     this.say(AT_HOSTS, { kind: 'line', text: `${host} has verified ${choice.ask.length} addresses:` });
-    choice.ask.forEach((e, i) => this.say(AT_HOSTS, { kind: 'line', text: `${i + 1}. ${e.email}${e.preferred ? (tool === 'gh' ? ' (primary)' : ' (commit email)') : ''}` }));
+    const preferred = (e: HostEmail) => (e.preferred ? (tool === 'gh' ? 'primary' : 'commit email') : '');
+    if (!this.io.drawsChoices) choice.ask.forEach((e, i) => this.say(AT_HOSTS, { kind: 'line', text: `${i + 1}. ${e.email}${preferred(e) ? ` (${preferred(e)})` : ''}` }));
+    const hint: AskHint = {
+      kind: 'choose',
+      choices: choice.ask.map((e, i) => ({ answer: String(i + 1), label: e.email, ...(preferred(e) ? { note: preferred(e) } : {}) })),
+      initial: String(Math.max(1, choice.ask.findIndex((e) => e.email === choice.offer) + 1)),
+    };
     for (let i = 0; i < TRIES; i++) {
-      const answer = (await this.io.ask(AT_HOSTS, `Which do you commit with at ${host}? [${choice.offer}] `))?.trim() ?? '';
+      const answer = (await this.io.ask(AT_HOSTS, `Which do you commit with at ${host}? [${choice.offer}] `, hint))?.trim() ?? '';
       const picked = answer === '' ? choice.offer : /^\d+$/.test(answer) ? choice.ask[Number(answer) - 1]?.email : choice.ask.find((e) => e.email.toLowerCase() === answer.toLowerCase())?.email;
       if (picked) return (this.say(AT_HOSTS, { kind: 'done', text: `Commit email at ${host}: ${picked}` }), picked);
       this.say(AT_HOSTS, { kind: 'line', text: `Type a number from 1 to ${choice.ask.length}, or one of the addresses.` });
@@ -404,8 +491,16 @@ class GitChecklist {
     const publicKey = this.deps.programs.publicKey();
     if (!publicKey) return null;
     this.say(AT_HOSTS, { kind: 'line', text: `At ${host}, Kestrel would run:` });
-    for (const line of this.plan(tool, host)) this.say(AT_HOSTS, { kind: 'code', code: line });
-    if (!(await this.agreed(AT_HOSTS, `Run these at ${host}?`, false))) return null;
+    const plan = this.plan(tool, host);
+    for (const line of plan) this.say(AT_HOSTS, { kind: 'code', code: line });
+    const register = {
+      label: "Register this node's key",
+      action: "Add this node's public key once, read your verified addresses, and test the key with ssh.",
+      destination: host,
+      reason: "So Kestrel's git on this node can reach your repositories there. Nothing changes at the site before this yes.",
+      commands: plan,
+    };
+    if (!(await this.agreed(AT_HOSTS, `Run these at ${host}?`, false, confirm(false, { yes: 'Run them', no: 'Not now', trust: register })))) return null;
     const key = await this.keyThere(tool, host, publicKey);
     // Registered for signing only where the key itself is there: otherwise both are left to the still-to-do list.
     const signing = this.signs() && tool === 'gh' && key.there ? await this.githubSigning(host, publicKey) : key.signing;
@@ -431,7 +526,7 @@ class GitChecklist {
       this.say(AT_HOSTS, { kind: 'line', text: wherePasteKey(host, hostKindOf(host)) });
       this.say(AT_HOSTS, { kind: 'code', code: this.deps.programs.publicKey() ?? '' });
       if (!this.options.unattended) {
-        const answer = await this.io.ask(AT_HOSTS, 'Press Enter once it is added to check again, or type s to skip: ');
+        const answer = await this.io.ask(AT_HOSTS, 'Press Enter once it is added to check again, or type s to skip: ', BY_HAND);
         if (answer !== null && !/^\s*s/i.test(answer)) found = await this.test(host);
       }
     }

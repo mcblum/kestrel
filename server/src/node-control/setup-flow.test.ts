@@ -1,19 +1,34 @@
 import { describe, expect, test } from 'vitest';
 import type { NodeJoinEvent } from '../shared/node-commands.ts';
-import type { SandboxHere } from '../shared/node-configure.ts';
+import type { AdminRunner, SandboxHere } from '../shared/node-configure.ts';
 import { statusFor } from '../shared/node-status-fixture.ts';
 import type { NodeStatus } from '../shared/node-status.ts';
 import { drawJoin } from './join-draw.ts';
 import { PLAIN_JOIN_STYLE, STOPPED_EXIT } from './join-client.ts';
-import { runSetup, type SetupDeps } from './setup-flow.ts';
+import { answerOf, runSetup, type AdminRun, type SetupDeps } from './setup-flow.ts';
 
 type Status = Parameters<typeof statusFor>[0];
 
-/**
- * A node whose facts change as the steps run: `effects` says what each step changes when it runs, and `admin` what
- * the administrator has done by the time Enter is pressed (one entry per press).
- */
-function machine(start: Status | null, { effects = {}, admin = [], here = { missing: [], install: 'sudo apt-get install -y bubblewrap socat' }, codes = {} }: { effects?: Partial<Record<'join' | 'agents' | 'git' | 'restart', Status>>; admin?: (Status & { here?: SandboxHere })[]; here?: SandboxHere; codes?: Partial<Record<'join' | 'agents' | 'git', number>> } = {}) {
+const APT = 'sudo apt-get install -y bubblewrap socat';
+const MISSING: SandboxHere = { missing: ['bubblewrap', 'socat'], install: APT };
+const PRESENT: SandboxHere = { missing: [], install: APT };
+
+interface MachineOptions {
+  /** What each step changes when it runs. */
+  effects?: Partial<Record<'join' | 'agents' | 'git' | 'restart', Status>>;
+  /** What an administrator has done by the time Enter is pressed at "check again", one entry per press. */
+  admin?: (Status & { here?: SandboxHere })[];
+  here?: SandboxHere;
+  codes?: Partial<Record<'join' | 'agents' | 'git', number>>;
+  runner?: AdminRunner;
+  /** Whether sudo accepts the password. */
+  sudoAccepts?: boolean;
+  /** Administrator's commands that fail, by their first word after sudo. */
+  fails?: string[];
+}
+
+/** A node whose facts change as the steps run, and a log of everything run on it, in order. */
+function machine(start: Status | null, { effects = {}, admin = [], here = PRESENT, codes = {}, runner = 'sudo', sudoAccepts = true, fails = [] }: MachineOptions = {}) {
   let facts: Status | null = start;
   let sandbox = here;
   let presses = 0;
@@ -23,8 +38,8 @@ function machine(start: Status | null, { effects = {}, admin = [], here = { miss
     sandboxHere: () => sandbox,
     waitForNode: async () => facts !== null,
     notRunning: async () => 'Service: installed (kestrel-node.service), not running. Start it with "kestrel node start".',
-    run: async (command) => {
-      ran.push(command);
+    run: async (command, section) => {
+      ran.push(`${command} in ${section}`);
       if (effects[command]) facts = { ...facts, ...effects[command] };
       return codes[command] ?? 0;
     },
@@ -33,15 +48,23 @@ function machine(start: Status | null, { effects = {}, admin = [], here = { miss
       if (effects.restart) facts = { ...facts, ...effects.restart };
       return { ok: true, line: 'Restarted kestrel-node.service.' };
     },
+    adminRunner: () => runner,
+    sudoValidate: async () => (ran.push('sudo -v'), sudoAccepts),
+    runAdmin: async (argv): Promise<AdminRun> => {
+      ran.push(argv.join(' '));
+      const program = argv[0] === 'sudo' ? argv[1]! : argv[0]!;
+      if (fails.includes(program)) return { ok: false, reason: 'it ended with exit code 100.', output: ['E: Unable to locate package bubblewrap'] };
+      if (program === 'loginctl') facts = { ...facts, lingering: 'on' };
+      else sandbox = PRESENT;
+      return { ok: true, reason: '', output: [] };
+    },
   };
-  /** Pressing Enter at an administrator's step: what they have done by now. */
   const checked = () => {
     const next = admin[presses++];
-    if (next) {
-      const { here: nowHere, ...rest } = next;
-      facts = { ...facts, ...rest };
-      if (nowHere) sandbox = nowHere;
-    }
+    if (!next) return;
+    const { here: nowHere, ...rest } = next;
+    facts = { ...facts, ...rest };
+    if (nowHere) sandbox = nowHere;
   };
   return { deps, ran, checked };
 }
@@ -50,73 +73,140 @@ function machine(start: Status | null, { effects = {}, admin = [], here = { miss
 async function play(m: ReturnType<typeof machine>, answers: (string | null)[], interactive = true) {
   const events: NodeJoinEvent[] = [];
   const typed: string[] = [];
+  const prompts: string[] = [];
   let at = 0;
   const code = await runSetup(m.deps, {
     say: (event) => events.push(event),
     ask: async (step, prompt) => {
       events.push({ event: 'ask', step, prompt });
+      prompts.push(prompt);
       const answer = at < answers.length ? answers[at++]! : null;
       typed.push(answer ?? '');
       if (prompt.includes('check again')) m.checked();
       return answer;
     },
   }, { interactive });
-  return { code, lines: drawJoin(events, PLAIN_JOIN_STYLE, typed), text: drawJoin(events, PLAIN_JOIN_STYLE, typed).join('\n') };
+  const lines = drawJoin(events, PLAIN_JOIN_STYLE, typed);
+  return { code, lines, text: lines.join('\n'), flat: lines.join(' ').replace(/\s+/g, ' '), prompts };
 }
 
 const FRESH: Status = { inAccount: false, canRun: [], keyIsThere: false, lingering: 'off', sandbox: false };
+const SET_UP: Partial<Record<'join' | 'agents' | 'git' | 'restart', Status>> = { join: { inAccount: true }, agents: { canRun: ['claude'] }, git: { keyIsThere: true }, restart: { sandbox: true } };
 
-describe('kestrel node configure', () => {
-  test('a fresh node: each step in order, the admin steps shown to paste and checked again, then set up', async () => {
-    const m = machine(FRESH, {
-      here: { missing: ['bubblewrap', 'socat'], install: 'sudo apt-get install -y bubblewrap socat' },
-      effects: { join: { inAccount: true }, agents: { canRun: ['claude', 'codex', 'opencode'] }, git: { keyIsThere: true }, restart: { sandbox: true } },
-      // First Enter at lingering: not yet; the second: done. At the sandbox: installed, then a restart.
-      admin: [{}, { lingering: 'on' }, { here: { missing: [], install: 'sudo apt-get install -y bubblewrap socat' } }],
-    });
-    const { code, lines, text } = await play(m, ['', '', '', '', '', '', '']);
+describe('kestrel node configure: what needs an administrator comes first, offered once', () => {
+  test('a fresh node: found and explained, one yes, sudo checks the password, both run and the node restarts before the account', async () => {
+    const m = machine(FRESH, { here: MISSING, effects: SET_UP });
+    const { code, lines, text, flat, prompts } = await play(m, ['', '', '']);
     expect(code).toBe(0);
-    expect(m.ran).toEqual(['join', 'agents', 'git', 'restart']);
-    expect(lines.slice(0, 5)).toEqual([
-      'Kestrel worker node: set up Worker node 1',
-      '',
-      '- Join your account: Not in your account yet: sign in and ask to join it.',
-      '- Agents: 0 of 3 agents can run. Claude Code, Codex and OpenCode cannot yet.',
-      '- Git: This node has no git key of its own yet.',
-    ]);
-    expect(text).toMatch(/^- Keep running with nobody logged in: Lingering is off\./m);
-    expect(text).toMatch(/^- Command sandbox: bubblewrap and socat are not installed\./m);
-    expect(text).toContain('1  Join your account');
-    expect(text).toContain('   Press Enter to start (kestrel node join), or s to skip: ');
-    // The administrator's command stands on a line of its own, to paste; Kestrel never runs it.
-    expect(text).toContain('       sudo loginctl enable-linger nodeuser');
-    expect(text).toContain('       sudo apt-get install -y bubblewrap socat');
-    expect(text).toContain('   Not yet: Lingering is off.');
-    expect(text).toContain('   ok: Lingering is on.');
-    expect(text).toContain('   Restart the node now? Its sessions’ turns are ended cleanly first. [Y/n] '.replace('’', "'"));
+    // Everything an administrator does happens before the slow steps, in one go after the one yes.
+    expect(m.ran).toEqual(['sudo -v', 'sudo loginctl enable-linger nodeuser', 'sudo apt-get install -y bubblewrap socat', 'restart', 'join in 2', 'agents in 3', 'git in 4']);
+    expect(prompts[0]).toBe('Run them now? sudo asks for your password if it needs it. [Y/n] ');
+    expect(lines.slice(0, 4)).toEqual(['Kestrel worker node: set up Worker node 1', '', '1  System', '   Lingering is off. Without it the node stops when your last login session ends']);
+    expect(flat).toContain('Without them every command of a confined Claude session asks first.');
+    expect(text).toContain('   Kestrel can run these now:\n\n       sudo loginctl enable-linger nodeuser\n       sudo apt-get install -y bubblewrap socat\n');
+    expect(flat).toContain('Then it restarts the node so it uses the sandbox.');
+    expect(text).toContain('   ok: Lingering is on.\n   ok: bubblewrap and socat are in use.');
+    expect(text).toContain('2  Account\n   Not in your account yet: sign in and ask to join it.\n   Sign in and join now? [Y/n] ');
+    expect(text).toContain('3  Agents');
+    expect(text).toContain('4  Git');
     expect(lines.at(-1)).toBe('Next: kestrel node status');
     expect(text).toContain('ok: Worker node 1 is set up.');
+    // One summary at most: no list of every step before the work starts.
+    expect(text).not.toMatch(/^- /m);
   });
 
-  test('a step can be skipped; the others still run, and the end names what is left and the command', async () => {
-    const m = machine({ ...FRESH, lingering: 'on', sandbox: true }, { effects: { join: { inAccount: true }, git: { keyIsThere: true } } });
-    const { code, text, lines } = await play(m, ['', 's', '']);
+  test('as root: the commands run without sudo, and no password is asked for', async () => {
+    const m = machine({ ...FRESH, inAccount: true, canRun: ['claude'], keyIsThere: true }, { here: MISSING, runner: 'root', effects: SET_UP });
+    const { text, prompts } = await play(m, ['']);
+    expect(m.ran).toEqual(['loginctl enable-linger nodeuser', 'apt-get install -y bubblewrap socat', 'restart']);
+    expect(prompts[0]).toBe('Run them now? [Y/n] ');
+    expect(text).toContain('       loginctl enable-linger nodeuser\n');
+  });
+
+  test('sudo refusing the password changes nothing, says so, and the account steps still run', async () => {
+    const m = machine(FRESH, { here: MISSING, sudoAccepts: false, effects: SET_UP });
+    const { code, text, flat } = await play(m, ['', '', '']);
     expect(code).toBe(1);
-    expect(m.ran).toEqual(['join', 'git']);
-    expect(text).toContain('   Skipped. "kestrel node agents" does it later.');
-    expect(text).toContain('Left: Agents (kestrel node agents).');
-    expect(text).toContain('1 step left. Run "kestrel node configure" again to pick up where you left off.');
-    expect(lines.at(-1)).toBe('Next: kestrel node configure');
+    expect(m.ran).toEqual(['sudo -v', 'join in 2', 'agents in 3', 'git in 4']);
+    expect(flat).toContain('sudo did not accept, so nothing was changed. "kestrel node configure" offers this again.');
+    expect(text).toContain('Left to do\n\n   Lingering        sudo loginctl enable-linger nodeuser\n   Command sandbox  sudo apt-get install -y bubblewrap socat');
   });
 
-  test('run again, it offers only what the node says is left: a node in the account starts at the agents', async () => {
-    const m = machine({ ...FRESH, inAccount: true, lingering: 'on', sandbox: true }, { effects: { agents: { canRun: ['claude', 'codex', 'opencode'] }, git: { keyIsThere: true } } });
-    const { code, text } = await play(m, ['', '']);
+  test('a command that fails: its reason and last lines; the others still run, and no restart without the programs', async () => {
+    const m = machine({ ...FRESH, inAccount: true, canRun: ['claude'], keyIsThere: true }, { here: MISSING, fails: ['apt-get'], effects: SET_UP });
+    const { code, text, flat } = await play(m, ['']);
+    expect(code).toBe(1);
+    expect(m.ran).toEqual(['sudo -v', 'sudo loginctl enable-linger nodeuser', 'sudo apt-get install -y bubblewrap socat']);
+    expect(flat).toContain('sudo apt-get install -y bubblewrap socat did not finish: it ended with exit code 100. The last lines it printed:');
+    expect(text).toContain('E: Unable to locate package bubblewrap');
+    expect(text).toContain('ok: Lingering is on.');
+    expect(text).toContain('   Command sandbox  sudo apt-get install -y bubblewrap socat');
+  });
+
+  test('no sudo: the commands are shown for an administrator, checked again on Enter, then the restart is offered', async () => {
+    const m = machine({ ...FRESH, inAccount: true, canRun: ['claude'], keyIsThere: true }, { here: MISSING, runner: 'none', effects: SET_UP, admin: [{}, { lingering: 'on', here: PRESENT }] });
+    const { code, text, flat } = await play(m, ['', '', '']);
     expect(code).toBe(0);
-    expect(m.ran).toEqual(['agents', 'git']);
-    expect(text).toContain('ok: Join your account');
-    expect(text).not.toContain('1  Join your account');
-    expect(text).toContain('2  Agents');
+    expect(m.ran).toEqual(['restart']);
+    expect(flat).toContain('sudo is not installed here, so Kestrel cannot run these. Ask an administrator to run them as root:');
+    expect(text).toContain('   Not yet.');
+    expect(flat).toContain('Restart the node now so it uses them?');
+  });
+
+  test('no sudo, skipped: what is left is listed as root types it, with no sudo in front', async () => {
+    const m = machine({ ...FRESH, inAccount: true, canRun: ['claude'], keyIsThere: true }, { here: MISSING, runner: 'none' });
+    const { code, text } = await play(m, ['n']);
+    expect(code).toBe(1);
+    expect(m.ran).toEqual([]);
+    expect(text).toContain('Left to do\n\n   Lingering        loginctl enable-linger nodeuser\n   Command sandbox  apt-get install -y bubblewrap socat');
+  });
+
+  test('a package manager Kestrel does not know: the packages are named, lingering is still offered', async () => {
+    const m = machine({ ...FRESH, inAccount: true, canRun: ['claude'], keyIsThere: true }, { here: { missing: ['socat'], install: null } });
+    const { flat, prompts } = await play(m, ['']);
+    expect(m.ran).toEqual(['sudo -v', 'sudo loginctl enable-linger nodeuser']);
+    expect(flat).toContain("Kestrel does not know this system's package manager. Install bubblewrap and socat with it");
+    expect(prompts[0]).toBe('Run it now? sudo asks for your password if it needs it. [Y/n] ');
+    expect(flat).not.toContain('restarts the node');
+  });
+
+  test('only a restart left (installed after the node started): offered without sudo', async () => {
+    const m = machine({ inAccount: true, canRun: ['claude'], sandbox: false }, { effects: SET_UP });
+    const { code, text, prompts } = await play(m, ['']);
+    expect(code).toBe(0);
+    expect(m.ran).toEqual(['restart']);
+    expect(prompts).toEqual(['Restart the node now? [Y/n] ']);
+    expect(text).toContain('bubblewrap and socat are installed, but the node started before they were.');
+  });
+
+  test('skipped: nothing runs, the account steps go on, and the end lists the commands', async () => {
+    const m = machine(FRESH, { here: MISSING, effects: SET_UP });
+    const { code, text } = await play(m, ['n', '', '']);
+    expect(code).toBe(1);
+    expect(m.ran).toEqual(['join in 2', 'agents in 3', 'git in 4']);
+    expect(text).toContain('Skipped. "kestrel node configure" offers this again.');
+    expect(text).toContain('2 steps left. Run "kestrel node configure" again to finish.');
+  });
+});
+
+describe('kestrel node configure: the account, agents and git', () => {
+  test('run again, it offers only what is left: done already is one line, and a node in the account starts at the agents', async () => {
+    const m = machine({ ...FRESH, inAccount: true, lingering: 'on', sandbox: true }, { effects: SET_UP });
+    const { code, text } = await play(m, []);
+    expect(code).toBe(0);
+    expect(m.ran).toEqual(['agents in 3', 'git in 4']);
+    expect(text).toContain('ok: Already done: System, Account.');
+    expect(text).not.toContain('2  Account');
+  });
+
+  test('the account can be skipped; the others still run', async () => {
+    const m = machine({ ...FRESH, lingering: 'on', sandbox: true }, { effects: SET_UP });
+    const { code, text, lines } = await play(m, ['s']);
+    expect(code).toBe(1);
+    expect(m.ran).toEqual(['agents in 3', 'git in 4']);
+    expect(text).toContain('   Skipped. "kestrel node join" does it later.');
+    expect(text).toContain('Left to do\n\n   Account  kestrel node join');
+    expect(lines.at(-1)).toBe('Next: kestrel node configure');
   });
 
   test('a node all set up asks nothing', async () => {
@@ -127,36 +217,34 @@ describe('kestrel node configure', () => {
     expect(lines).toContain('ok: Worker node 1 is set up.');
   });
 
-  test('a step that does not finish is not offered again in the same run, and is listed as left', async () => {
-    const m = machine({ ...FRESH, lingering: 'on', sandbox: true, canRun: ['claude', 'codex', 'opencode'], keyIsThere: true });
-    const { code, text } = await play(m, ['', '']);
-    expect(code).toBe(1);
-    expect(m.ran).toEqual(['join']);
-    expect(text).toContain('   Not finished. "kestrel node join" picks it up again.');
-    expect(text).toContain('Left: Join your account (kestrel node join).');
-  });
-
   test('Ctrl-C in a step, or the keyboard closing, ends the setup there', async () => {
-    const stopped = machine({ ...FRESH }, { codes: { join: STOPPED_EXIT } });
-    const first = await play(stopped, ['', '']);
-    expect(first.code).toBe(STOPPED_EXIT);
-    expect(stopped.ran).toEqual(['join']);
-    const closed = machine({ ...FRESH });
-    const second = await play(closed, [null]);
-    expect(second.code).toBe(STOPPED_EXIT);
+    const stopped = machine({ ...FRESH, lingering: 'on', sandbox: true }, { codes: { join: STOPPED_EXIT } });
+    expect((await play(stopped, [''])).code).toBe(STOPPED_EXIT);
+    expect(stopped.ran).toEqual(['join in 2']);
+    const closed = machine({ ...FRESH }, { here: MISSING });
+    expect((await play(closed, [null])).code).toBe(STOPPED_EXIT);
     expect(closed.ran).toEqual([]);
   });
 
-  test('with no terminal it asks nothing: what is left, each with its command, and kestrel node configure next', async () => {
+  test('an answer that is not one is asked again, saying what to type', async () => {
+    const m = machine({ ...FRESH, lingering: 'on', sandbox: true }, { effects: SET_UP });
+    const { text } = await play(m, ['maybe', 'y']);
+    expect(text).toContain('Sign in and join now? [Y/n] maybe\n   Press Enter for yes, n to skip, or q to stop.');
+    expect(m.ran[0]).toBe('join in 2');
+  });
+});
+
+describe('kestrel node configure with no terminal', () => {
+  test('asks nothing and runs nothing: what is left, each with its command, and kestrel node configure next', async () => {
     const m = machine(FRESH, { here: { missing: ['socat'], install: 'sudo dnf install -y bubblewrap socat' } });
-    const { code, lines, text } = await play(m, [], false);
+    const { code, lines, text, prompts } = await play(m, [], false);
     expect(code).toBe(1);
     expect(m.ran).toEqual([]);
-    expect(text).not.toContain('Press Enter');
-    expect(text).toContain('       kestrel node join');
-    expect(text).toContain('       sudo loginctl enable-linger nodeuser');
-    expect(text).toContain('       sudo dnf install -y bubblewrap socat');
-    expect(text.replace(/\s*\n\s*/g, ' ')).toContain('Run "kestrel node configure" in a terminal on this node to do them one at a time.');
+    expect(prompts).toEqual([]);
+    expect(text).toContain('   Lingering        sudo loginctl enable-linger nodeuser');
+    expect(text).toContain('   Command sandbox  sudo dnf install -y bubblewrap socat');
+    expect(text).toContain('   Account          kestrel node join');
+    expect(text.replace(/\s*\n\s*/g, ' ')).toContain('Run "kestrel node configure" in a terminal on this node to do them.');
     expect(lines.at(-1)).toBe('Next: kestrel node configure');
   });
 
@@ -167,5 +255,15 @@ describe('kestrel node configure', () => {
     expect(m.ran).toEqual([]);
     expect(text).toContain('Waiting for the node to answer...');
     expect(text.replace(/\s*\n\s*/g, ' ')).toContain('Start it with "kestrel node start".');
+  });
+});
+
+describe('answerOf', () => {
+  test('Enter or y is yes, n or s is no, q or a closed keyboard is stop, anything else is asked again', () => {
+    for (const yes of ['', ' ', 'y', 'YES']) expect(answerOf(yes)).toBe('yes');
+    for (const no of ['n', 'no', 's', 'skip']) expect(answerOf(no)).toBe('no');
+    expect(answerOf('q')).toBe('stop');
+    expect(answerOf(null)).toBe('stop');
+    expect(answerOf('maybe')).toBeNull();
   });
 });

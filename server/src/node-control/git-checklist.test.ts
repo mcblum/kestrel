@@ -4,7 +4,7 @@ import { describe, expect, test } from 'vitest';
 import type { JoinStep, NodeGitFacts, NodeJoinEvent } from '../shared/node-commands.ts';
 import { EMPTY_GIT_SETTINGS, nodeGitPaths, type HostAnswer, type NodeGitSettings, type ToolState } from '../shared/node-git.ts';
 import { toolPinsOf, type GitTool, type KeyUse } from '../shared/node-git-tools.ts';
-import { runGitChecklist, type GitOptions } from './git-checklist.ts';
+import { hostsPicked, runGitChecklist, type GitOptions } from './git-checklist.ts';
 import type { ApiAnswer, GitPrograms } from './git-programs.ts';
 import { drawJoinEvent, JOIN_DRAW_START, type JoinStyle } from './join-draw.ts';
 
@@ -168,19 +168,22 @@ describe('kestrel node git, at a terminal: the default path', () => {
       'Kestrel worker node: git on Worker node 1',
       '',
       '1  This node\'s key',
-      '   Make an SSH key for Kestrel\'s git on this node? It is used only by Kestrel here and never leaves this node. [Y/n] ',
+      '   Make an SSH key for Kestrel\'s git on this node? It is used only by Kestrel here and never leaves this node. [Y/n]',
+      '   > ',
       '   ✓ Made a key: SHA256:nodekey',
       '   It is kept in ~/.kestrel/git (the private half readable only by you), used only by Kestrel\'s git here, and never',
       '   leaves this node. Its public half:',
       '',
       `       ${PUBLIC}`,
       '',
-      '2  Your git hosts',
-      '   Your account\'s projects use these. Kestrel can set each up with its own tool: install it, sign it in, add this node\'s',
-      '   key there and read your address.',
-      '   [x] git.example.org: GitLab, with glab',
-      '   [x] github.com: GitHub, with gh',
-      '   Set them up with their tools? Enter for all, n for none, or type the hosts to set up: ',
+      '2  Where your repositories are',
+      '   Which sites should this node use to reach your repositories? Choosing one signs in to it here with its own tool, then',
+      '   offers to add this node\'s public key there.',
+      '   1) git.example.org (GitLab, with glab)',
+      '   2) github.com (GitHub, with gh)',
+      '   a) Both',
+      '   s) Skip (add the key by hand later)',
+      '   Choose (1-2, a or s) [a]: ',
       '',
       '3  Signing and your name',
       '   Mac mini signs its commits. A key never comes here from another computer, so commits made here are signed with this',
@@ -346,8 +349,8 @@ describe('kestrel node git, by hand', () => {
     const r = play(m, { unattended: false, manual: true }, ['', 'n', '', '', '', '', 'sam@git.example.org', ''], PRETTY);
     expect(await r.done).toBe(1);
     expect(r.calls.filter((c) => /install|sign in|api| add /.test(c))).toEqual([]);
-    expect(r.lines.slice(10).join('\n')).toBe([
-      '2  Your git hosts',
+    expect(r.lines.slice(r.lines.indexOf('2  Where your repositories are')).join('\n')).toBe([
+      '2  Where your repositories are',
       '   By hand (--manual): git.example.org, github.com.',
       '',
       '3  Signing and your name',
@@ -436,6 +439,36 @@ describe('kestrel node git, by hand', () => {
   });
 });
 
+describe('which sites: one numbered choice of the hosts found, with all and skip and a default shown', () => {
+  const HOSTS = ['git.example.org', 'github.com'];
+  test('Enter, a, all, both or yes is every one; s, skip, n, no or none is none', () => {
+    for (const all of ['', 'a', 'all', 'Both', 'yes']) expect(hostsPicked(all, HOSTS)).toEqual(HOSTS);
+    for (const none of ['s', 'skip', 'n', 'no', 'none', ' NONE ']) expect(hostsPicked(none, HOSTS)).toEqual([]);
+  });
+
+  test('numbers or the hosts’ own names pick those; anything else is asked again', () => {
+    expect(hostsPicked('2', HOSTS)).toEqual(['github.com']);
+    expect(hostsPicked('2, 1', HOSTS)).toEqual(HOSTS);
+    expect(hostsPicked('github.com', HOSTS)).toEqual(['github.com']);
+    expect(hostsPicked('3', HOSTS)).toBeNull();
+    expect(hostsPicked('gitlab.com', HOSTS)).toBeNull();
+  });
+
+  test('skip at the choice: every host is done by hand, and nothing changes at a host', async () => {
+    const r = play(FRESH(), ASK, ['', 'none', '', '', '', ''], PLAIN);
+    await r.done;
+    expect(r.calls.filter((c) => /^sign in | add /.test(c))).toEqual([]);
+    expect(r.lines.join('\n')).toContain('git.example.org, by hand:');
+  });
+
+  test('a wrong answer is said, with what to type, and asked again', async () => {
+    const r = play(FRESH(), ASK, ['', 'gitlab.com', '1', '', '', '', '', '', ''], PLAIN);
+    await r.done;
+    const text = r.lines.join('\n');
+    expect(text).toContain('Choose (1-2, a or s) [a]: gitlab.com\n   Type a number from 1 to 2, several (like 1 2), a for both, or s to skip.\n   Choose (1-2, a or s) [a]: 1');
+  });
+});
+
 describe('kestrel node git when the account’s hosts are not known yet', () => {
   test('says why, never "none"; Enter checks again, w waits; once read, the hosts are offered', async () => {
     const unknown = { ...FACTS, repositories: [], accountUnknown: 'The account’s projects are not read yet: the node reads them shortly after it connects.' };
@@ -444,9 +477,9 @@ describe('kestrel node git when the account’s hosts are not known yet', () => 
     await r.done;
     const text = r.lines.join('\n');
     expect(text).toContain(
-      "2  Your git hosts\n   The account's projects are not read yet: the node reads them shortly after it connects.\n   Press Enter to check again, type w to wait for it (up to a minute), or c to carry on without them: \n" +
+      "2  Where your repositories are\n   The account's projects are not read yet: the node reads them shortly after it connects.\n   Press Enter to check again, type w to wait for it (up to a minute), or c to carry on without them: \n" +
         "   The account's projects are not read yet: the node reads them shortly after it connects.\n   Press Enter to check again, type w to wait for it (up to a minute), or c to carry on without them: w\n\n" +
-        "   Waiting for the node to read your account's projects...\n   Your account's projects use these.",
+        "   Waiting for the node to read your account's projects...\n   Which sites should this node use to reach your repositories?",
     );
     expect(text).not.toMatch(/none of|no repository|0 of 0/i);
   });
@@ -485,11 +518,8 @@ describe('kestrel node git with --yes, or with no terminal', () => {
       '',
       `       ${PUBLIC}`,
       '',
-      '2  Your git hosts',
-      '   Your account\'s projects use these. Kestrel can set each up with its own tool: install it, sign it in, add this node\'s',
-      '   key there and read your address.',
-      '   [x] git.example.org: GitLab, with glab',
-      '   [x] github.com: GitHub, with gh',
+      '2  Where your repositories are',
+      '   Your account\'s projects use: git.example.org (GitLab, with glab), github.com (GitHub, with gh).',
       '',
       '3  Signing and your name',
       '   Mac mini signs its commits. A key never comes here from another computer, so commits made here are signed with this',

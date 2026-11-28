@@ -84,7 +84,7 @@ function world({ system = 'Linux', machine = 'x86_64', uid = '1000', userManager
     const out = `${result.stdout}${result.stderr}`;
     // A tool the script runs that is neither stubbed nor among the plain tools would show here, on any computer.
     assert.doesNotMatch(out, /not found/, `the script ran a program the test's PATH lacks:\n${out}`);
-    return { code: result.status, out };
+    return { code: result.status, out, err: result.stderr };
   };
   const calls = () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : []);
   return { root, home, run, calls, path: [stubs, tools], kestrel: join(home, '.kestrel'), done: () => rmSync(root, { recursive: true, force: true }) };
@@ -135,7 +135,10 @@ test('installs into ~/.kestrel, the user’s alone, with both links, the unit an
   try {
     const { code, out } = w.run([], { KESTREL_NODE_URL: release(w.root, '0.0.34'), KESTREL_NODE_TTY: terminal(w.root) });
     assert.equal(code, 0, out);
-    assert.match(out, /Checksum verified\./);
+    assert.match(out, /^Kestrel worker node\n\nInstall\n/);
+    assert.match(out, /^   ok: Bundle checksum verified$/m);
+    assert.match(out, /^   ok: Installed 0\.0\.34 in ~\/\.kestrel\/node$/m);
+    assert.match(out, /^   ok: Worker node is running \(kestrel-node\.service\)$|^   The service was started, but the node has not answered yet\.$/m);
     assert.equal(statSync(w.kestrel).mode & 0o777, 0o700);
     assert.equal(installedVersion(w), '0.0.34');
     assert.equal(readFileSync(join(w.kestrel, 'node', '0.0.34', 'VERSION'), 'utf8'), '0.0.34\n');
@@ -143,7 +146,6 @@ test('installs into ~/.kestrel, the user’s alone, with both links, the unit an
     assert.equal(readFileSync(join(w.home, '.config', 'systemd', 'user', 'kestrel-node.service'), 'utf8'), serviceUnitText());
     assert.deepEqual(w.calls().filter((c) => c.startsWith('systemctl') && !c.includes('show-environment')), ['systemctl --user daemon-reload', 'systemctl --user enable kestrel-node.service', 'systemctl --user is-active --quiet kestrel-node.service', 'systemctl --user start kestrel-node.service']);
     // `kestrel node configure` starts at once, by the full path (this shell's PATH may not have ~/.local/bin), reading the terminal.
-    assert.match(out, /Setting the node up now\. Any step can be skipped; "kestrel node configure" picks up where you left off\.\n/);
     assert.ok(out.trimEnd().endsWith(`configure as ${join(w.home, '.local', 'bin', 'kestrel')}, stdin: typed at the terminal`), out);
   } finally {
     w.done();
@@ -155,7 +157,6 @@ test('with no terminal, configure asks nothing: it is started with no input, and
   try {
     const { code, out } = w.run([], { KESTREL_NODE_URL: release(w.root, '0.0.34') });
     assert.equal(code, 0, out);
-    assert.doesNotMatch(out, /Setting the node up now/);
     assert.ok(out.trimEnd().endsWith(`configure as ${join(w.home, '.local', 'bin', 'kestrel')}, stdin:`), out);
   } finally {
     w.done();
@@ -184,8 +185,9 @@ test('~/.local/bin not on PATH: one marked line in the shell’s profile, added 
       const env = { KESTREL_NODE_URL: release(w.root, '0.0.34'), SHELL: shell };
       const first = w.run([], env);
       assert.equal(first.code, 0, first.out);
-      assert.match(first.out, new RegExp(`Added ${join(w.home, '.local', 'bin').replaceAll('/', '\\/')} to PATH in ${join(w.home, profile).replaceAll('/', '\\/')}`));
-      assert.match(first.out, /export PATH="\$HOME\/\.local\/bin:\$PATH"/);
+      assert.ok(first.out.includes(`   ok: Added ~/.local/bin to PATH in ~/${profile} (one marked line)\n`), first.out);
+      // The command to type stands on a line of its own, whole, to copy.
+      assert.match(first.out, /^ {7}export PATH="\$HOME\/\.local\/bin:\$PATH"$/m);
       const second = w.run([], env);
       assert.match(second.out, /is put on PATH by .* already/);
       const lines = readFileSync(join(w.home, profile), 'utf8').split('\n').filter((l) => l.includes('.local/bin'));
@@ -223,8 +225,11 @@ test('a kestrel on PATH that is not Kestrel’s is left alone, and configure run
 test('a checksum that does not match refuses and leaves nothing behind', () => {
   const w = world();
   try {
-    const { code, out } = w.run([], { KESTREL_NODE_URL: release(w.root, '0.0.34', { badChecksum: true }) });
+    const { code, out, err } = w.run([], { KESTREL_NODE_URL: release(w.root, '0.0.34', { badChecksum: true }) });
     assert.equal(code, 1);
+    // The failure and what to do go to the error output, set off by a blank line; nothing claims it was verified.
+    assert.match(err, /^\nThe checksum of kestrel-node-linux-x64\.tar\.gz does not match/);
+    assert.doesNotMatch(out, /ok: Bundle checksum verified/);
     assert.match(out, /The checksum of kestrel-node-linux-x64\.tar\.gz does not match \(expected ffffffffffff…, got [0-9a-f]{12}…\)/);
     assert.match(out, /nothing was installed/);
     for (const left of ['.kestrel', '.local', '.config']) assert.equal(existsSync(join(w.home, left)), false, left);
@@ -245,7 +250,7 @@ test('a second run upgrades in place: the data folder is kept, the version befor
     const { code, out } = second.run([], { HOME: w.home, KESTREL_NODE_URL: release(w.root, '0.0.35') });
     second.done();
     assert.equal(code, 0, out);
-    assert.match(out, /Upgraded Kestrel's worker node from 0\.0\.34 to 0\.0\.35/);
+    assert.match(out, /ok: Upgraded from 0\.0\.34 to 0\.0\.35/);
     assert.match(out, /Restarting the node so it runs 0\.0\.35/);
     assert.equal(installedVersion(w), '0.0.35');
     assert.ok(existsSync(join(w.kestrel, 'node', '0.0.34', 'VERSION')));
@@ -311,8 +316,8 @@ test('with no systemd user manager, it says how to run the node by hand and conf
     const { code, out } = w.run([], { KESTREL_NODE_URL: release(w.root, '0.0.34'), KESTREL_NODE_TTY: terminal(w.root) });
     assert.equal(code, 0, out);
     assert.match(out, /systemd --user is not available here/);
-    assert.ok(out.includes(`    ${join(w.home, '.local', 'bin', 'kestrel')} node run\n`), out);
-    assert.ok(out.includes(`    ${join(w.home, '.local', 'bin', 'kestrel')} node configure\n`), out);
+    assert.ok(out.includes(`\n       ${join(w.home, '.local', 'bin', 'kestrel')} node run\n`), out);
+    assert.ok(out.includes(`\n       ${join(w.home, '.local', 'bin', 'kestrel')} node configure\n`), out);
     assert.doesNotMatch(out, /configure as /);
     assert.equal(existsSync(join(w.home, '.config', 'systemd')), false);
     assert.ok(!w.calls().some((c) => c.startsWith('loginctl')));
@@ -348,9 +353,10 @@ describe('which version: each published copy names its channel’s newest', () =
       const copy = published(w.root, 'install-beta.sh', 'beta', '0.0.40-beta.2');
       const { code, out } = runCopy(w, copy, [], env);
       assert.equal(code, 0, out);
-      assert.match(out, /^The newest beta is 0\.0\.40-beta\.2\.$/m);
-      assert.ok(out.includes(`Fetching kestrel-node-linux-x64.tar.gz (0.0.40-beta.2) from ${env.KESTREL_NODE_REGISTRY}/0.0.40-beta.2`), out);
-      assert.ok(out.indexOf('Checksum verified.') < out.indexOf('Installed'), out);
+      assert.match(out, /^ {3}The newest beta is 0\.0\.40-beta\.2\.$/m);
+      // The address stands on a line of its own under what is being fetched.
+      assert.ok(out.includes(`   Fetching 0.0.40-beta.2 for linux-x64:\n       ${env.KESTREL_NODE_REGISTRY}/0.0.40-beta.2/kestrel-node-linux-x64.tar.gz\n`), out);
+      assert.ok(out.indexOf('ok: Bundle checksum verified') < out.indexOf('ok: Installed'), out);
       assert.equal(installedVersion(w), '0.0.40-beta.2');
     } finally {
       w.done();
@@ -364,7 +370,7 @@ describe('which version: each published copy names its channel’s newest', () =
       const copy = published(w.root, 'install.sh', 'stable', '0.0.39');
       const first = runCopy(w, copy, [], env);
       assert.equal(first.code, 0, first.out);
-      assert.match(first.out, /^The newest release is 0\.0\.39\.$/m);
+      assert.match(first.out, /^ {3}The newest release is 0\.0\.39\.$/m);
       assert.equal(installedVersion(w), '0.0.39');
       const pinned = runCopy(w, copy, ['0.0.38'], env);
       assert.equal(pinned.code, 0, pinned.out);
@@ -381,11 +387,11 @@ describe('which version: each published copy names its channel’s newest', () =
       const env = host(w.root, { stable: '0.0.39', beta: '0.0.41-beta.1', versions: ['0.0.39', '0.0.41-beta.1'] });
       const beta = w.run([], { ...env, KESTREL_NODE_CHANNEL: 'beta' });
       assert.equal(beta.code, 0, beta.out);
-      assert.match(beta.out, /^The newest beta is 0\.0\.41-beta\.1\.$/m);
+      assert.match(beta.out, /^ {3}The newest beta is 0\.0\.41-beta\.1\.$/m);
       assert.equal(installedVersion(w), '0.0.41-beta.1');
       const stable = w.run([], env);
       assert.equal(stable.code, 0, stable.out);
-      assert.match(stable.out, /^The newest release is 0\.0\.39\.$/m);
+      assert.match(stable.out, /^ {3}The newest release is 0\.0\.39\.$/m);
       assert.equal(installedVersion(w), '0.0.39');
     } finally {
       w.done();

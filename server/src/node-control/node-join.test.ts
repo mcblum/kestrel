@@ -119,9 +119,9 @@ describe('kestrel node join', () => {
     expect(t.lines.slice(0, 5)).toEqual([`Kestrel worker node: join ${NODE} to your account`, '', '1  Sign in', '   Open   https://id.example.test/device', expect.stringMatching(/^ {3}Code {3}WDJB-MJHT {3}\(works for \d+ minutes?\)$/)]);
     expect(t.lines.filter((l) => /^\d {2}/.test(l))).toEqual(['1  Sign in', '2  Let this node in', '3  Confirm']);
     expect(t.said(/^ {3}ok: Signed in as person@example\.com$/)).toBeDefined();
-    expect(t.said(/^ {3}MacBook Pro opened it\. Type this code there:$/)).toBeDefined();
+    expect(t.said(/^ {3}MacBook Pro opened it\. Type this code on MacBook Pro:$/)).toBeDefined();
     expect(t.said(/^ {3}ok: MacBook Pro let it in$/)).toBeDefined();
-    expect(t.asked).toEqual(['   Type the code MacBook Pro shows now: ']);
+    expect(t.asked).toEqual(['   Code from MacBook Pro: ']);
     expect(t.lines.slice(-3)).toEqual([`ok: ${NODE} is in your account and connected to Kestrel Connect.`, '', `Next: ${JOIN_NEXT}`]);
     // One sign-in address, and the node's name said in the title and the last line only.
     expect(t.lines.filter((l) => l.includes('https://'))).toHaveLength(1);
