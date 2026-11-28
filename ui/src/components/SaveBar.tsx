@@ -18,12 +18,13 @@ export function SaveBar({ watch, sticky = false }: { watch?: string; sticky?: bo
   if (shown === 0) return null;
   const visible = drafts.filter((d) => d.anchor.current?.offsetParent != null);
   const changed = visible.some((d) => d.changed);
+  const blocked = visible.some((d) => d.changed && d.blocked);
   const problem = visible.find((d) => d.changed && d.problem !== null)?.problem ?? null;
   return (
     <footer className={`save-bar${sticky ? ' sticky' : ''}`} aria-label="Save changes">
       <span className={`save-bar-status${problem ? ' problem' : ''}`} role={problem ? 'alert' : 'status'}>{problem ?? (changed ? 'You have changes that are not saved.' : 'No changes to save.')}</span>
       <button type="button" className="secondary-button" disabled={!changed || saving} onClick={discardDrafts}>Discard</button>
-      <button type="button" className="primary-button" disabled={!changed || problem !== null || saving} onClick={async () => {
+      <button type="button" className="primary-button" disabled={!changed || blocked || problem !== null || saving} onClick={async () => {
         setSaving(true);
         try { await saveDrafts(); } finally { setSaving(false); }
       }}>{saving ? 'Saving…' : 'Save changes'}</button>
@@ -39,12 +40,13 @@ export function UnsavedDialog() {
   const changed = drafts.filter((d) => d.changed);
   const what = [...new Set(changed.map((d) => d.what))].join(' and ');
   const problem = changed.find((d) => d.problem !== null)?.problem ?? null;
+  const blocked = changed.some((d) => d.blocked);
   return (
     <DialogShell icon={<Save size={18} />} eyebrow="Unsaved changes" title={`Save your changes to ${what}?`} busy={busy} onClose={leave.stay}
       actions={
         <>
           <button type="button" className="pr-merge-cancel" disabled={busy} onClick={leave.discard}>Discard</button>
-          <button type="button" className="pr-merge-confirm" data-autofocus disabled={busy || problem !== null} onClick={async () => {
+          <button type="button" className="pr-merge-confirm" data-autofocus disabled={busy || blocked || problem !== null} onClick={async () => {
             setBusy(true);
             try { await leave.save(); } finally { setBusy(false); }
           }}>{busy ? 'Saving…' : 'Save'}</button>

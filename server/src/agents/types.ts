@@ -17,6 +17,7 @@ import type { SigningAccess } from '../shared/commit-signing.ts';
 import type { Bounds } from '../sandbox-allow/match.ts';
 import type { NodeAgentProblem } from '../shared/node-agents.ts';
 import type { HandedServer, McpServerState } from '../shared/mcp-servers.ts';
+import type { NotClonedRow } from '../shared/project-clone.ts';
 
 // ---- events out -------------------------------------------------------------------
 
@@ -270,7 +271,8 @@ export interface ProjectInfo {
 
 /** What an agent may ask Kestrel for, on behalf of one session. Built per session by the runtime. */
 export interface KestrelToolHost {
-  listProjects(): Promise<ProjectInfo[]>;
+  /** The registered projects; on a worker node, then the account's projects it has not cloned (`cloned: false`, worker-nodes.md 9.3). */
+  listProjects(): Promise<(ProjectInfo | NotClonedRow)[]>;
   /** Register a folder the agent found on disk as a project, after the user approves. */
   addProject(args: { path: string; name?: string }): Promise<ToolResult>;
   /** The caller is finished with this work and all of it belongs in another project: start a linked session there and stop here. It does not report back. */

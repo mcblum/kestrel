@@ -13,7 +13,7 @@
 //   rest the computer: it answered a moment ago, so it is busy, not away (Matt's desk, 2026-11-25: one late read
 //   under load made every read after it fail for thirty seconds).
 // - It opens no socket: frames go out through `send`, the relay link's.
-import { checkEnvelope, CONNECT_PROTOCOL_VERSION, type ConnectOp, type ConnectResponse, type Envelope } from '../../shared/connect-ops.ts';
+import { checkEnvelope, CONNECT_PROTOCOL_VERSION, protocolAccepted, type ConnectOp, type ConnectResponse, type Envelope } from '../../shared/connect-ops.ts';
 import { FrameCipher, helloSigned, newEphemeral, sessionKeys, signHello, type Identity } from '../keys.ts';
 
 /** How long a hello or a request waits for its answer (a request may ask for longer: `timeoutMs`). */
@@ -293,7 +293,7 @@ export function routeFrame(text: string, myId: string | null, caller: Pick<DeskC
     return true;
   }
   const checked = checkEnvelope(raw);
-  if (!checked.ok || !myId || checked.value.to !== myId || checked.value.v !== CONNECT_PROTOCOL_VERSION) return true;
+  if (!checked.ok || !myId || checked.value.to !== myId || !protocolAccepted(checked.value.v)) return true;
   const frame = checked.value;
   if (caller.claims(frame)) {
     caller.receive(frame);

@@ -1,6 +1,6 @@
 // The closed list of what a phone may ask, and the envelope its frames travel in (shared/connect-ops.ts).
 import { describe, expect, it } from 'vitest';
-import { checkEnvelope, checkRequest, checkRequestFrom, CONNECT_OP_NAMES, CONNECT_OPS, deskOnly, CONNECT_PROTOCOL_VERSION, NEVER_REMOTE, PAGE_MAX, phoneRefusal, versionRefusal, BYPASS_FROM_ELSEWHERE } from './connect-ops.ts';
+import { checkEnvelope, checkRequest, checkRequestFrom, CONNECT_OP_NAMES, CONNECT_OPS, deskOnly, CONNECT_PROTOCOL_MIN, CONNECT_PROTOCOL_VERSION, protocolAccepted, NEVER_REMOTE, PAGE_MAX, phoneRefusal, versionRefusal, BYPASS_FROM_ELSEWHERE } from './connect-ops.ts';
 
 const frame = (over: Record<string, unknown> = {}) => ({ v: CONNECT_PROTOCOL_VERSION, from: 'phone-1', to: 'mac-1', kind: 'request', id: 'f1', body: 'ciphertext', ...over });
 
@@ -35,6 +35,18 @@ describe('the envelope', () => {
     expect(versionRefusal(CONNECT_PROTOCOL_VERSION, 'your Mac')).toBeNull();
     expect(versionRefusal(CONNECT_PROTOCOL_VERSION + 1, 'your Mac')).toMatch(/^Update Kestrel on your Mac/);
     expect(versionRefusal(CONNECT_PROTOCOL_VERSION - 1 || 0, 'your Mac')).toMatch(/^Update Kestrel on this device/);
+  });
+
+  it('accepts every protocol from the minimum to its own, and names who to update outside that range (worker-nodes.md 4.2)', () => {
+    expect(CONNECT_PROTOCOL_MIN).toBeLessThanOrEqual(CONNECT_PROTOCOL_VERSION);
+    for (let v = CONNECT_PROTOCOL_MIN; v <= CONNECT_PROTOCOL_VERSION; v++) {
+      expect(protocolAccepted(v)).toBe(true);
+      expect(versionRefusal(v, 'Worker node 1')).toBeNull();
+    }
+    expect(protocolAccepted(CONNECT_PROTOCOL_MIN - 1)).toBe(false);
+    expect(protocolAccepted(CONNECT_PROTOCOL_VERSION + 1)).toBe(false);
+    expect(versionRefusal(CONNECT_PROTOCOL_MIN - 1, 'Worker node 1')).toBe(`Update Kestrel on this device to use Worker node 1: Worker node 1 speaks Kestrel Connect ${CONNECT_PROTOCOL_VERSION}, and this device speaks ${CONNECT_PROTOCOL_MIN - 1}.`);
+    expect(versionRefusal(CONNECT_PROTOCOL_VERSION + 1, 'Worker node 1')).toBe(`Update Kestrel on Worker node 1: it speaks Kestrel Connect ${CONNECT_PROTOCOL_VERSION}, and this device speaks ${CONNECT_PROTOCOL_VERSION + 1}.`);
   });
 });
 
@@ -103,10 +115,13 @@ const GOOD: Record<string, Record<string, unknown>> = {
   'pr.create': { sessionId: 's1', title: 'Fix', body: '', base: 'main', draft: false },
   'pr.mergePreview': { sessionId: 's1', number: 12 },
   'pr.merge': { sessionId: 's1', number: 12, sha: 'a'.repeat(40), base: 'main', method: 'squash' },
+  'node.update': {},
+  'node.settings.set': { key: 'push', value: false },
+  'node.restart': {},
 };
 
 /** Every operation only a desktop of the keyring may ask (Matt, 2026-11-27, and onboarding.md 19.6). */
-const DESK_ONLY = ['setup.values', 'setup.values.withdraw', 'session.snapshot', 'session.details', 'session.context', 'session.files', 'session.file', 'session.document', 'session.documentPlace', 'session.raw', 'session.attachFile', 'session.rename', 'session.delete', 'session.tag', 'session.role', 'session.reviewOf', 'session.review', 'session.fork', 'queue.send', 'queue.remove', 'background.stop', 'command.output', 'command.retry', 'command.stop', 'pr.prepare', 'pr.create', 'pr.mergePreview', 'pr.merge'];
+const DESK_ONLY = ['setup.values', 'setup.values.withdraw', 'session.snapshot', 'session.details', 'session.context', 'session.files', 'session.file', 'session.document', 'session.documentPlace', 'session.raw', 'session.attachFile', 'session.rename', 'session.delete', 'session.tag', 'session.role', 'session.reviewOf', 'session.review', 'session.fork', 'queue.send', 'queue.remove', 'background.stop', 'command.output', 'command.retry', 'command.stop', 'pr.prepare', 'pr.create', 'pr.mergePreview', 'pr.merge', 'node.update', 'node.settings.set', 'node.restart'];
 
 describe('the operations', () => {
   it('are the ones in the spec, each saying what it maps to', () => {
@@ -247,6 +262,9 @@ describe('session.start: a new session from a blank page (A8, Matt 2026-11-24)',
     expect(phoneRefusal('session.rename')).toBe(NEVER_REMOTE['session.rename']);
     expect(phoneRefusal('session.file')).toBe(NEVER_REMOTE.files);
     expect(phoneRefusal('session.details')).toMatch(/not something Kestrel Connect does/);
+    expect(phoneRefusal('node.update')).toBe(NEVER_REMOTE['node.update']);
+    expect(phoneRefusal('node.settings.set')).toBe(NEVER_REMOTE['node.settings']);
+    expect(phoneRefusal('node.restart')).toBe(NEVER_REMOTE['node.restart']);
   });
 
   it.each([
@@ -256,6 +274,9 @@ describe('session.start: a new session from a blank page (A8, Matt 2026-11-24)',
     ['pr.merge', { sessionId: 's1', number: 1, sha: 'nope', base: 'main', method: 'merge' }, /sha must be/],
     ['pr.mergePreview', { sessionId: 's1', number: 0 }, /number must be/],
     ['session.role', { sessionId: 's1', role: 'review' }, /role must be one of/],
+    ['node.settings.set', { key: 'sandboxAllow', value: true }, /not a setting another computer may change/],
+    ['node.settings.set', { key: 'mode', value: 'bypass' }, /never Bypass/],
+    ['node.settings.set', { key: 'push', value: 'yes', extra: 1 }, /takes no extra/],
   ])('%s refuses %j', (op, args, reason) => {
     const checked = checkRequest({ op, args });
     expect(checked.ok).toBe(false);

@@ -151,3 +151,27 @@ describe('a project the computer chosen would clone (item 64)', () => {
     expect(read!.missing).toEqual([{ agent: 'codex', name: 'Codex', reason: 'Codex cannot start a session on Worker node 1 now.' }]);
   });
 });
+
+describe('a worker node behind its desktops (worker-nodes.md 4.2)', () => {
+  it('refuses starts while it updates, and says its update line beside it otherwise', () => {
+    const updating = ready({ version: '0.0.34', update: { to: '0.0.35', state: 'updating' } });
+    expect(cannotStartOn('Worker node 1', updating)).toBe('Worker node 1 is updating to 0.0.35. Try again in a minute.');
+    const waiting = ready({ version: '0.0.34', update: { to: '0.0.35', state: 'waiting', busy: { sessions: ['Fix login'], clones: 0, pushes: 0 } } });
+    expect(computerOptions('This Mac', [{ id: 'node', name: 'Worker node 1' }], () => waiting)[1]).toEqual({
+      id: 'node',
+      name: 'Worker node 1',
+      disabled: null,
+      note: 'Worker node 1 is on 0.0.34; it updates to 0.0.35 when its sessions finish.',
+    });
+    // A computer on its desktops' version has no line.
+    expect(computerOptions('This Mac', [MINI], () => ready({ version: '0.0.35' }))[1]).toEqual({ id: 'mini', name: 'Mac mini', disabled: null });
+  });
+
+  it('reads the version and the update note from a live answer, and drops ones that are not', () => {
+    const raw = { ...choices(), version: '0.0.34', update: { to: '0.0.35', state: 'updating' } };
+    expect(asStartChoices(raw)).toMatchObject({ version: '0.0.34', update: { to: '0.0.35', state: 'updating' } });
+    const bad = asStartChoices({ ...choices(), version: 'latest', update: { to: 'x', state: 'nonsense' } })!;
+    expect('version' in bad).toBe(false);
+    expect('update' in bad).toBe(false);
+  });
+});

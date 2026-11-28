@@ -13,6 +13,7 @@ import type { DiscoveredServer } from '../shared/setup.ts';
 import type { ChildOrigin } from '../delegation.ts';
 import type { Project, ProjectFolder, Session, SessionSettings } from '../model.ts';
 import { folderName, repositoryLabel, resolveStartedFolder } from '../shared/project-folders.ts';
+import type { NotClonedRow } from '../shared/project-clone.ts';
 import { mostUsedTags } from '../shared/tags.ts';
 import { turnUnderWay } from '../shared/turns.ts';
 import { CUT_OFF_STEP, cutOffNews, survives } from '../shared/waiting-steps.ts';
@@ -42,6 +43,10 @@ export interface StartRequestParts {
   mcpServers?: McpServerStore | null;
   /** Reads the servers in the agents' own files; tests pass a stand-in. */
   discover?: (projectPath: string | null) => DiscoveredServer[];
+  /** On a worker node, the account's projects it has not cloned (shared/project-clone.ts `notClonedRows`); absent in the app. */
+  notCloned?: readonly NotClonedRow[];
+  /** A worker node that pushes each session's branch when a turn ends (runtime/node-push.ts). */
+  nodePushes?: boolean;
 }
 
 /** Options for an agent: where it works, what it may do, and the tools and instruction Kestrel gives it. */
@@ -81,6 +86,8 @@ export async function agentStartOptions(workspace: Workspace, req: StartRequestP
     instruction: standingInstruction({
       toolName: kestrelToolName,
       projects,
+      ...(req.notCloned ? { notCloned: req.notCloned } : {}),
+      ...(req.nodePushes ? { nodePushes: true } : {}),
       workspace: workspaceKind,
       origin: origin ?? link?.kind,
       ...(req.who ? { who: req.who } : {}),

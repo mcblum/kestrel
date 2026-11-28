@@ -10,9 +10,26 @@ export type Route = { screen: 'list'; view: View };
 
 const OVERVIEW: Route = { screen: 'list', view: OVERVIEW_VIEW };
 
-const parse = (path: string): Route => ({ screen: 'list', view: parseViewPath(path) });
+const WORKER_NODE_PREFIX = 'connections/nodes/';
 
-export const pathFor = viewPath;
+export const workerNodeSection = (id: string): string => WORKER_NODE_PREFIX + id;
+export const workerNodeId = (section: string): string | undefined =>
+  section.startsWith(WORKER_NODE_PREFIX) ? section.slice(WORKER_NODE_PREFIX.length) || undefined : undefined;
+
+const parse = (path: string): Route => {
+  const id = path.match(/^#\/settings\/connections\/nodes\/([^/]+)$/)?.[1];
+  if (id) {
+    try {
+      return { screen: 'list', view: { kind: 'settings', section: workerNodeSection(decodeURIComponent(id)) } };
+    } catch { /* An invalid id falls back to Connections. */ }
+  }
+  return { screen: 'list', view: parseViewPath(path) };
+};
+
+export function pathFor(view: View): string {
+  const id = view.kind === 'settings' && view.section ? workerNodeId(view.section) : undefined;
+  return id ? `#/settings/${workerNodeSection(encodeURIComponent(id))}` : viewPath(view);
+}
 
 // Parsed once per path, so a selector returns the same object until the path changes.
 const parsed = new Map<string, Route>();

@@ -23,6 +23,24 @@ export interface InstructionContext {
   existingTags?: readonly string[];
   /** The knowledge base in use: its name and the index lines that apply to this session's repositories. Absent: none is in use. */
   knowledge?: { name: string; index: string };
+  /** On a worker node, the account's projects it has not cloned (shared/project-clone.ts `notClonedRows`, as `list_projects` gives them). */
+  notCloned?: readonly { name: string; repositories: readonly string[]; note: string }[];
+  /** On a worker node that pushes each session's branch when a turn ends (shared/node-push.ts). */
+  nodePushes?: boolean;
+}
+
+/** What a session on a worker node that pushes is told, once (worker-nodes.md 9.3). */
+export const NODE_PUSH_LINE = 'This computer has no screen and nobody works at it: commit finished work, and Kestrel pushes this session’s branch to `origin` when your turn ends.';
+
+/** The account's projects a worker node has not cloned, after the registered ones; nothing where there are none. */
+function notClonedText(ctx: InstructionContext): string[] {
+  const rows = ctx.notCloned ?? [];
+  if (rows.length === 0) return [];
+  const t = ctx.toolName;
+  return [
+    `Projects of your account not on this computer yet; name one to \`${t('handoff')}\`, \`${t('delegate')}\`, \`${t('spawn')}\` or \`${t('move_to_project')}\` and Kestrel clones it first:`,
+    ...rows.map((r) => `- ${r.name}${r.repositories.length ? ` (${r.repositories.join(', ')})` : ''}: ${r.note}`),
+  ];
 }
 
 const ORIGIN: Record<NonNullable<InstructionContext['origin']>, string> = {
@@ -137,6 +155,7 @@ export function standingInstruction(ctx: InstructionContext): string {
     where,
     ...(ctx.siblings ? [siblingsText(ctx.siblings, t)] : []),
     ...(ctx.origin ? [ORIGIN[ctx.origin]] : []),
+    ...(ctx.nodePushes ? [NODE_PUSH_LINE] : []),
     whereChangesGo(t, ctx.workspace.kind !== 'read-only'),
     ...(rolesText(ctx.who, t) ? [rolesText(ctx.who, t)] : []),
     '',
@@ -171,5 +190,6 @@ export function standingInstruction(ctx: InstructionContext): string {
     '',
     'Registered projects:',
     projects,
+    ...notClonedText(ctx),
   ].join('\n');
 }

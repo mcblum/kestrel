@@ -79,3 +79,36 @@ describe('the clone mark of a node’s offers (item 64)', () => {
     expect(asClone({ of: Array.from({ length: 50 }, (_, i) => `p${i}`) })!.of).toHaveLength(20);
   });
 });
+
+describe('a computer’s version and a node’s update (worker-nodes.md 4.2)', () => {
+  it('carries the version and the update; an older record without them reads as before, its version unknown', () => {
+    const node: RemoteStartChoices = { ...OFFERS, version: '0.0.34', update: { to: '0.0.35', state: 'waiting', busy: { sessions: ['Fix login'], clones: 0, pushes: 0 } } };
+    expect(asOffersRecord(JSON.parse(JSON.stringify(offersRecordOf(MINI, 1000, node))))!.offers).toEqual(node);
+    const older = asOffersRecord(offersRecordOf(MINI, 1000, OFFERS))!.offers;
+    expect(older.version).toBeUndefined();
+    expect(older.update).toBeUndefined();
+  });
+
+  it('drops a version that is not one and an update that does not read, and keeps the rest', () => {
+    const odd = { ...OFFERS, version: 'latest', update: { to: '0.0.35', state: 'soon' } };
+    expect(asOffersRecord(offersRecordOf(MINI, 1000, odd as unknown as RemoteStartChoices))!.offers).toEqual(OFFERS);
+  });
+});
+
+describe('a node’s settings and status facts for its page (worker-nodes.md section 10)', () => {
+  const node = {
+    settings: { name: 'Worker node 1', remoteStarts: true, agent: 'claude' as const, model: '', mode: 'auto' as const, autoReviews: false, projects: 'every' as const, push: true, followDesktopVersion: true },
+    facts: { agents: { claude: 'Can run', codex: 'Can run', opencode: 'Not available.' }, git: 'key made', sandbox: 'Available', lingering: 'On', freeDisk: '9.3 GB free.', projects: '2 of 2 cloned.' },
+  };
+
+  it('carries them, and an older record without them reads as before', () => {
+    const withNode: RemoteStartChoices = { ...OFFERS, node };
+    expect(asOffersRecord(JSON.parse(JSON.stringify(offersRecordOf(MINI, 1000, withNode))))!.offers).toEqual(withNode);
+    expect(asOffersRecord(offersRecordOf(MINI, 1000, OFFERS))!.offers.node).toBeUndefined();
+  });
+
+  it('drops settings that do not read (Bypass, a missing key) and keeps the rest of the record', () => {
+    const bypass = { ...OFFERS, node: { ...node, settings: { ...node.settings, mode: 'bypass' } } };
+    expect(asOffersRecord(offersRecordOf(MINI, 1000, bypass as unknown as RemoteStartChoices))!.offers).toEqual(OFFERS);
+  });
+});

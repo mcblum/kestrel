@@ -339,8 +339,9 @@ export function autopilotStep(input: StepInput): Step {
       if (now - idleSince >= NO_PUSH_GRACE_MS) return stopped(record, now, `${AUTOPILOT_DISENGAGED} ${where}: the agent pushed nothing in round ${record.rounds}`);
       return { record: { ...record, round: { ...round, idleSince } }, act: NONE };
     }
-    // Pushed: the round lasts until the checks on what it pushed have reported, under the same time limit.
-    const settling = pr.checks === 'running' || (record.head !== undefined && now - record.head.at < CHECKS_SETTLE_MS && pr.checks !== 'failing');
+    // Pushed: the round lasts until the checks on what it pushed have reported, under the same time limit. A
+    // failure is waited out too: just after a push a host may still answer with the last commit's failed checks.
+    const settling = pr.checks === 'running' || (record.head !== undefined && now - record.head.at < CHECKS_SETTLE_MS);
     if (settling) return { record: { ...record, round: { ...round, idleSince } }, act: NONE };
     const { round: _done, ...rest } = record;
     record = { ...rest, lastFailed: round.failed };

@@ -135,7 +135,7 @@ export class Delegation {
   /** The tools one session is given. Every call runs as that session. */
   hostFor(callerId: string): DelegationTools {
     return {
-      listProjects: async () => (await this.ws.state()).projects.map(projectInfo),
+      listProjects: async () => [...(await this.ws.state()).projects.map(projectInfo), ...((await this.rt.nodeProjects?.rows()) ?? [])],
       addProject: (a) => this.guard(callerId, 'add_project', () => this.addProject(callerId, a), a),
       handoff: (a) => this.guard(callerId, 'handoff', () => this.handoff(callerId, a), a),
       moveToProject: (a) => this.guard(callerId, 'move_to_project', () => this.moveToProject(callerId, a), a),
@@ -214,9 +214,22 @@ export class Delegation {
   }
 
   private async targetFor(name: string, folder?: string): Promise<Target> {
-    const found = this.match(name, (await this.ws.state()).projects, folder);
+    const found = await this.matchOrClone(name, folder);
     if ('error' in found) throw new Refused(found.error);
     return found;
+  }
+
+  /**
+   * `match` against this computer's projects; on a worker node, a project of the account it has not cloned is
+   * checked and cloned first (project-clone/mirror.ts `cloneNamed`, the one cloner the dispatcher uses), then matched
+   * as a project it has (worker-nodes.md 9.3). A refusal to clone is thrown in 9.1's words.
+   */
+  private async matchOrClone(given: string, folder?: string): Promise<Match<Project>> {
+    const found = this.match(given, (await this.ws.state()).projects, folder);
+    const mirror = this.rt.nodeProjects;
+    if (!('error' in found) || !mirror) return found;
+    const cloned = await mirror.cloneNamed(given);
+    return cloned ? matchProject(cloned.name, [cloned], folder) : found;
   }
 
   /** Like `matchProject`, but a folder that exists on disk is named as one that can be added. */
@@ -589,7 +602,10 @@ export class Delegation {
     const host = state0.sessions.find((s) => s.id === hostId);
     const hostFolder = host?.folderId ?? null;
     for (const t of tasks) {
-      const found = this.match(t.project ?? '', projects, t.folder);
+      const found = await this.matchOrClone(t.project ?? '', t.folder).catch((error: unknown) => {
+        if (error instanceof Refused) return { error: error.message };
+        throw error;
+      });
       const brief = (t.brief ?? '').trim();
       if ('error' in found) problems.push(found.error);
       else if (!brief) problems.push(`The brief for ${found.project.name} is empty.`);

@@ -1,9 +1,12 @@
 // This computer's copy of what the account's other computers offer for a new session (shared/machine-offers.ts):
-// local data behind `Persistence`, kept as account records of their own, written only by the offers sync
-// (connect/link/offers-sync.ts) and pushed whole to every window's `machineOffers` slice. It is on disk, so a
+// local data behind `Persistence`, kept as account records of their own, written by the offers sync
+// (connect/link/offers-sync.ts), and pushed whole to every window's `machineOffers` slice. One other write: a worker
+// node's answer to a change of one of its settings (`takeNodeAnswer`), which is what its record will say once the node
+// writes it; the next reading of the feed replaces it with the node's own. It is on disk, so a
 // window has it at once at start-up, before the link is up.
 import type { Persistence } from './persistence/types.ts';
 import type { HeldOffers, MachineOffersView } from './shared/machine-offers.ts';
+import type { NodePublished } from './shared/node-facts.ts';
 
 const OFFERS = 'aoffers|';
 const FEED = 'feed|offers';
@@ -83,6 +86,21 @@ export class AccountOffers {
       for (const listener of this.listeners) listener(view);
     }
     return differs;
+  }
+
+  /**
+   * A worker node answered a change of its settings with what it publishes now: held in its record at once, so its page
+   * shows the new value without waiting for the node's record to come round the feed. Nothing when no record is held.
+   */
+  async takeNodeAnswer(machineId: string, node: NodePublished): Promise<boolean> {
+    const held = (await this.view())[machineId];
+    if (!held) return false;
+    const next: HeldOffers = { ...held, offers: { ...held.offers, node } };
+    if (JSON.stringify(next) === JSON.stringify(held)) return false;
+    await this.db.putAccountRecord(OFFERS + machineId, JSON.stringify(next));
+    const view = await this.view();
+    for (const listener of this.listeners) listener(view);
+    return true;
   }
 
   /** Signed out: nothing of the account stays. */

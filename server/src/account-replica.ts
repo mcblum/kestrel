@@ -62,10 +62,18 @@ export function machineCards(records: readonly { key: string; value: string }[])
 }
 
 export class AccountReplica {
+  private readonly headListeners = new Set<(heads: readonly AccountHead[]) => void>();
+
   constructor(
     private readonly db: Persistence,
     private readonly changed: () => void,
   ) {}
+
+  /** Told of the heads a reading of the change feed wrote or changed, once it is stored (a worker node's mirror fetches their projects, project-clone/mirror.ts). Returns the undo. */
+  onHeads(listener: (heads: readonly AccountHead[]) => void): () => void {
+    this.headListeners.add(listener);
+    return () => void this.headListeners.delete(listener);
+  }
 
   /** The other machines this computer holds sessions of. */
   async machines(): Promise<MachineCard[]> {
@@ -94,6 +102,7 @@ export class AccountReplica {
    * the workspace is told once, and only when something it draws differs. Answers whether anything did.
    */
   async apply(batch: ReplicaBatch): Promise<boolean> {
+    let written: AccountHead[] = [];
     const differs = await this.db.transaction(async (tx) => {
       const [stored, records] = await Promise.all([tx.listAccountSessions(), tx.listAccountRecords()]);
       const before = new Map(stored.map((h) => [h.id, h]));
@@ -126,6 +135,7 @@ export class AccountReplica {
       for (const was of stored) if (!keep.has(was.runsOn) || (batch.whole && !given.has(was.id))) gone.add(was.id);
 
       if (puts.length > 0) await tx.putAccountSessions(puts);
+      written = puts;
       if (gone.size > 0) {
         await tx.deleteAccountSessions([...gone]);
         for (const id of gone) await tx.deleteAccountRecord(DETAIL + id);
@@ -134,6 +144,7 @@ export class AccountReplica {
       return any || puts.length + gone.size > 0;
     });
     if (differs) this.changed();
+    if (written.length > 0) for (const listener of this.headListeners) listener(written);
     return differs;
   }
 
@@ -142,6 +153,7 @@ export class AccountReplica {
    * says, until that computer's own head arrives through the feed and replaces it. Never over a head already held.
    */
   async started(machine: MachineCard, head: AccountHead): Promise<void> {
+    let written: AccountHead[] = [];
     const differs = await this.db.transaction(async (tx) => {
       const [stored, records] = await Promise.all([tx.listAccountSessions(), tx.listAccountRecords()]);
       if (stored.some((h) => h.id === head.id)) return false;

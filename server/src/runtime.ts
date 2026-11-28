@@ -19,6 +19,8 @@
 // (handoff, delegate, spawn), `display.ts` (widgets, files, next steps and pictures shown in the
 // conversation), `suggestions/` (optional actions the agent drops in), `browser-tools.ts` (the browser
 // pane, driven through the window that shows it) and `sim-tools.ts` (the iOS Simulator, driven by the server itself).
+import type { NodeUpdateOps } from './node-update/updater.ts';
+import type { NodeSettingsOps } from './node-settings/service.ts';
 import { PlanUsageStore } from './plan-usage.ts';
 import type { McpServerStore } from './mcp-servers/store.ts';
 import { finishedProposal, pullRequestProposals } from './tickets/moments.ts';
@@ -149,6 +151,8 @@ import type { WorktreeList } from './worktree-cleanup.ts';
 import { Refused, type Workspace } from './workspace.ts';
 import type { KestrelKind } from './shared/host-kind.ts';
 import { sessionGitEnvFor } from './runtime/session-git.ts';
+import type { NodeProjectsTools } from './project-clone/mirror.ts';
+import type { NodePusher } from './runtime/node-push.ts';
 
 export type { ContextShown, ModelList } from './runtime/agent-info.ts';
 export type { ReplyOptions } from './runtime/turns.ts';
@@ -159,6 +163,14 @@ export class SessionRuntime implements McpSessions {
   private readonly records = new Map<string, Live>();
   private readonly listeners = new Set<(sessionId: string, patch: LivePatch) => void>();
   readonly delegation: Delegation;
+  /** On a worker node, the account's projects it mirrors (project-clone/mirror.ts), handed over once Kestrel Connect is made; null in the app. */
+  nodeProjects: NodeProjectsTools | null = null;
+  /** On a worker node, the push of a session's branch when a turn ends (runtime/node-push.ts); null in the app. */
+  nodePush: NodePusher | null = null;
+  /** On a worker node, its update to the version its desktops run (node-update/updater.ts); null in the app. */
+  nodeUpdate: NodeUpdateOps | null = null;
+  /** On a worker node, the settings another computer may change and its Restart (node-settings/service.ts); null in the app. */
+  nodeSettings: NodeSettingsOps | null = null;
   /** Kestrel's own steps waiting on a card, stored so they survive a restart (runtime/steps.ts). */
   readonly steps: WaitingSteps;
   /** Fork a session: a copy of its conversation in a new session (fork.ts). */
@@ -473,6 +485,9 @@ export class SessionRuntime implements McpSessions {
       adapters: this.adapters,
       dataDir: this.dataDir,
       sessionGitEnv: (directory) => sessionGitEnvFor(this.kind, this.dataDir, directory),
+      nodeProjects: () => this.nodeProjects,
+      turnOver: (id) => void this.nodePush?.turnOver(id),
+      nodePushes: async () => (this.nodePush ? this.nodePush.on() : false),
       records: this.records,
       agents: this.agents,
       upkeep: this.upkeep,
@@ -1227,6 +1242,26 @@ export class SessionRuntime implements McpSessions {
 
   useSetupSteps(steps: SetupSteps | null): void {
     this.setupSteps = steps;
+  }
+
+  /** A worker node's mirror of the account's projects (start-server.ts): what its agents are told, and what their tools clone. */
+  useNodeProjects(mirror: NodeProjectsTools | null): void {
+    this.nodeProjects = mirror;
+  }
+
+  /** A worker node's push of each session's branch when a turn ends (start-server.ts). */
+  useNodePush(pusher: NodePusher | null): void {
+    this.nodePush = pusher;
+  }
+
+  /** A worker node's updater (start-server.ts): what its offers record says, and what a start is refused with while it updates. */
+  useNodeUpdate(updater: NodeUpdateOps | null): void {
+    this.nodeUpdate = updater;
+  }
+
+  /** A worker node's settings and Restart, as another computer's page changes them (start-server.ts). */
+  useNodeSettings(settings: NodeSettingsOps | null): void {
+    this.nodeSettings = settings;
   }
 
   /** `setup_list`, `setup_run_step`, `setup_run_command` (setup-actions/agent-tools.ts). */

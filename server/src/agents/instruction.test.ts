@@ -45,3 +45,22 @@ describe('suggesting a tag', () => {
     expect(standingInstruction(base)).not.toContain('Tags already in use');
   });
 });
+
+describe('on a worker node (worker-nodes.md 9.3)', () => {
+  const notCloned = [{ name: 'Shop', cloned: false as const, repositories: ['example.test/acme/shop'], note: 'It is cloned when a session starts in it.' }];
+
+  it('lists the account’s projects it has not cloned after the registered ones, from the same rows list_projects gives', () => {
+    const text = standingInstruction({ ...base, notCloned });
+    const listed = text.slice(text.indexOf('Registered projects:'));
+    expect(listed).toContain('- Vireo: /code/vireo');
+    expect(listed).toContain('Projects of your account not on this computer yet; name one to `mcp__kestrel__handoff`, `mcp__kestrel__delegate`, `mcp__kestrel__spawn` or `mcp__kestrel__move_to_project` and Kestrel clones it first:\n- Shop (example.test/acme/shop): It is cloned when a session starts in it.');
+    expect(text.indexOf('- Vireo')).toBeLessThan(text.indexOf('- Shop ('));
+  });
+
+  it('says once that it pushes the session’s branch, only where it does', () => {
+    const line = 'This computer has no screen and nobody works at it: commit finished work, and Kestrel pushes this session’s branch to `origin` when your turn ends.';
+    expect(standingInstruction({ ...base, nodePushes: true }).split(line)).toHaveLength(2);
+    expect(standingInstruction(base)).not.toContain(line);
+    expect(standingInstruction({ ...base, notCloned: [] })).not.toContain('not on this computer yet');
+  });
+});

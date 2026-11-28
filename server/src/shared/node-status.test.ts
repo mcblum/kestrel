@@ -1,8 +1,9 @@
 import { gitStatusOf } from './node-git-status.ts';
 import { EMPTY_GIT_SETTINGS } from './node-git.ts';
 import { describe, expect, test } from 'vitest';
-import { nodeStatusOf, projectsLine, REMOVED_NODE, statusLines, type NodeStatusInputs } from './node-status.ts';
+import { nodeStatusOf, projectsLine, REMOVED_NODE, statusLines, type NodeProjects, type NodeStatusInputs } from './node-status.ts';
 import { NO_KEYSTORE_NOTE } from './protected-files.ts';
+import { nodeUpdateLine } from './node-update.ts';
 
 const inputs = (change: Partial<NodeStatusInputs> = {}, connect: Partial<NodeStatusInputs['connect']> = {}): NodeStatusInputs => ({
   version: '0.0.34',
@@ -114,11 +115,41 @@ describe('statusLines', () => {
   });
 });
 
-describe('the projects line', () => {
-  test('says how many projects, how many were cloned here, and where clones are kept', () => {
-    const s = nodeStatusOf(inputs({ projects: { count: 3, cloned: 2, where: '/home/someone/.kestrel/projects' } }));
-    expect(statusLines(s)).toContain('Projects: 3 projects, 2 cloned here. Projects of your account it does not have are cloned into /home/someone/.kestrel/projects when a session starts in one.');
-    expect(projectsLine({ count: 1, cloned: 0, where: '~/.kestrel/projects' })).toBe('Projects: 1 project. Projects of your account it does not have are cloned into ~/.kestrel/projects when a session starts in one.');
+describe('the projects line (worker-nodes.md 9.3)', () => {
+  const p = (over: Partial<NodeProjects> = {}): NodeProjects => ({ here: 9, notHere: 2, cloning: 1, mode: 'every', notCloned: [], kept: [], lowDisk: null, where: '/home/someone/.kestrel/projects', ...over });
+
+  test('says how many of the account’s projects are cloned, how many are cloning, and why one is not', () => {
+    const s = nodeStatusOf(inputs({ projects: p({ notCloned: [{ name: 'Shop', why: "Worker node 1's key cannot read `acme/shop`. Run `kestrel node git` on Worker node 1 to add it at github.com." }] }) }));
+    expect(statusLines(s)).toContain("Projects: 9 of 11 cloned, 1 cloning. Not cloned: Shop (Worker node 1's key cannot read `acme/shop`. Run `kestrel node git` on Worker node 1 to add it at github.com.)");
+    expect(projectsLine(p({ here: 11, notHere: 0, cloning: 0 }))).toBe('Projects: 11 of 11 cloned.');
+    expect(projectsLine(p({ here: 1, notHere: 0, cloning: 0 }))).toBe('Projects: 1 of 1 cloned.');
+  });
+
+  test('with clone on start, says where the others go and when', () => {
+    expect(projectsLine(p({ here: 2, notHere: 9, cloning: 0, mode: 'on-start' }))).toBe('Projects: 2 of 11 cloned. The others are cloned into /home/someone/.kestrel/projects when a session starts in one.');
+  });
+
+  test('says when low disk stopped the clones, and names a clone kept for the work in it', () => {
+    const line = projectsLine(p({ cloning: 0, lowDisk: 'Worker node 1 has 512 MB free, and a new clone wants at least 2.0 GB. Free some space there first.', kept: [{ name: 'Old', why: '"Fix it" has work that is not pushed' }] }));
+    expect(line).toBe('Projects: 9 of 11 cloned. Cloning stopped: Worker node 1 has 512 MB free, and a new clone wants at least 2.0 GB. Free some space there first. Kept though no other computer has it now: Old ("Fix it" has work that is not pushed).');
+  });
+
+  test('is left out where the server says nothing of projects, and status --json carries the same value', () => {
     expect(statusLines(nodeStatusOf(inputs())).some((l) => l.startsWith('Projects:'))).toBe(false);
+    expect(nodeStatusOf(inputs({ projects: p() })).projects).toEqual(p());
+  });
+});
+
+describe('the update line (worker-nodes.md 4.2)', () => {
+  test('status says the update in nodeUpdateLine’s words, and --json carries the same value', () => {
+    const note = { to: '0.0.35', state: 'waiting' as const, busy: { sessions: ['Fix login'], clones: 0, pushes: 0 } };
+    const line = nodeUpdateLine('Worker node 1', '0.0.34', note);
+    const status = nodeStatusOf(inputs({ update: { note, line } }));
+    expect(statusLines(status)).toContain('Update: Worker node 1 is on 0.0.34; it updates to 0.0.35 when its sessions finish.');
+    expect(JSON.parse(JSON.stringify(status)).update).toEqual({ note, line });
+  });
+
+  test('on its desktops’ version there is no update line', () => {
+    expect(statusLines(nodeStatusOf(inputs({ update: { note: null, line: null } }))).some((l) => l.startsWith('Update:'))).toBe(false);
   });
 });

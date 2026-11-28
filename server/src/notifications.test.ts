@@ -261,6 +261,25 @@ describe('one rule for the window and for push (Kestrel Connect phase 6)', () =>
   });
 });
 
+describe('a worker node that could not push a session’s branch (worker-nodes.md 9.3)', () => {
+  const none = { sessions: [], links: [], pullRequests: new Map(), reviewRequests: { requests: [], unread: [] }, tickets: { tickets: [], unread: [], sources: [], settings: { on: false, off: [], show: 'page' as const } } };
+  const refused = { sessionId: 'a', title: 'Fix login', key: 'a\n100', text: 'Could not push `kestrel/x` to `origin`: fatal: Could not read from remote repository.' };
+
+  it('is told once, as a session that failed, even on the first look: a node keeps none across a restart', () => {
+    const first = notificationsOf(NOTHING_SEEN, { ...none, pushFailures: [refused] }, DEFAULT_NOTIFY, AWAY);
+    expect(first.events).toEqual([{ kind: 'failed', sessionId: 'a', title: 'Fix login', body: refused.text }]);
+    expect(notificationsOf(first.seen, { ...none, pushFailures: [refused] }, DEFAULT_NOTIFY, AWAY).events).toEqual([]);
+    const again = { ...refused, key: 'a\n200' };
+    expect(notificationsOf(first.seen, { ...none, pushFailures: [again] }, DEFAULT_NOTIFY, AWAY).events).toHaveLength(1);
+  });
+
+  it('follows the settings for a failed session, and is never made where none are handed in (the window hands none)', () => {
+    const off = { ...DEFAULT_NOTIFY, events: { ...DEFAULT_NOTIFY.events, failed: false } };
+    expect(notificationsOf(NOTHING_SEEN, { ...none, pushFailures: [refused] }, off, AWAY).events).toEqual([]);
+    expect(notificationsOf(NOTHING_SEEN, none, DEFAULT_NOTIFY, AWAY).seen.pushFailures).toBeNull();
+  });
+});
+
 describe('a device asking to join the account (issue 72)', () => {
   const none = { sessions: [], links: [], pullRequests: new Map(), reviewRequests: { requests: [], unread: [] }, tickets: { tickets: [], unread: [], sources: [], settings: { on: false, off: [], show: 'page' as const } } };
   const node = { id: 'j1', name: 'kestrel-node01', kind: 'node' as const, state: 'waiting' as const };

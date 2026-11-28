@@ -48,7 +48,7 @@ export function kestrelMcpServer(host: KestrelToolHost, omit: readonly string[] 
     name: KESTREL_SERVER,
     version: '0.2.0',
     tools: [
-      tool('list_projects', 'List the projects registered in Kestrel: name, its directories (path, and whether each is a git repository), and the default directory\'s path. Use it to see where work may happen.', {}, () =>
+      tool('list_projects', 'List the projects registered in Kestrel: name, its directories (path, and whether each is a git repository), and the default directory\'s path. Use it to see where work may happen. On a worker node it then lists the account\'s projects not cloned there yet (cloned: false, with a note saying when or why not); naming one to handoff, delegate, spawn or move_to_project clones it first.', {}, () =>
         guarded(async () => ({ text: JSON.stringify(await host.listProjects()) })),
       ),
       tool(

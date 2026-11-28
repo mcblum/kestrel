@@ -16,6 +16,9 @@
 //   POST   /api/connect/requests/:id/dismiss   200 ConnectView: the second code was typed; stop showing it | 409
 //   PATCH  /api/connect/name  { name }    200 ConnectView: this computer's name ('' is its host name); kept here, sent to the service when it can be | 400 | 409
 //   PATCH  /api/connect/devices/:id { name }  200 ConnectView: renames a device of the account (a label only) | 400 | 409
+//   POST   /api/connect/devices/:id/update     200 UpdateNowAnswer: Update now on a worker node (`node.update`, worker-nodes.md 4.2) | 409 | 503
+//   POST   /api/connect/devices/:id/settings { key, value }  200 NodePublished: one setting of a worker node (`node.settings.set`, section 10) | 400 | 409 | 503
+//   POST   /api/connect/devices/:id/restart    200 NodeRestartAnswer: Restart a worker node (`node.restart`, section 10) | 409 | 503
 //   DELETE /api/connect/devices/:id            200 ConnectView: that device's access ends at once, it leaves the account, the key rotates | 409
 //   PATCH  /api/connect/held  { keptOff?, attachments? }  200 ConnectView: what is no longer held is deleted | 400 | 409
 //   GET    /api/connect/recovery               200 { words }: from this computer, which holds the key | 409
@@ -35,7 +38,12 @@
 //   DELETE /api/connect/setup/sent             200 { undo }: the record is emptied; the token puts it back
 //   POST   /api/connect/setup/sent/restore { token }  200 SentEntry[]: Undo of the above | 409
 import { Refused } from '../../refused.ts';
+import { failedRemoteAction, type ActionAnswer } from '../../remote-actions.ts';
 import type { KestrelConnect } from './connect.ts';
+import type { AccountOffers } from '../../account-offers.ts';
+import type { ConnectDevice } from '../../shared/connect.ts';
+import { asNodePublished } from '../../shared/node-facts.ts';
+import { nodeSettingRefusal } from '../../shared/node-settings.ts';
 import { SETUP_GROUPS, type SetupGroup } from '../../shared/setup-list.ts';
 import type { SetupSteps } from '../../setup-actions/steps.ts';
 
@@ -99,7 +107,8 @@ async function valuesRoute(parts: readonly string[], method: string, readBody: R
   return null;
 }
 
-export async function connectRoute(parts: readonly string[], method: string, readBody: ReadBody, connect: KestrelConnect): Promise<ConnectAnswer | null> {
+/** `offers`: this computer's copy of the account's offers records, where a node's answer to a change of its settings is held. */
+export async function connectRoute(parts: readonly string[], method: string, readBody: ReadBody, connect: KestrelConnect, offers?: NodeAnswers): Promise<ConnectAnswer | null> {
   if (parts[1] !== 'connect' || parts.length > 5) return null;
   try {
     if (parts.length === 2) {
@@ -143,6 +152,9 @@ export async function connectRoute(parts: readonly string[], method: string, rea
       }
       return null;
     }
+    if (parts[2] === 'devices' && parts.length === 5 && parts[4] === 'update' && method === 'POST') return await updateNodeRoute(connect, parts[3] as string);
+    if (parts[2] === 'devices' && parts.length === 5 && parts[4] === 'settings' && method === 'POST') return await nodeSettingRoute(connect, offers ?? null, parts[3] as string, await readBody());
+    if (parts[2] === 'devices' && parts.length === 5 && parts[4] === 'restart' && method === 'POST') return await restartNodeRoute(connect, parts[3] as string);
     if (parts.length > 4) return null;
     if (parts.length !== 3 && parts[2] !== 'devices') return null;
     if (parts[2] === 'held' && method === 'PATCH') {
@@ -176,4 +188,53 @@ export async function connectRoute(parts: readonly string[], method: string, rea
     if (error instanceof Refused) return { status: 409, body: { error: error.message } };
     throw error;
   }
+}
+
+/**
+ * Update now on a worker node of the account (worker-nodes.md 4.2): `node.update` asked of that node, whose answer
+ * (`UpdateNowAnswer`) says whether it started or which running turns it waits for. Only a node of the account, never
+ * this computer; the node's own reason when it refuses, or that it could not be reached.
+ */
+export async function updateNodeRoute(connect: Pick<KestrelConnect, 'view' | 'remote'>, id: string): Promise<ActionAnswer> {
+  const device = nodeOf(connect, id, 'it is updated as an app');
+  if ('status' in device) return device;
+  const answer = await connect.remote.ask(id, 'node.update', {});
+  return answer.ok ? { status: 200, body: answer.result } : failedRemoteAction(answer, device.name);
+}
+
+/** Where a node's answer to a change of its settings is held (account-offers.ts). */
+export type NodeAnswers = Pick<AccountOffers, 'takeNodeAnswer'>;
+
+/** A worker node of the account by id, or the refusal: never this computer, a phone, a desktop or a device not let in. */
+function nodeOf(connect: Pick<KestrelConnect, 'view'>, id: string, asApp: string): ConnectDevice | ActionAnswer {
+  const device = connect.view().devices.find((d) => d.id === id);
+  if (!device || !device.inAccount || device.here) return { status: 409, body: { error: 'That device is not a worker node of your account.' } };
+  if (device.kind !== 'node') return { status: 409, body: { error: `${device.name} is not a worker node: ${asApp}.` } };
+  return device;
+}
+
+/**
+ * One setting of a worker node, from its page (worker-nodes.md section 10): `node.settings.set` with one key of the
+ * closed list and one value, checked here first so a request the node would refuse is not sent. The node's answer is
+ * what it publishes now, held at once in this computer's copy of its record so the page shows it; its refusal is said
+ * in its own words, and a node that cannot be reached is named.
+ */
+export async function nodeSettingRoute(connect: Pick<KestrelConnect, 'view' | 'remote'>, offers: NodeAnswers | null, id: string, body: Record<string, unknown>): Promise<ActionAnswer> {
+  const refusal = nodeSettingRefusal(body.key, body.value);
+  if (refusal) return { status: 400, body: { error: refusal } };
+  const device = nodeOf(connect, id, 'its settings are changed in its own window');
+  if ('status' in device) return device;
+  const answer = await connect.remote.ask(id, 'node.settings.set', { key: body.key, value: body.value });
+  if (!answer.ok) return failedRemoteAction(answer, device.name);
+  const published = asNodePublished(answer.result);
+  if (published) await offers?.takeNodeAnswer(id, published);
+  return { status: 200, body: published ?? answer.result };
+}
+
+/** Restart a worker node (`node.restart`): refused there while a turn runs, naming the sessions. */
+export async function restartNodeRoute(connect: Pick<KestrelConnect, 'view' | 'remote'>, id: string): Promise<ActionAnswer> {
+  const device = nodeOf(connect, id, 'it is restarted as an app');
+  if ('status' in device) return device;
+  const answer = await connect.remote.ask(id, 'node.restart', {});
+  return answer.ok ? { status: 200, body: answer.result } : failedRemoteAction(answer, device.name);
 }

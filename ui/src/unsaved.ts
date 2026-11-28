@@ -11,6 +11,8 @@ export interface Draft {
   changed: boolean;
   /** Why it cannot be saved as it is, or null. */
   problem: string | null;
+  /** This draft can still be discarded, but its destination cannot take a save right now. */
+  blocked?: boolean;
   /** True when it was stored. */
   save: () => Promise<boolean>;
   /** Back to what is stored. */
@@ -48,7 +50,7 @@ export function useDraft(draft: Draft): RefObject<HTMLSpanElement | null> {
     const before = entries.get(key);
     entries.set(key, { ...draft, anchor });
     // The functions are new each render; only what the bar draws is news.
-    if (!before || before.changed !== draft.changed || before.problem !== draft.problem || before.what !== draft.what) emit();
+    if (!before || before.changed !== draft.changed || before.problem !== draft.problem || before.blocked !== draft.blocked || before.what !== draft.what) emit();
   });
   useEffect(() => () => {
     entries.delete(key);
@@ -60,7 +62,7 @@ export function useDraft(draft: Draft): RefObject<HTMLSpanElement | null> {
 /** Save every changed draft. False when one could not be saved (it has a problem, or the server refused). */
 export async function saveDrafts(): Promise<boolean> {
   for (const draft of changedDrafts()) {
-    if (draft.problem !== null || !(await draft.save())) return false;
+    if (draft.blocked || draft.problem !== null || !(await draft.save())) return false;
   }
   return true;
 }

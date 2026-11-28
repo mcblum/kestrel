@@ -16,12 +16,19 @@ import type { Machine } from './machines.ts';
 import type { PermissionLevel } from './permissions.ts';
 import type { ModelPreset } from './who-does-what.ts';
 import { keyShapeIn } from './setup-record.ts';
+import { asNodeUpdateNote, isVersion, type NodeUpdateNote } from './node-update.ts';
+import { asNodePublished, type NodePublished } from './node-facts.ts';
 
 /** The list every computer's record is in, before tagging. */
 export const OFFERS_LIST = 'offers';
 /** What a computer's record is filed under, before tagging. */
 export const offersLabel = (machineId: string): string => `offers|${machineId}`;
-/** The record's version. A reader that does not know it asks live. */
+/**
+ * The record's version. A reader that does not know it asks live. Not raised for `version` and `update`
+ * (worker-nodes.md 4.2), nor for a node's `node` (its settings and status facts, section 10): a reader builds the offers
+ * field by field and drops what it does not know, so an older reader reads a newer record whole, less those; raising it
+ * would make every older reader ask live instead.
+ */
 export const OFFERS_VERSION = 1;
 /** A record whose sealed body (the base64url text the service holds) is longer than this is refused, unread. */
 export const MAX_OFFERS_BODY = 256 * 1024;
@@ -51,6 +58,18 @@ export interface RemoteStartChoices {
   missing: RemoteStartMissing[];
   /** The projects a session may be started in here, by name; never one kept off Kestrel Connect. */
   projects: RemoteStartProject[];
+  /**
+   * The Kestrel version this computer runs (worker-nodes.md 4.2): a worker node follows the newest a desktop runs.
+   * Absent from an older computer's record: its version is unknown, and it does not count.
+   */
+  version?: string;
+  /** A worker node's update, when it is behind its desktops (`nodeUpdateLine` words it). Absent: nothing to say. */
+  update?: NodeUpdateNote;
+  /**
+   * A worker node's settings another computer may change and the status facts its page shows (worker-nodes.md section
+   * 10; shared/node-facts.ts). Absent on a desktop, and from a node before them: its page then says what it cannot show.
+   */
+  node?: NodePublished;
 }
 
 /** A project of this computer as a device picks it: send back `id`, and a folder's `id` as `folderId`. */
@@ -214,6 +233,9 @@ function asOffers(raw: unknown): RemoteStartChoices | null {
     providers: each(o.providers, asProvider),
     missing: each(o.missing, asMissing),
     projects: each(o.projects, asProject),
+    ...(isVersion(o.version) ? { version: o.version } : {}),
+    ...((update) => (update ? { update } : {}))(asNodeUpdateNote(o.update)),
+    ...((node) => (node ? { node } : {}))(asNodePublished(o.node)),
   };
 }
 

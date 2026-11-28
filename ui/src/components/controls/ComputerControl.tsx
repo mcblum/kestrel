@@ -18,9 +18,12 @@ export const thisComputerName = (): string => {
   return words.charAt(0).toUpperCase() + words.slice(1);
 };
 
-/** The menu's rows: each computer, ticked where it is the chosen one, greyed with why where it cannot be chosen. */
+/**
+ * The menu's rows: each computer, ticked where it is the chosen one, greyed with why where it cannot be chosen, and a
+ * worker node behind its desktops with its update line beside it.
+ */
 const menuItems = (options: readonly ComputerOption[], value: string | null): MenuItem[] =>
-  options.map((o) => ({ id: o.id ?? '', label: o.name, checked: o.id === value, ...(o.disabled ? { disabled: true, hint: o.disabled } : {}) }));
+  options.map((o) => ({ id: o.id ?? '', label: o.name, checked: o.id === value, ...(o.disabled ? { disabled: true, hint: o.disabled } : o.note ? { hint: o.note } : {}) }));
 
 interface Props {
   /** The chosen computer's id; null: this one. */

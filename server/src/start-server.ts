@@ -24,7 +24,13 @@ import { opencodeAdapter } from './agents/opencode/index.ts';
 import { scriptedAdapter } from './agents/scripted.ts';
 import { titleProviders } from './agents/title-providers.ts';
 import { createKestrelServer } from './http.ts';
-import { computerName, startConnect } from './connect/link/start.ts';
+import { computerName, nodeClones, startConnect } from './connect/link/start.ts';
+import { ProjectMirror } from './project-clone/mirror.ts';
+import { NodeProjectPrefsStore } from './project-clone/prefs.ts';
+import { NodePusher } from './runtime/node-push.ts';
+import { nodeUpdater } from './node-update/start.ts';
+import { nodeSettings } from './node-settings/start.ts';
+import { CLONES_FOLDER } from './shared/project-clone.ts';
 import { startCrashReporter } from './crash-reports/start.ts';
 import { crashReportSetup } from './shared/crash-reports.ts';
 import { detailsSources, watchBasePipeline } from './details-api.ts';
@@ -309,7 +315,39 @@ export async function startKestrel(options: StartOptions): Promise<KestrelHandle
   // Kestrel Connect (connect/link/): signed in and switched on in Settings, it links to the relay.
   // A session's page beside its conversation, for this window and for another desktop that shows the session (session-routes.ts).
   const sessionPage = sessionRoutes({ workspace, runtime, details: { sources: details, sample: fake }, writers: titles });
-  const connect = await startConnect({ kind, dataDir, settings: db, fake, workspace, runtime, reviewRequests, tickets, ticketsApi, pullRequests: details.store, mcpServers, vaultKey, sessionRoute: sessionPage.route });
+  // A worker node mirrors the account's projects and pushes its sessions' branches (worker-nodes.md 9.3): one cloner,
+  // the dispatcher's and the mirror's, so a project is cloned once. Made before Kestrel Connect, whose push sender reads
+  // the pusher's refusals; what they need of Connect is read when they run.
+  const clones = nodeClones(kind, dataDir, workspace);
+  let connectNow: KestrelConnect | null = null;
+  const keptOffNow = (): readonly string[] => connectNow?.keptOff() ?? [];
+  const nodePrefs = new NodeProjectPrefsStore(db);
+  const mirror = clones ? new ProjectMirror({ workspace, clones, root: join(dataDir, CLONES_FOLDER), here: () => connectNow?.view().computerName || here, keptOff: keptOffNow, prefs: nodePrefs }) : null;
+  runtime.useNodeProjects(mirror);
+  const pusher = kind === 'node' ? new NodePusher({ kind, sessions: async () => (await workspace.state()).sessions, prefs: nodePrefs, keptOff: keptOffNow, notice: (id, text, level) => runtime.notice(id, text, level) }) : null;
+  runtime.useNodePush(pusher);
+  // A worker node follows the account's desktops (worker-nodes.md 4.2): made before Kestrel Connect, whose offers record
+  // and dispatcher read it; it follows Connect's changes once Connect is made.
+  const version = kestrelVersion(env);
+  const updates = nodeUpdater({ kind, version, dataDir, settings: db, workspace, runtime, name: () => connectNow?.view().computerName || here, connect: () => connectNow, mirror, pusher });
+  runtime.useNodeUpdate(updates?.updater ?? null);
+  // A worker node's settings another computer may change, and its Restart (worker-nodes.md section 10): made before
+  // Kestrel Connect, whose offers record publishes them and whose dispatcher carries out `node.settings.set`.
+  const settingsOfNode = nodeSettings({ kind, version, dataDir, workspace, runtime, name: () => connectNow?.view().computerName || here, connect: () => connectNow, projects: nodePrefs, update: updates ? { store: updates.store, updater: updates.updater } : null, mirror });
+  runtime.useNodeSettings(settingsOfNode);
+  const connect = await startConnect({ kind, dataDir, settings: db, fake, workspace, runtime, reviewRequests, tickets, ticketsApi, pullRequests: details.store, mcpServers, vaultKey, sessionRoute: sessionPage.route, clones, version });
+  connectNow = connect;
+  mirror?.start();
+  const unfollowUpdates = updates?.follow(connect) ?? (() => undefined);
+  // A node renamed from another device's Devices list takes the service's name: its page's record says it too.
+  let nodeName = connect.view().computerName;
+  const unfollowName = settingsOfNode
+    ? connect.onChange((view) => {
+        if (view.computerName === nodeName) return;
+        nodeName = view.computerName;
+        settingsOfNode.changedElsewhere();
+      })
+    : () => undefined;
   // The agent's set-up tools read and run the same checklist as the page (onboarding.md 18.14).
   runtime.useSetupSteps(connect.steps);
   // A worker node names itself, as other devices see it, when it says an agent cannot run there (runtime/agent-trouble.ts).
@@ -411,6 +449,12 @@ export async function startKestrel(options: StartOptions): Promise<KestrelHandle
           },
         ],
         ['tickets', async () => ticketSync.stop()],
+        ['projects', async () => mirror?.stop()],
+        ['updates', async () => unfollowUpdates()],
+        ['node settings', async () => {
+          unfollowName();
+          settingsOfNode?.close();
+        }],
         ['connect', () => connect.close()],
         ['http', () => app.close()],
         ['store', () => db.close()],
@@ -419,5 +463,5 @@ export async function startKestrel(options: StartOptions): Promise<KestrelHandle
       return took;
     })());
 
-  return { kind, dataDir, version: kestrelVersion(env), port: boundPort, token, runtime, workspace, connect, close };
+  return { kind, dataDir, version, port: boundPort, token, runtime, workspace, connect, close };
 }

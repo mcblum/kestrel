@@ -9,6 +9,8 @@ import type { Machine } from './machines.ts';
 import type { RemoteStartChoices, RemoteStartMode, RemoteStartModel, RemoteStartProject } from '../remote-starts/session-start.ts';
 import type { ModelOption } from '../agents/types.ts';
 import { asClone } from './machine-offers.ts';
+import { asNodeUpdateNote, isVersion, nodeUpdateLine, updatingRefusal } from './node-update.ts';
+import { asNodePublished } from './node-facts.ts';
 import { BYPASS_FROM_ELSEWHERE } from './connect-ops.ts';
 
 /** What this computer knows of whether another computer can take a session now. */
@@ -20,11 +22,15 @@ export type ComputerStatus =
   /** It could not be asked, or did not answer: the reason, naming it. */
   | { state: 'unreachable'; reason: string };
 
-/** One row of the computer menu. `id` null: this computer. `disabled`: why it cannot take a session now. */
+/**
+ * One row of the computer menu. `id` null: this computer. `disabled`: why it cannot take a session now. `note`: a worker
+ * node's update line (`nodeUpdateLine`, worker-nodes.md 4.2), when it has one and can still be chosen.
+ */
 export interface ComputerOption {
   id: string | null;
   name: string;
   disabled: string | null;
+  note?: string;
 }
 
 /** What `GET /api/start-computers/:id` answers: that computer's choices, or why it cannot be asked. */
@@ -36,6 +42,8 @@ export const statusOf = (answer: StartComputerAnswer | null): ComputerStatus => 
 export function cannotStartOn(name: string, status: ComputerStatus): string | null {
   if (status.state === 'asking') return null;
   if (status.state === 'unreachable') return status.reason;
+  // A worker node updating to its desktops' version refuses starts until the new version answers.
+  if (status.choices.update?.state === 'updating') return updatingRefusal(name, status.choices.update.to);
   if (!status.choices.allowed) return status.choices.refusal ?? `Starting sessions on ${name} from other devices is off in its Settings.`;
   // No provider and none missing: an older computer that lists none; it starts what its own box would.
   if (status.choices.providers.length === 0 && status.choices.missing.length > 0) return status.choices.missing[0]!.reason || `No agent can start a session on ${name} now.`;
@@ -54,7 +62,12 @@ export function computerOptions(here: string, others: readonly Machine[], status
     const now = status(m.id);
     return now.state === 'asking' ? ASKING : cannotStartOn(m.name, now);
   };
-  return [{ id: null, name: here, disabled: null }, ...[...others].sort((a, b) => a.name.localeCompare(b.name)).map((m) => ({ id: m.id, name: m.name, disabled: reason(m) }))];
+  const note = (m: Machine): { note?: string } => {
+    const now = status(m.id);
+    const line = now.state === 'ready' ? nodeUpdateLine(m.name, now.choices.version ?? null, now.choices.update ?? null) : null;
+    return line ? { note: line } : {};
+  };
+  return [{ id: null, name: here, disabled: null }, ...[...others].sort((a, b) => a.name.localeCompare(b.name)).map((m) => ({ id: m.id, name: m.name, disabled: reason(m), ...note(m) }))];
 }
 
 /**
@@ -194,10 +207,15 @@ export function asStartChoices(raw: unknown): RemoteStartChoices | null {
   const startAgent = start && agentOf(start.agent);
   if (!r || typeof r.allowed !== 'boolean' || !start || !startAgent) return null;
   const permission = start.permission === 'auto' ? 'auto' : 'ask';
+  const version = str(r.version);
+  const update = asNodeUpdateNote(r.update);
   return {
     here: str(r.here) ?? 'that computer',
     allowed: r.allowed,
     ...(str(r.refusal) ? { refusal: str(r.refusal)! } : {}),
+    ...(version !== null && isVersion(version) ? { version } : {}),
+    ...(update ? { update } : {}),
+    ...((node) => (node ? { node } : {}))(asNodePublished(r.node)),
     agents: Array.isArray(r.agents) ? r.agents.flatMap((a) => agentOf(a) ?? []) : [],
     presets: [],
     start: { agent: startAgent, model: str(start.model) ?? '', effort: str(start.effort) ?? '', fast: start.fast === true, permission },

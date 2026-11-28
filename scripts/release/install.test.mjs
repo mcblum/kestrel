@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { archOfMachine } from '../../server/src/shared/node-bundle.ts';
 import { serviceUnitText } from '../../server/src/shared/node-service.ts';
 import { SANDBOX_INSTALL_COMMANDS } from '../../server/src/shared/node-sandbox.ts';
+import { INSTALL_NO_BUNDLE_EXIT as NO_BUNDLE_EXIT } from '../../server/src/shared/node-update.ts';
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), 'install.sh');
 const FILE = 'kestrel-node-linux-x64.tar.gz';
@@ -234,6 +235,20 @@ test('a checksum that does not match refuses and leaves nothing behind', () => {
     assert.match(out, /nothing was installed/);
     for (const left of ['.kestrel', '.local', '.config']) assert.equal(existsSync(join(w.home, left)), false, left);
     assert.deepEqual(w.calls(), []);
+  } finally {
+    w.done();
+  }
+});
+
+test('a version with no bundle for a worker node ends with its own code (4) and installs nothing (worker-nodes.md 4.2)', () => {
+  const w = world();
+  try {
+    const registry = host(w.root, { versions: ['0.0.34'] });
+    const { code, out } = w.run(['0.0.35'], registry);
+    assert.equal(code, NO_BUNDLE_EXIT, out);
+    assert.match(out, /0\.0\.35 has no build for worker nodes/);
+    assert.match(out, /Nothing was installed/);
+    for (const left of ['.kestrel', '.local', '.config']) assert.equal(existsSync(join(w.home, left)), false, left);
   } finally {
     w.done();
   }

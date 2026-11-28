@@ -31,6 +31,7 @@ import type { Live } from './record.ts';
 import type { Titler } from './titling.ts';
 import type { Upkeep } from './upkeep.ts';
 import type { WaitingSteps } from './steps.ts';
+import type { NodeProjectsTools } from '../project-clone/mirror.ts';
 
 /** A state change the user would call activity: a turn starting or ending, the agent asking (Workspace.setState). */
 export const ACTIVITY = { activity: true } as const;
@@ -100,6 +101,12 @@ export interface RuntimeHost {
   readonly planUsage: PlanUsageStore;
   /** A turn ended complete (not stopped): what follows on it that is not the turn's own (a ticket's summary proposal). Not waited for. */
   turnComplete(id: string): void;
+  /** A turn ended, complete or stopped: a worker node pushes the session's branch (runtime/node-push.ts). Not waited for. */
+  turnOver(id: string): void;
+  /** On a worker node, the account's projects it mirrors (project-clone/mirror.ts); null in the app. */
+  nodeProjects(): NodeProjectsTools | null;
+  /** Whether this is a worker node that pushes each session's branch when a turn ends, for the standing instruction. */
+  nodePushes(): Promise<boolean>;
   /** Nothing the agent's process ran is running any more. */
   endRunning(id: string): void;
   /** Resolves when every queued side effect for the session has run. */

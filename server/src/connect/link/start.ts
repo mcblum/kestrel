@@ -70,7 +70,7 @@ export function hereOf(kind: KestrelKind, platform: Platform, name: string): str
   return platform === 'mac' ? 'your Mac' : 'your computer';
 }
 
-/** A worker node clones a project it does not have when a session starts in it (item 64); the app never does. One cloner per server, so two starts clone once. */
+/** A worker node clones a project it does not have when a session starts in it (item 64), and its mirror clones the rest (9.3); the app never does. One cloner per server, made once in start-server.ts and handed to the dispatcher and the mirror, so a project is cloned once. */
 export function nodeClones(kind: KestrelKind, dataDir: string, workspace: Workspace): NodeClones | null {
   if (kind !== 'node') return null;
   const root = join(dataDir, CLONES_FOLDER);
@@ -205,7 +205,8 @@ function setupDeps(...args: Parameters<typeof setupDepsBase>): ReturnType<typeof
   return { ...deps, preview: async (name) => previewSetupList(await deps.inventory({ id: 'preview-source', name }, []), Date.now()) };
 }
 
-export async function startConnect(opts: { kind: KestrelKind; dataDir: string; settings: SettingStore; fake: boolean; workspace: Workspace; runtime: SessionRuntime; reviewRequests?: ReviewRequestStore; tickets?: TicketStore; ticketsApi?: TicketsApi; pullRequests?: PullRequestStore; mcpServers?: McpServerStore; vaultKey?: Buffer | null; sessionRoute?: SessionRoute | null }): Promise<KestrelConnect> {
+/** `clones`: the server's one cloner (`nodeClones`), shared with the mirror (project-clone/mirror.ts); absent, it is made here. */
+export async function startConnect(opts: { kind: KestrelKind; dataDir: string; settings: SettingStore; fake: boolean; workspace: Workspace; runtime: SessionRuntime; reviewRequests?: ReviewRequestStore; tickets?: TicketStore; ticketsApi?: TicketsApi; pullRequests?: PullRequestStore; mcpServers?: McpServerStore; vaultKey?: Buffer | null; sessionRoute?: SessionRoute | null; clones?: NodeClones | null; version?: string }): Promise<KestrelConnect> {
   const service = new HttpConnectService(serviceUrl());
   // The client follows the kind: the app's `kestrel-desktop`, a worker node's `kestrel-node` (CONNECT_SIGN_IN).
   const identity = new OidcProvider(async () => (await service.config()).issuer, CONNECT_SIGN_IN[opts.kind].client);
@@ -216,9 +217,9 @@ export async function startConnect(opts: { kind: KestrelKind; dataDir: string; s
   // A paired phone's decrypted requests are carried out in process (connect/dispatcher.ts).
   const pulls = opts.pullRequests ? { store: opts.pullRequests, prefs: opts.runtime.gitPrefs, workspace: opts.workspace } : null;
   const lists = connectLists(opts.runtime.reviewPrefs, opts.reviewRequests ?? null, opts.tickets ?? null, pulls);
-  const clones = nodeClones(opts.kind, opts.dataDir, opts.workspace);
-  const dispatch = (deviceId: string, send: (frame: Envelope) => void, desk: DeskOps): ConnectDispatcher => new ConnectDispatcher({ workspace: opts.workspace, runtime: opts.runtime, deviceId, here, send, lists, reviewRequests: opts.reviewRequests ?? null, tickets: opts.ticketsApi ?? null, desk, keptOff: (): readonly string[] => connect.keptOff(), kind: opts.kind, clones, sessionRoute: opts.sessionRoute ?? null });
-  const connect: KestrelConnect = new KestrelConnect({ kind: opts.kind, vault, identity, service, settings: opts.settings, computerName: computerName(), unavailable: opts.fake ? SAMPLE_DATA_REASON : connectCryptoProblem(), dispatch, here, held: { source: heldSource(opts.workspace, opts.runtime, lists), queue: fileQueueStore(join(opts.dataDir, HELD_QUEUE_FILE)) }, push: { source: pushSource(opts.workspace, opts.runtime, opts.reviewRequests ?? null, opts.tickets ?? null, opts.pullRequests ?? null) }, setup: setupDeps(opts.workspace, opts.runtime, opts.fake, opts.dataDir, opts.mcpServers ?? null), replica: opts.workspace.account, projects: opts.workspace.accountProjects, seen: seenSource(opts.workspace), offers: { source: offersSource(opts.runtime, opts.workspace, here, undefined, undefined, opts.kind), store: opts.workspace.accountOffers, watch: offersWatch(opts.runtime, opts.workspace, opts.kind) } });
+  const clones = opts.clones !== undefined ? opts.clones : nodeClones(opts.kind, opts.dataDir, opts.workspace);
+  const dispatch = (deviceId: string, send: (frame: Envelope) => void, desk: DeskOps): ConnectDispatcher => new ConnectDispatcher({ workspace: opts.workspace, runtime: opts.runtime, deviceId, here, send, lists, reviewRequests: opts.reviewRequests ?? null, tickets: opts.ticketsApi ?? null, desk, keptOff: (): readonly string[] => connect.keptOff(), kind: opts.kind, clones, sessionRoute: opts.sessionRoute ?? null, ...(opts.version ? { version: opts.version } : {}) });
+  const connect: KestrelConnect = new KestrelConnect({ kind: opts.kind, vault, identity, service, settings: opts.settings, computerName: computerName(), unavailable: opts.fake ? SAMPLE_DATA_REASON : connectCryptoProblem(), dispatch, here, held: { source: heldSource(opts.workspace, opts.runtime, lists), queue: fileQueueStore(join(opts.dataDir, HELD_QUEUE_FILE)) }, push: { source: pushSource(opts.workspace, opts.runtime, opts.reviewRequests ?? null, opts.tickets ?? null, opts.pullRequests ?? null) }, setup: setupDeps(opts.workspace, opts.runtime, opts.fake, opts.dataDir, opts.mcpServers ?? null), replica: opts.workspace.account, projects: opts.workspace.accountProjects, seen: seenSource(opts.workspace), offers: { source: offersSource(opts.runtime, opts.workspace, here, undefined, undefined, opts.kind, opts.version), store: opts.workspace.accountOffers, watch: offersWatch(opts.runtime, opts.workspace, opts.kind) } });
   await connect.start();
   return connect;
 }

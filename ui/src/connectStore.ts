@@ -2,6 +2,9 @@
 // writes), filled from the server's `connect-state` push and from the answer to each action; the
 // server holds the one copy (server/src/connect/link/connect.ts). Registered on import.
 import type { ConnectView } from '@kestrel/server/connect';
+import type { UpdateNowAnswer } from '@kestrel/server/node-update';
+import type { NodePublished } from '@kestrel/server/node-facts';
+import type { NodeRestartAnswer, NodeSettingKey } from '@kestrel/server/node-settings';
 import { act, appStore, call, connectSocket, setApp, useApp } from './store.ts';
 import { toasts } from './toasts.ts';
 
@@ -79,12 +82,34 @@ export const connectActions = {
     put(view);
     return view !== undefined && view !== null;
   },
-  /** Ends a device's access at once, removes it from the account and changes the account key. It cannot be undone, so it asks first. */
-  removeDevice: async (id: string, name: string) => {
-    if (!window.confirm(`Remove ${name} from your Kestrel Connect account? It can no longer reach this computer, and your account key and recovery key are replaced so it cannot read what is held from now on. To use it again, let it in again.`)) return;
+  /**
+   * Update now on a worker node (worker-nodes.md 4.2): the node updates to its desktops' version, waiting only for
+   * running turns, and says so. Its new line arrives with its offers record; the toast says what it answered.
+   */
+  updateNode: async (id: string) => {
+    const answer = await act(() => call<UpdateNowAnswer>(`${CONNECT_PATH}/devices/${encodeURIComponent(id)}/update`, { method: 'POST' }));
+    if (answer?.text) toasts.show(answer.text);
+  },
+  /**
+   * One setting of a worker node, from its page (worker-nodes.md section 10): the node carries it out or refuses. Its
+   * answer reaches the page through the store (the server holds it in the node's offers record); a refusal throws its
+   * reason, for the page's `act` to show in the toast stack.
+   */
+  setNodeSetting: async (id: string, key: NodeSettingKey, value: unknown): Promise<void> => {
+    await call<NodePublished>(`${CONNECT_PATH}/devices/${encodeURIComponent(id)}/settings`, { method: 'POST', body: JSON.stringify({ key, value }) });
+  },
+  /** Restart a worker node; refused there while a turn runs. What it answered shows as a toast; a refusal throws its reason. */
+  restartNode: async (id: string): Promise<void> => {
+    const answer = await call<NodeRestartAnswer>(`${CONNECT_PATH}/devices/${encodeURIComponent(id)}/restart`, { method: 'POST' });
+    if (answer?.text) toasts.show(answer.text);
+  },
+  /** Ends a device's access at once, removes it from the account and changes the account key. It cannot be undone, so it asks first. True when it was removed. */
+  removeDevice: async (id: string, name: string): Promise<boolean> => {
+    if (!window.confirm(`Remove ${name} from your Kestrel Connect account? It can no longer reach this computer, and your account key and recovery key are replaced so it cannot read what is held from now on. To use it again, let it in again.`)) return false;
     const view = await act(() => call<ConnectView>(`${CONNECT_PATH}/devices/${encodeURIComponent(id)}`, { method: 'DELETE' }));
-    if (!view) return;
+    if (!view) return false;
     setApp({ connect: view });
     toasts.show(`Removed ${name}`);
+    return true;
   },
 };

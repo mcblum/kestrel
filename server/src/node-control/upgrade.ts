@@ -45,8 +45,8 @@ export function upgradePlan(installed: InstalledBundle, asked: string | undefine
   return { ok: true, script: join(installed.current, installed.installer), args: asked ? [asked] : [], channel: channelOfVersion(installed.version) };
 }
 
-/** Runs the plan: the script copied out first, then `sh` with the terminal. Resolves with its exit code. */
-export async function upgradeFromTerminal(home: string, asked: string | undefined): Promise<number> {
+/** The installed bundle as it is on disk: `kestrel upgrade` and a node's own update (node-update/) read it the same way. */
+export function installedBundle(home: string): InstalledBundle {
   const { current } = nodeInstallPaths(home);
   let version: string | null = null;
   try {
@@ -54,7 +54,12 @@ export async function upgradeFromTerminal(home: string, asked: string | undefine
   } catch {
     version = null;
   }
-  const plan = upgradePlan({ version, installer: installerOf((path) => existsSync(join(current, path))), current }, asked);
+  return { version, installer: installerOf((path) => existsSync(join(current, path))), current };
+}
+
+/** Runs the plan: the script copied out first, then `sh` with the terminal. Resolves with its exit code. */
+export async function upgradeFromTerminal(home: string, asked: string | undefined): Promise<number> {
+  const plan = upgradePlan(installedBundle(home), asked);
   if (!plan.ok) return console.error(plan.reason), 1;
   const dir = mkdtempSync(join(tmpdir(), 'kestrel-upgrade-'));
   const copy = join(dir, 'install.sh');

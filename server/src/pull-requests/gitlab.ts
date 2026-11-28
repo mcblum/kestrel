@@ -61,12 +61,27 @@ function stateOf(state: unknown, draft: unknown): PullRequestState {
 }
 
 const text = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined);
+
+/**
+ * The merge request's pipeline, or null when it has none for its head commit yet. GitLab moves `sha` at the
+ * push and `head_pipeline` only once the new commit's pipeline is made, so for a moment the request answers
+ * with the last commit's pipeline: that one says nothing about this commit. A merged-results pipeline runs on
+ * a merge commit of its own (`refs/merge-requests/<iid>/merge`, or a train), so its commit is never compared. Pure.
+ */
+export function headPipelineOf(mr: Fields): Fields | null {
+  const pipeline = (mr.head_pipeline ?? mr.pipeline) as Fields | null | undefined;
+  if (!pipeline || typeof pipeline !== 'object') return null;
+  const head = text(mr.sha);
+  const ran = text(pipeline.sha);
+  const ownCommit = /\/(merge|train)$/.test(text(pipeline.ref) ?? '');
+  return head && ran && !ownCommit && ran !== head ? null : pipeline;
+}
 const isActive = (pr: PullRequest) => pr.state === 'open' || pr.state === 'draft';
 
 /** One merge request (a list item, or the fuller single view) as a pull request. Pure. */
 export function mapGlabMergeRequest(mr: Fields): PullRequest {
   const author = mr.author && typeof mr.author === 'object' ? text((mr.author as Fields).username) : undefined;
-  const pipeline = (mr.head_pipeline ?? mr.pipeline) as Fields | null | undefined;
+  const pipeline = headPipelineOf(mr);
   const readiness = gitlabReadiness(mr.detailed_merge_status, mr.has_conflicts);
   const state = stateOf(mr.state, mr.draft);
   // The commit the merge put on the target branch: its merge commit, else its squash commit, else (a fast-forward) the head.
@@ -83,7 +98,7 @@ export function mapGlabMergeRequest(mr: Fields): PullRequest {
     number: mr.iid as number,
     title: typeof mr.title === 'string' ? mr.title : `!${String(mr.iid)}`,
     state,
-    checks: pipelineChecks(pipeline && typeof pipeline === 'object' ? pipeline.status : undefined),
+    checks: pipelineChecks(pipeline?.status),
     review: gitlabReview(mr.detailed_merge_status),
     url: typeof mr.web_url === 'string' && /^https:\/\//.test(mr.web_url) ? mr.web_url : '',
   };
@@ -116,8 +131,8 @@ async function withView(run: CommandRunner, failedJobs: FailedJobs, reviews: Rev
   if (!hasIid(view)) throw new Error(`glab gave no merge request for !${listed.number}`);
   const merged = { ...item, ...view };
   const pr = mapGlabMergeRequest(merged);
-  const pipeline = (merged.head_pipeline ?? merged.pipeline) as Fields | null | undefined;
-  const failed = pr.checks === 'failing' && pipeline && typeof pipeline === 'object' ? await failedJobs(cwd, pipeline) : null;
+  const pipeline = headPipelineOf(merged);
+  const failed = pr.checks === 'failing' && pipeline ? await failedJobs(cwd, pipeline) : null;
   const asked = await reviews(cwd, merged);
   // The reviewers' own state wins; where glab could not say (or names nobody), the merge status stands.
   const review: ReviewState = asked ? 'changes-requested' : pr.review;

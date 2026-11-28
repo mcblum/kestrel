@@ -39,6 +39,7 @@ import { WhatsNewSetting } from '../components/WhatsNewSetting.tsx';
 import { KestrelConnectSetting } from '../components/KestrelConnectSetting.tsx';
 import { ConnectRecoveryPage } from '../components/ConnectRecoveryPage.tsx';
 import { SetupThisComputerPage } from '../components/SetupThisComputerPage.tsx';
+import { WorkerNodeSettingsContainer } from './WorkerNodeSettings.tsx';
 import { setupLeftText, setupRecordRefresh, useSetupLeft } from '../setupList.ts';
 import { ValuesSentList } from '../components/SetupValueRequests.tsx';
 import { WorktreesSetting } from '../components/WorktreesSetting.tsx';
@@ -49,7 +50,7 @@ import { AutopilotSetting } from '../components/AutopilotSetting.tsx';
 import { StartFromLatestSetting } from '../components/StartFromLatestSetting.tsx';
 import { ConnectionList } from '../components/StatusArea.tsx';
 import { useConnections } from '../components/useAgents.ts';
-import { opener, openView } from '../route.ts';
+import { opener, openView, workerNodeId } from '../route.ts';
 import { START_FROM, START_FROM_LABEL } from '@kestrel/server/sticky-controls';
 import { startingControls, startingFrom, tabActions, useTabs } from '../tabsStore.ts';
 
@@ -188,6 +189,7 @@ const RENAMED: Record<string, string> = { 'tag-suggestions': 'workflow' };
 
 export function SettingsPage({ section: asked = 'general' }: { section?: string }) {
   const section = RENAMED[asked] ?? asked;
+  const nodeId = workerNodeId(section);
   const setupLeftCount = useSetupLeft();
   const item = (id: SettingsSection) => (
     <button key={id} className={`side-link${section.split('/')[0] === id ? ' active' : ''}`} aria-current={section.split('/')[0] === id ? 'page' : undefined} {...opener((newTab) => openView({ kind: 'settings', section: id }, newTab))}>
@@ -267,6 +269,8 @@ export function SettingsPage({ section: asked = 'general' }: { section?: string 
           <ConnectRecoveryPage />
         ) : section === 'connections/setup' ? (
           <SetupThisComputerPage />
+        ) : nodeId ? (
+          <WorkerNodeSettingsContainer nodeId={nodeId} />
         ) : section === 'archived' ? (
           <ArchivedSettings />
         ) : section === 'worktrees' ? (

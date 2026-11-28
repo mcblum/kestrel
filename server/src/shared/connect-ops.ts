@@ -10,10 +10,22 @@ import { VALUE_NAME, VALUE_NAMES_MAX } from './setup-values.ts';
 import type { PageAsk } from './transcript-page.ts';
 import { SELECTABLE_AGENTS, type Agent } from '../model.ts';
 import { isPermissionLevel, type PermissionLevel } from './permissions.ts';
+import { nodeSettingRefusal, type NodeSettingKey } from './node-settings.ts';
 
-/** The protocol version this copy of Kestrel speaks. A frame of any other version is refused. */
-/** 2: frames sealed with AES-256-GCM (1 was ChaCha20-Poly1305, which the app's Electron cannot do). */
+/**
+ * The protocol version this copy of Kestrel speaks, and puts on every frame it sends.
+ * 2: frames sealed with AES-256-GCM (1 was ChaCha20-Poly1305, which the app's Electron cannot do).
+ */
 export const CONNECT_PROTOCOL_VERSION = 3;
+/**
+ * The oldest protocol this copy still accepts (worker-nodes.md 4.2): devices are refused by protocol range, never by
+ * app version, so two app versions work together while their ranges overlap. Raising it in a release is how an old
+ * device is turned away, a decision made release by release. Today the same as `CONNECT_PROTOCOL_VERSION`.
+ */
+export const CONNECT_PROTOCOL_MIN = 3;
+
+/** Whether a frame of protocol `v` is one this copy reads: within `CONNECT_PROTOCOL_MIN`..`CONNECT_PROTOCOL_VERSION`. */
+export const protocolAccepted = (v: number): boolean => v >= CONNECT_PROTOCOL_MIN && v <= CONNECT_PROTOCOL_VERSION;
 
 export const ENVELOPE_KINDS = ['request', 'response', 'push', 'hello', 'bye'] as const;
 export type EnvelopeKind = (typeof ENVELOPE_KINDS)[number];
@@ -40,13 +52,17 @@ export const isConnectId = (value: unknown): value is string => typeof value ===
 export type Checked<T> = { ok: true; value: T } | { ok: false; reason: string };
 const fail = (reason: string): { ok: false; reason: string } => ({ ok: false, reason });
 
+/** "3", or "3 to 4" where this copy accepts a range. */
+const spoken = (): string => (CONNECT_PROTOCOL_MIN === CONNECT_PROTOCOL_VERSION ? String(CONNECT_PROTOCOL_VERSION) : `${CONNECT_PROTOCOL_MIN} to ${CONNECT_PROTOCOL_VERSION}`);
+
 /**
- * Why a device cannot read a frame of version `v`, said for the device that sent it, or null when it
- * can. `here` names this computer ("your Mac"), so a phone ahead of it knows what to update.
+ * Why a device cannot read a frame of version `v`, said for the device that sent it, or null when it can (`v` within
+ * `CONNECT_PROTOCOL_MIN`..`CONNECT_PROTOCOL_VERSION`). It names who to update: `here` names this computer ("your Mac",
+ * "Worker node 1"), so a device ahead of it knows to update this one, and one behind it knows to update itself.
  */
 export function versionRefusal(v: number, here: string): string | null {
-  if (v === CONNECT_PROTOCOL_VERSION) return null;
-  return v > CONNECT_PROTOCOL_VERSION ? `Update Kestrel on ${here}: it speaks Kestrel Connect ${CONNECT_PROTOCOL_VERSION}, and this device speaks ${v}.` : `Update Kestrel on this device: ${here} speaks Kestrel Connect ${CONNECT_PROTOCOL_VERSION}, and this device speaks ${v}.`;
+  if (protocolAccepted(v)) return null;
+  return v > CONNECT_PROTOCOL_VERSION ? `Update Kestrel on ${here}: it speaks Kestrel Connect ${spoken()}, and this device speaks ${v}.` : `Update Kestrel on this device to use ${here}: ${here} speaks Kestrel Connect ${spoken()}, and this device speaks ${v}.`;
 }
 
 /** Checks a decoded frame's envelope. The body is left to its kind; the version is checked by `versionRefusal`. */
@@ -185,6 +201,19 @@ export interface ConnectOpArgs {
   'pr.create': { sessionId: string; title: unknown; body: unknown; base: unknown; draft: unknown; autopilot?: unknown };
   'pr.mergePreview': { sessionId: string; number: number };
   'pr.merge': { sessionId: string; number: number; sha: string; base: string; method: string };
+  /**
+   * A worker node's Update now (worker-nodes.md 4.2, W6): it moves to the newest version a desktop of the account runs,
+   * waiting only for its running turns, which the answer names. Desk only: a desktop or another node, never a phone.
+   */
+  'node.update': Record<string, never>;
+  /**
+   * One setting of a worker node, from its page on another computer (worker-nodes.md section 10): one key of the closed
+   * list `NODE_SETTINGS` (shared/node-settings.ts) and one value, which the node carries out by the setting's own
+   * function or refuses with the reason. Desk only.
+   */
+  'node.settings.set': { key: NodeSettingKey; value: unknown };
+  /** Restart a worker node's service; refused while a turn runs there, naming the sessions. Desk only. */
+  'node.restart': Record<string, never>;
 }
 
 /** The Details sources another desktop may ask of a session (details-api.ts's sections). */
@@ -475,6 +504,22 @@ export const CONNECT_OPS: { readonly [K in ConnectOp]: OpSpec } = {
   'pr.create': { mapsTo: 'POST /api/sessions/:id/pr-create', who: 'desk', fields: ['sessionId', 'title', 'body', 'base', 'draft', 'autopilot'], check: (a) => all({ sessionId: id(a, 'sessionId'), title: asIs(a, 'title'), body: asIs(a, 'body'), base: asIs(a, 'base'), draft: asIs(a, 'draft'), autopilot: asIs(a, 'autopilot') }) },
   'pr.mergePreview': { mapsTo: 'POST /api/sessions/:id/pr-merge-preview', who: 'desk', fields: ['sessionId', 'number'], check: (a) => all({ sessionId: id(a, 'sessionId'), number: requestNumber(a, 'number') }) },
   'pr.merge': { mapsTo: 'POST /api/sessions/:id/pr-merge', who: 'desk', fields: ['sessionId', 'number', 'sha', 'base', 'method'], check: (a) => all({ sessionId: id(a, 'sessionId'), number: requestNumber(a, 'number'), sha: typeof a.sha === 'string' && /^[a-f0-9]{40,64}$/i.test(a.sha) ? { ok: true, value: a.sha } : fail('sha must be the commit the preview showed.'), base: text(300)(a, 'base'), method: text(40)(a, 'method') }) },
+  // Matt, 2026-11-28 (worker-nodes.md 4.2): the one operation this section adds. Carried out by the node's updater
+  // (node-update/updater.ts); refused on a computer that is not a node.
+  'node.update': { mapsTo: 'the node page\'s Update now (node-update/updater.ts)', who: 'desk', never: 'node.update', fields: [], check: () => ({ ok: true, value: {} }) },
+  // Matt, 2026-11-28 (worker-nodes.md section 10, "The closed list"): a node's settings and its Restart, from its page on
+  // another computer. Carried out by node-settings/service.ts; refused on a computer that is not a node.
+  'node.settings.set': {
+    mapsTo: 'the node page\'s settings (node-settings/service.ts), one key of NODE_SETTINGS',
+    who: 'desk',
+    never: 'node.settings',
+    fields: ['key', 'value'],
+    check: (a) => {
+      const refusal = nodeSettingRefusal(a.key, a.value);
+      return refusal ? fail(refusal) : { ok: true, value: { key: a.key, value: a.value } };
+    },
+  },
+  'node.restart': { mapsTo: 'the node page\'s Restart (node-settings/service.ts)', who: 'desk', never: 'node.restart', fields: [], check: () => ({ ok: true, value: {} }) },
 };
 
 /** Why a phone is refused an operation only a desktop may ask: its `NEVER_REMOTE` reason, or that it is not something Kestrel Connect does. */
@@ -513,6 +558,9 @@ export const NEVER_REMOTE: Readonly<Record<string, string>> = {
   'session.model': 'A session\'s model is changed at the desk.',
   'session.permission': 'A session\'s mode is changed at the desk.',
   pair: 'Devices are paired at a desk or an already-paired phone, never by a request.',
+  'node.update': 'A worker node is updated from a desktop or its own terminal, not from a phone.',
+  'node.settings': 'A worker node\'s settings are changed from a desktop, not from a phone.',
+  'node.restart': 'A worker node is restarted from a desktop or its own terminal, not from a phone.',
 };
 
 /** Bypass is never chosen from another device (A8). */

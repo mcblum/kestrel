@@ -271,6 +271,8 @@ export interface NotifySeen {
   setupRequests?: readonly string[] | null;
   /** The ids of the requests to join the account seen waiting; absent where none are shown (a phone's push). */
   joinRequests?: readonly string[] | null;
+  /** The keys of a worker node's refused pushes already told (worker-nodes.md 9.3); absent where none are handed in (the window). */
+  pushFailures?: readonly string[] | null;
 }
 
 export const NOTHING_SEEN: NotifySeen = { sessions: null, requests: null, tickets: null, checks: null };
@@ -313,6 +315,26 @@ function joinRequestEvents(before: readonly string[] | null | undefined, now: re
   return { events, seen: waiting.map((r) => r.id) };
 }
 
+/** A push a worker node's host refused (runtime/node-push.ts): one per session and attempt (`key`), worded by `pushFailedText`. */
+export interface PushFailureNotice {
+  sessionId: string;
+  title: string;
+  key: string;
+  text: string;
+}
+
+/**
+ * A refused push is news as a session that failed, once per attempt, even on the first look: a node holds them in
+ * memory only, so any it has happened since it started. It follows the setting for a failed session. Pure.
+ */
+function pushFailureEvents(before: readonly string[] | null | undefined, now: readonly PushFailureNotice[] | undefined, prefs: NotifyPrefs): { events: NotifyEvent[]; seen: readonly string[] | null } {
+  if (!now) return { events: [], seen: before ?? null };
+  const had = new Set(before ?? []);
+  const tells = prefs.enabled && prefs.events.failed;
+  const events = tells ? now.filter((f) => !had.has(f.key)).map((f): NotifyEvent => ({ kind: 'failed', sessionId: f.sessionId, title: f.title, body: f.text })) : [];
+  return { events, seen: now.map((f) => f.key) };
+}
+
 /** What is there now: the workspace's sessions and links, their pull requests (the PR store's, by session), the review requests and the tickets. */
 export interface NotifyNow {
   sessions: readonly RequestSession[];
@@ -326,6 +348,8 @@ export interface NotifyNow {
   setupRequests?: readonly SetupRequestNotice[];
   /** Devices asking to join the account, as this computer shows them: the window passes them, a phone's push never does. */
   joinRequests?: readonly JoinRequestNotice[];
+  /** A worker node's refused pushes, held until the session's next push: its push sender passes them, the window never does. */
+  pushFailures?: readonly PushFailureNotice[];
 }
 
 /**
@@ -345,7 +369,8 @@ export function notificationsOf(seen: NotifySeen, now: NotifyNow, prefs: NotifyP
   ];
   const setup = setupValueEvents(seen.setupRequests, now.setupRequests);
   const joins = joinRequestEvents(seen.joinRequests, now.joinRequests, looking);
-  return { events: [...joins.events, ...setup.events, ...events], seen: { sessions: now.sessions, requests: now.reviewRequests.requests.map((r) => r.key), tickets: ticketsBefore(now.tickets), checks: checks.seen, setupRequests: setup.seen, joinRequests: joins.seen } };
+  const pushes = pushFailureEvents(seen.pushFailures, now.pushFailures, prefs);
+  return { events: [...joins.events, ...setup.events, ...events, ...pushes.events], seen: { sessions: now.sessions, requests: now.reviewRequests.requests.map((r) => r.key), tickets: ticketsBefore(now.tickets), checks: checks.seen, setupRequests: setup.seen, joinRequests: joins.seen, pushFailures: pushes.seen } };
 }
 
 /** A banner's click target as the desktop shell carries it back: a session's id, or a review request's key behind this mark. */

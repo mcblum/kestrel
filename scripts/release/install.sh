@@ -142,7 +142,16 @@ if [ -n "${KESTREL_NODE_URL:-}" ]; then BASE="${KESTREL_NODE_URL%/}"; else BASE=
 # ---- fetch and check, before anything is written --------------------------------------------------
 step "Fetching ${VERSION:-the bundle} for linux-$ARCH:"
 literal "$BASE/$FILE"
-fetch "$BASE/$FILE.sha256" "$TMP/$FILE.sha256" || refuse "Could not fetch $BASE/$FILE.sha256. Nothing was installed."
+# A checksum that is not there (an HTTP error, or no such file) means this version has no bundle for a worker node:
+# exit 4, which the node's own updater reads as "not a target" rather than as a failure (shared/node-update.ts).
+code=0
+fetch "$BASE/$FILE.sha256" "$TMP/$FILE.sha256" || code=$?
+if [ "$code" != 0 ]; then
+  case "$code" in
+    22 | 37) printf 'Kestrel worker node: %s\n' "${VERSION:-This version} has no build for worker nodes ($BASE/$FILE.sha256 is not there). Nothing was installed." >&2; exit 4 ;;
+  esac
+  refuse "Could not fetch $BASE/$FILE.sha256. Nothing was installed."
+fi
 fetch "$BASE/$FILE" "$TMP/$FILE" || refuse "Could not fetch $BASE/$FILE. Nothing was installed."
 expected="$(awk -v f="$FILE" '$2 == f || $2 == "*" f { print tolower($1); exit }' "$TMP/$FILE.sha256")"
 [ -n "$expected" ] || refuse "The checksum file has no line for $FILE. Nothing was installed."

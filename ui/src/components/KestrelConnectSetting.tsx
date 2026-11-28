@@ -5,9 +5,11 @@
 import { useState } from 'react';
 import { ExternalLink, ListChecks, LogIn, LogOut, Monitor, Smartphone } from 'lucide-react';
 import { DEVICE_KIND_NAME, DEVICE_NAME_MAX, deviceNameOf, isComputerKind, linkText, type ConnectDevice, type ConnectView } from '@kestrel/server/connect';
+import { canUpdateNow, nodeUpdateLine } from '@kestrel/server/node-update';
 import { connectActions, useConnect } from '../connectStore.ts';
+import { useComputerOffers } from '../startComputers.ts';
 import { thisComputer } from '../platform.ts';
-import { opener, openView } from '../route.ts';
+import { opener, openView, workerNodeSection } from '../route.ts';
 import { useDraft } from '../unsaved.ts';
 import { SettingSection } from './SettingHelp.tsx';
 import { ConnectHeldSetting, ConnectPushSetting } from './ConnectHeldSetting.tsx';
@@ -224,6 +226,29 @@ function deviceState(device: ConnectDevice): string {
   return device.connected ? 'Connected now' : 'In your account';
 }
 
+/**
+ * A worker node behind the account's desktops (worker-nodes.md 4.2): its update line, read from its offers record, and
+ * Update now while it waits, holds or failed. Nothing when it is on their version.
+ */
+function NodeUpdate({ device }: { device: ConnectDevice }) {
+  const status = useComputerOffers([device.id])(device.id);
+  const choices = status.state === 'ready' ? status.choices : null;
+  const line = choices ? nodeUpdateLine(device.name, choices.version ?? null, choices.update ?? null) : null;
+  if (!line) return null;
+  return (
+    <>
+      <span className="settings-help">{line}</span>
+      {canUpdateNow(choices?.update ?? null) && (
+        <span>
+          <button type="button" className="secondary-button small" aria-label={`Update ${device.name} now`} onClick={() => void connectActions.updateNode(device.id)}>
+            Update now
+          </button>
+        </span>
+      )}
+    </>
+  );
+}
+
 function Devices({ view }: { view: ConnectView }) {
   const connected = view.link.state === 'connected';
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -251,7 +276,13 @@ function Devices({ view }: { view: ConnectView }) {
                 <div className="connect-device-detail">
                   {renaming ? <RenameDevice device={device} done={() => setRenamingId(null)} /> : <span className="connect-device-name">{device.name}</span>}
                   <span className="settings-help">{deviceLine(device)}</span>
+                  {device.kind === 'node' && device.inAccount && !device.here && <NodeUpdate device={device} />}
                 </div>
+                {device.kind === 'node' && device.inAccount && (
+                  <button type="button" className="secondary-button small" aria-label={`Settings for ${device.name}`} {...opener((newTab) => openView({ kind: 'settings', section: workerNodeSection(device.id) }, newTab))}>
+                    Settings
+                  </button>
+                )}
                 {!renaming && (
                   <button type="button" className="secondary-button small" aria-label={`Rename ${device.name}`} onClick={() => (device.here ? document.getElementById(NAME_FIELD)?.focus() : setRenamingId(device.id))}>
                     Rename

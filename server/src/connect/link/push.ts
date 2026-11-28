@@ -90,6 +90,8 @@ export function pushSource(workspace: Workspace, runtime: SessionRuntime, review
         attention: await runtime.gitPrefs.attention(),
         reviewRequests: reviewRequests?.view() ?? { requests: [], unread: [] },
         tickets: tickets?.view() ?? { tickets: [], unread: [], sources: [], settings: { on: false, off: [], show: 'page' } },
+        // A worker node's refused pushes (runtime/node-push.ts); none in the app.
+        ...(runtime.nodePush ? { pushFailures: runtime.nodePush.failures() } : {}),
       };
     },
     async card(sessionId) {
@@ -97,7 +99,7 @@ export function pushSource(workspace: Workspace, runtime: SessionRuntime, review
       return plainCard(sessionId, messages);
     },
     onChange(listener) {
-      const offs = [workspace.onChange(listener), reviewRequests?.onChange(listener), tickets?.onChange(listener), pullRequests?.onChange(() => listener()), runtime.gitPrefs.onAttentionChange(() => listener())];
+      const offs = [workspace.onChange(listener), reviewRequests?.onChange(listener), tickets?.onChange(listener), pullRequests?.onChange(() => listener()), runtime.gitPrefs.onAttentionChange(() => listener()), runtime.nodePush?.onChange(listener)];
       return () => offs.forEach((off) => off?.());
     },
   };

@@ -42,7 +42,7 @@ import type { ProbeResult } from './mcp-servers/probe.ts';
 import { projectScriptsRoute } from './project-scripts/api.ts';
 import { commandsKeptRoute } from './commands-kept/api.ts';
 import { delegationLimitsRoute } from './limits-api.ts';
-import { quitCheck, type Conversation } from './shared/quit-check.ts';
+import { quitCheckNow } from './quit-check-now.ts';
 import { commitSigningRoute } from './commit-signing/api.ts';
 import { crashReportsRoute } from './crash-reports/api.ts';
 import { whatsNewRoute } from './whats-new/api.ts';
@@ -416,22 +416,9 @@ export function createKestrelServer(workspace: Workspace, givenPolicy: AccessPol
 
     if (method === 'GET' && parts[1] === 'state' && parts.length === 2) return send(req, res, 200, await currentStateJson());
     // The shell's quit check (app/quit-guard.mjs): what quitting would stop, by the one rule (shared/quit-check.ts).
-    if (method === 'GET' && parts[1] === 'quit-check' && parts.length === 2) {
-      const state = await workspace.state();
-      const sessions = [...state.sessions, ...state.archived.sessions];
-      // The conversation of each session waiting on the user, to tell a paused turn from a finished one: the live copy where there is one.
-      // With the steps stored for Kestrel's own cards: a card whose step is stored survives a restart.
-      const conversations = new Map<string, Conversation | undefined>();
-      for (const s of sessions) {
-        if (s.state !== 'attention') continue;
-        const stored = await workspace.storedDetail(s.id);
-        const messages = runtime?.overlay(s.id)?.messages ?? stored?.messages;
-        conversations.set(s.id, messages ? { messages, steps: stored?.steps ?? [] } : undefined);
-      }
-      return send(req, res, 200, quitCheck(sessions, (id) => conversations.get(id)));
-    }
+    if (method === 'GET' && parts[1] === 'quit-check' && parts.length === 2) return send(req, res, 200, await quitCheckNow(workspace, runtime ? (id) => runtime.overlay(id) : null));
 
-    const connected = options.connect ? await connectRoute(parts, method, () => readJson(req), options.connect) : null;
+    const connected = options.connect ? await connectRoute(parts, method, () => readJson(req), options.connect, workspace.accountOffers) : null;
     if (connected) return send(req, res, connected.status, connected.body);
 
     const onboarding = await onboardingRoute(parts, method, () => readJson(req), workspace.onboarding);

@@ -62,6 +62,19 @@ describe('glab sign-in', () => {
 });
 
 describe('mapping GitLab merge requests', () => {
+  it('takes a pipeline of an older commit as no checks on this one yet', () => {
+    const OLD = 'a'.repeat(40);
+    const NEW = 'b'.repeat(40);
+    const failed = { id: 5, status: 'failed', web_url: 'https://gitlab.example.com/g/p/-/pipelines/5' };
+    // Just after a push: `sha` is the new commit, `head_pipeline` still the last one's.
+    const stale = mapGlabMergeRequest(mr(3, { sha: NEW, head_pipeline: { ...failed, sha: OLD, ref: 'refs/merge-requests/3/head' } }));
+    expect(stale.checks).toBe('none');
+    expect(stale.checksUrl).toBeUndefined();
+    expect(mapGlabMergeRequest(mr(3, { sha: NEW, head_pipeline: { ...failed, sha: NEW, ref: 'refs/merge-requests/3/head' } }))).toMatchObject({ checks: 'failing', checksUrl: failed.web_url });
+    // A merged-results pipeline runs on a merge commit of its own: never compared.
+    expect(mapGlabMergeRequest(mr(3, { sha: NEW, head_pipeline: { ...failed, sha: OLD, ref: 'refs/merge-requests/3/merge' } })).checks).toBe('failing');
+    expect(mapGlabMergeRequest(mr(3, { sha: NEW, head_pipeline: failed })).checks).toBe('failing');
+  });
   it('maps each state, a draft, and the fields onto a pull request', () => {
     expect(mapGlabMergeRequest(mr(12))).toEqual({ number: 12, title: 'Change 12', state: 'open', checks: 'none', review: 'none', readiness: 'ready', url: `${WEB}/12`, body: 'Body', author: 'mcblum', headBranch: 'feat/x', baseBranch: 'main' });
     expect(mapGlabMergeRequest(mr(1, { draft: true, detailed_merge_status: 'draft_status' }))).toMatchObject({ state: 'draft', readiness: 'blocked' });

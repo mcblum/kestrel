@@ -50,10 +50,18 @@ export function heldProjects(records: readonly { key: string; value: string }[])
 }
 
 export class AccountProjects {
+  private readonly readers = new Set<() => void>();
+
   constructor(
     private readonly db: Persistence,
     private readonly changed: () => void,
   ) {}
+
+  /** Told after each reading of the projects feed is stored, changed or not: when the link comes up, the service says `changed`, or the devices change (a worker node's mirror, project-clone/mirror.ts). Returns the undo. */
+  onRead(listener: () => void): () => void {
+    this.readers.add(listener);
+    return () => void this.readers.delete(listener);
+  }
 
   async list(): Promise<HeldProject[]> {
     return heldProjects(await this.db.listAccountRecords());
@@ -92,6 +100,7 @@ export class AccountProjects {
       return any || gone.size > 0;
     });
     if (differs) this.changed();
+    if (batch.mark) for (const listener of this.readers) listener();
     return differs;
   }
 

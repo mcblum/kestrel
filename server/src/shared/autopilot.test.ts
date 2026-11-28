@@ -118,10 +118,22 @@ describe('a branch behind its base', () => {
 });
 
 describe('when it stops', () => {
+  test('a failure reported just after the push is not believed until the new commit\'s checks settle', () => {
+    // The host still answers with the last commit's failed checks for a moment after a push.
+    const { record } = step(start(true), failing(1, ['test']));
+    const stale = step(record, failing(2, ['test']), { now: T0 + 1000 });
+    expect(stale.act).toEqual({ type: 'none' });
+    expect(stale.record.stopped).toBeUndefined();
+    const running = step(stale.record, pr({ headSha: SHA(2), checks: 'running' }), { now: T0 + 20_000 });
+    expect(running.act).toEqual({ type: 'none' });
+    expect(step(running.record, pr({ headSha: SHA(2), checks: 'passing', readiness: 'ready' }), { now: T0 + 1000 + CHECKS_SETTLE_MS }).act).toMatchObject({ type: 'merge' });
+  });
+
   test('rounds used up: it stops and names what still fails', () => {
     let record = start(false, 1);
     ({ record } = step(record, failing(1)));
-    const { act, record: after } = step(record, failing(2, ['test']), { now: T0 + 1000 });
+    ({ record } = step(record, failing(2, ['test']), { now: T0 + 1000 }));
+    const { act, record: after } = step(record, failing(2, ['test']), { now: T0 + 1000 + CHECKS_SETTLE_MS });
     expect(act).toMatchObject({ type: 'stop', stop: { why: 'Autopilot disengaged. #7 after 1 round: checks failed on #7: test', notify: true } });
     expect(after.stopped).toBeDefined();
     expect(step(after, failing(3)).act).toEqual({ type: 'none' });
@@ -129,7 +141,9 @@ describe('when it stops', () => {
 
   test('the same checks failing again is an impasse', () => {
     const { record } = step(start(), failing(1, ['lint', 'test']));
-    expect(step(record, failing(2, ['test', 'lint']), { now: T0 + 1000 }).act).toMatchObject({ type: 'stop', stop: { why: expect.stringMatching(/same checks failed again after round 1 \(lint, test\)/) } });
+    const pushed = step(record, failing(2, ['test', 'lint']), { now: T0 + 1000 });
+    expect(pushed.act).toEqual({ type: 'none' });
+    expect(step(pushed.record, failing(2, ['test', 'lint']), { now: T0 + 1000 + CHECKS_SETTLE_MS }).act).toMatchObject({ type: 'stop', stop: { why: expect.stringMatching(/same checks failed again after round 1 \(lint, test\)/) } });
   });
 
   test('a round that pushed nothing stops after the grace', () => {

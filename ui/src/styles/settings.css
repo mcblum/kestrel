@@ -235,6 +235,23 @@
 .kestrel .connect-name { display: grid; gap: 6px; }
 .kestrel .connect-name input, .kestrel .connect-device-detail input { max-width: 32ch; }
 .kestrel .connect-device-name { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+
+/* Worker node details, under Connections. */
+.kestrel .settings-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.kestrel .node-status, .kestrel .node-sessions { margin: 0; padding: 0; }
+.kestrel .node-status > div, .kestrel .node-sessions > li {
+  display: grid;
+  gap: 8px 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--s-line);
+}
+.kestrel .node-status > div { grid-template-columns: minmax(115px, 1fr) minmax(0, 2fr); }
+.kestrel .node-status dt { font-size: 12px; }
+.kestrel .node-status dd { overflow-wrap: anywhere; }
+.kestrel .node-defaults { margin: 6px 0; padding: 0; border: 0; min-width: 0; }
+.kestrel .node-defaults legend { margin-bottom: 3px; padding: 0; font-size: 12px; font-weight: 500; }
+.kestrel .node-sessions > li { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.kestrel .node-session-detail { min-width: 0; }
 .kestrel .connect-join { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-paper); }
 .kestrel .connect-join p { margin: 0; }
 .kestrel .connect-join-title { font-size: 13px; font-weight: 600; }

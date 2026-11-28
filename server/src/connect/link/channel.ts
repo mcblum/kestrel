@@ -123,8 +123,9 @@ export class DeskChannel {
     const me = this.deps.me();
     if (!checked.ok || !me || checked.value.to !== me.id) return;
     const frame = checked.value;
-    // Another version cannot be read here: say what to update, in the clear, and nothing else.
-    if (frame.v !== CONNECT_PROTOCOL_VERSION) return this.refuse(frame, me.id, versionRefusal(frame.v, this.deps.here) ?? 'Update Kestrel.');
+    // A protocol outside the range this copy accepts cannot be read here: say who to update, in the clear, and nothing else.
+    const version = versionRefusal(frame.v, this.deps.here);
+    if (version) return this.refuse(frame, me.id, version);
     if (frame.kind === 'hello') return this.hello(frame, me);
     const member = this.deps.member(frame.from);
     const channel = this.channels.get(frame.from);

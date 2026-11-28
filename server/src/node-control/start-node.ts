@@ -4,24 +4,18 @@
 import { homedir } from 'node:os';
 import { computerName } from '../connect/link/start.ts';
 import { hostPlatform } from '../host.ts';
-import { hostSandboxSupport, type SandboxSupport } from '../agents/claude/sandbox-support.ts';
-import { NODE_SANDBOX_MISSING } from '../shared/node-sandbox.ts';
 import { startKestrel, type KestrelHandle, type StartOptions } from '../start-server.ts';
 import type { Agent } from '../model.ts';
-import { agentStatesOf, nodeStatusOf, type NodeProjects, type NodeStatus, type NodeStatusInputs } from '../shared/node-status.ts';
+import { agentStatesOf, nodeStatusOf, type NodeStatus } from '../shared/node-status.ts';
+import { nodeStatusInputs } from './status-inputs.ts';
 import { listenControl, type ControlSocket } from './control-socket.ts';
 import { nodeSocketPath } from './socket-path.ts';
-import { hostFacts, hostProbe, type HostProbe } from './host-facts.ts';
+import { hostProbe, type HostProbe } from './host-facts.ts';
 import { leaveAccount } from './uninstall-node.ts';
 import { joinFlow } from './join-flow.ts';
 import type { JoinRun } from './join-socket.ts';
-import { existsSync, realpathSync } from 'node:fs';
-import { join, sep } from 'node:path';
-import { CLONES_FOLDER } from '../shared/project-clone.ts';
 import { nodeGitFacts } from './git-node.ts';
-import { applyNodeGitEnv, readNodeGitSettings } from './node-git-env.ts';
-import { gitStatusOf } from '../shared/node-git-status.ts';
-import { nodeGitPaths } from '../shared/node-git.ts';
+import { applyNodeGitEnv } from './node-git-env.ts';
 
 export interface NodeOptions extends Pick<StartOptions, 'dataDir' | 'port' | 'env' | 'persistence' | 'adapters'> {
   /** What the `stop` command does once it has been answered. The entry stops and ends the process (run.ts); default: close the node. */
@@ -39,51 +33,7 @@ export interface NodeHandle {
   close(): Promise<void>;
 }
 
-/** What `status` tells of Kestrel Connect, from the module's real state: signed in, in the account, removed, connected. */
-export function connectStatusOf(connect: Pick<KestrelHandle['connect'], 'view' | 'inAccount' | 'wasRemoved'>): NodeStatusInputs['connect'] {
-  const view = connect.view();
-  return { enabled: view.enabled, unavailable: view.unavailable, account: view.account, link: view.link, inAccount: connect.inAccount(), removed: connect.wasRemoved(), storage: view.storage };
-}
-
-/** The sandbox as a node tells it: what to run there, and the restart it needs (shared/node-sandbox.ts). */
-export const nodeSandbox = (support: SandboxSupport): SandboxSupport => (support.available ? support : { available: false, reason: NODE_SANDBOX_MISSING });
-
-/** What the running server knows that `status` tells (shared/node-status.ts). */
-export async function nodeStatusInputs(server: KestrelHandle, probe: HostProbe): Promise<NodeStatusInputs> {
-  const view = server.connect.view();
-  return {
-    version: server.version,
-    kind: server.kind,
-    platform: hostPlatform(),
-    name: view.computerName || computerName(),
-    connect: connectStatusOf(server.connect),
-    agents: server.runtime.availableAgents(),
-    availability: await server.runtime.agentAvailability(),
-    sandbox: nodeSandbox(hostSandboxSupport()),
-    git: gitStatusOf(readNodeGitSettings(server.dataDir), existsSync(nodeGitPaths(server.dataDir).key)),
-    host: await hostFacts(probe),
-    pid: process.pid,
-    projects: await nodeProjects(server.workspace, server.dataDir),
-  };
-}
-
-/** The node's projects for `status`: how many, how many are clones under its projects folder, and where that is. */
-export async function nodeProjects(workspace: Pick<KestrelHandle['workspace'], 'state'>, dataDir: string): Promise<NodeProjects> {
-  const root = join(dataDir, CLONES_FOLDER);
-  const { projects } = await workspace.state();
-  const real = realRoot(root);
-  const inRoot = (path: string) => [root, real].some((r) => r !== null && path.startsWith(`${r}${sep}`));
-  return { count: projects.length, cloned: projects.filter((p) => p.folders.some((f) => inRoot(f.path))).length, where: root };
-}
-
-/** The clones folder's real path (a link resolved), or null before it exists. */
-function realRoot(root: string): string | null {
-  try {
-    return realpathSync(root);
-  } catch {
-    return null;
-  }
-}
+export { connectStatusOf, nodeSandbox, nodeStatusInputs } from './status-inputs.ts';
 
 export async function startNode(options: NodeOptions): Promise<NodeHandle> {
   let server: KestrelHandle | null = null;
@@ -110,6 +60,8 @@ export async function startNode(options: NodeOptions): Promise<NodeHandle> {
   const git = async () => {
     if (!server) throw new Error('The node is still starting. Try again in a moment.');
     if (options.env) applyNodeGitEnv(options.env, options.dataDir, server.kind);
+    // The key may now read more: the mirror tries again what it could not clone (worker-nodes.md 9.3).
+    void server.runtime.nodeProjects?.reconcile();
     return nodeGitFacts(server, server.connect.view().computerName || computerName());
   };
   const control = await listenControl(nodeSocketPath(options.dataDir), { status, join, uninstall, agents, git, stop: () => (options.onStop ?? (() => void close()))() });

@@ -30,6 +30,9 @@ import { remoteStartRun, type AgentModels } from '../remote-starts/session-start
 import { checkClone, type CloneProbe } from '../project-clone/checks.ts';
 import type { ProjectCloner } from '../project-clone/clone.ts';
 import { cloneTargetOf, cloningNote } from '../shared/project-clone.ts';
+import type { UpdateNowAnswer } from '../shared/node-update.ts';
+import { notANode } from '../shared/node-settings.ts';
+import type { NodeSettingsOps } from '../node-settings/service.ts';
 import { doesNotHave } from '../shared/start-computer.ts';
 import type { CloneStart } from '../runtime/workdir.ts';
 import { startRequestedReview } from '../review-requests/start-requested.ts';
@@ -70,6 +73,8 @@ export interface ConnectDeps {
   sessionRoute?: SessionRoute | null;
   /** On a worker node: how a project it does not have is checked and cloned when a session starts in it (item 64). */
   clones?: NodeClones | null;
+  /** This copy's Kestrel version, which what it offers carries (worker-nodes.md 4.2); absent, none is said. */
+  version?: string;
 }
 
 /** A worker node's clone on demand (project-clone/): the checks before a start is accepted, and the clone after. */
@@ -311,6 +316,14 @@ export class ConnectDispatcher {
         return {};
       case 'session.attachFile':
         return this.attach(request.args);
+      // Desk only: a worker node's Update now (worker-nodes.md 4.2).
+      case 'node.update':
+        return this.updateNode();
+      // Desk only: a worker node's settings and Restart, from its page on another computer (worker-nodes.md section 10).
+      case 'node.settings.set':
+        return this.nodeSettings().set(request.args.key, request.args.value);
+      case 'node.restart':
+        return this.nodeSettings().restart();
     }
   }
 
@@ -327,6 +340,20 @@ export class ConnectDispatcher {
     } catch (error) {
       throw error instanceof Refused ? error : new Refused(`${this.deps.here} could not answer.`);
     }
+  }
+
+  /** Update now: the node's updater, which waits only for running turns and names them. A computer that is not a node refuses. */
+  private async updateNode(): Promise<UpdateNowAnswer> {
+    const updater = this.deps.runtime.nodeUpdate;
+    if ((this.deps.kind ?? 'app') !== 'node' || !updater) throw new Refused(`${this.deps.here} is not a worker node: it is updated as an app.`);
+    return updater.updateNow();
+  }
+
+  /** A worker node's settings service (node-settings/service.ts); a computer that is not a node refuses. */
+  private nodeSettings(): NodeSettingsOps {
+    const settings = this.deps.runtime.nodeSettings;
+    if ((this.deps.kind ?? 'app') !== 'node' || !settings) throw new Refused(notANode(this.deps.here));
+    return settings;
   }
 
   /** Refuses a sidebar; any other id (one not in Kestrel too) is left to the op's own check. */
@@ -494,15 +521,17 @@ export class ConnectDispatcher {
     return answer.body;
   }
 
-  /** A8: another device starts a session here only while this computer's switch allows it. */
+  /** A8: another device starts a session here only while this computer's switch allows it, and not while a worker node updates (worker-nodes.md 4.2). */
   private async mayStart(): Promise<Set<string>> {
+    const updating = this.deps.runtime.nodeUpdate?.refusal();
+    if (updating) throw new Refused(updating);
     if (!(await this.deps.runtime.remoteStarts.prefs()).allowed) throw new Refused(remoteStartsOff(this.deps.here));
     return new Set((await this.deps.workspace.state()).sessions.map((s) => s.id));
   }
 
   /** What a phone may start a session here with: the same value this computer holds as its `offers` record (remote-starts/offers.ts). */
   private startChoices() {
-    return offersNow(offersSource(this.deps.runtime, this.deps.workspace, this.deps.here, undefined, undefined, this.deps.kind ?? 'app'), this.deps.keptOff());
+    return offersNow(offersSource(this.deps.runtime, this.deps.workspace, this.deps.here, undefined, undefined, this.deps.kind ?? 'app', this.deps.version), this.deps.keptOff());
   }
 
   /**

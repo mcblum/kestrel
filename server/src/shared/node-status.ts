@@ -10,6 +10,8 @@ import { gitStatusLines, type NodeGitStatus } from './node-git-status.ts';
 import { hostLines, type HostFacts } from './node-host.ts';
 import { PLATFORM_NAME, type Platform } from './platform.ts';
 import { NO_KEYSTORE_NOTE } from './protected-files.ts';
+import type { MirrorMode } from './node-settings.ts';
+import type { NodeUpdateNote } from './node-update.ts';
 
 /** What the server knows, handed over as plain values. */
 export interface NodeStatusInputs {
@@ -41,21 +43,47 @@ export interface NodeStatusInputs {
   host: HostFacts;
   /** The running node's process id, to tell whether systemd started it. */
   pid: number;
-  /** The node's projects: how many, how many it cloned, and where clones are kept (worker-nodes.md section 9). */
+  /** The node's projects: how many it has, which of the account's it has not and why (worker-nodes.md section 9.3). */
   projects?: NodeProjects;
+  /** Its update to the version its desktops run (worker-nodes.md 4.2): the note its offers record carries, and its line. */
+  update?: NodeUpdateStatus;
 }
 
+/** A node's update as `status` and `status --json` carry it: the note (null: on its desktops' version) and `nodeUpdateLine`'s words. */
+export interface NodeUpdateStatus {
+  note: NodeUpdateNote | null;
+  line: string | null;
+}
+
+/** The node's projects (worker-nodes.md 9.3), as the mirror knows them (project-clone/mirror.ts). */
 export interface NodeProjects {
-  count: number;
-  cloned: number;
+  /** Projects this node has. */
+  here: number;
+  /** Projects of the account it has not cloned (never one kept off Kestrel Connect). */
+  notHere: number;
+  /** Clones running now. */
+  cloning: number;
+  /** The node's Projects setting. */
+  mode: MirrorMode;
+  /** Each account project not cloned for a reason, with the refusal's or the failure's own words. */
+  notCloned: { name: string; why: string }[];
+  /** Clones the account no longer has, kept because of the work in them. */
+  kept: { name: string; why: string }[];
+  /** Why the mirror stopped cloning for lack of disk, or null. */
+  lowDisk: string | null;
   /** Where the projects it clones are kept (`~/.kestrel/projects`). */
   where: string;
 }
 
-/** The projects line of `status`. Pure. */
+/** The projects line of `status`, from the same value `status --json` carries. Pure. */
 export function projectsLine(p: NodeProjects): string {
-  const count = `${p.count} project${p.count === 1 ? '' : 's'}`;
-  return `Projects: ${count}${p.cloned > 0 ? `, ${p.cloned} cloned here` : ''}. Projects of your account it does not have are cloned into ${p.where} when a session starts in one.`;
+  const total = p.here + p.notHere;
+  const parts = [`Projects: ${p.here} of ${total} cloned${p.cloning > 0 ? `, ${p.cloning} cloning` : ''}.`];
+  if (p.mode === 'on-start' && p.notHere > 0) parts.push(`The others are cloned into ${p.where} when a session starts in one.`);
+  if (p.lowDisk) parts.push(`Cloning stopped: ${p.lowDisk}`);
+  if (p.notCloned.length > 0) parts.push(`Not cloned: ${p.notCloned.map((n) => `${n.name} (${n.why})`).join('; ')}`);
+  if (p.kept.length > 0) parts.push(`Kept though no other computer has it now: ${p.kept.map((n) => `${n.name} (${n.why})`).join('; ')}.`);
+  return parts.join(' ');
 }
 
 export interface NodeStatus {
@@ -81,6 +109,7 @@ export interface NodeStatus {
   host: HostFacts;
   pid: number;
   projects?: NodeProjects;
+  update?: NodeUpdateStatus;
 }
 
 const KEYSTORE_WHERE = "Secrets are kept in the system's keystore.";
@@ -131,6 +160,7 @@ export function nodeStatusOf(i: NodeStatusInputs): NodeStatus {
     host: i.host,
     pid: i.pid,
     ...(i.projects ? { projects: i.projects } : {}),
+    ...(i.update ? { update: i.update } : {}),
   };
 }
 
@@ -146,6 +176,7 @@ export function statusLines(s: NodeStatus): string[] {
     `Command sandbox: ${s.sandbox.available ? 'available' : `not available. ${s.sandbox.why ?? ''}`.trim()}`,
     ...gitStatusLines(s.git),
     ...(s.projects ? [projectsLine(s.projects)] : []),
+    ...(s.update?.line ? [`Update: ${s.update.line}`] : []),
     s.secrets.where,
     ...hostLines(s.host, s.pid, s.version || null),
   ];

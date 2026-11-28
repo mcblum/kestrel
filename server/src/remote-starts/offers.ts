@@ -6,6 +6,8 @@ import { homedir, userInfo } from 'node:os';
 import type { Agent, Project } from '../model.ts';
 import type { SessionRuntime } from '../runtime.ts';
 import { cleanOffers } from '../shared/machine-offers.ts';
+import type { NodeUpdateNote } from '../shared/node-update.ts';
+import type { NodePublished } from '../shared/node-facts.ts';
 import type { KestrelKind } from '../shared/host-kind.ts';
 import { offeredClones } from '../shared/project-clone.ts';
 import { defaultFolder, folderName } from '../shared/project-folders.ts';
@@ -21,6 +23,8 @@ export interface OffersSettings {
   uiState: string | null;
   /** The projects as the window lists them: this computer's, and on a worker node also the account's it does not have. */
   projects: readonly Project[];
+  /** A worker node's settings and status facts for its page on other screens (node-settings/service.ts); absent elsewhere. */
+  node?: NodePublished | null;
 }
 
 /** Where the offers are read from, so a test can stand in for the runtime. */
@@ -33,6 +37,10 @@ export interface OffersSource {
   user: string;
   /** A worker node also offers the account's projects it does not have, cloned when a session starts in one (item 64). */
   kind?: KestrelKind;
+  /** This copy's Kestrel version: a worker node follows the newest a desktop runs (worker-nodes.md 4.2). */
+  version?: string;
+  /** A worker node's update, when it is behind its desktops (node-update/updater.ts); null or absent: nothing to say. */
+  update?(): NodeUpdateNote | null;
   settings(): Promise<OffersSettings>;
   /** Each agent: whether it can start now, and its model list. Asks the agents (their answers are cached a minute). */
   agents(): Promise<AgentModels[]>;
@@ -63,18 +71,31 @@ function userName(): string {
   }
 }
 
-export function offersSource(runtime: SessionRuntime, workspace: Workspace, here: string, home: string = homedir(), user: string = userName(), kind: KestrelKind = 'app'): OffersSource {
+export function offersSource(runtime: SessionRuntime, workspace: Workspace, here: string, home: string = homedir(), user: string = userName(), kind: KestrelKind = 'app', version?: string): OffersSource {
   return {
     here,
     home,
     user,
     kind,
+    ...(version ? { version } : {}),
+    update: () => runtime.nodeUpdate?.note() ?? null,
     async settings() {
-      const [{ allowed }, { presets }, uiState, state] = await Promise.all([runtime.remoteStarts.prefs(), runtime.whoDoesWhat.current(), workspace.getUiState(), kind === 'node' ? workspace.view() : workspace.state()]);
-      return { allowed, presets, uiState, projects: state.projects };
+      const [{ allowed }, { presets }, uiState, state, node] = await Promise.all([runtime.remoteStarts.prefs(), runtime.whoDoesWhat.current(), workspace.getUiState(), kind === 'node' ? workspace.view() : workspace.state(), nodePublished(runtime)]);
+      return { allowed, presets, uiState, projects: state.projects, ...(node ? { node } : {}) };
     },
     agents: () => agentModels(runtime),
   };
+}
+
+/** A worker node's settings and facts; null on a desktop, and when they cannot be read now (the record goes without them). */
+async function nodePublished(runtime: SessionRuntime): Promise<NodePublished | null> {
+  if (!runtime.nodeSettings) return null;
+  try {
+    return await runtime.nodeSettings.published();
+  } catch (error) {
+    console.error(`[kestrel] could not read this node's settings for its page: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
 }
 
 /**
@@ -127,7 +148,8 @@ export function offersWatch(runtime: SessionRuntime, workspace: Workspace, kind:
     // A worker node's offers name the account's projects it could clone too: read from the view, which has them.
     const projects = onDifference(async () => projectsSignature((kind === 'node' ? await workspace.view() : await workspace.state()).projects, kind), other);
     const box = onDifference(async () => rememberedSignature(await workspace.getUiState()), other);
-    const offs = [runtime.onAgentsChange(() => !closed && changed(true)), runtime.whoDoesWhat.onChange(other), runtime.remoteStarts.onChange(other), workspace.onUiState(box), workspace.onChange(projects)];
+    // A worker node's update note is part of the record (worker-nodes.md 4.2), and its settings and facts (section 10).
+    const offs = [runtime.onAgentsChange(() => !closed && changed(true)), runtime.whoDoesWhat.onChange(other), runtime.remoteStarts.onChange(other), workspace.onUiState(box), workspace.onChange(projects), runtime.nodeUpdate?.onChange(other) ?? (() => undefined), runtime.nodeSettings?.onChange(other) ?? (() => undefined)];
     return () => {
       closed = true;
       offs.forEach((off) => off());
@@ -144,12 +166,16 @@ export function offeredProject(project: Project): RemoteStartProject {
  * What this computer offers: the live answer and the record alike. Projects kept off Kestrel Connect are left out. On
  * a worker node, the account's projects it does not have and could clone follow its own, marked `clone`. Pure.
  */
-export function offersOf(source: Pick<OffersSource, 'here' | 'home' | 'user' | 'kind'>, settings: OffersSettings, agents: readonly AgentModels[], keptOff: readonly string[]): RemoteStartChoices {
+export function offersOf(source: Pick<OffersSource, 'here' | 'home' | 'user' | 'kind' | 'version' | 'update'>, settings: OffersSettings, agents: readonly AgentModels[], keptOff: readonly string[]): RemoteStartChoices {
   const off = new Set(keptOff);
   const own = settings.projects.filter((p) => !p.away && !off.has(p.id)).map(offeredProject);
   const projects = source.kind === 'node' ? [...own, ...offeredClones(settings.projects, keptOff)] : own;
   const offers = remoteStartChoices(source.here, settings.allowed, remoteStartsOff(source.here), settings.presets, settings.uiState, agents, projects);
-  return cleanOffers(offers, { home: source.home, user: source.user });
+  // Its version, and a worker node's update (worker-nodes.md 4.2): what another computer's screens say of it.
+  const update = source.update?.() ?? null;
+  // A worker node's settings and status facts, for its page on other screens (worker-nodes.md section 10).
+  const node = source.kind === 'node' && settings.node ? { node: settings.node } : {};
+  return cleanOffers({ ...offers, ...(source.version ? { version: source.version } : {}), ...(update ? { update } : {}), ...node }, { home: source.home, user: source.user });
 }
 
 /** Read now, agents and all. */

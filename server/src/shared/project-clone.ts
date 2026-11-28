@@ -5,6 +5,7 @@
 // Only a worker node clones on demand (`hostKind`): a desktop keeps its clones where the person keeps them, made by
 // the person with their own credentials, and still says "Clone it there first" (account-sessions.md, 10.2).
 import type { Project } from '../model.ts';
+import type { KestrelKind } from './host-kind.ts';
 import { repositoryShortName } from './account-projects.ts';
 import { NODE_GIT_COMMAND } from './node-git.ts';
 import { sizeText } from './node-host.ts';
@@ -136,7 +137,7 @@ function planOf(name: string, folders: readonly { name: string; repo: string }[]
 const idsOf = (project: Pick<Project, 'elsewhere'>): string[] => [...new Set((project.elsewhere?.machines ?? []).flatMap((m) => m.projectId ?? []))];
 
 /** Whether a project listed here is kept off Kestrel Connect, by any of the ids it is known by. */
-const isKeptOff = (project: Pick<Project, 'id' | 'elsewhere'>, off: ReadonlySet<string>): boolean => off.has(project.id) || idsOf(project).some((id) => off.has(id));
+export const isKeptOff = (project: Pick<Project, 'id' | 'elsewhere'>, off: ReadonlySet<string>): boolean => off.has(project.id) || idsOf(project).some((id) => off.has(id));
 
 /**
  * The account projects this node does not have and could clone, as a device picks them: by the id they have on the
@@ -170,3 +171,39 @@ export function baseRefusal(base: string | undefined, heads: readonly string[], 
 
 /** The project's folder under the clones folder: its name in lower case, kept to letters, digits and `-`. */
 export const projectFolderWord = (name: string): string => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'project';
+
+// ---- what a node's agents are told (worker-nodes.md section 9.3) ------------------------------------------------
+
+/** The note of an account project a node has not cloned and could: a start in it clones it. */
+export const CLONED_ON_START = 'It is cloned when a session starts in it.';
+
+/** What `list_projects` and the standing instruction say of an account project this node has not cloned. */
+export interface NotClonedRow {
+  name: string;
+  cloned: false;
+  /** Its repositories, as every computer names them (`github.com/acme/shop`); empty for a plain folder. */
+  repositories: string[];
+  /** When it is cloned, or why it cannot be, in the refusal's own words. */
+  note: string;
+}
+
+/**
+ * The account projects a worker node has not cloned, for its agents: after the projects it has, each with
+ * `cloned: false` and a note (being cloned, the reason it was not, the refusal it would get, else
+ * `CLONED_ON_START`). Never a project kept off Kestrel Connect; by name; at most `CLONE_OFFERS_MAX`. A desktop
+ * clones nothing by itself, so its agents are told nothing more (`kind`). `why`: the reason a clone was refused
+ * or failed, by the project's id in the view; `cloning`: the ids being cloned now.
+ */
+export function notClonedRows(kind: KestrelKind, projects: readonly Project[], keptOff: readonly string[], why: ReadonlyMap<string, string>, cloning: ReadonlySet<string>): NotClonedRow[] {
+  if (kind !== 'node') return [];
+  const off = new Set(keptOff);
+  return projects
+    .filter((p) => p.away && !isKeptOff(p, off))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, CLONE_OFFERS_MAX)
+    .map((p) => {
+      const repositories = [...(p.elsewhere?.repos ?? [])];
+      const note = cloning.has(p.id) ? cloningNote(repositories) : (why.get(p.id) ?? cloneRefusal(p, keptOff) ?? CLONED_ON_START);
+      return { name: p.name, cloned: false as const, repositories, note };
+    });
+}
