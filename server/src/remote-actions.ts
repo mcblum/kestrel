@@ -80,7 +80,7 @@ function itemRoute({ parts, method, body, sessionId }: Asked): Mapped | null {
   const item = decodedSegment(sub);
   if (what === 'suggestions' && method === 'POST') {
     const suggestionId = item;
-    if (action === 'answer') return { op: 'suggestion.answer', args: { sessionId, suggestionId, ...given(body, ['button', 'picks']) }, shape: asIs };
+    if (action === 'answer') return { op: 'suggestion.answer', args: { sessionId, suggestionId, ...given(body, ['button', 'picks', 'toggles']) }, shape: asIs };
     if (action === 'dismiss') return { op: 'suggestion.dismiss', args: { sessionId, suggestionId }, shape: asIs };
     if (action === 'undo') return { op: 'suggestion.undo', args: { sessionId, suggestionId }, shape: asIs };
   }
@@ -128,7 +128,7 @@ function actionRoute({ parts, body, sessionId }: Asked): Mapped | null {
     case 'compact':
       return { op: 'session.compact', args: { sessionId }, shape: asIs };
     case 'autopilot':
-      return { op: 'autopilot.set', args: { sessionId, ...given(body, ['on', 'merge']) }, shape: asIs };
+      return { op: 'autopilot.set', args: { sessionId, ...given(body, ['on', 'merge', 'watch']) }, shape: asIs };
     case 'review-reply':
       return { op: 'review.post', args: { sessionId, ...given(body, ['cardId', 'verdict', 'summary', 'findings', 'withoutComment']) }, shape: (result) => ({ status: 200, body: field(result, 'review') }) };
     case 'findings':

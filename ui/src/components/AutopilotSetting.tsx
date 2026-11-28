@@ -1,6 +1,6 @@
 // Settings → Git → Autopilot (server: git-settings/prefs.ts, shared/autopilot.ts; docs/designs/pr-autopilot.md):
 // whether it is offered when a session's pull request appears, the rounds and a round's time limit, whether
-// Merge when green starts ticked, and Always turn it on, which is stored only once its warning is agreed to
+// Merge when green and Watch the target branch's pipeline start ticked, that watch's own time limit, and Always turn it on, which is stored only once its warning is agreed to
 // (confirmed in place, as Code reviews' "Review and reply on their own" is). Switches and selects save as
 // they are changed.
 import { useState } from 'react';
@@ -51,6 +51,10 @@ function Controls() {
         <input type="checkbox" checked={prefs.merge} onChange={(e) => void changeAutopilot({ merge: e.target.checked })} />
         Tick “Merge it when it is green” to begin with
       </label>
+      <label className="tag-rule-switch">
+        <input type="checkbox" checked={prefs.watch} onChange={(e) => void changeAutopilot({ watch: e.target.checked })} />
+        Tick “Watch the target branch’s pipeline after merging” to begin with
+      </label>
       <label className="autopilot-setting-choice">
         Rounds before it stops and tells you
         <select aria-label="Rounds" className="form-control" value={prefs.rounds} onChange={(e) => void changeAutopilot({ rounds: Number(e.target.value) })}>
@@ -73,6 +77,17 @@ function Controls() {
           ))}
         </select>
       </label>
+      <label className="autopilot-setting-choice">
+        The target branch’s pipeline’s time limit
+        <select aria-label="The target branch’s pipeline’s time limit" className="form-control" value={prefs.watchMinutes} onChange={(e) => void changeAutopilot({ watchMinutes: Number(e.target.value) })}>
+          {[...new Set([...ROUND_MINUTE_CHOICES, prefs.watchMinutes])].sort((a, b) => a - b).map((m) => (
+            <option key={m} value={m}>
+              {minutesText(m)}
+              {defaultMark(m === DEFAULT_AUTOPILOT_PREFS.watchMinutes)}
+            </option>
+          ))}
+        </select>
+      </label>
       <Always prefs={prefs} />
     </div>
   );
@@ -82,6 +97,9 @@ const HELP = (
   <>
     <p className="settings-help">
       Autopilot looks after a session’s pull request. When its checks fail, it conflicts with its target or a reviewer asks for changes, Kestrel sends the agent the fix as a turn, and the agent fixes it and pushes. A round lasts until the checks on what it pushed have reported. With “Merge it when it is green” ticked, it merges once the host says the request is ready.
+    </p>
+    <p className="settings-help">
+      With “Watch the target branch’s pipeline after merging” ticked, a merge (by anyone) does not end it: it watches the pipeline that runs on the target branch. If that fails, the agent fixes it on the session’s branch and opens a new pull request, which Autopilot looks after in turn. That watch has its own time limit, counted from the merge.
     </p>
     <p className="settings-help">
       It stops and tells you when the rounds are used up, the same checks fail again, the agent pushes nothing, a round goes over its time limit, or someone else pushes. Sending a message in the session takes it back. Every round runs in the session’s own mode: in Manual the agent still asks.

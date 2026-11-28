@@ -109,16 +109,19 @@ export class Suggestions {
   }
 
   /** The user pressed one of the card's buttons. */
-  answer(sessionId: string, suggestionId: string, button: string, picks?: readonly string[]): Promise<Suggestion> {
+  answer(sessionId: string, suggestionId: string, button: string, picks?: readonly string[], toggles?: readonly string[]): Promise<Suggestion> {
     return this.serial(sessionId, async () => {
       const { ctx, suggestion, kind } = await this.open(sessionId, suggestionId);
-      if (!suggestion.buttons.some((b) => b.id === button)) throw new Refused('That suggestion has no such button.');
+      const pressed = suggestion.buttons.find((b) => b.id === button);
+      if (!pressed) throw new Refused('That suggestion has no such button.');
+      if (toggles && !pressed.toggles) throw new Refused('That button has nothing to tick.');
+      if (toggles && !toggles.every((t) => pressed.toggles!.some((o) => o.id === t))) throw new Refused('That button has no such choice to tick.');
       // Its request was merged or closed since it was raised (and the withdrawal was missed, across a restart say): it goes, and nothing is done.
       const gone = this.deps.gone?.(suggestion) ?? null;
       if (gone !== null) return this.expire(suggestion, gone);
       if (picks && !suggestion.picks) throw new Refused('That suggestion has nothing to choose from.');
       if (picks && !suggestion.picks!.buttons.includes(button)) throw new Refused('That button does not take a choice.');
-      return this.pressAndShow(ctx, kind, suggestion, button, false, undefined, picks);
+      return this.pressAndShow(ctx, kind, suggestion, button, false, undefined, picks, toggles);
     });
   }
 
@@ -194,10 +197,10 @@ export class Suggestions {
     return { text: `Done without asking, by the user's standing rule: ${done.line}. Carry on with the work.` };
   }
 
-  private async pressAndShow(ctx: KindContext, kind: SuggestionKind, suggestion: Suggestion, button: string, auto: boolean, force?: 'dismissed', picks?: readonly string[]): Promise<Suggestion> {
+  private async pressAndShow(ctx: KindContext, kind: SuggestionKind, suggestion: Suggestion, button: string, auto: boolean, force?: 'dismissed', picks?: readonly string[], toggles?: readonly string[]): Promise<Suggestion> {
     let pressed: Pressed;
     try {
-      pressed = await kind.press(ctx, suggestion, button, picks);
+      pressed = await kind.press(ctx, suggestion, button, picks, toggles);
     } catch (error) {
       if (error instanceof Refused) throw error;
       // The kind can no longer do it (the session was archived, say): the card goes, and the user is told.

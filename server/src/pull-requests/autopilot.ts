@@ -2,10 +2,13 @@
 // step (shared/autopilot.ts) after any change of the sessions, the PR store or the choices, and every
 // LOOK_EVERY_MS for the time limits, one look at a time, and carries out what the step says: a round is a
 // message to the session's own agent as a turn (the same message the "needs you" cards' buttons send), a
-// merge is the Merge dialog's merge, a stop says why in the session. It reads only the store's held answers.
+// merge is the Merge dialog's merge, a stop says why in the session. With Watch ticked, a merge starts a watch
+// of the target branch's pipeline, which the PR store keeps current (`watchPipeline`); a failure there is a
+// round that opens a new request, and the record waits for it. It reads only the store's held answers.
 import type { SessionView } from '../model.ts';
-import { AUTOPILOT_DISENGAGED, CONTROLS_YOURS, autopilotStep, autopilotText, isOn, isWanted, newRecord, offeredRequest, recordFor, type AutopilotAct, type AutopilotPrefs, type AutopilotRecord } from '../shared/autopilot.ts';
-import type { PullRequest, PullRequestLookup } from '../shared/details.ts';
+import { AUTOPILOT_DISENGAGED, CONTROLS_YOURS, autopilotStep, autopilotText, carriedOver, isAtWork, isWanted, newRecord, offeredRequest, pipelineName, recordFor, type AutopilotAct, type AutopilotChoice, type AutopilotPrefs, type AutopilotRecord } from '../shared/autopilot.ts';
+import type { BasePipeline, PullRequest, PullRequestLookup } from '../shared/details.ts';
+import { hostTerms, requestNumber } from '../shared/host-terms.ts';
 import { isIdle, type AttentionPrefs } from '../shared/request-attention.ts';
 import type { Sourced } from '../shared/sourced.ts';
 import { Refused } from '../refused.ts';
@@ -35,6 +38,14 @@ export interface AutopilotDeps {
   /** Whether a commit is one this session's worktree has (made here); false when a person pushed it. */
   madeHere(session: AutopilotSession, sha: string): Promise<boolean>;
   onChange(listener: () => void): () => void;
+  /** Have the PR store keep the pipeline on `sha` of `base` current for the session (the same one again changes nothing). */
+  watchPipeline?(sessionId: string, base: string, sha: string): Promise<void> | void;
+  /** That pipeline as the store holds it, if it has an answer for that commit. */
+  pipeline?(sessionId: string, base: string, sha: string): Sourced<BasePipeline> | undefined;
+  /** The watch is over: the store stops asking. */
+  unwatchPipeline?(sessionId: string): void;
+  /** A watch ended quietly (the pipeline passed, or none ran): what waited for it may go ahead (the merge's clean-up). */
+  watchEnded?(sessionId: string): void;
   now?: () => number;
   lookMs?: number;
   everyMs?: number;
@@ -47,10 +58,12 @@ export class Autopilot {
   private running: Promise<void> | null = null;
   private again = false;
   private readonly off: () => void;
-  /** Sessions with it on at the last look, for the PR store's background pace. */
+  /** Sessions with it at work at the last look (`isAtWork`), for the PR store's background pace. */
   private on = new Set<string>();
   /** Sessions waiting for their request to be opened: the PR store keeps looking for it. */
   private armed = new Set<string>();
+  /** Of those, the ones whose round is opening a request to fix the target branch's pipeline: asked about soon though merged. */
+  private fixing = new Set<string>();
   /** Merges asked for, by session and commit: never twice while the store has not seen it merged yet. */
   private readonly merging = new Set<string>();
 
@@ -77,6 +90,11 @@ export class Autopilot {
     return this.on.has(sessionId);
   }
 
+  /** Whether the PR store should keep asking about the session though its request is merged: a round is opening a new one. */
+  keepsAsking(sessionId: string): boolean {
+    return this.fixing.has(sessionId);
+  }
+
   private async session(sessionId: string): Promise<AutopilotSession> {
     const session = (await this.deps.sessions()).find((s) => s.id === sessionId);
     if (!session) throw new Refused('That session is no longer in Kestrel.');
@@ -91,24 +109,30 @@ export class Autopilot {
    * stale or missing, and the step runs at once on it (issue 82): what the request already needs is
    * started on now, not on the next change; a session on a turn is acted on when that turn ends.
    */
-  async turnOn(sessionId: string, merge: boolean, number?: number): Promise<AutopilotRecord> {
+  async turnOn(sessionId: string, choice: AutopilotChoice, number?: number): Promise<AutopilotRecord> {
     const session = await this.session(sessionId);
     const lookup = (await this.deps.current?.(sessionId).catch(() => undefined)) ?? this.deps.lookup(sessionId);
     const pr = offeredRequest(lookup);
     const known = pr?.number ?? number;
-    if (known === undefined) return this.arm(session.id, merge);
-    const record = recordFor(pr, known, merge, await this.deps.prefs(), this.now());
+    if (known === undefined) return this.arm(session.id, choice);
+    // A round opening a request to fix the target branch's pipeline goes on with that request (`carriedOver`).
+    const was = session.autopilot;
+    const record = carriedOver(was, recordFor(pr, known, choice, await this.deps.prefs(), this.now()));
     await this.deps.save(session.id, record);
     this.on.add(session.id);
     this.armed.delete(session.id);
-    this.deps.notice(session.id, `Autopilot is on: ${autopilotText(record).replace(/^On: |^On, /, '')}. Send a message to take over.`, 'info');
+    this.fixing.delete(session.id);
+    const fixing = isWanted(was) && was.waiting && was.round && was.fixing ? was.fixing : null;
+    const where = requestNumber(hostTerms(lookup?.state === 'ready' ? lookup.value.host : null), known);
+    if (fixing) this.deps.notice(session.id, `Autopilot is looking after ${where}, opened to fix ${pipelineName(fixing.base)} after ${fixing.request}.`, 'info');
+    else this.deps.notice(session.id, `Autopilot is on: ${autopilotText(record).replace(/^On: |^On, /, '')}. Send a message to take over.`, 'info');
     this.soon();
     return record;
   }
 
   /** On before the session has an open request: it starts on the first one opened (`look`, or `turnOn` from the link). */
-  private async arm(sessionId: string, merge: boolean): Promise<AutopilotRecord> {
-    const record: AutopilotRecord = { ...newRecord(0, merge, await this.deps.prefs()), waiting: true };
+  private async arm(sessionId: string, choice: AutopilotChoice): Promise<AutopilotRecord> {
+    const record: AutopilotRecord = { ...newRecord(0, choice, await this.deps.prefs()), waiting: true };
     await this.deps.save(sessionId, record);
     this.armed.add(sessionId);
     this.deps.notice(sessionId, 'Autopilot is on: it starts looking after this session’s pull request once one is opened.', 'info');
@@ -131,14 +155,34 @@ export class Autopilot {
     return next;
   }
 
+  /**
+   * Change Watch the target branch's pipeline while it is on or waiting. Turned off while it watches one, the
+   * watch ends and so does Autopilot: the request it looked after is merged.
+   */
+  async setWatch(sessionId: string, watch: boolean): Promise<AutopilotRecord | null> {
+    const session = await this.session(sessionId);
+    const record = session.autopilot;
+    if (!isWanted(record)) throw new Refused('Autopilot is off for this session.');
+    if (!watch && record.watching) {
+      await this.turnOff(session.id, `the watch of ${pipelineName(record.watching.base)} was turned off`);
+      return null;
+    }
+    const next = { ...record, watch };
+    await this.deps.save(session.id, next);
+    this.soon();
+    return next;
+  }
+
   /** Turn it off: by the user's hand (no notice to them beyond the line), or because they took over. */
   async turnOff(sessionId: string, why = 'Turned off'): Promise<void> {
     const session = (await this.deps.sessions()).find((s) => s.id === sessionId);
     if (!session || !isWanted(session.autopilot)) return;
-    const { round: _round, ...rest } = session.autopilot;
+    const { round: _round, watching, ...rest } = session.autopilot;
     await this.deps.save(sessionId, { ...rest, stopped: { at: this.now(), why, notify: false } });
+    if (watching) this.deps.unwatchPipeline?.(sessionId);
     this.on.delete(sessionId);
     this.armed.delete(sessionId);
+    this.fixing.delete(sessionId);
     this.deps.notice(sessionId, `Autopilot is off: ${why}.`, 'info');
   }
 
@@ -180,25 +224,35 @@ export class Autopilot {
   }
 
   private async lookOnce(): Promise<void> {
-    const sessions = await this.deps.sessions();
-    const waiting = sessions.filter((s) => !s.hostId && isWanted(s.autopilot) && s.autopilot.waiting);
+    const sessions = (await this.deps.sessions()).filter((s) => !s.hostId);
+    const waiting = sessions.filter((s) => isWanted(s.autopilot) && s.autopilot.waiting);
     this.armed = new Set(waiting.map((s) => s.id));
-    // A request opened for a session waiting on one: it starts there.
+    this.fixing = new Set(waiting.filter((s) => s.autopilot!.round).map((s) => s.id));
+    // A request opened for a session waiting on one: it starts there (and a round opening it goes on with it).
+    const started = new Set<string>();
     for (const session of waiting) {
       const pr = offeredRequest(this.deps.lookup(session.id));
-      if (pr) await this.turnOn(session.id, session.autopilot!.merge, pr.number);
+      if (!pr) continue;
+      await this.turnOn(session.id, { merge: session.autopilot!.merge, watch: session.autopilot!.watch }, pr.number);
+      started.add(session.id);
     }
-    const on = sessions.filter((s) => !s.hostId && isOn(s.autopilot));
-    this.on = new Set(on.map((s) => s.id));
-    if (on.length === 0) return;
+    // Its record was just replaced: it is stepped on the next look, never from the copy read before.
+    const atWork = sessions.filter((s) => isAtWork(s.autopilot) && !started.has(s.id));
+    this.on = new Set([...atWork.map((s) => s.id), ...started]);
+    if (atWork.length === 0) return;
     const attention = await this.deps.attention();
-    for (const session of on) {
+    for (const session of atWork) {
       const record = session.autopilot!;
       const lookup = this.deps.lookup(session.id);
-      const head = lookup?.state === 'ready' ? lookup.value.pullRequests.find((p) => p.number === record.number)?.headSha : undefined;
+      const w = record.watching;
+      // After a restart the store holds no watch: asking again for the same one changes nothing.
+      if (w) await this.deps.watchPipeline?.(session.id, w.base, w.sha);
+      const pipeline = w ? this.deps.pipeline?.(session.id, w.base, w.sha) : undefined;
+      const head = !w && lookup?.state === 'ready' ? lookup.value.pullRequests.find((p) => p.number === record.number)?.headSha : undefined;
       const foreignPush = !record.round && !!head && record.head?.sha !== head ? !(await this.deps.madeHere(session, head)) : false;
-      const step = autopilotStep({ record, lookup, attention, idle: isIdle(session), failed: session.state === 'interrupted' || session.stopped === true, foreignPush, now: this.now() });
+      const step = autopilotStep({ record, lookup, attention, idle: isIdle(session), failed: session.state === 'interrupted' || session.stopped === true, foreignPush, ...(pipeline ? { pipeline } : {}), now: this.now() });
       if (step.record !== record) await this.deps.save(session.id, step.record);
+      if (w && !step.record.watching) this.deps.unwatchPipeline?.(session.id);
       await this.act(session, step.act, step.record);
     }
   }
@@ -206,6 +260,8 @@ export class Autopilot {
   private async act(session: AutopilotSession, act: AutopilotAct, record: AutopilotRecord): Promise<void> {
     if (act.type === 'none') return;
     if (act.type === 'round') {
+      // A round fixing the target branch's pipeline waits for the request it opens: the store keeps asking.
+      if (record.waiting) this.fixing.add(session.id);
       await this.deps.send(session.id, act.message);
       return;
     }
@@ -213,6 +269,17 @@ export class Autopilot {
     if (act.type === 'stop') {
       this.on.delete(session.id);
       if (act.stop.notify) this.deps.notice(session.id, `${act.stop.why}. ${CONTROLS_YOURS}`, 'warning');
+      return;
+    }
+    if (act.type === 'watch') {
+      await this.deps.watchPipeline?.(session.id, act.watching.base, act.watching.sha);
+      this.deps.notice(session.id, act.line, 'info');
+      return;
+    }
+    if (act.type === 'end') {
+      this.on.delete(session.id);
+      this.deps.notice(session.id, act.line, 'info');
+      this.deps.watchEnded?.(session.id);
       return;
     }
     const key = `${session.id}\n${act.pr.headSha ?? act.pr.number}`;
@@ -224,7 +291,7 @@ export class Autopilot {
     } catch (error) {
       this.merging.delete(key);
       const why = `${AUTOPILOT_DISENGAGED} It could not merge #${act.pr.number}: ${error instanceof Error ? error.message : String(error)}`;
-      const { round: _round, ...rest } = record;
+      const { round: _round, watching: _watching, ...rest } = record;
       await this.deps.save(session.id, { ...rest, stopped: { at: this.now(), why, notify: true } });
       this.on.delete(session.id);
       this.deps.notice(session.id, `${why}. ${CONTROLS_YOURS}`, 'warning');

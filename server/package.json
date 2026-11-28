@@ -48,6 +48,7 @@
     "./agent-types": "./src/agents/types.ts",
     "./sticky-controls": "./src/shared/sticky-controls.ts",
     "./status": "./src/shared/status.ts",
+    "./quit-check": "./src/shared/quit-check.ts",
     "./environments": "./src/shared/environments.ts",
     "./project-search": "./src/shared/project-search.ts",
     "./project-folders": "./src/shared/project-folders.ts",

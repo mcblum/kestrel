@@ -22,8 +22,21 @@ export interface SuggestionButton {
    * every button, offers that one as it is.
    */
   toggle?: { id: string; label: string; checked: boolean };
+  /**
+   * Choices drawn with this button as one group of checkboxes (Autopilot's Merge it when it is green and Watch
+   * the target branch's pipeline), each ticked or not to begin with. A client that knows them draws them instead
+   * of `toggle` and sends the ticked ones' ids with the answer (`toggles`); one that does not uses `toggle`.
+   */
+  toggles?: SuggestionToggle[];
   /** Not drawn as a button of its own in the window: it is reached through another's `toggle`. */
   folded?: boolean;
+}
+
+/** One checkbox of a button's group of choices (`SuggestionButton.toggles`). */
+export interface SuggestionToggle {
+  id: string;
+  label: string;
+  checked: boolean;
 }
 
 /**
@@ -121,3 +134,7 @@ export const isPicks = (value: unknown): value is string[] => Array.isArray(valu
 
 /** A suggestion or button id from a request: short, no separators. */
 export const isSuggestionId = (value: unknown): value is string => typeof value === 'string' && ID.test(value);
+
+const MAX_TOGGLES = 10;
+/** The `toggles` of an answer as a request may send them: a short list of ids. Which may be ticked is the button's to say. */
+export const isToggles = (value: unknown): value is string[] => Array.isArray(value) && value.length <= MAX_TOGGLES && value.every(isSuggestionId);

@@ -1,7 +1,7 @@
 // What quitting would stop: a turn under way. The shell's quit check asks the server this, and nothing else.
 import { describe, expect, it } from 'vitest';
 import type { ChatMessage } from '../model.ts';
-import { quitCheck, type Conversation } from './quit-check.ts';
+import { quitCheck, runsHere, workingHere, type Conversation } from './quit-check.ts';
 import type { WaitingStep } from './waiting-steps.ts';
 import { turnUnderWay } from './turns.ts';
 
@@ -60,5 +60,38 @@ describe('quitCheck', () => {
 
   it('a session with no title is still named', () => {
     expect(quitCheck([s('a', 'running', '', '  ')], () => undefined).working[0]!.title).toBe('Untitled session');
+  });
+});
+
+// Matt, 2026-11-27: the Mac mini would not restart for an update because sessions on the laptop were working.
+// Quitting stops only the agents this server runs, so a session on another computer of the account (`runsOn`) never holds it up.
+describe('only sessions on this computer hold a quit up', () => {
+  const elsewhere = <T extends object>(x: T) => ({ ...x, runsOn: 'laptop' });
+
+  it('a session working on another computer does not hold the quit; one working here still does', () => {
+    expect(quitCheck([elsewhere(s('there', 'running')), s('here', 'running')], () => undefined)).toEqual({ working: [{ id: 'here', title: 'Session here' }], waiting: [] });
+  });
+
+  it('a session on another computer is never named, whatever its state or conversation', () => {
+    const paused = elsewhere(s('paused', 'attention', 'Needs you · Run it'));
+    const card_ = elsewhere(s('card', 'attention'));
+    const conversations: Record<string, Conversation> = { paused: { messages: [asked, card()] }, card: { messages: [ended, card(undefined, true)] } };
+    expect(quitCheck([paused, card_], (id) => conversations[id])).toEqual({ working: [], waiting: [] });
+  });
+
+  it('never asks for the conversation of a session on another computer', () => {
+    const asks: string[] = [];
+    quitCheck([elsewhere(s('there', 'attention'))], (id) => (asks.push(id), { messages: [] }));
+    expect(asks).toEqual([]);
+  });
+
+  it('runsHere: a session with no `runsOn` is this computer’s own', () => {
+    expect(runsHere({})).toBe(true);
+    expect(runsHere({ runsOn: 'laptop' })).toBe(false);
+  });
+
+  it('workingHere: the sessions with an agent running on this computer, for the update notice', () => {
+    const sessions = [elsewhere(s('there', 'running')), s('here', 'running'), s('done', 'done'), s('asking', 'attention', 'Needs you · Run it')];
+    expect(workingHere(sessions).map((x) => x.id)).toEqual(['here']);
   });
 });

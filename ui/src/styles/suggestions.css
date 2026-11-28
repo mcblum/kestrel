@@ -1,6 +1,6 @@
 /* Optional actions the agent suggested (SuggestionCard.tsx): the open one as a small card just above
-   the message box, and the quiet line an answered one leaves in the conversation. Grey chrome; the
-   primary button is the only filled thing. The tag rules on the Settings page (TagSuggestionSettings.tsx). */
+   the message box, and the quiet line an answered one leaves in the conversation. Grey chrome.
+   The tag rules on the Settings page (TagSuggestionSettings.tsx). */
 
 /* ---- the card, above the message box (and above queued messages) ---- */
 .kestrel .suggestion-card { display: grid; gap: 4px; margin-bottom: 8px; padding: 8px 8px 8px 10px; background: var(--s-paper); border: 1px solid var(--s-line); border-radius: 10px; font-size: 12px; }
@@ -23,8 +23,72 @@
 .kestrel .suggestion-quiet:hover { color: var(--s-ink); background: var(--s-soft); }
 .kestrel .suggestion-buttons button:disabled, .kestrel .suggestion-x:disabled { opacity: .5; cursor: default; }
 .kestrel .suggestion-button-group { display: inline-flex; align-items: center; gap: 8px; }
-.kestrel .suggestion-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--s-muted); cursor: pointer; }
-.kestrel .suggestion-toggle input { margin: 0; }
+.kestrel .suggestion-card:has(.has-choices) .suggestion-title { font-weight: 600; }
+.kestrel .suggestion-buttons:has(> .has-choices) {
+  container-type: inline-size;
+  margin-top: 6px;
+}
+.kestrel .suggestion-buttons:has(> .has-choices) > :not(.has-choices) .suggestion-quiet {
+  border-color: transparent;
+}
+.kestrel .suggestion-buttons > .has-choices + :not(.has-choices) { margin-inline-start: auto; }
+
+/* One outlined group for the action and its options. */
+.kestrel .suggestion-button-group.has-choices {
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px 8px;
+  gap: 10px;
+  background: var(--s-bg);
+  border: 1px solid var(--s-line);
+  border-radius: 8px;
+}
+.kestrel .suggestion-button-group.has-choices > button { flex: none; }
+.kestrel .has-choices > :is(.suggestion-choices, .suggestion-toggle) {
+  border-inline-start: 1px solid var(--s-line);
+  padding-inline-start: 8px;
+}
+@container (max-width: 500px) {
+  .kestrel .suggestion-buttons > .has-choices { flex-basis: 100%; }
+  .kestrel .suggestion-buttons > .has-choices + :not(.has-choices) { margin-inline-start: 0; }
+}
+@container (max-width: 315px) {
+  .kestrel .suggestion-buttons > .has-choices { flex-direction: column; align-items: stretch; gap: 5px; }
+  .kestrel .has-choices > button { align-self: flex-start; }
+  .kestrel .has-choices > :is(.suggestion-choices, .suggestion-toggle) {
+    border-inline-start: 0;
+    border-top: 1px solid var(--s-line);
+    padding-inline-start: 0;
+  }
+}
+.kestrel .suggestion-choices { display: grid; min-width: 0; }
+.kestrel :is(.suggestion-choice, .suggestion-toggle) {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 4px;
+  color: var(--s-ink);
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+}
+.kestrel :is(.suggestion-choice, .suggestion-toggle):hover { background: var(--s-soft); }
+.kestrel :is(.suggestion-choice, .suggestion-toggle):has(input:disabled) { opacity: .5; cursor: default; background: none; }
+.kestrel :is(.suggestion-choice, .suggestion-toggle) input {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  margin: 1px 0 0;
+  accent-color: var(--s-accent);
+  cursor: inherit;
+}
+.kestrel :is(.suggestion-choice, .suggestion-toggle) input:focus-visible {
+  outline: 2px solid var(--s-accent);
+  outline-offset: 2px;
+}
+.kestrel .suggestion-choice-label { min-width: 0; overflow-wrap: anywhere; }
 
 /* ---- the line an answered suggestion leaves in the conversation ---- */
 .kestrel .suggestion-line { display: flex; align-items: center; gap: 6px; margin: 2px 0; font-size: 11px; color: var(--s-muted); }

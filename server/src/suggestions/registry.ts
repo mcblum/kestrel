@@ -60,8 +60,11 @@ export interface SuggestionKind {
   /** Raised by Kestrel only: the `suggest` tool refuses it. */
   readonly kestrelOnly?: boolean;
   propose(ctx: KindContext, payload: Record<string, unknown>): Promise<Proposal>;
-  /** `picks`: what the user chose on a card that has `picks`; absent when the answer sent none. */
-  press(ctx: KindContext, suggestion: Suggestion, button: string, picks?: readonly string[]): Promise<Pressed>;
+  /**
+   * `picks`: what the user chose on a card that has `picks`; absent when the answer sent none. `toggles`: the
+   * ids of the pressed button's `toggles` that were ticked; absent when the answer sent none (an older client).
+   */
+  press(ctx: KindContext, suggestion: Suggestion, button: string, picks?: readonly string[], toggles?: readonly string[]): Promise<Pressed>;
   /** Reverses what a press did; returns the new line. Absent: the kind has no Undo. */
   undo?(ctx: KindContext, suggestion: Suggestion): Promise<string>;
 }

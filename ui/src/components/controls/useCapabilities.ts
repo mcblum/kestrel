@@ -1,6 +1,6 @@
 // What an agent offers the controls (agents/types.ts, AgentCapabilities), held once in the app store
 // and asked of the server once per agent, again until the agent itself answered (`fromSdk`). Until
-// it answers, or when it cannot: the default model, every mode, no context ring.
+// it answers, or when it cannot: the default model and every mode; context support is unconfirmed.
 import type { AgentCapabilities } from '@kestrel/server/agent-types';
 import type { Agent } from '@kestrel/server/model';
 import { PERMISSION_LEVELS } from '@kestrel/server/permissions';

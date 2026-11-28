@@ -1,9 +1,7 @@
 // The controls for a session, one quiet row under the message box, left-justified, the same in a
 // new tab, a running session and Settings: the provider (Claude, Codex) in its own colour, the
-// model with its effort, the permission mode, a ring for how full the context window is (running
-// sessions only), then where it works (project, folder, environment). What a control means is in
-// its tooltip. What is offered comes from the agent's capabilities: a model without effort shows
-// no effort, an agent that cannot measure its context shows no ring.
+// model with its effort, the permission mode, a ring for plan usage and context in the composer,
+// then where it works (project, folder, environment). What a control means is in its tooltip.
 // In a new tab everything is editable. In a running session the provider, project and environment
 // are fixed; model, effort, fast mode and permissions can change and apply from the next message.
 // A model, effort, fast mode or mode picked here is where the next new session starts (sticky-controls.ts).
@@ -29,7 +27,6 @@ import { ProviderControl } from './controls/ProviderControl.tsx';
 import { ModelControl } from './controls/ModelControl.tsx';
 import { PresetControl } from './controls/PresetControl.tsx';
 import { ContextRing } from './controls/ContextRing.tsx';
-import { PlanUsageReadout } from './controls/PlanUsage.tsx';
 import { ComputerControl } from './controls/ComputerControl.tsx';
 import { RemoteAgentControls } from './controls/RemoteAgentControls.tsx';
 import { useComputerOffers, useOtherComputers } from '../startComputers.ts';
@@ -167,9 +164,15 @@ export function ComposerControls({ value, mode, onChange, sessionId, computers =
           )}
         </span>
         {fixed && sessionId && <AutopilotControl sessionId={sessionId} />}
-        {/* The account's plan usage for this agent (issue 80); not in Settings' defaults, which start no session. */}
-        {(fixed || computers) && <PlanUsageReadout agent={value.agent} {...(fixed && sessionId ? { sessionId } : {})} {...(elsewhere ? { elsewhere: elsewhereName } : machine ? { elsewhere: machineName ?? 'that computer' } : {})} />}
-        {fixed && sessionId && caps.contextUsage && <ContextRing sessionId={sessionId} />}
+        {(fixed || computers) && (
+          <ContextRing
+            key={sessionId ?? value.agent}
+            agent={value.agent}
+            sessionId={fixed ? sessionId : undefined}
+            reportsContext={caps.contextUsage}
+            elsewhere={elsewhere ? elsewhereName : machineName ?? undefined}
+          />
+        )}
       </span>
     </div>
   );

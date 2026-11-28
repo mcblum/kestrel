@@ -209,7 +209,7 @@ const COMMENTS_HINT: Record<HostKind, string> = {
 };
 
 /** A check reported by another service (Jenkins, for one) links there, and that page may need a sign-in the agent does not have. */
-const OTHER_SERVICE_HINT = 'A link to another service (a CI server such as Jenkins) may need a sign-in you do not have: if you cannot read it, say so, and work from what you can reproduce in this worktree.';
+export const OTHER_SERVICE_HINT = 'A link to another service (a CI server such as Jenkins) may need a sign-in you do not have: if you cannot read it, say so, and work from what you can reproduce in this worktree.';
 
 /** At most this many review comments are put into one message; the rest are counted. */
 export const COMMENTS_IN_MESSAGE = 20;

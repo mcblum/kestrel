@@ -5,15 +5,17 @@
 // What it costs: one `gh pr list` per branch per refresh gives the checks (with the failed ones' names
 // and links), the conflict state and the reviews that ask for changes (`latestReviews`). Only when a
 // review asks for changes are two more calls made, once per such set of reviews and then remembered
-// (`reviewDetailsLookup`): the reviews (for each one's link) and the request's review comments.
+// (`reviewDetailsLookup`): the reviews (for each one's link) and the request's review comments. While
+// Autopilot watches the target branch after a merge, the commit the merge made (`mergeCommit`) is asked
+// about too: its check runs and its statuses (`pipelineOn`), two calls each time the PR store asks.
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { clipReviewText, REVIEW_COMMENTS_KEPT, type ChangesRequest, type ChecksState, type FailedCheck, type MergeReadiness, type PullRequest, type PullRequestState, type ReviewComment, type ReviewState } from '../shared/details.ts';
+import { clipReviewText, REVIEW_COMMENTS_KEPT, type BasePipeline, type ChangesRequest, type ChecksState, type FailedCheck, type MergeReadiness, type PullRequest, type PullRequestState, type ReviewComment, type ReviewState } from '../shared/details.ts';
 import { ready, reasonOf, unavailable, type Sourced } from '../shared/sourced.ts';
-import type { CommandRunner, HostCommands, PullRequestProvider } from './types.ts';
+import type { CommandRunner, HostCommands, PipelineProvider, PullRequestProvider } from './types.ts';
 
 export const GH_TIMEOUT_MS = 10_000;
-export const GH_FIELDS = 'number,title,state,isDraft,url,reviewDecision,statusCheckRollup,body,author,headRefName,baseRefName,mergeStateStatus,mergeable,headRefOid,latestReviews';
+export const GH_FIELDS = 'number,title,state,isDraft,url,reviewDecision,statusCheckRollup,body,author,headRefName,baseRefName,mergeStateStatus,mergeable,headRefOid,latestReviews,mergeCommit';
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 /** Keeps gh and glab from asking anything or checking for updates while Kestrel waits on them. */
 const QUIET_CLI_ENV = { GH_PROMPT_DISABLED: '1', NO_COLOR: '1', GLAB_NO_PROMPT: 'true', GLAB_CHECK_UPDATE: 'false' };
@@ -114,7 +116,9 @@ export function mapGhItem(p: Record<string, unknown>): PullRequest {
   const named = checks === 'failing' && active;
   const review = REVIEW[String(p.reviewDecision ?? '')] ?? 'none';
   const asked = active && review === 'changes-requested' ? changesRequestedOf(p.latestReviews) : null;
+  const mergeSha = state === 'merged' && p.mergeCommit && typeof p.mergeCommit === 'object' ? text((p.mergeCommit as { oid?: unknown }).oid) : undefined;
   return {
+    ...(mergeSha ? { mergeSha } : {}),
     ...(named ? { failedChecks: failedChecksOf(p.statusCheckRollup) } : {}),
     ...(asked ? { changesRequested: asked } : {}),
     ...(text(p.headRefOid) ? { headSha: text(p.headRefOid) } : {}),
@@ -191,6 +195,28 @@ function reviewDetailsLookup(runner: CommandRunner) {
   };
 }
 
+const SHA = /^[0-9a-f]{7,64}$/i;
+export const checkRunsArgs = (sha: string): string[] => ['api', `repos/{owner}/{repo}/commits/${sha}/check-runs?per_page=100`];
+export const commitStatusArgs = (sha: string): string[] => ['api', `repos/{owner}/{repo}/commits/${sha}/status`];
+
+/**
+ * The pipeline on a commit from its check runs (`…/commits/<sha>/check-runs`) and its statuses
+ * (`…/commits/<sha>/status`), read as the request's rollup is: any failure fails, else any still going is
+ * running, else passing; none at all is none. Pure.
+ */
+export function commitPipelineOf(sha: string, checkRunsJson: string, statusJson: string): BasePipeline {
+  const runs: unknown = (JSON.parse(checkRunsJson) as { check_runs?: unknown } | null)?.check_runs;
+  const statuses: unknown = (JSON.parse(statusJson) as { statuses?: unknown } | null)?.statuses;
+  if (!Array.isArray(runs) || !Array.isArray(statuses)) throw new Error('gh did not answer with the commit\'s check runs and statuses');
+  const items = (list: unknown[]) => list.filter((i): i is Record<string, unknown> => typeof i === 'object' && i !== null);
+  const rollup = [
+    ...items(runs).map((r) => ({ name: r.name, status: r.status, conclusion: r.conclusion, detailsUrl: r.details_url ?? r.html_url })),
+    ...items(statuses).map((st) => ({ context: st.context, state: st.state, targetUrl: st.target_url })),
+  ];
+  const checks = checksOf(rollup);
+  return { sha, checks, ...(checks === 'failing' ? { failedChecks: failedChecksOf(rollup) } : {}) };
+}
+
 /** Why gh could not answer, said plainly. */
 export function ghFailureReason(error: unknown): string {
   const e = error as { code?: unknown; killed?: unknown; stderr?: unknown };
@@ -201,7 +227,7 @@ export function ghFailureReason(error: unknown): string {
   return stderr.trim() ? reasonOf(new Error(stderr)) : reasonOf(error);
 }
 
-export function githubProvider(runner: CommandRunner = execRunner): PullRequestProvider {
+export function githubProvider(runner: CommandRunner = execRunner): PullRequestProvider & PipelineProvider {
   const reviewDetails = reviewDetailsLookup(runner);
   const detailed = (cwd: string, pr: PullRequest): Promise<PullRequest> | PullRequest =>
     pr.changesRequested ? reviewDetails(cwd, pr.number, pr.changesRequested).then((changesRequested) => ({ ...pr, changesRequested })) : pr;
@@ -216,6 +242,22 @@ export function githubProvider(runner: CommandRunner = execRunner): PullRequestP
       try {
         const mapped = mapGhPullRequests(stdout);
         return ready(await Promise.all(mapped.map((pr) => detailed(repoPath, pr))));
+      } catch (error) {
+        return unavailable(`gh gave an answer Kestrel cannot read: ${reasonOf(error)}`);
+      }
+    },
+    async pipelineOn(repoPath, sha): Promise<Sourced<BasePipeline>> {
+      if (!SHA.test(sha)) return unavailable('That is not a commit id');
+      let runs: string;
+      let status: string;
+      try {
+        const ask = async (args: string[]) => (await runner('gh', args, { cwd: repoPath, timeoutMs: GH_TIMEOUT_MS })).stdout;
+        [runs, status] = await Promise.all([ask(checkRunsArgs(sha)), ask(commitStatusArgs(sha))]);
+      } catch (error) {
+        return unavailable(ghFailureReason(error));
+      }
+      try {
+        return ready(commitPipelineOf(sha, runs, status));
       } catch (error) {
         return unavailable(`gh gave an answer Kestrel cannot read: ${reasonOf(error)}`);
       }

@@ -11,8 +11,8 @@ export const suggestionActions = {
   // An answer that archives a session (the offer after an approval) is announced with Undo by the store,
   // as every archive this window did not make itself is (`archivedElsewhere`).
   // `picks`: what was chosen on a card that offers names to choose (a tag card's tags).
-  answer: (sessionId: string, suggestionId: string, button: string, picks?: readonly string[]) =>
-    act(() => call<{ suggestion: Suggestion }>(path(sessionId, suggestionId, 'answer'), { method: 'POST', body: JSON.stringify({ button, ...(picks ? { picks } : {}) }) })),
+  answer: (sessionId: string, suggestionId: string, button: string, picks?: readonly string[], toggles?: readonly string[]) =>
+    act(() => call<{ suggestion: Suggestion }>(path(sessionId, suggestionId, 'answer'), { method: 'POST', body: JSON.stringify({ button, ...(picks ? { picks } : {}), ...(toggles ? { toggles } : {}) }) })),
   dismiss: (sessionId: string, suggestionId: string) => act(() => call(path(sessionId, suggestionId, 'dismiss'), { method: 'POST' })),
   undo: (sessionId: string, suggestionId: string) => act(() => call(path(sessionId, suggestionId, 'undo'), { method: 'POST' })),
 };

@@ -5,7 +5,8 @@
 // Once answered or dismissed, the card goes and one quiet line stays where it was raised, with Undo
 // where the kind offers it. Any kind is drawn the same way: the server owns titles, buttons and lines.
 // A card with `picks` (a tag card) also draws the names to choose (SuggestionPicks.tsx) and sends what
-// is chosen with the buttons that take it. A card about a pull request the store already holds as merged
+// is chosen with the buttons that take it. A button with `toggles` (Autopilot's Turn on) draws its choices as one
+// group of checkboxes and sends the ticked ones with the answer. A card about a pull request the store already holds as merged
 // or closed is not drawn (shared/request-cards.ts); the server withdraws it.
 import { memo, useMemo, useState } from 'react';
 import { Lightbulb, X } from 'lucide-react';
@@ -22,7 +23,7 @@ import { suggestionActions } from '../suggestionsApi.ts';
 
 function Card({ sessionId, suggestion, waiting }: { sessionId: string; suggestion: Suggestion; waiting: number }) {
   const [busy, setBusy] = useState(false);
-  // Each button's checkbox, by button id: as the server set it until the user changes it.
+  // Each button's checkbox, by button id (and a choice of its group, by "button:choice"): as the server set it until the user changes it.
   const [ticked, setTicked] = useState<Record<string, boolean>>({});
   // What is chosen on a card with names to choose, and the text not yet made a chip: a draft, sent with the answer.
   const picks = suggestion.picks;
@@ -66,17 +67,29 @@ function Card({ sessionId, suggestion, waiting }: { sessionId: string; suggestio
           .filter((b) => !b.folded)
           .map((b) => {
             const on = b.toggle ? (ticked[b.id] ?? b.toggle.checked) : false;
-            const sends = b.toggle && on ? b.toggle.id : b.id;
+            // A group of choices answers with the button itself and the ticked choices; else the single toggle picks the button.
+            const choices = b.toggles?.map((t) => ({ ...t, key: `${b.id}:${t.id}`, on: ticked[`${b.id}:${t.id}`] ?? t.checked }));
+            const sends = !choices && b.toggle && on ? b.toggle.id : b.id;
+            const togglesSent = choices?.filter((c) => c.on).map((c) => c.id);
             const picksSent = picked(sends);
             return (
-              <span key={b.id} className="suggestion-button-group">
-                <button type="button" className={b.primary ? 'suggestion-primary' : 'suggestion-quiet'} disabled={busy || picksSent?.length === 0} title={picksSent?.length === 0 ? 'Choose a tag first' : undefined} onClick={() => void run(() => suggestionActions.answer(sessionId, suggestion.id, sends, picksSent))}>
+              <span key={b.id} className={`suggestion-button-group${(choices?.length ?? b.toggle) ? ' has-choices' : ''}`}>
+                <button type="button" className={b.primary ? 'suggestion-primary' : 'suggestion-quiet'} disabled={busy || picksSent?.length === 0} title={picksSent?.length === 0 ? 'Choose a tag first' : undefined} onClick={() => void run(() => suggestionActions.answer(sessionId, suggestion.id, sends, picksSent, togglesSent))}>
                   {b.label}
                 </button>
-                {b.toggle && (
+                {choices ? (
+                  <span className="suggestion-choices" role="group" aria-label={`${b.label}: choices`}>
+                    {choices.map((c) => (
+                      <label key={c.key} className="suggestion-choice">
+                        <input type="checkbox" checked={c.on} disabled={busy} onChange={(e) => setTicked((t) => ({ ...t, [c.key]: e.target.checked }))} />
+                        <span className="suggestion-choice-label">{c.label}</span>
+                      </label>
+                    ))}
+                  </span>
+                ) : b.toggle && (
                   <label className="suggestion-toggle">
                     <input type="checkbox" checked={on} disabled={busy} onChange={(e) => setTicked((t) => ({ ...t, [b.id]: e.target.checked }))} />
-                    {b.toggle.label}
+                    <span className="suggestion-choice-label">{b.toggle.label}</span>
                   </label>
                 )}
               </span>

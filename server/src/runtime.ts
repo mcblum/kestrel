@@ -93,7 +93,8 @@ import { mergeWhenGreen } from './pull-requests/merge-api.ts';
 import type { AutopilotChoice } from './pull-requests/create-api.ts';
 import { AUTOPILOT_KIND, autopilotKind } from './suggestions/autopilot-kind.ts';
 import { isWanted } from './shared/autopilot.ts';
-import type { PullRequestStore } from './pull-requests/store.ts';
+import { pipelineKey, type PullRequestStore } from './pull-requests/store.ts';
+import { unavailable } from './shared/sourced.ts';
 import { requestAttention } from './shared/request-attention.ts';
 import { cardSession, requestCardGone, requestCardHome } from './shared/request-cards.ts';
 import { ticketMention } from './shared/ticket-mention.ts';
@@ -400,7 +401,7 @@ export class SessionRuntime implements McpSessions {
         }),
         autopilotKind({
           prefs: () => this.gitPrefs.autopilot(),
-          turnOn: (id, merge, number) => this.autopilotOrThrow().turnOn(id, merge, number),
+          turnOn: (id, choice, number) => this.autopilotOrThrow().turnOn(id, choice, number),
           stopOffering: () => this.gitPrefs.setAutopilot({ offer: false }),
           asks: async (id) => {
             const session = (await this.workspace.state()).sessions.find((s) => s.id === id);
@@ -443,7 +444,7 @@ export class SessionRuntime implements McpSessions {
       archive: (id) => workspace.setArchived('session', id, true),
       notice: (id, text) => this.notice(id, text, 'info'),
     });
-    this.stopMergeCleanup = workspace.onMerged((id) => void this.mergeCleanup.merged(id));
+    this.stopMergeCleanup = workspace.onMerged((id) => void this.cleanUpAfterMerge(id));
     this.whoDoesWhat = new WhoDoesWhatPrefs(opts.whoDoesWhat);
     this.keepAwake = new KeepAwake({ ...opts.keepAwake, working: async () => (await workspace.state()).sessions.some((s) => s.state === 'running') });
     // Asked again whenever anything changes: a session starting or ending is such a change.
@@ -1071,7 +1072,7 @@ export class SessionRuntime implements McpSessions {
    * and Settings → Git (pull-requests/attention-watch.ts).
    * Called once, by the server, with the one store.
    */
-  watchRequestAttention(store: PullRequestStore, sample = false): AttentionWatch {
+  watchRequestAttention(store: PullRequestStore, sample = false, watchPipeline?: (sessionId: string, base: string, sha: string) => Promise<void>): AttentionWatch {
     this.requestStore = store;
     this.attentionWatch?.stop();
     this.attentionWatch = new AttentionWatch({
@@ -1101,9 +1102,14 @@ export class SessionRuntime implements McpSessions {
       notice: (id, text, level) => this.notice(id, text, level),
       madeHere: (session, sha) => commitIsHere(session.worktreePath, sha),
       onChange: (listener) => {
-        const offs = [this.workspace.onChange(listener), store.onChange(() => listener())];
+        const offs = [this.workspace.onChange(listener), store.onChange(() => listener()), store.onPipelineChange(() => listener())];
         return () => offs.forEach((off) => off());
       },
+      // The target branch's pipeline after a merge (Watch), kept current by the store; the watcher reads what it holds.
+      watchPipeline: (id, base, sha) => (watchPipeline ? watchPipeline(id, base, sha) : store.watchPipeline(id, pipelineKey(base, sha), async () => unavailable('Pipelines cannot be asked for here'))),
+      pipeline: (id, base, sha) => store.pipeline(id, pipelineKey(base, sha)),
+      unwatchPipeline: (id) => store.unwatchPipeline(id),
+      watchEnded: (id) => this.cleanUpHeld(id),
     });
     return this.attentionWatch;
   }
@@ -1334,21 +1340,43 @@ export class SessionRuntime implements McpSessions {
     if (!session || session.hostId || session.review) return;
     // The form's answer stands: it was shown the session's own choice to begin with.
     if (formChoice) {
-      if (formChoice.on) await this.autopilotOrThrow().turnOn(sessionId, formChoice.merge, link.number);
+      if (formChoice.on) await this.autopilotOrThrow().turnOn(sessionId, { merge: formChoice.merge, watch: formChoice.watch }, link.number);
       else await this.autopilot?.turnOff(sessionId);
       return;
     }
     // Turned on beforehand (Session Details, the pill): it starts here, and nothing is asked.
     if (isWanted(session.autopilot)) {
-      if (session.autopilot.waiting) await this.autopilotOrThrow().turnOn(sessionId, session.autopilot.merge, link.number);
+      if (session.autopilot.waiting) await this.autopilotOrThrow().turnOn(sessionId, { merge: session.autopilot.merge, watch: session.autopilot.watch }, link.number);
       return;
     }
     const prefs = await this.gitPrefs.autopilot();
     if (prefs.always) {
-      await this.autopilotOrThrow().turnOn(sessionId, prefs.merge, link.number);
+      await this.autopilotOrThrow().turnOn(sessionId, { merge: prefs.merge, watch: prefs.watch }, link.number);
       return;
     }
-    if (prefs.offer && !fromForm) await this.suggestions.suggest(sessionId, { kind: AUTOPILOT_KIND, host: link.host, number: link.number });
+    if (!prefs.offer || fromForm) return;
+    // The request's target branch names the watch's choice: from the lookup that linked it, once that is in.
+    const lookup = await this.requestStore?.settled(sessionId).catch(() => undefined);
+    const base = lookup?.state === 'ready' ? lookup.value.pullRequests.find((p) => p.number === link.number)?.baseBranch : undefined;
+    await this.suggestions.suggest(sessionId, { kind: AUTOPILOT_KIND, host: link.host, number: link.number, ...(base ? { base } : {}) });
+  }
+
+  /** Sessions whose clean-up after a merge waits for Autopilot's watch of the target branch's pipeline: it needs the worktree if that fails. */
+  private readonly cleanupsHeld = new Set<string>();
+
+  /** A session's request was merged: cleaned up as its policy says, unless Autopilot is to watch the pipeline the merge started. */
+  private async cleanUpAfterMerge(sessionId: string): Promise<void> {
+    const session = (await this.workspace.state()).sessions.find((s) => s.id === sessionId);
+    if (session && !session.hostId && isWanted(session.autopilot) && session.autopilot.watch) {
+      this.cleanupsHeld.add(sessionId);
+      return;
+    }
+    await this.mergeCleanup.merged(sessionId);
+  }
+
+  /** The watch ended quietly (the pipeline passed, or none ran): the clean-up it held goes ahead. */
+  private cleanUpHeld(sessionId: string): void {
+    if (this.cleanupsHeld.delete(sessionId)) void this.mergeCleanup.merged(sessionId);
   }
 
   private autopilotOrThrow(): Autopilot {

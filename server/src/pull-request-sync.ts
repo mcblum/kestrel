@@ -9,6 +9,7 @@
 //   - Sessions no longer in sight are forgotten.
 //   - While some window is connected, the store asks again about the sessions whose time has come.
 //     A session a window has open comes round every few seconds (WATCHED_POLL_MS), so its header keeps up.
+//     A session Autopilot `kept` (a round opening a new request after a merge) is asked soon though merged.
 import { sessionLookup, type DetailsSources } from './details-api.ts';
 import { LOOKUP_CONCURRENCY, mapLimited } from './pull-request-list-api.ts';
 import type { SessionState } from './model.ts';
@@ -24,7 +25,7 @@ export interface PullRequestSync {
   stop(): void;
 }
 
-export function syncPullRequests(workspace: Workspace, sources: DetailsSources, sample: boolean, watched: () => boolean, watching: (sessionId: string) => boolean = () => false): PullRequestSync {
+export function syncPullRequests(workspace: Workspace, sources: DetailsSources, sample: boolean, watched: () => boolean, watching: (sessionId: string) => boolean = () => false, kept: (sessionId: string) => boolean = () => false): PullRequestSync {
   const seen = new Map<string, { updatedAt: number; state: SessionState }>();
   let running: Promise<void> | null = null;
   let again = false;
@@ -41,7 +42,7 @@ export function syncPullRequests(workspace: Workspace, sources: DetailsSources, 
       await sessionLookup(state, session, workspace, sources, turnEnded, sample).catch(() => undefined);
       seen.set(session.id, { updatedAt: session.updatedAt, state: session.state });
     });
-    if (watched()) await sources.store.tick(watching);
+    if (watched()) await sources.store.tick(watching, kept);
   };
 
   const check = (): Promise<void> => {

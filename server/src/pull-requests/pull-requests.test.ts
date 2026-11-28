@@ -4,7 +4,7 @@ import { ready, unavailable, type Sourced } from '../shared/sourced.ts';
 import { chooseProvider, hostNeedingGlab, pullRequestsFor, remoteHost, type PullRequestSources } from './choose.ts';
 import { connectHint, type GlabSignIn } from './glab.ts';
 import { samplePullRequests } from './fake.ts';
-import { checksOf, githubProvider, githubReadiness, mapGhPullRequests } from './github.ts';
+import { checksOf, commitPipelineOf, githubProvider, githubReadiness, mapGhItem, mapGhPullRequests } from './github.ts';
 import type { CommandRunner, PullRequestProvider } from './types.ts';
 
 describe('choosing a provider by the origin remote', () => {
@@ -96,7 +96,7 @@ describe('the GitHub provider', () => {
   it('runs gh with an argument list in the repository, with a timeout', async () => {
     const gh = fakeGh({ stdout: '[]' });
     expect(await githubProvider(gh.runner).pullRequestsFor('/repo', 'feat/x')).toEqual(ready([]));
-    expect(gh.calls).toEqual([{ command: 'gh', args: ['pr', 'list', '--head=feat/x', '--state', 'all', '--json', 'number,title,state,isDraft,url,reviewDecision,statusCheckRollup,body,author,headRefName,baseRefName,mergeStateStatus,mergeable,headRefOid,latestReviews'], cwd: '/repo', timeoutMs: 10_000 }]);
+    expect(gh.calls).toEqual([{ command: 'gh', args: ['pr', 'list', '--head=feat/x', '--state', 'all', '--json', 'number,title,state,isDraft,url,reviewDecision,statusCheckRollup,body,author,headRefName,baseRefName,mergeStateStatus,mergeable,headRefOid,latestReviews,mergeCommit'], cwd: '/repo', timeoutMs: 10_000 }]);
   });
   it('says when gh is missing, not signed in, too slow, or answers nonsense', async () => {
     const ask = async (outcome: { stdout: string } | { error: object }) => githubProvider(fakeGh(outcome).runner).pullRequestsFor('/repo', 'b');
@@ -104,6 +104,42 @@ describe('the GitHub provider', () => {
     expect(await ask({ error: { code: 1, stderr: 'To get started with GitHub CLI, please run:  gh auth login' } })).toEqual(unavailable('gh is not signed in to GitHub (run gh auth login)'));
     expect(await ask({ error: { killed: true } })).toEqual(unavailable('gh did not answer within 10 seconds'));
     expect(await ask({ stdout: 'not json' })).toMatchObject({ state: 'unavailable' });
+  });
+});
+
+describe('the target branch after a merge (Autopilot\'s watch)', () => {
+  const SHA = 'a'.repeat(40);
+  it('a merged request names the commit its merge made; an open one does not', () => {
+    expect(mapGhItem({ number: 7, state: 'MERGED', mergeCommit: { oid: SHA } }).mergeSha).toBe(SHA);
+    expect(mapGhItem({ number: 7, state: 'OPEN', mergeCommit: null }).mergeSha).toBeUndefined();
+  });
+
+  it('reads the commit\'s check runs and statuses as the request\'s checks are read', () => {
+    const runs = (items: object[]) => JSON.stringify({ total_count: items.length, check_runs: items });
+    const status = (items: object[]) => JSON.stringify({ state: 'pending', statuses: items });
+    expect(commitPipelineOf(SHA, runs([]), status([]))).toEqual({ sha: SHA, checks: 'none' });
+    expect(commitPipelineOf(SHA, runs([{ name: 'build', status: 'in_progress', conclusion: null }]), status([])).checks).toBe('running');
+    expect(commitPipelineOf(SHA, runs([{ name: 'build', status: 'completed', conclusion: 'success' }]), status([{ context: 'ci/jenkins', state: 'success' }])).checks).toBe('passing');
+    expect(commitPipelineOf(SHA, runs([{ name: 'test', status: 'completed', conclusion: 'failure', details_url: 'https://github.com/o/r/actions/runs/1/job/2' }]), status([{ context: 'ci/jenkins', state: 'error', target_url: 'https://ci.example.com/1' }]))).toEqual({
+      sha: SHA,
+      checks: 'failing',
+      failedChecks: [
+        { name: 'test', url: 'https://github.com/o/r/actions/runs/1/job/2' },
+        { name: 'ci/jenkins', url: 'https://ci.example.com/1' },
+      ],
+    });
+    expect(() => commitPipelineOf(SHA, '{}', '{}')).toThrow(/check runs and statuses/);
+  });
+
+  it('asks gh for both, in the repository, and refuses what is not a commit', async () => {
+    const calls: string[] = [];
+    const runner: CommandRunner = async (_c, args) => {
+      calls.push(args.join(' '));
+      return { stdout: args[1]!.includes('check-runs') ? JSON.stringify({ check_runs: [] }) : JSON.stringify({ statuses: [] }) };
+    };
+    expect(await githubProvider(runner).pipelineOn('/repo', SHA, 'main')).toEqual(ready({ sha: SHA, checks: 'none' }));
+    expect(calls).toEqual([`api repos/{owner}/{repo}/commits/${SHA}/check-runs?per_page=100`, `api repos/{owner}/{repo}/commits/${SHA}/status`]);
+    expect(await githubProvider(runner).pipelineOn('/repo', 'main; rm -rf', 'main')).toMatchObject({ state: 'unavailable' });
   });
 });
 

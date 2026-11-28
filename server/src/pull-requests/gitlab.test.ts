@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { ready, unavailable } from '../shared/sourced.ts';
 import { preparePR, publishPR } from './create.ts';
-import { gitlabCommands, gitlabProvider, gitlabReadiness, gitlabReview, glabCreatedUrl, mapGlabMergeRequest, parseGlabList, pipelineChecks } from './gitlab.ts';
+import { gitlabCommands, gitlabProvider, gitlabReadiness, gitlabReview, glabCreatedUrl, mapGlabMergeRequest, parseGlabList, pipelineChecks, pipelinesArgs } from './gitlab.ts';
 import { glabSignInLookup } from './glab.ts';
 import type { CommandRunner } from './types.ts';
 
@@ -138,6 +138,35 @@ describe('the GitLab provider', () => {
     expect(await ask('{"message":"x"}')).toEqual(unavailable('glab gave an answer Kestrel cannot read: glab did not answer with a list'));
     const badView = fakeRunner({ [LIST]: JSON.stringify([mr(12)]), 'glab mr view 12 --output json': 'nope' });
     expect(await gitlabProvider(badView.run).pullRequestsFor('/repo', 'feat/x')).toMatchObject({ state: 'unavailable', reason: expect.stringMatching(/cannot read/) });
+  });
+});
+
+describe('the target branch after a merge (Autopilot\'s watch)', () => {
+  const SHA = 'b'.repeat(40);
+  it('a merged one names its merge commit, else its squash commit, else its head', () => {
+    expect(mapGlabMergeRequest(mr(1, { state: 'merged', sha: 'h'.repeat(40), merge_commit_sha: SHA, squash_commit_sha: 'c'.repeat(40) })).mergeSha).toBe(SHA);
+    expect(mapGlabMergeRequest(mr(1, { state: 'merged', sha: 'h'.repeat(40), merge_commit_sha: null, squash_commit_sha: 'c'.repeat(40) })).mergeSha).toBe('c'.repeat(40));
+    expect(mapGlabMergeRequest(mr(1, { state: 'merged', sha: 'h'.repeat(40), merge_commit_sha: null })).mergeSha).toBe('h'.repeat(40));
+    expect(mapGlabMergeRequest(mr(1, { sha: 'h'.repeat(40), merge_commit_sha: SHA })).mergeSha).toBeUndefined();
+  });
+
+  it('the newest pipeline for the commit on the branch, and a failed one\'s jobs', async () => {
+    const { run, calls } = fakeRunner({
+      [['glab', ...pipelinesArgs(SHA, 'main')].join(' ')]: JSON.stringify([
+        { id: 40, status: 'success', sha: SHA, ref: 'main' },
+        { id: 41, status: 'failed', sha: SHA, ref: 'main', updated_at: 't', web_url: `https://${HOST}/devops/r/-/pipelines/41` },
+      ]),
+      'glab api projects/:id/pipelines/41/jobs?scope[]=failed&per_page=100': JSON.stringify([{ name: 'test', web_url: `https://${HOST}/devops/r/-/jobs/9` }]),
+      [`glab api projects/:id/repository/commits/${SHA}/statuses?per_page=100`]: '[]',
+    });
+    expect(await gitlabProvider(run).pipelineOn('/repo', SHA, 'main')).toEqual(ready({ sha: SHA, checks: 'failing', failedChecks: [{ name: 'test', url: `https://${HOST}/devops/r/-/jobs/9` }], url: `https://${HOST}/devops/r/-/pipelines/41` }));
+    expect(calls[0]!.args).toEqual(['api', `projects/:id/pipelines?sha=${SHA}&ref=main&per_page=20`]);
+  });
+
+  it('none yet is none; a failure to ask says why', async () => {
+    const none = fakeRunner({ [['glab', ...pipelinesArgs(SHA, '')].join(' ')]: '[]' });
+    expect(await gitlabProvider(none.run).pipelineOn('/repo', SHA, '')).toEqual(ready({ sha: SHA, checks: 'none' }));
+    expect(await gitlabProvider(fakeRunner({}).run).pipelineOn('/repo', SHA, 'main')).toMatchObject({ state: 'unavailable' });
   });
 });
 

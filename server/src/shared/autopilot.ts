@@ -2,12 +2,13 @@
 // While it is on, Kestrel presses the "needs you" cards' main button itself (shared/request-attention.ts:
 // failed checks, merge conflicts, requested changes), one round at a time, brings the branch up to date when
 // the host will not merge it behind its base, and merges when the host says the request is ready if the user
-// ticked Merge when green. It stops, and says why, when the rounds run out
-// or it is stuck. Pure and browser-safe: the settings, the per-session record, the one step function and
+// ticked Merge when green. With Watch ticked, a merge does not end it: it watches the pipeline on the
+// commit the merge put on the target branch, and a failure there is a round that fixes it in a new pull
+// request. It stops, and says why, when the rounds run out or it is stuck. Pure and browser-safe: the settings, the per-session record, the one step function and
 // the words. The impure part is pull-requests/autopilot.ts.
-import { mustCatchUp, primaryPullRequest, pullRequestStatus, type PullRequest, type PullRequestLookup } from './details.ts';
+import { mustCatchUp, primaryPullRequest, pullRequestStatus, type BasePipeline, type FailedCheck, type PullRequest, type PullRequestLookup } from './details.ts';
 import { hostTerms, requestNumber, type HostKind } from './host-terms.ts';
-import { attentionLine, catchUpMessage, fixMessage, occurrenceKey, requestAttention, type AttentionPrefs, type ReasonDetail, type RequestAttention } from './request-attention.ts';
+import { attentionLine, catchUpMessage, fixMessage, occurrenceKey, OTHER_SERVICE_HINT, requestAttention, type AttentionPrefs, type ReasonDetail, type RequestAttention } from './request-attention.ts';
 import type { Sourced } from './sourced.ts';
 import type { MenuItem } from './menu.ts';
 
@@ -24,9 +25,19 @@ export interface AutopilotPrefs {
   rounds: number;
   /** How long one round may take, from its message until the checks on what it pushed have reported. */
   roundMinutes: number;
+  /** "Watch the target branch's pipeline after merging" ticked when it is offered, and what Always uses. */
+  watch: boolean;
+  /** How long that pipeline may take, from the merge being seen until it has passed or failed. */
+  watchMinutes: number;
 }
 
-export const DEFAULT_AUTOPILOT_PREFS: AutopilotPrefs = { offer: true, always: false, merge: false, rounds: 3, roundMinutes: 60 };
+export const DEFAULT_AUTOPILOT_PREFS: AutopilotPrefs = { offer: true, always: false, merge: false, rounds: 3, roundMinutes: 60, watch: false, watchMinutes: 60 };
+
+/** What the user chose beside Autopilot itself: Merge when green, and Watch the target branch's pipeline after merging. */
+export interface AutopilotChoice {
+  merge: boolean;
+  watch: boolean;
+}
 export const ROUNDS_MIN = 1;
 export const ROUNDS_MAX = 10;
 export const ROUND_MINUTES_MIN = 10;
@@ -36,7 +47,7 @@ export const ROUND_MINUTE_CHOICES = [10, 20, 30, 45, 60, 90, 120, 180, 240, 360,
 
 /** Shown before "Always turn it on" is stored (Matt, 2026-11-24). */
 export const ALWAYS_WARNING =
-  'Kestrel will respond on its own to every pull request a session opens: it fixes failed checks, merge conflicts and requested changes, brings a branch up to date where the host requires it, and pushes, without asking you, up to the rounds set here. With Merge when green ticked it also merges them.';
+  'Kestrel will respond on its own to every pull request a session opens: it fixes failed checks, merge conflicts and requested changes, brings a branch up to date where the host requires it, and pushes, without asking you, up to the rounds set here. With Merge when green ticked it also merges them. With Watch the target branch’s pipeline ticked it also watches the pipeline after each merge and, when it fails, fixes it in a new pull request.';
 
 const whole = (v: unknown, min: number, max: number, fallback: number): number => (typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max ? v : fallback);
 
@@ -50,6 +61,8 @@ export function sanitizeAutopilotPrefs(raw: unknown): AutopilotPrefs {
     merge: typeof v.merge === 'boolean' ? v.merge : d.merge,
     rounds: whole(v.rounds, ROUNDS_MIN, ROUNDS_MAX, d.rounds),
     roundMinutes: whole(v.roundMinutes, ROUND_MINUTES_MIN, ROUND_MINUTES_MAX, d.roundMinutes),
+    watch: typeof v.watch === 'boolean' ? v.watch : d.watch,
+    watchMinutes: whole(v.watchMinutes, ROUND_MINUTES_MIN, ROUND_MINUTES_MAX, d.watchMinutes),
   };
 }
 
@@ -60,7 +73,7 @@ export function checkAutopilotChange(raw: unknown): { ok: true; change: Partial<
   const change: Partial<AutopilotPrefs> = {};
   for (const key of Object.keys(v)) {
     const value = v[key];
-    if (key === 'offer' || key === 'always' || key === 'merge') {
+    if (key === 'offer' || key === 'always' || key === 'merge' || key === 'watch') {
       if (typeof value !== 'boolean') return { ok: false, reason: `${key} must be true or false.` };
       change[key] = value;
     } else if (key === 'rounds') {
@@ -69,6 +82,9 @@ export function checkAutopilotChange(raw: unknown): { ok: true; change: Partial<
     } else if (key === 'roundMinutes') {
       if (whole(value, ROUND_MINUTES_MIN, ROUND_MINUTES_MAX, -1) === -1) return { ok: false, reason: `A round's time limit must be from ${ROUND_MINUTES_MIN} minutes to ${ROUND_MINUTES_MAX / 60} hours, in whole minutes.` };
       change.roundMinutes = value as number;
+    } else if (key === 'watchMinutes') {
+      if (whole(value, ROUND_MINUTES_MIN, ROUND_MINUTES_MAX, -1) === -1) return { ok: false, reason: `The pipeline watch's time limit must be from ${ROUND_MINUTES_MIN} minutes to ${ROUND_MINUTES_MAX / 60} hours, in whole minutes.` };
+      change.watchMinutes = value as number;
     } else if (key !== 'confirmed') return { ok: false, reason: `Autopilot has no setting called ${key.slice(0, 40)}.` };
   }
   if (change.always === true && v.confirmed !== true) return { ok: false, reason: `Confirm first: ${ALWAYS_WARNING}` };
@@ -101,11 +117,35 @@ export interface AutopilotStop {
   notify: boolean;
 }
 
+/** Watching the pipeline on the commit a merge put on the target branch. */
+export interface AutopilotWatch {
+  /** The merged request's host, for its words. */
+  host: HostKind;
+  /** The merged request, as its host writes it ("#431"). */
+  request: string;
+  /** The target branch ('' when the host did not say). */
+  base: string;
+  /** The commit the merge put there. */
+  sha: string;
+  /** When the merge was seen: the time limit and the wait for a pipeline to start count from here. */
+  since: number;
+}
+
 /** One session's Autopilot, kept by the workspace and shown on its SessionView. */
 export interface AutopilotRecord {
   /** The request it looks after. */
   number: number;
   merge: boolean;
+  /** Watch the target branch's pipeline after the request is merged. */
+  watch: boolean;
+  /** That watch's time limit, as set when it was turned on. */
+  watchMinutes: number;
+  /** Present while it watches that pipeline. */
+  watching?: AutopilotWatch;
+  /** While a round fixes a failed pipeline on the target branch: the request whose merge it followed, and that branch. */
+  fixing?: { request: string; base: string };
+  /** The failed jobs of the last target-branch pipeline it set out to fix: the same ones failing again stop it. */
+  pipelineFailed?: string[];
   /** Rounds started so far. */
   rounds: number;
   /** The most rounds, and a round's limit, as set when it was turned on. */
@@ -130,9 +170,32 @@ export interface AutopilotRecord {
 export const isWanted = (r: AutopilotRecord | null | undefined): r is AutopilotRecord => !!r && !r.stopped;
 /** At work on a request: wanted, and the request exists. */
 export const isOn = (r: AutopilotRecord | null | undefined): r is AutopilotRecord => isWanted(r) && !r.waiting;
+/**
+ * At work, the user's message takes it back: on a request (or watching its pipeline), or waiting for the
+ * request a round is opening to fix the target branch's pipeline. Not while it only waits for a first request.
+ */
+export const isAtWork = (r: AutopilotRecord | null | undefined): r is AutopilotRecord => isWanted(r) && (!r.waiting || !!r.round);
 
-export function newRecord(number: number, merge: boolean, prefs: AutopilotPrefs): AutopilotRecord {
-  return { number, merge, rounds: 0, maxRounds: prefs.rounds, roundMinutes: prefs.roundMinutes, handled: [] };
+export function newRecord(number: number, choice: AutopilotChoice, prefs: AutopilotPrefs): AutopilotRecord {
+  return { number, merge: choice.merge, watch: choice.watch, rounds: 0, maxRounds: prefs.rounds, roundMinutes: prefs.roundMinutes, watchMinutes: prefs.watchMinutes, handled: [] };
+}
+
+/**
+ * A record waiting for its request that a round of the target branch's pipeline is opening: what it carries
+ * on to that request (the rounds used and their limits, the round itself, the failed jobs it set out to fix),
+ * on top of a new record for the request. Anything else starts afresh.
+ */
+export function carriedOver(from: AutopilotRecord | null | undefined, fresh: AutopilotRecord): AutopilotRecord {
+  if (!isWanted(from) || !from.waiting || !from.round) return fresh;
+  return {
+    ...fresh,
+    rounds: from.rounds,
+    maxRounds: from.maxRounds,
+    roundMinutes: from.roundMinutes,
+    watchMinutes: from.watchMinutes,
+    round: from.round,
+    ...(from.pipelineFailed ? { pipelineFailed: from.pipelineFailed } : {}),
+  };
 }
 
 /** When the PR store first saw the request's head commit (`headSeenAt`), never later than now; now when it did not say. */
@@ -144,8 +207,8 @@ export const seenAt = (pr: Pick<PullRequest, 'headSeenAt'>, now: number): number
  * acts at once on what already needs doing (failed checks, conflicts, requested changes, a branch the host
  * requires to catch up, or a merge when it is green).
  */
-export function recordFor(pr: Pick<PullRequest, 'number' | 'headSha' | 'headSeenAt'> | null, number: number, merge: boolean, prefs: AutopilotPrefs, now: number): AutopilotRecord {
-  const record = newRecord(pr?.number ?? number, merge, prefs);
+export function recordFor(pr: Pick<PullRequest, 'number' | 'headSha' | 'headSeenAt'> | null, number: number, choice: AutopilotChoice, prefs: AutopilotPrefs, now: number): AutopilotRecord {
+  const record = newRecord(pr?.number ?? number, choice, prefs);
   return pr?.headSha ? { ...record, head: { sha: pr.headSha, at: seenAt(pr, now) } } : record;
 }
 
@@ -158,6 +221,9 @@ export function asRecord(raw: unknown): AutopilotRecord | null {
     ...(r as AutopilotRecord),
     maxRounds: whole(r.maxRounds, ROUNDS_MIN, ROUNDS_MAX, DEFAULT_AUTOPILOT_PREFS.rounds),
     roundMinutes: whole(r.roundMinutes, ROUND_MINUTES_MIN, ROUND_MINUTES_MAX, DEFAULT_AUTOPILOT_PREFS.roundMinutes),
+    // Kept before the watch existed: watch off.
+    watch: r.watch === true,
+    watchMinutes: whole(r.watchMinutes, ROUND_MINUTES_MIN, ROUND_MINUTES_MAX, DEFAULT_AUTOPILOT_PREFS.watchMinutes),
   };
 }
 
@@ -178,6 +244,8 @@ export interface StepInput {
   failed: boolean;
   /** The head commit is one no session of Kestrel's made (a person pushed), when known. */
   foreignPush?: boolean;
+  /** While it watches the target branch's pipeline: that pipeline as the PR store holds it. */
+  pipeline?: Sourced<BasePipeline>;
   now: number;
 }
 
@@ -186,7 +254,11 @@ export type AutopilotAct =
   | { type: 'round'; message: string; round: number }
   | { type: 'merge'; pr: PullRequest }
   | { type: 'green'; line: string }
-  | { type: 'stop'; stop: AutopilotStop };
+  | { type: 'stop'; stop: AutopilotStop }
+  /** The request was merged and it now watches the target branch's pipeline: the store is asked to keep it current. */
+  | { type: 'watch'; watching: AutopilotWatch; line: string }
+  /** Done, quietly, with a line in the session (the watched pipeline passed, or none ran). */
+  | { type: 'end'; line: string };
 
 export interface Step {
   record: AutopilotRecord;
@@ -199,8 +271,14 @@ const NONE: AutopilotAct = { type: 'none' };
 
 function stopped(record: AutopilotRecord, now: number, why: string, notify = true): Step {
   const stop = { at: now, why, notify };
-  const { round: _round, ...rest } = record;
+  const { round: _round, watching: _watching, ...rest } = record;
   return { record: { ...rest, stopped: stop }, act: { type: 'stop', stop } };
+}
+
+/** Off without telling anyone, with one line in the session saying how it ended. */
+function ended(record: AutopilotRecord, now: number, why: string, line: string): Step {
+  const { record: off } = stopped(record, now, why, false);
+  return { record: off, act: { type: 'end', line } };
 }
 
 const failedNames = (pr: PullRequest): string[] => (pr.failedChecks ?? []).map((c) => c.name).sort();
@@ -237,11 +315,14 @@ export const isDisengagedLine = (text: string): boolean => text.startsWith(AUTOP
 export function autopilotStep(input: StepInput): Step {
   const { now } = input;
   let record = input.record;
-  if (record.stopped || !input.lookup || input.lookup.state !== 'ready') return { record, act: NONE };
+  if (record.stopped) return { record, act: NONE };
+  if (record.watching) return watchStep(input, record, record.watching);
+  if (record.waiting) return record.round ? fixWaitStep(input, record, record.round) : { record, act: NONE };
+  if (!input.lookup || input.lookup.state !== 'ready') return { record, act: NONE };
   const pr = input.lookup.value.pullRequests.find((p) => p.number === record.number) ?? null;
   if (!pr) return { record, act: NONE };
   const where = whereOf({ host: input.lookup.value.host, number: pr.number });
-  if (pr.state === 'merged') return stopped(record, now, `${where} was merged`, false);
+  if (pr.state === 'merged') return mergedStep(record, pr, input.lookup.value.host, where, now);
   if (pr.state === 'closed') return stopped(record, now, `${where} was closed`, false);
   const head = pr.headSha ?? '';
   const moved = !!head && record.head?.sha !== head;
@@ -312,6 +393,95 @@ export function autopilotStep(input: StepInput): Step {
   return { record: { ...record, green: head }, act: { type: 'green', line: `${where} is green: ready to merge` } };
 }
 
+// ---- after the merge: the target branch's pipeline ------------------------------------------------
+
+/** "the main pipeline", or the target branch's when the host did not name it. */
+export const pipelineName = (base: string): string => (base ? `the ${base} pipeline` : 'the target branch’s pipeline');
+const branchName = (base: string): string => (base ? base : 'the target branch');
+const capital = (text: string): string => text.replace(/^./, (c) => c.toUpperCase());
+const shortSha = (sha: string): string => (/^[0-9a-f]{12,}$/i.test(sha) ? sha.slice(0, 8) : sha);
+
+/** Merged: without Watch it ends quietly, as before; with it, it watches the pipeline on the commit the merge made. */
+function mergedStep(record: AutopilotRecord, pr: PullRequest, host: HostKind, where: string, now: number): Step {
+  if (!record.watch) return stopped(record, now, `${where} was merged`, false);
+  const base = pr.baseBranch ?? '';
+  const sha = pr.mergeSha ?? pr.headSha;
+  if (!sha) return ended(record, now, `${where} was merged`, `Autopilot: ${where} was merged, but the host did not say which commit the merge made, so there is no pipeline to watch.`);
+  const watching: AutopilotWatch = { host, request: where, base, sha, since: now };
+  const { round: _round, green: _green, ...rest } = record;
+  return { record: { ...rest, watching }, act: { type: 'watch', watching, line: `Autopilot: ${where} was merged. Watching ${pipelineName(base)} on ${shortSha(sha)}.` } };
+}
+
+/** Watching the pipeline on the merge's commit: passed or none ends it quietly, failed is a round, too long stops it. */
+function watchStep(input: StepInput, record: AutopilotRecord, w: AutopilotWatch): Step {
+  const { now } = input;
+  const p = input.pipeline?.state === 'ready' && input.pipeline.value.sha === w.sha ? input.pipeline.value : null;
+  const name = pipelineName(w.base);
+  if (p?.checks === 'passing') return ended(record, now, `${capital(name)} passed after ${w.request}`, `Autopilot: ${name} passed after ${w.request}.`);
+  if (p?.checks === 'failing') return pipelineFailedStep(input, record, w, p);
+  if (now - w.since > record.watchMinutes * 60_000) return stopped(record, now, `${AUTOPILOT_DISENGAGED} ${capital(name)} after ${w.request} did not finish within ${minutesText(record.watchMinutes)}`);
+  if (p?.checks === 'none' && now - w.since >= CHECKS_SETTLE_MS) return ended(record, now, `No pipeline ran on ${branchName(w.base)} after ${w.request}`, `Autopilot: no pipeline ran on ${branchName(w.base)} after ${w.request}, so there was nothing to watch.`);
+  return { record, act: NONE };
+}
+
+/** The watched pipeline failed: a round that fixes it in a new request, unless the same jobs failed last time or no rounds are left. */
+function pipelineFailedStep(input: StepInput, record: AutopilotRecord, w: AutopilotWatch, p: BasePipeline): Step {
+  const { now } = input;
+  // A turn already on its way (the user's, say) finishes first; the time limit no longer applies, the pipeline did finish.
+  if (!input.idle) return { record, act: NONE };
+  const names = (p.failedChecks ?? []).map((c) => c.name).sort();
+  const listed = names.length > 0 ? ` (${names.join(', ')})` : '';
+  if (sameList(names, record.pipelineFailed ?? [])) return stopped(record, now, `${AUTOPILOT_DISENGAGED} The same jobs failed again on ${branchName(w.base)} after ${w.request}${listed}`);
+  if (record.rounds >= record.maxRounds) return stopped(record, now, `${AUTOPILOT_DISENGAGED} ${capital(pipelineName(w.base))} failed after ${w.request}${listed}, and all ${record.maxRounds} ${record.maxRounds === 1 ? 'round is' : 'rounds are'} used`);
+  const n = record.rounds + 1;
+  const { watching: _watching, green: _green, lastFailed: _lastFailed, head: _head, ...rest } = record;
+  return {
+    // It waits for the request the round opens, as when turned on before one existed; the round goes on with it.
+    record: { ...rest, number: 0, waiting: true, rounds: n, fixing: { request: w.request, base: w.base }, pipelineFailed: names, round: { startedAt: now, head: '', failed: names } },
+    act: { type: 'round', message: pipelineFixMessage(w, p, n, record.maxRounds), round: n },
+  };
+}
+
+/** Waiting for the request a round is opening to fix the target branch's pipeline: the round's limits, and none opened. */
+function fixWaitStep(input: StepInput, record: AutopilotRecord, round: AutopilotRound): Step {
+  const { now } = input;
+  const fixing = `fixing ${pipelineName(record.fixing?.base ?? '')}${record.fixing ? ` after ${record.fixing.request}` : ''}`;
+  if (now - round.startedAt > record.roundMinutes * 60_000) return stopped(record, now, `${AUTOPILOT_DISENGAGED} Round ${record.rounds}, ${fixing}, went over its time limit of ${minutesText(record.roundMinutes)}`);
+  if (!input.idle) return { record, act: NONE };
+  if (input.failed) return stopped(record, now, `${AUTOPILOT_DISENGAGED} The agent's turn in round ${record.rounds}, ${fixing}, failed or was stopped`);
+  const idleSince = round.idleSince ?? now;
+  if (now - idleSince >= NO_PUSH_GRACE_MS) return stopped(record, now, `${AUTOPILOT_DISENGAGED} The agent opened no request to fix ${pipelineName(record.fixing?.base ?? '')}${record.fixing ? ` after ${record.fixing.request}` : ''} in round ${record.rounds}`);
+  return round.idleSince === idleSince ? { record, act: NONE } : { record: { ...record, round: { ...round, idleSince } }, act: NONE };
+}
+
+const PIPELINE_LOG_HINT: Record<HostKind, string> = {
+  github: 'Each link is the page where that check reported its failure. For a GitHub Actions run, from a shell, `gh run view <run id> --log-failed` prints a failed run\'s log (the run id is in the link).',
+  gitlab: 'Each link is the page where that job or status reported its failure. For a GitLab CI job, from a shell, `glab ci trace <job id>` prints its log (the job id is the number at the end of the link).',
+};
+
+/** The message of a round that fixes the target branch's pipeline: in a new request, never on the branch itself. */
+export function pipelineFixMessage(w: AutopilotWatch, p: Pick<BasePipeline, 'failedChecks' | 'url'>, round: number, maxRounds: number): string {
+  const base = w.base ? `\`${w.base}\`` : 'the target branch';
+  const terms = hostTerms(w.host);
+  const failed: readonly FailedCheck[] = p.failedChecks ?? [];
+  const lines = failed.map((c) => `- ${c.name}${c.url ? `: ${c.url}` : ''}`);
+  const all = p.url ? [`- The whole pipeline: ${p.url}`] : [];
+  return [
+    `Autopilot, round ${round} of ${maxRounds}: the pipeline on ${base} failed at commit ${shortSha(w.sha)}, after ${w.request} was merged.`,
+    '',
+    failed.length > 0 ? 'These failed:' : 'The host did not say which jobs failed.',
+    ...lines,
+    ...all,
+    '',
+    PIPELINE_LOG_HINT[w.host],
+    OTHER_SERVICE_HINT,
+    '',
+    `Find out why it failed. Then, in this worktree, on this session's own branch: fetch from the remote and merge the remote's ${base} into this branch (a merge, not a rebase; never force-push, and never push to ${base} itself), fix what made the pipeline fail, run the tests, commit, push the branch, and open a new ${terms.long} into ${base} whose description says it fixes the ${w.base ? `\`${w.base}\` ` : ''}pipeline after ${w.request}.`,
+    '',
+    `When you are done, end your turn: Kestrel looks after the new ${terms.long} as it did ${w.request}. If you cannot fix it, open no ${terms.long} and say plainly why, so I can take over.`,
+  ].join('\n');
+}
+
 /** What the session's request is, for the offer: its primary request, open or a draft. */
 export function offeredRequest(lookup: Sourced<PullRequestLookup> | undefined): PullRequest | null {
   if (!lookup || lookup.state !== 'ready') return null;
@@ -323,7 +493,9 @@ export function offeredRequest(lookup: Sourced<PullRequestLookup> | undefined): 
 export function autopilotText(r: AutopilotRecord | null | undefined): string {
   if (!r) return 'Off';
   if (r.stopped) return `Off: ${r.stopped.why}`;
-  const merge = r.merge ? ', merges when green' : '';
+  if (r.watching) return `On: watching ${pipelineName(r.watching.base)} after ${r.watching.request}`;
+  const merge = `${r.merge ? ', merges when green' : ''}${r.watch ? ', watches the pipeline after merging' : ''}`;
+  if (r.waiting && r.round && r.fixing) return `On${merge}: round ${r.rounds} of ${r.maxRounds} under way, fixing ${pipelineName(r.fixing.base)} after ${r.fixing.request}`;
   if (r.waiting) return `On${merge}: starts when this session’s pull request is opened`;
   return r.round ? `On${merge}: round ${r.rounds} of ${r.maxRounds} under way` : `On${merge}: ${r.rounds} of ${r.maxRounds} rounds used`;
 }
@@ -336,19 +508,28 @@ export function autopilotText(r: AutopilotRecord | null | undefined): string {
 export function autopilotLabel(r: AutopilotRecord | null | undefined): string {
   if (!r) return 'Autopilot off';
   if (r.stopped) return r.stopped.notify ? 'Autopilot stopped' : 'Autopilot off';
-  const merge = r.merge ? ' · merge' : '';
-  if (r.waiting) return `Autopilot${merge} · waiting`;
+  if (r.watching) return `Autopilot · watching ${branchName(r.watching.base)}`;
+  const merge = `${r.merge ? ' · merge' : ''}${r.watch ? ' · watch' : ''}`;
   if (r.round) return `Autopilot${merge} · round ${r.rounds} of ${r.maxRounds}`;
+  if (r.waiting) return `Autopilot${merge} · waiting`;
   return `Autopilot${merge}`;
 }
 
+/** "Watch the main pipeline after merging", by the request's target branch when known. */
+export const watchLabel = (base: string | null | undefined): string => `Watch ${base ? `the ${base} pipeline` : 'the target branch’s pipeline'} after merging`;
+
 /**
- * The request pill's Autopilot menu: a switch for Autopilot, one for Merge when green (shown while it is
- * on), and what it is doing now. Turned on before the session has an open request, it waits for one.
+ * The request pill's Autopilot menu: a switch for Autopilot, one for Merge when green and one for Watch the
+ * target branch's pipeline (shown while it is on), and what it is doing now. Turned on before the session has
+ * an open request, it waits for one. `base`: the request's target branch, for the watch's words.
  */
-export function autopilotMenu(sessionId: string, record: AutopilotRecord | null | undefined): MenuItem[] {
+export function autopilotMenu(sessionId: string, record: AutopilotRecord | null | undefined, base?: string | null): MenuItem[] {
   const on = isWanted(record);
   const items: MenuItem[] = [{ id: 'autopilot', label: 'Autopilot', heading: autopilotText(record), toggle: true, checked: on, action: { type: 'set-autopilot', sessionId, on: !on } }];
-  if (on) items.push({ id: 'autopilot-merge', label: 'Merge when green', toggle: true, checked: record!.merge, action: { type: 'set-autopilot', sessionId, on: true, merge: !record!.merge } });
+  if (on) {
+    items.push({ id: 'autopilot-merge', label: 'Merge when green', toggle: true, checked: record!.merge, action: { type: 'set-autopilot', sessionId, on: true, merge: !record!.merge } });
+    const watchBase = record!.watching?.base ?? record!.fixing?.base ?? base;
+    items.push({ id: 'autopilot-watch', label: watchLabel(watchBase), toggle: true, checked: record!.watch, action: { type: 'set-autopilot', sessionId, on: true, watch: !record!.watch } });
+  }
   return items;
 }

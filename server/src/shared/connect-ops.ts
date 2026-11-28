@@ -5,7 +5,7 @@
 // design change, not a code change. Pure: no Node, so a client written from this file can share it.
 import { ANSWER_MAX, FINDING_ACTIONS, type FindingAction } from './findings.ts';
 import { REVIEW_END_ACTIONS, type ReviewEndAction } from './round-findings.ts';
-import { isPicks } from './suggestions.ts';
+import { isPicks, isToggles } from './suggestions.ts';
 import { VALUE_NAME, VALUE_NAMES_MAX } from './setup-values.ts';
 import type { PageAsk } from './transcript-page.ts';
 import { SELECTABLE_AGENTS, type Agent } from '../model.ts';
@@ -120,11 +120,12 @@ export interface ConnectOpArgs {
   'review.post': { sessionId: string; cardId: string; verdict?: unknown; summary?: unknown; findings?: unknown; withoutComment?: unknown };
   /** A suggestion card in the conversation (a tag, a ticket change, a move, a review offer): one of its buttons, its x, or Undo on the line it left. */
   /** `picks`: what was chosen on a card that offers names to choose (`Suggestion.picks`: a tag card's tags). Left out, the card's own choice is taken. */
-  'suggestion.answer': { sessionId: string; suggestionId: string; button: string; picks?: string[] };
+  /** `toggles`: the ticked choices of the pressed button's `toggles` (Autopilot's offer). Left out, the button's older single `toggle` applies. */
+  'suggestion.answer': { sessionId: string; suggestionId: string; button: string; picks?: string[]; toggles?: string[] };
   'suggestion.dismiss': { sessionId: string; suggestionId: string };
   'suggestion.undo': { sessionId: string; suggestionId: string };
-  /** Autopilot for the session's pull request: on, off, or Merge when green (docs/designs/pr-autopilot.md). */
-  'autopilot.set': { sessionId: string; on: boolean; merge?: boolean };
+  /** Autopilot for the session's pull request: on, off, Merge when green, or Watch the target branch's pipeline (docs/designs/pr-autopilot.md). */
+  'autopilot.set': { sessionId: string; on: boolean; merge?: boolean; watch?: boolean };
   /** The Code reviews page's list, as the window has it, or off in the desk's words (Matt, 2026-11-24). */
   'reviews.read': Record<string, never>;
   /** The Tickets page's list, as the window has it, or off in the desk's words (Matt, 2026-11-24). */
@@ -284,6 +285,7 @@ const valueNames = (a: Args, field: string): Checked<string[]> => {
 
 /** Runs field checks in order; the first failure is the answer. */
 const picks = (a: Args, field: string): Checked<string[]> => (isPicks(a[field]) ? { ok: true, value: a[field] } : fail(`${field} must be a short list of names.`));
+const toggles = (a: Args, field: string): Checked<string[]> => (isToggles(a[field]) ? { ok: true, value: a[field] } : fail(`${field} must be a short list of the button's choices.`));
 
 function all(checks: Record<string, Checked<unknown>>): Checked<Args> {
   const out: Args = {};
@@ -394,14 +396,15 @@ export const CONNECT_OPS: { readonly [K in ConnectOp]: OpSpec } = {
   // every kind alike; a kind's own refusals (Kestrel-only, nothing to undo) are the phone's too.
   'suggestion.answer': {
     mapsTo: 'POST /api/sessions/:id/suggestions/:sid/answer',
-    fields: ['sessionId', 'suggestionId', 'button', 'picks'],
+    fields: ['sessionId', 'suggestionId', 'button', 'picks', 'toggles'],
     // Only the shape is checked here, as the route does (`isPicks`): what each name may be is the kind's to say, for the desk and a phone alike.
-    check: (a) => all({ sessionId: id(a, 'sessionId'), suggestionId: id(a, 'suggestionId'), button: id(a, 'button'), picks: optional(a, 'picks', picks) }),
+    check: (a) => all({ sessionId: id(a, 'sessionId'), suggestionId: id(a, 'suggestionId'), button: id(a, 'button'), picks: optional(a, 'picks', picks), toggles: optional(a, 'toggles', toggles) }),
   },
   'suggestion.dismiss': { mapsTo: 'POST /api/sessions/:id/suggestions/:sid/dismiss', fields: ['sessionId', 'suggestionId'], check: (a) => all({ sessionId: id(a, 'sessionId'), suggestionId: id(a, 'suggestionId') }) },
   'suggestion.undo': { mapsTo: 'POST /api/sessions/:id/suggestions/:sid/undo', fields: ['sessionId', 'suggestionId'], check: (a) => all({ sessionId: id(a, 'sessionId'), suggestionId: id(a, 'suggestionId') }) },
   // Matt, 2026-11-24 (pr-autopilot.md section 4): the request pill's Autopilot entry, as the desk has it.
-  'autopilot.set': { mapsTo: 'POST /api/sessions/:id/autopilot', fields: ['sessionId', 'on', 'merge'], check: (a) => all({ sessionId: id(a, 'sessionId'), on: flag(a, 'on'), merge: optional(a, 'merge', flag) }) },
+  // 2026-11-27: and Watch the target branch's pipeline after merging (pr-autopilot.md, "Watching the target branch's pipeline").
+  'autopilot.set': { mapsTo: 'POST /api/sessions/:id/autopilot', fields: ['sessionId', 'on', 'merge', 'watch'], check: (a) => all({ sessionId: id(a, 'sessionId'), on: flag(a, 'on'), merge: optional(a, 'merge', flag), watch: optional(a, 'watch', flag) }) },
   // Matt, 2026-11-24: "please add the code review and tickets pages" (kestrel-connect.md, "The Code reviews and
   // Tickets pages on a phone"). Reads only: no action on a request or a ticket is on the list yet.
   'reviews.read': { mapsTo: 'the review-requests push (ReviewRequestStore.view)', fields: [], check: () => ({ ok: true, value: {} }) },

@@ -1,12 +1,18 @@
-// A small ring that fills with the share of the session's context window in use. Clicking it opens
-// a popup above it with the numbers the agent gave: tokens used of the window, and the breakdown.
-// The measurement is taken as each turn ends (it arrives on the live channel) and, for a session
-// that has not run a turn since the server started, asked once when the session is shown.
-import { useEffect, useRef, useState } from 'react';
-import { percentLabel, shownRows, tokenCount, usedFraction, type ContextUsage } from '@kestrel/server/context-usage';
+// One composer popup for the agent's plan and the session's spend and context window.
+import { useEffect, useId, useRef, useState } from 'react';
+import { ChevronRight } from 'lucide-react';
+import type { Agent } from '@kestrel/server/model';
+import { contextNote, percentLabel, shownRows, tokenCount, usedFraction, type ContextUsage } from '@kestrel/server/context-usage';
+import { NEARLY_USED, planNote, readout } from '@kestrel/server/plan-usage';
+import { spendText } from '@kestrel/server/details';
 import { ready, type Sourced } from '@kestrel/server/sourced';
 import { useResource } from '../../data/resources.ts';
+import { AGENT_LABEL } from '../../labels.ts';
 import { actions, useApp } from '../../store.ts';
+import { useMinuteNow } from '../../useNow.ts';
+import { useUsage } from '../details/sources.ts';
+import { Popup } from '../Popup.tsx';
+import { AgentPlanUsage } from './PlanUsage.tsx';
 
 /** GET /api/sessions/:id/context: how full the window is, or, when it cannot be known now, the words shown in its place. */
 interface Asked {
@@ -24,12 +30,8 @@ function compactBlocked(state: string | undefined): string | null {
   if (state === 'attention') return 'Answer the card first, then compact.';
   return null;
 }
-import { Popup } from '../Popup.tsx';
-
 const R = 5.5;
 const CIRCUMFERENCE = 2 * Math.PI * R;
-/** From here the ring is drawn in the warning colour: the window is nearly full. */
-const NEARLY_FULL = 0.8;
 
 function Ring({ fraction }: { fraction: number }) {
   return (
@@ -44,9 +46,6 @@ function Breakdown({ usage }: { usage: ContextUsage }) {
   const { inWindow, deferred } = shownRows(usage);
   return (
     <>
-      <div className="ctx-total">
-        <strong>{tokenCount(usage.usedTokens)}</strong> of {tokenCount(usage.windowTokens)} tokens · {percentLabel(usage)}
-      </div>
       {inWindow.length > 0 && (
         <dl className="ctx-rows">
           {inWindow.map((r) => (
@@ -77,23 +76,90 @@ function Breakdown({ usage }: { usage: ContextUsage }) {
   );
 }
 
-/** The ring for a running session. `sessionId` decides which measurement it shows. */
-export function ContextRing({ sessionId }: { sessionId: string }) {
-  const live = useApp((s) => s.live.get(sessionId)?.context ?? null);
-  const state = useApp((s) => s.workspace?.sessions.find((x) => x.id === sessionId)?.state);
-  const asked = useResource(`/api/sessions/${encodeURIComponent(sessionId)}/context`, asContextUsage).value;
+function ContextDetails({ usage, summary }: { usage: ContextUsage; summary: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const detailsId = useId();
+  return (
+    <>
+      <button
+        type="button"
+        className="ctx-disclosure"
+        aria-expanded={expanded}
+        aria-controls={detailsId}
+        onClick={() => setExpanded((value) => !value)}
+      >
+        <ChevronRight aria-hidden />
+        <span>Context window</span>
+        <span className="ctx-total">{summary}</span>
+      </button>
+      <div id={detailsId} className="ctx-details" hidden={!expanded}>
+        {expanded && <Breakdown usage={usage} />}
+      </div>
+    </>
+  );
+}
+
+/** The tokens and cost the agent reported for this session. */
+function SessionSpend({ agent, sessionId }: { agent: Agent; sessionId: string }) {
+  const updatedAt = useApp((s) => s.sessionsById.get(sessionId)?.updatedAt ?? 0);
+  const usage = useUsage(sessionId, String(updatedAt)).value;
+  const spend = spendText(agent, usage.state === 'ready' ? usage.value : null);
+  return (
+    <div className="ctx-section">
+      <div className="ctx-heading">This session</div>
+      <dl className="ctx-rows">
+        {spend.tokens && (
+          <div className="ctx-row">
+            <dt>Tokens</dt>
+            <dd>{spend.tokens}</dd>
+          </div>
+        )}
+        <div className="ctx-row">
+          <dt>Cost</dt>
+          <dd>{spend.cost}</dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
+interface Props {
+  agent: Agent;
+  sessionId?: string;
+  reportsContext: boolean;
+  /** The computer that runs the session, when its plan usage is reported there. */
+  elsewhere?: string;
+}
+
+export function ContextRing({ agent, sessionId, reportsContext, elsewhere }: Props) {
+  const live = useApp((s) => sessionId ? s.live.get(sessionId)?.context ?? null : null);
+  const state = useApp((s) => sessionId ? s.sessionsById.get(sessionId)?.state : undefined);
+  const plan = useApp((s) => elsewhere ? undefined : s.planUsage[agent]);
+  const asked = useResource(sessionId ? `/api/sessions/${encodeURIComponent(sessionId)}/context` : null, asContextUsage).value;
+  const now = useMinuteNow();
   const [open, setOpen] = useState(false);
   const host = useRef<HTMLSpanElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const usage = live ?? (asked.state === 'ready' ? asked.value.usage : null);
-  const pending = !live && asked.state === 'loading';
-  const note = asked.state === 'ready' ? asked.value.note : null;
+  const agentLabel = AGENT_LABEL[agent];
+  const pending = !!sessionId && asked.state === 'loading';
+  const note = asked.state === 'ready' ? asked.value.note : asked.state === 'unavailable' ? asked.reason : null;
+  const contextStatus = pending ? 'Asking the agent…' : note ?? contextNote({
+    reports: reportsContext, agentLabel, started: !!sessionId, working: state === 'running',
+  });
   const blocked = compactBlocked(state);
 
   useEffect(() => {
     if (!open) return;
-    const away = (e: MouseEvent) => !host.current?.contains(e.target as Node) && setOpen(false);
-    const key = (e: KeyboardEvent) => e.key === 'Escape' && (e.stopPropagation(), setOpen(false), host.current?.querySelector('button')?.focus());
+    const away = (e: MouseEvent) => {
+      if (!host.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      e.stopPropagation();
+      setOpen(false);
+      button.current?.focus();
+    };
     document.addEventListener('mousedown', away);
     document.addEventListener('keydown', key);
     return () => {
@@ -103,29 +169,54 @@ export function ContextRing({ sessionId }: { sessionId: string }) {
   }, [open]);
 
   const fraction = usage ? usedFraction(usage) : 0;
-  const label = usage ? `Context window: ${percentLabel(usage)} used` : 'Context window: not measured yet';
+  const shown = readout(agent, plan, now);
+  const level = fraction >= 1 || shown?.level === 'full' ? 'full' : fraction * 100 >= NEARLY_USED || shown?.level === 'near' ? 'near' : 'ok';
+  const summary = usage ? `${tokenCount(usage.usedTokens)} of ${tokenCount(usage.windowTokens)} tokens · ${percentLabel(usage)}` : null;
+  const planLabel = shown?.label ?? planNote(agent, plan, now, elsewhere) ?? `${agentLabel} plan usage`;
+  const label = `${planLabel}\nContext window: ${summary ?? contextStatus}`;
+
   return (
     <span className="ctl ctl-context" ref={host}>
-      <button ref={button} type="button" className={`ctl-button ctx-button${fraction >= NEARLY_FULL ? ' nearly-full' : ''}`} aria-label={label} aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((o) => !o)}>
+      <button
+        ref={button}
+        type="button"
+        className={`ctl-button ctx-button ${level}`}
+        title={label}
+        aria-label={label}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        onClick={() => setOpen((value) => !value)}
+      >
         <Ring fraction={fraction} />
       </button>
       {open && (
-        <Popup anchor={button} side="above" gap={6} className="ctx-pop" role="dialog" aria-label="Context window">
-          <div className="ctx-title">Context window</div>
-          {usage ? <Breakdown usage={usage} /> : (pending || note) && <p className="ctx-none">{pending ? 'Asking the agent…' : note}</p>}
-          <div className="ctx-actions">
-            <button
-              type="button"
-              className="secondary-button small"
-              disabled={blocked !== null}
-              onClick={() => {
-                setOpen(false);
-                void actions.compact(sessionId);
-              }}
-            >
-              Compact conversation
-            </button>
-            {blocked && <span className="ctx-why">{blocked}</span>}
+        <Popup anchor={button} side="above" align="end" gap={6} className="ctx-pop" role="dialog" aria-label="Usage and context window">
+          <AgentPlanUsage agent={agent} usage={plan} elsewhere={elsewhere} heading={`${agentLabel} plan usage`} />
+          {sessionId && !elsewhere && <SessionSpend agent={agent} sessionId={sessionId} />}
+          <div className="ctx-section">
+            {usage && summary ? <ContextDetails usage={usage} summary={summary} /> : (
+              <>
+                <div className="ctx-heading">Context window</div>
+                <p className="ctx-none">{contextStatus}</p>
+              </>
+            )}
+            {sessionId && (reportsContext || usage) && (
+              <div className="ctx-actions">
+                <button
+                  type="button"
+                  className="secondary-button small"
+                  disabled={blocked !== null}
+                  onClick={() => {
+                    setOpen(false);
+                    button.current?.focus();
+                    void actions.compact(sessionId);
+                  }}
+                >
+                  Compact conversation
+                </button>
+                {blocked && <span className="ctx-why">{blocked}</span>}
+              </div>
+            )}
           </div>
         </Popup>
       )}

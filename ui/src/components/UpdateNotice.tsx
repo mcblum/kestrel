@@ -1,11 +1,14 @@
 // "Restart to update · Kestrel <ver> is ready": a small toast at the foot of the sidebar, directly
 // above Settings, as Shrike and Vireo show theirs. Shown once the packaged app has downloaded an
-// update (app/updater.mjs). It never restarts by itself, and Restart waits while any session is
-// working, so an update never cuts an agent off mid-turn. Dismissing it only hides it until the
+// update (app/updater.mjs). It never restarts by itself, and Restart waits while a session on this
+// computer is working (`workingHere`, shared/quit-check.ts), so an update never cuts an agent off
+// mid-turn. A session on another computer of the account is not stopped by restarting here, so it
+// never holds Restart up. Dismissing it only hides it until the
 // next launch; the update is also installed when Kestrel quits. With the sidebar hidden the same
 // toast floats at the window's bottom-left, lifted above the message box when they would meet.
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { RefreshCw, Sparkles, X } from 'lucide-react';
+import { workingHere } from '@kestrel/server/quit-check';
 import { releaseOf } from '@kestrel/server/whats-new';
 import { openView } from '../route.ts';
 import type { UpdateState } from '../store.ts';
@@ -45,7 +48,7 @@ const waitingText = (working: number) => `Waits for ${working === 1 ? 'a working
 /** `floating`: the sidebar is hidden, so the toast sits at the window's bottom-left instead. */
 export function UpdateNotice({ floating = false }: { floating?: boolean }) {
   const update = useUpdateState();
-  const working = useApp((s) => s.workspace?.sessions.filter((v) => v.state === 'running').length ?? 0);
+  const working = useApp((s) => (s.workspace ? workingHere(s.workspace.sessions).length : 0));
   const dismissed = useDismissed();
   // The notes of the release being installed, when this copy already carries them (a beta of the same release).
   const notesRelease = update?.version ? releaseOf(update.version) : null;
@@ -65,7 +68,7 @@ export function UpdateNotice({ floating = false }: { floating?: boolean }) {
   const ready = `Kestrel ${update.version} is ready`;
   return (
     <div ref={host} className={`update-toast${floating ? ' floating' : ''}`} role="status">
-      <button type="button" className="update-restart" disabled={waiting || restarting} title={waiting ? `${ready}. Restart waits until no session is working.` : `${ready}. Restart Kestrel to update.`} onClick={() => void restart()}>
+      <button type="button" className="update-restart" disabled={waiting || restarting} title={waiting ? `${ready}. Restart waits until no session on this computer is working.` : `${ready}. Restart Kestrel to update.`} onClick={() => void restart()}>
         <RefreshCw aria-hidden />
         <span className="update-lines">
           <span className="update-action">{restarting ? 'Restarting…' : 'Restart to update'}</span>

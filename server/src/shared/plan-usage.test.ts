@@ -56,9 +56,9 @@ describe('what is shown', () => {
     expect(resetText(null, NOW)).toBe('');
   });
 
-  it('gives the readout and the menu the same words', () => {
+  it('gives the ring and the popup the same plan usage words', () => {
     const u = report([win('five_hour', 42.4, 200), win('seven_day', 12, 6000)]);
-    expect(readout('claude', u, NOW)).toEqual({ text: '5-hour 42%', label: 'Claude plan usage: 5-hour · 42% used · resets in 3 h 20 min', level: 'ok' });
+    expect(readout('claude', u, NOW)).toEqual({ label: 'Claude plan usage: 5-hour · 42% used · resets in 3 h 20 min', level: 'ok' });
     expect(windowText(u.windows[0]!, NOW)).toBe('5-hour · 42% used · resets in 3 h 20 min');
     expect(windowText(win('five_hour', 0.3, null), NOW)).toBe('5-hour · <1% used');
     expect(windowText(win('five_hour', 50, -1), NOW)).toBe('5-hour · reset since it was measured');

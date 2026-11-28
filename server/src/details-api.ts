@@ -21,15 +21,15 @@ import { folderOf } from './shared/project-folders.ts';
 import { syncBranch } from './branch-sync.ts';
 import { currentWorkingTree } from './working-tree.ts';
 import { sessionFinder, workingTreeOf, worktreeOwnerId, type WorkingTreeAnswer } from './shared/working-tree.ts';
-import { PullRequestStore } from './pull-requests/store.ts';
+import { pipelineKey, PullRequestStore } from './pull-requests/store.ts';
 import { githubByNumber, gitlabByNumber } from './pull-requests/by-number.ts';
-import { lookupFrom, pullRequestsFor } from './pull-requests/choose.ts';
+import { lookupFrom, pullRequestsFor, resolveProvider } from './pull-requests/choose.ts';
 import { samplePullRequests, type SamplePullRequests } from './pull-requests/fake.ts';
 import { githubProvider } from './pull-requests/github.ts';
 import { gitlabProvider } from './pull-requests/gitlab.ts';
 import { sharedGlabSignIn } from './pull-requests/glab.ts';
 import { fetchLinked, linkedRequestsFor, linksCacheKey, NO_BRANCH, sessionPullRequests, type SessionRequestSources } from './pull-requests/session-requests.ts';
-import { readUsage, type ChangeCounts, type PullRequestLookup } from './shared/details.ts';
+import { readUsage, type BasePipeline, type ChangeCounts, type PullRequestLookup } from './shared/details.ts';
 import { ready, unavailable, type Sourced } from './shared/sourced.ts';
 import type { SessionRuntime } from './runtime.ts';
 import type { Workspace } from './workspace.ts';
@@ -44,6 +44,8 @@ export interface DetailsSources {
   /** Pull requests for a repository's branch, and linked ones by number, with which kind of host answered. */
   pullRequests: SessionRequestSources;
   store: PullRequestStore;
+  /** The pipeline on a commit of a target branch (Autopilot's watch after a merge), from whichever host the repository's remote calls for. */
+  pipelineOn?(repoPath: string, sha: string, ref: string): Promise<Sourced<BasePipeline>>;
   /** The sample provider, which "Create pull request" adds to (fake store only). */
   samples?: SamplePullRequests;
 }
@@ -56,7 +58,7 @@ export function detailsSources(sample: boolean): DetailsSources {
       pullRequestsFor: (repo, branch) => lookupFrom('github', samples, repo, branch),
       linkedRequests: (repo, links) => fetchLinked(samples, 'github', repo, links.filter((link) => link.host === 'github')),
     };
-    return { pullRequests, store: new PullRequestStore(), samples };
+    return { pullRequests, store: new PullRequestStore(), samples, pipelineOn: (repo, sha, ref) => samples.pipelineOn(repo, sha, ref) };
   }
   const sources = { github: githubProvider(), gitlab: gitlabProvider(), glabSignIn: sharedGlabSignIn, originOf: originUrl };
   const linked = { github: githubByNumber(), gitlab: gitlabByNumber(), glabSignIn: sharedGlabSignIn, originOf: originUrl };
@@ -64,7 +66,32 @@ export function detailsSources(sample: boolean): DetailsSources {
     pullRequestsFor: (repo, branch) => pullRequestsFor(sources, repo, branch),
     linkedRequests: (repo, links) => linkedRequestsFor(linked, repo, links),
   };
-  return { pullRequests, store: new PullRequestStore() };
+  const pipelineOn = async (repo: string, sha: string, ref: string): Promise<Sourced<BasePipeline>> => {
+    const choice = await resolveProvider(await originUrl(repo), sharedGlabSignIn);
+    return choice.kind === 'none' ? unavailable(choice.reason) : sources[choice.kind].pipelineOn(repo, sha, ref);
+  };
+  return { pullRequests, store: new PullRequestStore(), pipelineOn };
+}
+
+/**
+ * Have the PR store keep the pipeline on `sha` of `base` current for a session (Autopilot's watch after its
+ * request merged), asked in the folder the session's pull requests are asked in. Its answer is read from the
+ * store (`PullRequestStore.pipeline`, keyed by `pipelineKey`).
+ */
+export async function watchBasePipeline(workspace: Workspace, sources: DetailsSources, sessionId: string, base: string, sha: string): Promise<void> {
+  const state = await workspace.state();
+  const asked = state.sessions.find((s) => s.id === sessionId);
+  if (!asked) return;
+  const session = ownerOf(state, asked);
+  const started = state.projects.find((p) => p.id === session.startedIn);
+  const project = started ? folderOf(started, session.folderId) : null;
+  const key = pipelineKey(base, sha);
+  const pipelineOn = sources.pipelineOn;
+  if (!project?.isGit || !pipelineOn) {
+    sources.store.watchPipeline(sessionId, key, async () => unavailable(project?.isGit ? 'Pipelines cannot be asked for here' : 'No Git repository'));
+    return;
+  }
+  sources.store.watchPipeline(sessionId, key, () => pipelineOn(project.path, sha, base));
 }
 
 /** Why a session's pull requests cannot be asked for, or null when they can. */

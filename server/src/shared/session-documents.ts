@@ -23,6 +23,8 @@ export interface PullRequestDraft {
   autopilotOn?: boolean;
   /** Its "Merge it when it is green", likewise. */
   autopilotMerge?: boolean;
+  /** Its "Watch the target branch's pipeline after merging", likewise. */
+  autopilotWatch?: boolean;
 }
 
 /** Where the New PR form is: asking the server for its pre-fill, being edited, or being created. */

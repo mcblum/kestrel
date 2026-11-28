@@ -20,7 +20,7 @@ import { createNewPullRequest, takeFocusRequest } from '../newPullRequest.ts';
 import { useCommitRequest } from '../commitRequest.ts';
 import { ConfirmCreateRow, UncommittedNotice } from './UncommittedChanges.tsx';
 import { formAutopilot, useAutopilotSetting } from '../autopilotPrefs.ts';
-import { DEFAULT_AUTOPILOT_PREFS } from '@kestrel/server/autopilot';
+import { DEFAULT_AUTOPILOT_PREFS, watchLabel } from '@kestrel/server/autopilot';
 import type { PullRequestDraft } from '@kestrel/server/session-documents';
 import '../styles/pull-request.css';
 
@@ -218,6 +218,12 @@ function AutopilotChoice({ sessionId, form }: { sessionId: string; form: PullReq
         <label className="pr-form-check pr-form-check-under">
           <input type="checkbox" checked={choice.merge} onChange={(e) => editNewPullRequestIn(sessionId, { autopilotMerge: e.target.checked })} />
           Merge it when it is green
+        </label>
+      )}
+      {choice.on && (
+        <label className="pr-form-check pr-form-check-under">
+          <input type="checkbox" checked={choice.watch} onChange={(e) => editNewPullRequestIn(sessionId, { autopilotWatch: e.target.checked })} />
+          {watchLabel(form.base.trim() || null)}
         </label>
       )}
     </>

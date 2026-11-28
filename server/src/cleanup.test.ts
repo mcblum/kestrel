@@ -11,6 +11,7 @@ import { CleanupPrefs } from './cleanup/prefs.ts';
 import { memoryPersistence } from './persistence/memory.ts';
 import { runScript } from './project-scripts/run.ts';
 import { SessionRuntime } from './runtime.ts';
+import { DEFAULT_AUTOPILOT_PREFS, newRecord } from './shared/autopilot.ts';
 import { cleanupPlan, GLOBAL_POLICY, mergedNotice, NO_CLEANUP, policyFor, policyProblem, sanitizePolicies, type CleanupPolicy } from './shared/cleanup-policy.ts';
 import { FakeAgents } from './test-agent.ts';
 import { makeRepo } from './test-repo.ts';
@@ -92,7 +93,7 @@ describe('a session whose pull request is merged', () => {
     };
     const archived = async () => (await workspace.state()).archived.sessions.some((s) => s.id === session.id);
     const notices = () => runtime.overlay(session.id)?.messages.filter((m) => m.notice).map((m) => m.text) ?? [];
-    return { runtime, repo, project, session, worktree: worktreePath!, branch: branch!, commit, merge, archived, row, notices };
+    return { runtime, workspace, repo, project, session, worktree: worktreePath!, branch: branch!, commit, merge, archived, row, notices };
   }
 
   it('is left alone until a policy is set', async () => {
@@ -113,6 +114,26 @@ describe('a session whose pull request is merged', () => {
     expect(git(repo, 'branch', '--list', branch)).toBe('');
     expect((await row()).worktreeDiscarded).toBe(true);
     expect(notices()).toContain('Its pull request was merged, so Kestrel archived this session, removed its worktree and deleted its local branch.');
+  });
+
+  it('waits while Autopilot watches the target branch\'s pipeline, and goes ahead once that ends quietly', async () => {
+    const { runtime, workspace, session, commit, archived, worktree } = await world();
+    await runtime.cleanupPrefs.set(GLOBAL_POLICY, ALL);
+    commit(true);
+    await workspace.setAutopilot(session.id, { ...newRecord(7, { merge: false, watch: true }, DEFAULT_AUTOPILOT_PREFS) });
+    const cleanups = vi.spyOn(runtime.mergeCleanup, 'merged');
+    // The sync records the request merged: the clean-up the policy asks for is held, since a failure there needs the worktree.
+    await workspace.recordRequests(session.id, [{ host: 'github', number: 7, url: 'https://example.test/pr/7', state: 'open' } as never]);
+    await workspace.recordRequests(session.id, [{ host: 'github', number: 7, url: 'https://example.test/pr/7', state: 'merged' } as never]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(cleanups).not.toHaveBeenCalled();
+    expect(await archived()).toBe(false);
+    expect(existsSync(worktree)).toBe(true);
+    // The pipeline passed (the watcher's `watchEnded`): the held clean-up runs.
+    (runtime as unknown as { cleanUpHeld(id: string): void }).cleanUpHeld(session.id);
+    expect(cleanups).toHaveBeenCalledWith(session.id);
+    await vi.waitFor(async () => expect(await archived()).toBe(true));
+    expect(existsSync(worktree)).toBe(false);
   });
 
   it('keeps a worktree with uncommitted files, and still archives', async () => {

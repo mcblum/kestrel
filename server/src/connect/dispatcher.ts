@@ -264,7 +264,7 @@ export class ConnectDispatcher {
       case 'review.post':
         return this.postReview(request.args);
       case 'suggestion.answer':
-        return this.suggestion(request.args.sessionId, (s) => s.answer(request.args.sessionId, request.args.suggestionId, request.args.button, request.args.picks));
+        return this.suggestion(request.args.sessionId, (s) => s.answer(request.args.sessionId, request.args.suggestionId, request.args.button, request.args.picks, request.args.toggles));
       case 'suggestion.dismiss':
         return this.suggestion(request.args.sessionId, (s) => s.dismiss(request.args.sessionId, request.args.suggestionId));
       case 'suggestion.undo':
@@ -396,9 +396,9 @@ export class ConnectDispatcher {
   }
 
   /** As the request pill's Autopilot entry: the same call, the same refusals. */
-  private async autopilotSet({ sessionId, on, merge }: ConnectOpArgs['autopilot.set']) {
+  private async autopilotSet({ sessionId, on, merge, watch }: ConnectOpArgs['autopilot.set']) {
     await this.session(sessionId);
-    return { autopilot: await setAutopilot(this.deps.runtime.autopilot, sessionId, { on, ...(merge === undefined ? {} : { merge }) }) };
+    return { autopilot: await setAutopilot(this.deps.runtime.autopilot, sessionId, { on, ...(merge === undefined ? {} : { merge }), ...(watch === undefined ? {} : { watch }) }) };
   }
 
   private async stop(sessionId: string) {

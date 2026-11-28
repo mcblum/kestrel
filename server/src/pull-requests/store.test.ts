@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import type { PullRequest } from '../shared/details.ts';
 import { CHANGING_POLL_MS, OPEN_POLL_MS, WATCHED_POLL_MS } from '../shared/pull-request-poll.ts';
 import { ready, unavailable } from '../shared/sourced.ts';
-import { PullRequestStore, carryHeadSeen } from './store.ts';
+import { PullRequestStore, carryHeadSeen, nextPipelineAsk } from './store.ts';
 
 const pr = (over: Partial<PullRequest> = {}): PullRequest => ({ number: 7, title: 'Docs', url: 'https://example.com/7', state: 'open', checks: 'passing', review: 'none', readiness: 'ready', ...over });
 const lookup = (...pullRequests: PullRequest[]) => ready({ host: 'github' as const, pullRequests });
@@ -149,5 +149,60 @@ describe('PullRequestStore', () => {
     h.store.due('s');
     await h.store.current('s');
     expect(h.asked()).toBe(3);
+  });
+});
+
+describe('a watched pipeline after a merge', () => {
+  const pipe = (checks: 'running' | 'passing' | 'failing' | 'none') => ready({ sha: 'abc1234', checks });
+
+  test('asked at once, held under its key, again on the tick until it has finished, then never', async () => {
+    let clock = 0;
+    const store = new PullRequestStore(() => clock);
+    let answer = pipe('none');
+    let asked = 0;
+    const told: string[] = [];
+    store.onPipelineChange((id) => told.push(id));
+    const load = async () => (asked++, answer);
+    store.watchPipeline('s', 'main\nabc1234', load);
+    await Promise.resolve();
+    await store.tick();
+    expect(asked).toBe(1);
+    expect(store.pipeline('s', 'main\nabc1234')).toEqual(pipe('none'));
+    expect(store.pipeline('s', 'main\nother')).toBeUndefined();
+    // The same key again asks nothing new.
+    store.watchPipeline('s', 'main\nabc1234', load);
+    expect(asked).toBe(1);
+    answer = pipe('running');
+    clock += CHANGING_POLL_MS;
+    await store.tick();
+    expect(asked).toBe(2);
+    answer = pipe('failing');
+    clock += CHANGING_POLL_MS;
+    await store.tick();
+    expect(store.pipeline('s', 'main\nabc1234')).toEqual(pipe('failing'));
+    expect(told).toEqual(['s', 's', 's']);
+    clock += CHANGING_POLL_MS * 10;
+    await store.tick();
+    expect(asked).toBe(3);
+    store.unwatchPipeline('s');
+    expect(store.pipeline('s', 'main\nabc1234')).toBeUndefined();
+  });
+
+  test('its pace: soon while it has not finished, never once it has', () => {
+    expect(nextPipelineAsk(pipe('running'), 100)).toBe(100 + CHANGING_POLL_MS);
+    expect(nextPipelineAsk(unavailable('offline'), 100)).toBe(100 + CHANGING_POLL_MS);
+    expect(nextPipelineAsk(pipe('passing'), 100)).toBeNull();
+    expect(nextPipelineAsk(undefined, null)).toBeNull();
+  });
+
+  test('a session Autopilot keeps asked about is asked again after a merge', async () => {
+    const h = harness();
+    h.set(lookup(pr({ state: 'merged' })));
+    await h.store.get('s', 'k', h.load);
+    h.tick(CHANGING_POLL_MS);
+    await h.store.tick();
+    expect(h.asked()).toBe(1);
+    await h.store.tick(undefined, (id) => id === 's');
+    expect(h.asked()).toBe(2);
   });
 });

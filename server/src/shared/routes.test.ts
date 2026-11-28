@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { containerOf, parseViewPath, projectTabOf, selectsRow, viewPath, type View } from './routes.ts';
+import { containerOf, parseViewPath, projectTabOf, selectsRow, SETTINGS_SECTIONS, viewPath, type View } from './routes.ts';
 
 const every: View[] = [
   { kind: 'overview' },
@@ -9,6 +9,7 @@ const every: View[] = [
   { kind: 'unscoped' },
   { kind: 'settings' },
   { kind: 'settings', section: 'agent-setup' },
+  { kind: 'settings', section: 'usage' },
   { kind: 'move', sessionId: 's/1', projectId: 'p 2' },
   { kind: 'move', sessionId: 's/1', projectId: 'p 2', groupId: 'g 3' },
   { kind: 'group', id: 'g' },
@@ -25,6 +26,10 @@ const every: View[] = [
 ];
 
 describe('page routes', () => {
+  it('lists Usage as a section of its own, right after Agent setup (Matt, 2026-11-27)', () => {
+    expect(SETTINGS_SECTIONS.indexOf('usage')).toBe(SETTINGS_SECTIONS.indexOf('agent-setup') + 1);
+  });
+
   it('turns every view into a path and back', () => {
     for (const view of every) expect(parseViewPath(viewPath(view))).toEqual(view);
   });

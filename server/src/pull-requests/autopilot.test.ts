@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'vitest';
 import { CHECKS_SETTLE_MS, DEFAULT_AUTOPILOT_PREFS, type AutopilotPrefs, type AutopilotRecord } from '../shared/autopilot.ts';
-import type { PullRequest, PullRequestLookup } from '../shared/details.ts';
+import type { BasePipeline, PullRequest, PullRequestLookup } from '../shared/details.ts';
 import { DEFAULT_NOTIFY, requestNotifyEvents } from '../shared/notifications.ts';
 import { DEFAULT_ATTENTION_PREFS } from '../shared/request-attention.ts';
 import type { Sourced } from '../shared/sourced.ts';
@@ -21,6 +21,10 @@ function harness(prefs: AutopilotPrefs = DEFAULT_AUTOPILOT_PREFS, current?: (ses
   const notices: string[] = [];
   const merged: number[] = [];
   let foreign = false;
+  let pipeline: Sourced<BasePipeline> | undefined;
+  const watched: string[] = [];
+  const unwatched: string[] = [];
+  const ended: string[] = [];
   const autopilot = new Autopilot({
     sessions: async () => [session],
     lookup: () => lookup,
@@ -37,11 +41,21 @@ function harness(prefs: AutopilotPrefs = DEFAULT_AUTOPILOT_PREFS, current?: (ses
     notice: (_id, text) => notices.push(text),
     madeHere: async () => !foreign,
     onChange: () => () => undefined,
+    watchPipeline: (_id, base, sha) => {
+      if (!watched.includes(`${base} ${sha}`)) watched.push(`${base} ${sha}`);
+    },
+    pipeline: (_id, _base, sha) => (pipeline?.state === 'ready' && pipeline.value.sha === sha ? pipeline : undefined),
+    unwatchPipeline: (id) => unwatched.push(id),
+    watchEnded: (id) => ended.push(id),
     now: () => now,
     lookMs: 1_000_000,
     everyMs: 1_000_000,
   });
   return {
+    watched,
+    unwatched,
+    ended,
+    setPipeline: (p: Sourced<BasePipeline> | undefined) => (pipeline = p),
     autopilot,
     session,
     sent,
@@ -69,7 +83,7 @@ describe('the watcher', () => {
   test('turned on before a request is opened, it waits and starts on the first one; a guest is refused', async () => {
     const h = make();
     h.setLookup(ready(pr({ state: 'merged' })));
-    const armed = await h.autopilot.turnOn('s1', true);
+    const armed = await h.autopilot.turnOn('s1', { merge: true, watch: false });
     expect(armed).toMatchObject({ waiting: true, merge: true, number: 0 });
     expect(h.autopilot.isOn('s1')).toBe(false);
     expect(h.autopilot.anyOn()).toBe(true);
@@ -82,7 +96,7 @@ describe('the watcher', () => {
     expect(h.session.autopilot?.waiting).toBeUndefined();
     expect(h.autopilot.isOn('s1')).toBe(true);
     h.session.hostId = 'host';
-    await expect(h.autopilot.turnOn('s1', false)).rejects.toThrow(/host session/);
+    await expect(h.autopilot.turnOn('s1', { merge: false, watch: false })).rejects.toThrow(/host session/);
   });
 
   test('a waiting one can be turned off, and its Merge when green changed', async () => {
@@ -98,14 +112,14 @@ describe('the watcher', () => {
   test('before the store answers, the number the caller knows is used', async () => {
     const h = make();
     h.setLookup(undefined);
-    const record = await h.autopilot.turnOn('s1', true, 12);
+    const record = await h.autopilot.turnOn('s1', { merge: true, watch: false }, 12);
     expect(record).toMatchObject({ number: 12, merge: true, rounds: 0 });
     expect(h.autopilot.isOn('s1')).toBe(true);
   });
 
   test('failed checks send a round as a turn; merge when green merges once', async () => {
     const h = make();
-    await h.autopilot.turnOn('s1', true);
+    await h.autopilot.turnOn('s1', { merge: true, watch: false });
     h.setLookup(ready(pr({ checks: 'failing', failedChecks: [{ name: 'lint', url: 'https://ci/lint' }], readiness: 'blocked' } as Partial<PullRequest>)));
     await h.autopilot.look();
     expect(h.sent).toHaveLength(1);
@@ -123,7 +137,7 @@ describe('the watcher', () => {
 
   test('a person pushing stops it with a notice; the user speaking turns it off', async () => {
     const h = make();
-    await h.autopilot.turnOn('s1', false);
+    await h.autopilot.turnOn('s1', { merge: false, watch: false });
     h.foreignPush();
     h.setLookup(ready(pr({ headSha: SHA(3) })));
     await h.autopilot.look();
@@ -131,7 +145,7 @@ describe('the watcher', () => {
     expect(h.session.autopilot?.stopped).toMatchObject({ notify: true, why: expect.stringMatching(/someone else pushed/) });
 
     const g = make();
-    await g.autopilot.turnOn('s1', false);
+    await g.autopilot.turnOn('s1', { merge: false, watch: false });
     await g.autopilot.userSpoke('s1');
     expect(g.autopilot.isOn('s1')).toBe(false);
     expect(g.session.autopilot?.stopped).toMatchObject({ why: USER_TOOK_OVER, notify: false });
@@ -159,7 +173,7 @@ describe('the watcher', () => {
       everyMs: 1_000_000,
     });
     live.push(autopilot);
-    h.session.autopilot = { ...(await h.autopilot.turnOn('s1', true)), head: { sha: SHA(1), at: 0 } };
+    h.session.autopilot = { ...(await h.autopilot.turnOn('s1', { merge: true, watch: false })), head: { sha: SHA(1), at: 0 } };
     await autopilot.look();
     expect(h.session.autopilot?.stopped?.why).toMatch(/could not merge #7: Base branch is protected/);
   });
@@ -170,7 +184,7 @@ describe('turned on, it starts on what the request already needs (issue 82)', ()
   const standing = (h: ReturnType<typeof make>, over: Partial<PullRequest>) => h.setLookup(ready(pr({ headSeenAt: h.now() - 10 * 60_000, ...over } as Partial<PullRequest>)));
   /** Turned on, and the look that turning on asks for. */
   const turnOn = async (h: ReturnType<typeof make>, merge = false) => {
-    await h.autopilot.turnOn('s1', merge);
+    await h.autopilot.turnOn('s1', { merge: merge, watch: false });
     await h.autopilot.look();
   };
 
@@ -264,6 +278,14 @@ describe('the route and the phone', () => {
     expect(autopilotChange({ on: true, merge: true })).toEqual({ on: true, merge: true });
   });
 
+  test('watch is checked like merge, and changed while on', async () => {
+    expect(autopilotChange({ on: true, watch: 'yes' })).toMatch(/true or false/);
+    expect(autopilotChange({ on: true, watch: true })).toEqual({ on: true, watch: true });
+    const h = make();
+    expect(await setAutopilot(h.autopilot, 's1', { on: true, watch: true })).toMatchObject({ watch: true, merge: false });
+    expect(await setAutopilot(h.autopilot, 's1', { on: true, watch: false })).toMatchObject({ watch: false });
+  });
+
   test('on, Merge when green while on, off', async () => {
     const h = make();
     expect(await setAutopilot(h.autopilot, 's1', { on: true })).toMatchObject({ merge: false });
@@ -279,7 +301,7 @@ describe('the offer card', () => {
   const kind = (prefs: Partial<AutopilotPrefs> = {}, calls: string[] = []) =>
     autopilotKind({
       prefs: async () => ({ ...DEFAULT_AUTOPILOT_PREFS, ...prefs }),
-      turnOn: async (_id, merge, number) => calls.push(`on ${merge} ${number}`),
+      turnOn: async (_id, choice, number) => calls.push(`on ${choice.merge} ${choice.watch} ${number}`),
       stopOffering: async () => calls.push('never'),
       asks: async () => true,
     });
@@ -291,6 +313,13 @@ describe('the offer card', () => {
     expect(draft?.title).toMatch(/#7/);
     expect(draft?.reason).toMatch(/up to 3 rounds[\s\S]*Manual/);
     expect(draft?.buttons[0]).toMatchObject({ id: 'on', toggle: { id: 'on-merge', checked: true } });
+    // The two choices as one group, the watch named by the target branch when the offer knows it.
+    expect(draft?.buttons[0]?.toggles).toEqual([
+      { id: 'merge', label: 'Merge it when it is green', checked: true },
+      { id: 'watch', label: 'Watch the target branch’s pipeline after merging', checked: false },
+    ]);
+    const named = await kind({ watch: true }).propose(ctx(), { host: 'github', number: 7, base: 'main' });
+    expect(named.type === 'show' && named.draft.buttons[0]?.toggles?.[1]).toEqual({ id: 'watch', label: 'Watch the main pipeline after merging', checked: true });
     expect(draft?.buttons.find((b) => b.id === 'on-merge')?.folded).toBe(true);
   });
 
@@ -307,14 +336,27 @@ describe('the offer card', () => {
     expect((await k.press(ctx(), suggestion, 'on-merge')).line).toMatch(/!9, and merges it/);
     expect((await k.press(ctx(), suggestion, 'later')).state).toBe('dismissed');
     await k.press(ctx(), suggestion, 'never');
-    expect(calls).toEqual(['on true 9', 'never']);
+    // A window sends which choices were ticked.
+    const based = { payload: { host: 'gitlab', number: 9, base: 'main' } } as never;
+    expect((await k.press(ctx(), based, 'on', undefined, ['watch'])).line).toBe('Autopilot is looking after !9, and watches the main pipeline after merging');
+    expect((await k.press(ctx(), based, 'on', undefined, ['merge', 'watch'])).line).toMatch(/merges it when it is green and watches the main pipeline/);
+    expect((await k.press(ctx(), based, 'on', undefined, [])).line).toBe('Autopilot is looking after !9');
+    expect(calls).toEqual(['on true false 9', 'never', 'on false true 9', 'on true true 9', 'on false false 9']);
+  });
+
+  test('an older client that knows only the single toggle still turns it on, with the watch as Settings says', async () => {
+    const calls: string[] = [];
+    const k = kind({ watch: true }, calls);
+    await k.press(ctx(), { payload: { host: 'github', number: 7 } } as never, 'on');
+    await k.press(ctx(), { payload: { host: 'github', number: 7 } } as never, 'on-merge');
+    expect(calls).toEqual(['on false true 7', 'on true true 7']);
   });
 });
 
 describe('notifications', () => {
   const AWAY = { focused: false, openSessionId: null };
   const failing = new Map([['s1', ready(pr({ checks: 'failing', failedChecks: [{ name: 'lint', url: 'u' }], readiness: 'blocked' } as Partial<PullRequest>))]]);
-  const on: AutopilotRecord = { number: 7, merge: false, rounds: 0, maxRounds: 3, roundMinutes: 60, handled: [] };
+  const on: AutopilotRecord = { number: 7, merge: false, watch: false, rounds: 0, maxRounds: 3, roundMinutes: 60, watchMinutes: 60, handled: [] };
   const s = (autopilot?: AutopilotRecord) => ({ id: 's1', title: 'Polish', state: 'done' as const, note: '', ...(autopilot ? { autopilot } : {}) });
 
   test('nothing while Autopilot is on; its stop is told once', () => {
@@ -325,5 +367,96 @@ describe('notifications', () => {
     const told = requestNotifyEvents(quiet.seen, [s(stopped)], failing, DEFAULT_ATTENTION_PREFS, DEFAULT_NOTIFY, AWAY);
     expect(told.events).toEqual([{ kind: 'pull-request', sessionId: 's1', title: 'Polish', body: 'Autopilot disengaged. #7 after 3 rounds' }]);
     expect(requestNotifyEvents(told.seen, [s(stopped)], failing, DEFAULT_ATTENTION_PREFS, DEFAULT_NOTIFY, AWAY).events).toEqual([]);
+  });
+});
+
+describe('watching the target branch\'s pipeline after the merge', () => {
+  const M1 = SHA(5);
+  const M2 = SHA(6);
+  const lookupOf = (...prs: PullRequest[]) => ({ state: 'ready', value: { host: 'github', pullRequests: prs } }) as Sourced<PullRequestLookup>;
+  const pipe = (sha: string, checks: BasePipeline['checks'], failed: string[] = []): Sourced<BasePipeline> => ({ state: 'ready', value: { sha, checks, ...(failed.length ? { failedChecks: failed.map((name) => ({ name, url: `https://ci/${name}` })) } : {}) } });
+
+  test('merged, failed on main, fixed in a new request that merges, whose own pipeline passes', async () => {
+    const h = make();
+    h.setLookup(lookupOf(pr({ headSeenAt: h.now() - 10 * 60_000 } as Partial<PullRequest>)));
+    await h.autopilot.turnOn('s1', { merge: true, watch: true });
+    await h.autopilot.look();
+    expect(h.merged).toEqual([7]);
+
+    // The store sees it merged: the watch starts on the commit the merge made.
+    h.setLookup(lookupOf(pr({ state: 'merged', mergeSha: M1 })));
+    await h.autopilot.look();
+    expect(h.session.autopilot?.watching).toMatchObject({ request: '#7', base: 'main', sha: M1 });
+    expect(h.watched).toEqual([`main ${M1}`]);
+    expect(h.notices.at(-1)).toBe('Autopilot: #7 was merged. Watching the main pipeline on 55555555.');
+    expect(h.autopilot.isOn('s1')).toBe(true);
+
+    // It fails: a round that opens a new request, and the store is asked to keep looking for it.
+    h.setPipeline(pipe(M1, 'failing', ['test']));
+    await h.autopilot.look();
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]).toMatch(/^Autopilot, round 1 of 3: the pipeline on `main` failed/);
+    expect(h.session.autopilot).toMatchObject({ waiting: true, rounds: 1, fixing: { request: '#7', base: 'main' } });
+    expect(h.unwatched).toEqual(['s1']);
+    expect(h.autopilot.keepsAsking('s1')).toBe(true);
+    expect(h.autopilot.anyOn()).toBe(true);
+
+    // The agent opens #8 from the same branch while its turn runs: Autopilot looks after it, the round going on.
+    h.session.state = 'running';
+    h.tick(60_000);
+    h.setLookup(lookupOf(pr({ number: 8, headSha: SHA(2), headSeenAt: h.now() } as Partial<PullRequest>), pr({ state: 'merged', mergeSha: M1 })));
+    await h.autopilot.look();
+    expect(h.session.autopilot).toMatchObject({ number: 8, rounds: 1, merge: true, watch: true, round: { head: '' } });
+    expect(h.session.autopilot?.waiting).toBeUndefined();
+    expect(h.notices.at(-1)).toBe('Autopilot is looking after #8, opened to fix the main pipeline after #7.');
+    expect(h.autopilot.keepsAsking('s1')).toBe(false);
+
+    // The turn ends and #8's checks pass: the round is over and it merges #8.
+    h.session.state = 'done';
+    h.tick(CHECKS_SETTLE_MS);
+    await h.autopilot.look();
+    await h.autopilot.look();
+    expect(h.merged).toEqual([7, 8]);
+
+    // #8 merged: its own pipeline is watched, passes, and it ends quietly; the held clean-up may go.
+    h.setLookup(lookupOf(pr({ number: 8, state: 'merged', mergeSha: M2 }), pr({ state: 'merged', mergeSha: M1 })));
+    await h.autopilot.look();
+    expect(h.watched).toEqual([`main ${M1}`, `main ${M2}`]);
+    h.setPipeline(pipe(M2, 'passing'));
+    await h.autopilot.look();
+    expect(h.notices.at(-1)).toBe('Autopilot: the main pipeline passed after #8.');
+    expect(h.session.autopilot?.stopped).toMatchObject({ notify: false });
+    expect(h.ended).toEqual(['s1']);
+    expect(h.autopilot.isOn('s1')).toBe(false);
+  });
+
+  test('the user speaking during a watch takes it back; turning the watch off ends it', async () => {
+    const h = make();
+    h.setLookup(lookupOf(pr({ state: 'merged', mergeSha: M1 })));
+    await h.autopilot.turnOn('s1', { merge: false, watch: true }, 7);
+    await h.autopilot.look();
+    expect(h.session.autopilot?.watching).toBeDefined();
+    await h.autopilot.userSpoke('s1');
+    expect(h.session.autopilot?.stopped).toMatchObject({ why: USER_TOOK_OVER });
+    expect(h.unwatched).toEqual(['s1']);
+
+    const g = make();
+    g.setLookup(lookupOf(pr({ state: 'merged', mergeSha: M1 })));
+    await g.autopilot.turnOn('s1', { merge: false, watch: true }, 7);
+    await g.autopilot.look();
+    expect(await setAutopilot(g.autopilot, 's1', { on: true, watch: false })).toBeNull();
+    expect(g.session.autopilot?.stopped?.why).toMatch(/watch of the main pipeline was turned off/);
+  });
+
+  test('while its round opens the new request, the user speaking takes it back', async () => {
+    const h = make();
+    h.setLookup(lookupOf(pr({ state: 'merged', mergeSha: M1 })));
+    await h.autopilot.turnOn('s1', { merge: false, watch: true }, 7);
+    await h.autopilot.look();
+    h.setPipeline(pipe(M1, 'failing', ['lint']));
+    await h.autopilot.look();
+    expect(h.session.autopilot?.waiting).toBe(true);
+    await h.autopilot.userSpoke('s1');
+    expect(h.session.autopilot?.stopped).toMatchObject({ why: USER_TOOK_OVER });
   });
 });

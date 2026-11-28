@@ -2,7 +2,7 @@
 // design doc, "Plan usage"). One shape for every agent: named windows, each with the share used and
 // when it resets. Limits are the account's, not a session's: the server holds one copy per agent
 // (plan-usage.ts), merged from what each session's agent reports and pushed to every window when what
-// is shown changes. The words the composer's readout, its menu and Settings use are all here, so they
+// is shown changes. The words the composer's ring, its popup and Settings use are all here, so they
 // agree. Pure.
 //
 // What each agent really reports (docs/spike-results.md, "Plan usage"):
@@ -129,19 +129,17 @@ export function windowText(w: LimitWindow, now: number): string {
 }
 
 export interface Readout {
-  /** The compact text under the message box: "5-hour 42%". */
-  text: string;
   /** Its tooltip and accessible name, a whole sentence. */
   label: string;
   level: UsageLevel;
 }
 
-/** What the compact readout shows for an agent: its tightest window, or null when there is nothing to show (then the note says why). */
+/** What the ring says about plan usage: its tightest window, or null when there is nothing to show (then the note says why). */
 export function readout(agent: Agent, usage: PlanUsage | null | undefined, now: number): Readout | null {
   const w = tightestWindow(usage, now);
   if (!w) return null;
   const label = `${AGENT_LABEL[agent]} plan usage: ${windowText(w, now)}`;
-  return { text: `${w.label} ${w.reached ? 'used up' : percentText(w)}`, label, level: levelOf(w) };
+  return { label, level: levelOf(w) };
 }
 
 /**

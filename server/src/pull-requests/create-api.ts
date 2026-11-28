@@ -68,16 +68,18 @@ async function checkoutOf(workspace: Workspace, session: SessionView): Promise<C
   return checkoutIn(state, session, project ? folderOf(project, session.folderId) : null);
 }
 
-/** What the form's Autopilot switch and checkbox said; null when the form sent none (the settings decide). */
+/** What the form's Autopilot switch and checkboxes said; null when the form sent none (the settings decide). */
 export interface AutopilotChoice {
   on: boolean;
   merge: boolean;
+  /** Watch the target branch's pipeline after merging; a form from before it sends none (off). */
+  watch: boolean;
 }
 
 export function autopilotChoice(raw: unknown): AutopilotChoice | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const r = raw as Record<string, unknown>;
-  return typeof r.on === 'boolean' ? { on: r.on, merge: r.merge === true } : null;
+  return typeof r.on === 'boolean' ? { on: r.on, merge: r.merge === true, watch: r.watch === true } : null;
 }
 
 /** The route for one server: it keeps which checkouts are creating a pull request right now. */

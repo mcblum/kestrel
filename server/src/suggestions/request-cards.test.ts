@@ -66,6 +66,20 @@ describe('a delegate child’s cards about its pull request', () => {
     expect(await w.workspace.autopilot(w.child)).toMatchObject({ number: 12 });
     expect(await w.workspace.autopilot(w.root)).toBeNull();
   });
+
+  it('its Turn on carries the ticked choices: merge and the watch of the target branch\'s pipeline', async () => {
+    const w = await world();
+    await w.answer(w.child, [pr()]);
+    await w.runtime.suggestions.suggest(w.child, { kind: AUTOPILOT_KIND, host: 'github', number: 12, base: 'main' });
+    const offer = w.open(w.root).find((s) => s.kind === AUTOPILOT_KIND)!;
+    expect(offer.buttons[0]?.toggles?.map((t) => t.label)).toEqual(['Merge it when it is green', 'Watch the main pipeline after merging']);
+    // Only the pressed button's own choices may be ticked.
+    await expect(w.runtime.suggestions.answer(w.root, offer.id, 'on', undefined, ['deploy'])).rejects.toThrow('That button has no such choice to tick.');
+    await expect(w.runtime.suggestions.answer(w.root, offer.id, 'later', undefined, ['watch'])).rejects.toThrow('That button has nothing to tick.');
+    const answered = await w.runtime.suggestions.answer(w.root, offer.id, 'on', undefined, ['watch']);
+    expect(answered.line).toMatch(/watches the main pipeline after merging/);
+    expect(await w.workspace.autopilot(w.child)).toMatchObject({ number: 12, merge: false, watch: true });
+  });
 });
 
 describe('a card about a request that was merged or closed', () => {

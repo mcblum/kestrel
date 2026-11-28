@@ -12,6 +12,9 @@
 //     update the choice is Install later or Restart anyway.
 //   - "Working" is a turn under way, by the server's rule: an agent running, or a turn paused on the
 //     agent's own card (an approval, a question, a plan), which a restart cuts off.
+//   - Only sessions this computer runs count, working or waiting: quitting stops this server's agents
+//     and no others, so a session on another computer of the account is never counted or named
+//     (the server's `runsHere`; Matt, 2026-11-27).
 //   - "Waiting" is a session whose turn is done with one of Kestrel's own cards open that a restart
 //     would close: such cards normally have their step stored and survive a restart, so only one
 //     raised by an older Kestrel (no step stored) or one whose answer is being carried out right now

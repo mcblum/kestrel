@@ -7,7 +7,7 @@ import { TicketsSettings } from '../components/TicketsSetting.tsx';
 import { SaveBar } from '../components/SaveBar.tsx';
 import { thisComputer } from '../platform.ts';
 import { SettingHeading, SettingSection } from '../components/SettingHelp.tsx';
-import { Archive, Bot, GitBranch, ListChecks, Plug, SlidersHorizontal, Workflow as Workflow2, FolderGit2, Keyboard, Layers, Palette, Bell, TerminalSquare, Shield, Eye, SwatchBook, Ticket } from 'lucide-react';
+import { Archive, Bot, GitBranch, ListChecks, Plug, SlidersHorizontal, Workflow as Workflow2, FolderGit2, Keyboard, Layers, Palette, Bell, TerminalSquare, Shield, Eye, SwatchBook, Ticket, Gauge } from 'lucide-react';
 import { ArchivedSettings } from './ArchivedSettings.tsx';
 import { SetupSetting } from '../onboarding/SetupSetting.tsx';
 import { CreateProjectPage } from './CreateProjectPage.tsx';
@@ -96,13 +96,22 @@ function AgentSetup() {
         title="Agent setup"
         help={<p className="settings-help">What every session gets from your own agent setup, in every project and with no project. Set it once here. A project can be given its own setup on its Settings tab. Changes apply to sessions started from now on.</p>}
       />
-      <SettingSection title="Plan usage" help={<p className="settings-help">How much of each agent account's plan is used, as the agent itself reports it: Claude and Codex report their limit windows while a turn runs (and Codex once when it starts), so the figures are as of the last turn. OpenCode reports no plan limits; its cost and tokens are shown for each session. The same figures are under the message box. Kestrel never asks a provider itself.</p>}>
-        <PlanUsageOverview />
-      </SettingSection>
       <McpServersSetting />
       <section className="settings-section wide">
         <ProjectSetup mcpHelp={MCP_HELP} />
       </section>
+    </>
+  );
+}
+
+/** How much of each agent account's plan is used: a section of its own (Matt, 2026-11-27), read from the store's `planUsage`. Nothing typed, so no Save bar. */
+function Usage() {
+  return (
+    <>
+      <SettingHeading level={1} title="Usage" help={<p className="settings-help">How much of each agent account's plan is used, as the agent itself reports it. Kestrel never asks a provider itself.</p>} />
+      <SettingSection title="Plan usage" help={<p className="settings-help">Claude and Codex report their limit windows while a turn runs (and Codex once when it starts), so the figures are as of the last turn. OpenCode reports no plan limits; its cost and tokens are shown for each session. The same figures are under the message box.</p>}>
+        <PlanUsageOverview />
+      </SettingSection>
     </>
   );
 }
@@ -164,6 +173,7 @@ const SECTION_NAV: Record<SettingsSection, { label: string; icon: React.ReactNod
   'presets': { label: 'Models & roles', icon: <Layers aria-hidden /> },
   'workflow': { label: 'Workflow', icon: <Workflow2 aria-hidden /> },
   'agent-setup': { label: 'Agent setup', icon: <Bot aria-hidden /> },
+  'usage': { label: 'Usage', icon: <Gauge aria-hidden /> },
   'environment': { label: 'Environment', icon: <TerminalSquare aria-hidden /> },
   'permissions': { label: 'Permissions', icon: <Shield aria-hidden /> },
   'git': { label: 'Git', icon: <GitBranch aria-hidden /> },
@@ -206,6 +216,7 @@ export function SettingsPage({ section: asked = 'general' }: { section?: string 
         {item('presets')}
         {item('workflow')}
         {item('agent-setup')}
+        {item('usage')}
         {item('environment')}
         {item('permissions')}
         <div className="settings-nav-group">Workspace</div>
@@ -238,6 +249,8 @@ export function SettingsPage({ section: asked = 'general' }: { section?: string 
           <ShortcutsSetting />
         ) : section === 'agent-setup' ? (
           <AgentSetup />
+        ) : section === 'usage' ? (
+          <Usage />
         ) : section.startsWith('agent-setup/mcp/') ? (
           <McpServerPage name={section.split('/')[2] ?? 'new'} projectId={section.split('/')[3] ?? ''} />
         ) : section === 'git' ? (

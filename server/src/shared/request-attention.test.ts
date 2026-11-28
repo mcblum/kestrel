@@ -113,7 +113,7 @@ describe('what GitHub tells the store', () => {
   });
 
   it('asks once per set of reviews for each one’s link and the comments left with it', async () => {
-    const LIST = 'gh pr list --head=feat/x --state all --json number,title,state,isDraft,url,reviewDecision,statusCheckRollup,body,author,headRefName,baseRefName,mergeStateStatus,mergeable,headRefOid,latestReviews';
+    const LIST = 'gh pr list --head=feat/x --state all --json number,title,state,isDraft,url,reviewDecision,statusCheckRollup,body,author,headRefName,baseRefName,mergeStateStatus,mergeable,headRefOid,latestReviews,mergeCommit';
     const item = { number: 7, title: 'x', state: 'OPEN', url: 'https://github.com/o/r/pull/7', reviewDecision: 'CHANGES_REQUESTED', latestReviews: [{ id: 'PRR_a', author: { login: 'sam' }, state: 'CHANGES_REQUESTED', body: 'Split it.' }] };
     const { run, calls } = runner({
       [LIST]: JSON.stringify([item]),
@@ -131,7 +131,7 @@ describe('what GitHub tells the store', () => {
   });
 
   it('keeps who asked and what they wrote when the details cannot be read', async () => {
-    const LIST = 'gh pr list --head=feat/x --state all --json number,title,state,isDraft,url,reviewDecision,statusCheckRollup,body,author,headRefName,baseRefName,mergeStateStatus,mergeable,headRefOid,latestReviews';
+    const LIST = 'gh pr list --head=feat/x --state all --json number,title,state,isDraft,url,reviewDecision,statusCheckRollup,body,author,headRefName,baseRefName,mergeStateStatus,mergeable,headRefOid,latestReviews,mergeCommit';
     const item = { number: 7, title: 'x', state: 'OPEN', url: 'https://github.com/o/r/pull/7', reviewDecision: 'CHANGES_REQUESTED', latestReviews: [{ id: 'PRR_a', author: { login: 'sam' }, state: 'CHANGES_REQUESTED', body: 'Split it.' }] };
     const { run } = runner({ [LIST]: JSON.stringify([item]) });
     expect(await githubProvider(run).pullRequestsFor('/repo', 'feat/x')).toMatchObject({ state: 'ready', value: [{ changesRequested: { reviewers: ['sam'], body: 'Split it.', comments: [] } }] });

@@ -21,6 +21,7 @@ function computer(answer: RemoteAnswer) {
 describe('a session route as an operation of the list', () => {
   it.each([
     ['autopilot', { on: true, merge: true }, 'autopilot.set', { sessionId: 's1', on: true, merge: true }],
+    ['autopilot', { on: true, watch: true }, 'autopilot.set', { sessionId: 's1', on: true, watch: true }],
     ['findings', { cardId: 'c1', findingId: 'f1', action: 'dismiss' }, 'findings.act', { sessionId: 's1', cardId: 'c1', findingId: 'f1', action: 'dismiss' }],
     ['review-end', { cardId: 'c1', action: 'fix', findingIds: ['f1'] }, 'reviewEnd.act', { sessionId: 's1', cardId: 'c1', action: 'fix', findingIds: ['f1'] }],
     ['review-reply', { cardId: 'c1', verdict: 'approve' }, 'review.post', { sessionId: 's1', cardId: 'c1', verdict: 'approve' }],

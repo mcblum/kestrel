@@ -19,7 +19,7 @@ import { dotFor, rollupLabel, rowDotClass, useRowDot } from './useRowDot.ts';
 import { offersArchive } from '@kestrel/server/row-slot';
 import { RowIcons } from './RowIcons.tsx';
 import { useMachineName } from '../machines.ts';
-import '../styles/machines.css';
+import { RowMachine } from './RowMachine.tsx';
 import '../styles/away-projects.css';
 import { RowArchive } from './RowArchive.tsx';
 import { dropGroup, dropProject, dropSession, draggedGroupProject, draggedSessionIsHere, joinGroup, unpinIfPinned } from './sidebarDrops.ts';
@@ -70,7 +70,7 @@ const useLookup = () => {
 };
 
 /** Everything a session row no longer shows, for screen readers (the hover card shows it on screen). */
-function sessionTip(session: SessionView, projects: readonly Project[], dotLabel: string, lineage: string | null): string {
+function sessionTip(session: SessionView, projects: readonly Project[], dotLabel: string, lineage: string | null, machine: string | null): string {
   const project = projectName(session, projects);
   const mark = filingMark(session.filing.status, session.filing.discarded);
   const state = statusText(session);
@@ -78,6 +78,7 @@ function sessionTip(session: SessionView, projects: readonly Project[], dotLabel
     ...(session.review ? ['Code review'] : []),
     session.title,
     project === UNSCOPED ? 'No project' : project,
+    ...(machine ? [`Runs on ${machine}`] : []),
     dotLabel && dotLabel !== state ? `${state} · ${dotLabel}` : state,
     ...(mark ? [mark.label[0]!.toUpperCase() + mark.label.slice(1)] : []),
     ...(lineage ? [lineage] : []),
@@ -211,7 +212,7 @@ const TreeRow = memo(function TreeRow({ node, depth, activeId, rootId, groupId, 
           // (under a workstream or a tag) is renamed in the session's own row, not here.
           onDoubleClick={reference ? undefined : () => actions.startRename(session.id)}
           {...(renaming ? {} : cardTrigger({ kind: 'session', id: session.id, lineage: lineage ? { text: lineage, sessionId: relatedTitle ? relatedId : undefined } : null }))}
-          aria-description={sessionTip(session, projects, dot.label, delegates > 0 && !relatedTitle ? `${lineage}; drag to move them together` : lineage)}
+          aria-description={sessionTip(session, projects, dot.label, delegates > 0 && !relatedTitle ? `${lineage}; drag to move them together` : lineage, machine)}
         >
           {renaming && !reference ? (
             <span className="tree-title">
@@ -242,11 +243,13 @@ const TreeRow = memo(function TreeRow({ node, depth, activeId, rootId, groupId, 
               )}
             </span>
           )}
-          {machine && <span className="row-machine" title={`Runs on ${machine}`}>{machine}</span>}
-          {/* Folded, the dots stand for the sessions under it too (useFoldedDots). */}
-          {folded ? <RollupDots dots={foldedDots} folded /> : dot.className !== 'none' && <span className={`status-dot row-dot ${dot.className}`} aria-label={dot.label || undefined} title={dot.label || undefined} />}
-          {/* A review always says where it stands: with nothing new and nothing waiting, a quiet ring with its status. */}
-          {dot.className === 'none' && !folded && session.review && !inWorkstream ? <span className="status-dot row-dot idle" role="img" aria-label={statusText(session)} title={statusText(session)} /> : <RowIcons session={session} hasDot={folded ? foldedDots.length > 0 : dot.className !== 'none'} />}
+          <span className="session-row-marks">
+            {/* Folded, the dots stand for the sessions under it too (useFoldedDots). */}
+            {folded ? <RollupDots dots={foldedDots} folded /> : dot.className !== 'none' && <span className={`status-dot row-dot ${dot.className}`} aria-label={dot.label || undefined} title={dot.label || undefined} />}
+            {/* A review always says where it stands: with nothing new and nothing waiting, a quiet ring with its status. */}
+            {dot.className === 'none' && !folded && session.review && !inWorkstream ? <span className="status-dot row-dot idle" role="img" aria-label={statusText(session)} title={statusText(session)} /> : <RowIcons session={session} hasDot={folded ? foldedDots.length > 0 : dot.className !== 'none'} />}
+          </span>
+          {machine && <RowMachine machine={machine} />}
         </button>
         {offersArchive(session.state, renaming) && <RowArchive sessionId={session.id} title={session.title} />}
       </div>

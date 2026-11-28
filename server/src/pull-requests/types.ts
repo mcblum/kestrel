@@ -2,13 +2,21 @@
 // repository's `origin` remote (choose.ts). A provider answers for one repository and one branch.
 // `HostCommands` is what creating one needs from a host (create.ts): GitHub and GitLab share the flow.
 import type { PRForm } from './create.ts';
-import type { PullRequest } from '../shared/details.ts';
+import type { BasePipeline, PullRequest } from '../shared/details.ts';
 import type { HostKind } from '../shared/host-terms.ts';
 import type { Sourced } from '../shared/sourced.ts';
 
 export interface PullRequestProvider {
   /** The pull requests whose head is `branch`, in any state. An empty list means none are linked. */
   pullRequestsFor(repoPath: string, branch: string): Promise<Sourced<PullRequest[]>>;
+}
+
+/**
+ * The pipeline on one commit of a target branch, for Autopilot's watch after a merge (docs/designs/pr-autopilot.md).
+ * `ref` is the branch ('' when unknown); GitHub needs only the commit.
+ */
+export interface PipelineProvider {
+  pipelineOn(repoPath: string, sha: string, ref: string): Promise<Sourced<BasePipeline>>;
 }
 
 /** Runs a command (never through a shell) and resolves with its output; rejects as `execFile` does. */

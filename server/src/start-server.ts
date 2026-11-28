@@ -27,7 +27,7 @@ import { createKestrelServer } from './http.ts';
 import { computerName, startConnect } from './connect/link/start.ts';
 import { startCrashReporter } from './crash-reports/start.ts';
 import { crashReportSetup } from './shared/crash-reports.ts';
-import { detailsSources } from './details-api.ts';
+import { detailsSources, watchBasePipeline } from './details-api.ts';
 import { sessionRoutes } from './session-routes.ts';
 import { syncPullRequests } from './pull-request-sync.ts';
 import { originUrl } from './git.ts';
@@ -332,9 +332,10 @@ export async function startKestrel(options: StartOptions): Promise<KestrelHandle
   // Autopilot keeps it current with no window open too: it acts on what the store sees.
   // The knowledge base in use is fetched on the user's interval; the demo and scripted servers reach no network.
   if (!fake && !scripted) runtime.knowledge.start();
-  const pullRequestSync = syncPullRequests(workspace, details, fake, () => app.watched() || (runtime.autopilot?.anyOn() ?? false), (sessionId) => app.watching(sessionId));
-  // The cards about a pull request that needs the user, from the same store (suggestions/request-kind.ts).
-  runtime.watchRequestAttention(details.store, fake);
+  const pullRequestSync = syncPullRequests(workspace, details, fake, () => app.watched() || (runtime.autopilot?.anyOn() ?? false), (sessionId) => app.watching(sessionId), (sessionId) => runtime.autopilot?.keepsAsking(sessionId) ?? false);
+  // The cards about a pull request that needs the user, from the same store (suggestions/request-kind.ts), and
+  // Autopilot, which also has the store keep the target branch's pipeline current while it watches one.
+  runtime.watchRequestAttention(details.store, fake, (sessionId, base, sha) => watchBasePipeline(workspace, details, sessionId, base, sha));
   // The requests the user was asked to review, asked of each host the projects are on and pushed.
   // With fake data they are samples, and no host is asked.
   const seedSampleReviews = async (): Promise<void> => {

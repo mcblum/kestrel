@@ -37,6 +37,8 @@ import { Heading, useSectionOpen } from './SidebarHeading.tsx';
 import { RenameInput } from './SidebarRename.tsx';
 import { FoldToggle, RollupDots, RowMore, RowOpen, useFold } from './SidebarRowParts.tsx';
 import { RowIcons } from './RowIcons.tsx';
+import { RowMachine } from './RowMachine.tsx';
+import { useMachineName } from '../machines.ts';
 import { InTag, InWorkstream, startDrag, useReorderTarget } from './sidebarDrag.ts';
 import { rowDotClass } from './useRowDot.ts';
 import { useBroughtIn } from '../broughtIn.ts';
@@ -70,6 +72,7 @@ function WorkstreamBlock({ workstream, present, onPage, activeId, workspace, ren
   const renamingLead = useApp((s) => shape.leadId !== null && s.renaming === leadRename(shape.leadId));
   const under = useMemo(() => (open ? orderTree(shape.under, (sessionId) => byId.get(sessionId), 'recent', NO_ORDER) : []), [open, shape, byId]);
   const lead = shape.leadId ? byId.get(shape.leadId) : undefined;
+  const machine = useMachineName(lead?.runsOn) ?? (!lead ? workstream.heldOn?.name : undefined);
   // The open requests of the sessions it brought in, so a folded workstream cannot hide them.
   const broughtIn = useBroughtIn(shape.leadId);
   const viaReference = useApp((s) => lead !== undefined && s.openedFromReference === lead.id);
@@ -104,7 +107,7 @@ function WorkstreamBlock({ workstream, present, onPage, activeId, workspace, ren
           // The lead's title renames as a session's does; with no lead the second line names the workstream, renamed only on the computer that holds it.
           onDoubleClick={() => (lead || !workstream.heldOn) && actions.startRename(lead ? leadRename(lead.id) : id)}
           {...(lead && !renaming && !renamingLead ? cardTrigger({ kind: 'session', id: lead.id, lineage: { text: `Leads the workstream ${name} · ${summary}` } }) : {})}
-          aria-description={`Leads the workstream ${name}: ${summary}`}
+          aria-description={`Leads the workstream ${name}: ${summary}${machine ? ` · ${lead ? 'Runs' : 'Held'} on ${machine}` : ''}`}
         >
           <Waypoints aria-hidden />
           <span className="fold-label workstream-label">
@@ -137,6 +140,7 @@ function WorkstreamBlock({ workstream, present, onPage, activeId, workspace, ren
             {/* After them, on the first line: how many open requests the sessions under it have, as the icon and a number, red with a cross when one needs you. */}
             {broughtIn && <BroughtInMark rollup={broughtIn} description={workstreamRequestsDescription(broughtIn)} />}
           </span>
+          {machine && <RowMachine machine={machine} held={!lead} />}
         </button>
         <RowOpen view={{ kind: 'workstream', id }} name={name} what="workstream" />
         <RowMore kind="workstream" id={id} name={name} />

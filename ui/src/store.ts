@@ -602,8 +602,6 @@ else void refreshLaunch().then((found) => found && (set({ connection: 'connectin
 
 const inFlight = new Map<string, Promise<void>>();
 const drafting = new Map<string, Promise<string | null>>();
-/** What the controls offer when the server cannot say: the agent's default model, every mode, no context ring. */
-
 export const actions = {
   clearError: () => set({ error: null }),
   /** Say why something the user asked for could not happen, where other failures are said. */

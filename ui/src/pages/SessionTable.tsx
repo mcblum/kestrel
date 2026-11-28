@@ -8,6 +8,7 @@ import type { LinkKind, Project, SessionView, WorkspaceState } from '@kestrel/se
 import { statusOf, type Sort, type SortKey } from '@kestrel/server/status';
 import { age, AGENT_LABEL, dotClass, filingMark, projectName, SESSION_MIME, statusText } from '../labels.ts';
 import { FilingTag } from '../components/FilingTag.tsx';
+import { RowMachine } from '../components/RowMachine.tsx';
 import { PullRequestSummary } from '../components/PullRequestView.tsx';
 import { usePullRequests } from '../components/details/sources.ts';
 import { openPullRequest } from '../sessionView.ts';
@@ -84,11 +85,11 @@ const Row = memo(function Row({ session, projects, origin, showProject, showStat
       <span className="tcell tcell-main" style={depth > 0 ? ({ '--depth': depth } as CSSProperties) : undefined}>
         <span className="trow-title-line">
           <button type="button" className={`trow-title trow-title-button${compact ? ' inbox-title' : ''}`} title={compact ? session.title : undefined} onClick={e => { e.stopPropagation(); opener((newTab) => openSession(session.id, newTab)).onClick(e); }}>{session.title}</button>
+          {machine && <RowMachine machine={machine} />}
           <RowTags tags={session.tags} />
         </span>
         <span className="trow-sub">
           <span>{AGENT_LABEL[session.agent]}</span>
-          {machine && <span>On {machine}</span>}
           {compact && showProject && <span className="trow-inline-project">{project}<FilingTag mark={mark} /></span>}
           {update && <span className="trow-update">{update}</span>}
           {/* In a tree the indent already says who started it. */}

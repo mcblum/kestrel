@@ -22,8 +22,8 @@ export const changeAutopilot = (change: Partial<AutopilotPrefs> & { confirmed?: 
     putResource(AUTOPILOT_PATH, asAutopilotPrefs(answer));
   });
 
-/** Turn Autopilot on or off for a session's pull request, or change Merge when green (POST /api/sessions/:id/autopilot). */
-export const setSessionAutopilot = (sessionId: string, change: { on: boolean; merge?: boolean }) =>
+/** Turn Autopilot on or off for a session's pull request, or change Merge when green or the watch (POST /api/sessions/:id/autopilot). */
+export const setSessionAutopilot = (sessionId: string, change: { on: boolean; merge?: boolean; watch?: boolean }) =>
   act(() => call(`/api/sessions/${encodeURIComponent(sessionId)}/autopilot`, { method: 'POST', body: JSON.stringify(change) }));
 
 /** Outside React (sending the Create form): what is held now; the defaults when nothing is. */
@@ -36,7 +36,11 @@ export function heldAutopilotPrefs(): AutopilotPrefs {
  * The Create form's Autopilot choice: what the user set in the form, else the session's own (turned on
  * beforehand), else what the settings say (on only with Always).
  */
-export function formAutopilot(form: Pick<PullRequestDraft, 'autopilotOn' | 'autopilotMerge'>, prefs: AutopilotPrefs, record: AutopilotRecord | null | undefined): { on: boolean; merge: boolean } {
+export function formAutopilot(form: Pick<PullRequestDraft, 'autopilotOn' | 'autopilotMerge' | 'autopilotWatch'>, prefs: AutopilotPrefs, record: AutopilotRecord | null | undefined): { on: boolean; merge: boolean; watch: boolean } {
   const wanted = isWanted(record);
-  return { on: form.autopilotOn ?? (wanted || prefs.always), merge: form.autopilotMerge ?? (wanted ? record.merge : prefs.merge) };
+  return {
+    on: form.autopilotOn ?? (wanted || prefs.always),
+    merge: form.autopilotMerge ?? (wanted ? record.merge : prefs.merge),
+    watch: form.autopilotWatch ?? (wanted ? record.watch : prefs.watch),
+  };
 }

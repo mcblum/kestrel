@@ -16,7 +16,7 @@ import { ready } from '../shared/sourced.ts';
 import type { ByNumberProvider } from './by-number.ts';
 import type { PRForm } from './create.ts';
 import type { NewRequestLink } from './session-requests.ts';
-import type { PullRequestProvider } from './types.ts';
+import type { PipelineProvider, PullRequestProvider } from './types.ts';
 
 const SAMPLE: Readonly<Record<string, readonly PullRequest[]>> = {
   // "Make search feel instant": one open pull request, checks still running.
@@ -126,7 +126,7 @@ const SAMPLE_REPOSITORY_URL = 'https://github.com/example/sample';
 /** The default branch the sample pre-fill offers. */
 export const SAMPLE_BASE = 'main';
 
-export interface SamplePullRequests extends PullRequestProvider, ByNumberProvider {
+export interface SamplePullRequests extends PullRequestProvider, ByNumberProvider, PipelineProvider {
   /** Opens a made-up pull request for `branch`, or returns the open one it already has. */
   create(branch: string, form: PRForm): PullRequest;
 }
@@ -140,6 +140,8 @@ export function samplePullRequests(): SamplePullRequests {
   const all = (branch: string): PullRequest[] => [...(made[branch] ?? []), ...(SAMPLE[branch] ?? [])];
   return {
     pullRequestsFor: async (_repoPath, branch) => ready(all(branch)),
+    // The target branch's pipeline after a merge, for Autopilot's watch: it always passes.
+    pipelineOn: async (_repoPath, sha) => ready({ sha, checks: 'passing' }),
     pullRequestByNumber: async (_repoPath, number) => {
       const everyBranch = [...Object.values(made), ...Object.values(SAMPLE)].flat();
       return ready(everyBranch.find((pr) => pr.number === number) ?? null);

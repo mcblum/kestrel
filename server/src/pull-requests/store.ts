@@ -7,8 +7,12 @@
 // A question already on its way is shared, not asked twice. Listeners hear about a session only when
 // its answer really changed, so the UI, which holds what is pushed (ui/src/store.ts), re-renders only
 // then. The clock is injected, so tests never wait.
-import { nextPullRequestAsk } from '../shared/pull-request-poll.ts';
-import type { PullRequestLookup } from '../shared/details.ts';
+//
+// It also holds, while Autopilot watches one, the pipeline on the commit a session's merged request put on
+// its target branch (`watchPipeline`, `pipeline`): asked at once, then every CHANGING_POLL_MS until it has
+// passed or failed, by the same background tick, and told to its own listeners (`onPipelineChange`).
+import { CHANGING_POLL_MS, nextPullRequestAsk } from '../shared/pull-request-poll.ts';
+import type { BasePipeline, PullRequestLookup } from '../shared/details.ts';
 import { carryConflictsSince } from '../shared/request-attention.ts';
 import { reasonOf, unavailable, type Sourced } from '../shared/sourced.ts';
 
@@ -54,9 +58,32 @@ interface Entry {
 
 export type PullRequestListener = (sessionId: string, value: Lookup | null) => void;
 
+type Pipeline = Sourced<BasePipeline>;
+
+/** One watched pipeline: which commit and branch (`key`), how to ask, and the last answer. */
+interface PipelineEntry {
+  key: string;
+  load: () => Promise<Pipeline>;
+  value?: Pipeline;
+  askedAt: number | null;
+  inFlight?: Promise<Pipeline>;
+}
+
+/** What the store holds a watched pipeline under: the target branch and the commit. */
+export const pipelineKey = (base: string, sha: string): string => `${base}\n${sha}`;
+
+/** When a watched pipeline is asked about again: soon until it has passed or failed, then never. Pure. */
+export function nextPipelineAsk(value: Pipeline | undefined, askedAt: number | null): number | null {
+  if (askedAt === null) return null;
+  if (value?.state === 'ready' && (value.value.checks === 'passing' || value.value.checks === 'failing')) return null;
+  return askedAt + CHANGING_POLL_MS;
+}
+
 export class PullRequestStore {
   private readonly entries = new Map<string, Entry>();
   private readonly listeners = new Set<PullRequestListener>();
+  private readonly pipelines = new Map<string, PipelineEntry>();
+  private readonly pipelineListeners = new Set<(sessionId: string) => void>();
 
   constructor(private readonly now: () => number = Date.now) {}
 
@@ -88,6 +115,12 @@ export class PullRequestStore {
     return this.entries.get(sessionId)?.value;
   }
 
+  /** The session's answer once a question already on its way is in, else what is held; never asks the host. */
+  settled(sessionId: string): Promise<Lookup | undefined> {
+    const entry = this.entries.get(sessionId);
+    return entry?.inFlight ?? Promise.resolve(entry?.value);
+  }
+
   /**
    * The session's answer, asked again first when it has none yet or its time to be asked has come
    * (`nextPullRequestAsk`): what Autopilot reads when it is turned on. A question on its way is waited
@@ -112,10 +145,42 @@ export class PullRequestStore {
 
   /** The session is gone or out of sight. */
   forget(sessionId: string): void {
+    this.unwatchPipeline(sessionId);
     const entry = this.entries.get(sessionId);
     if (!entry) return;
     this.entries.delete(sessionId);
     if (entry.value) this.notify(sessionId, null);
+  }
+
+  /**
+   * Keep the pipeline `key` names (a commit on a branch) current for the session, asked with `load`: at
+   * once when it is new, then by `tick`. The same key again changes nothing.
+   */
+  watchPipeline(sessionId: string, key: string, load: () => Promise<Pipeline>): void {
+    const entry = this.pipelines.get(sessionId);
+    if (entry && entry.key === key) {
+      entry.load = load;
+      return;
+    }
+    const next: PipelineEntry = { key, load, askedAt: null };
+    this.pipelines.set(sessionId, next);
+    void this.runPipeline(sessionId, next);
+  }
+
+  /** The pipeline held for the session under `key`, if there is an answer for that one. */
+  pipeline(sessionId: string, key: string): Pipeline | undefined {
+    const entry = this.pipelines.get(sessionId);
+    return entry?.key === key ? entry.value : undefined;
+  }
+
+  /** The session's watch is over: its pipeline is no longer asked about. */
+  unwatchPipeline(sessionId: string): void {
+    this.pipelines.delete(sessionId);
+  }
+
+  onPipelineChange(listener: (sessionId: string) => void): () => void {
+    this.pipelineListeners.add(listener);
+    return () => this.pipelineListeners.delete(listener);
   }
 
   /** Every session the store holds. */
@@ -126,18 +191,44 @@ export class PullRequestStore {
   /**
    * Ask again about every session whose time has come, at most BACKGROUND_CONCURRENCY at once.
    * `watched` says which sessions a window has open: those are asked about every few seconds.
+   * `kept` says which sessions are asked about every CHANGING_POLL_MS even once their requests are merged or
+   * closed: Autopilot waits there for the request a round is opening to fix the target branch's pipeline.
    */
-  async tick(watched: (sessionId: string) => boolean = () => false): Promise<void> {
+  async tick(watched: (sessionId: string) => boolean = () => false, kept: (sessionId: string) => boolean = () => false): Promise<void> {
     const now = this.now();
     const isDue = (id: string, e: Entry): boolean => {
       if (e.inFlight) return false;
       if (e.dueNow) return true;
       if (!e.value || e.askedAt === null) return false;
-      const next = nextPullRequestAsk(e.value, e.askedAt, watched(id));
+      const paced = nextPullRequestAsk(e.value, e.askedAt, watched(id));
+      const next = kept(id) ? Math.min(paced ?? Infinity, e.askedAt + CHANGING_POLL_MS) : paced;
       return next !== null && next <= now;
     };
     const due = [...this.entries].filter(([id, e]) => isDue(id, e)).slice(0, BACKGROUND_CONCURRENCY);
-    await Promise.all(due.map(([id, entry]) => this.run(id, entry)));
+    const pipelinesDue = [...this.pipelines].filter(([, e]) => {
+      const next = e.inFlight ? null : nextPipelineAsk(e.value, e.askedAt);
+      return next !== null && next <= now;
+    });
+    const room = Math.max(0, BACKGROUND_CONCURRENCY - due.length);
+    await Promise.all([...due.map(([id, entry]) => this.run(id, entry)), ...pipelinesDue.slice(0, room).map(([id, entry]) => this.runPipeline(id, entry))]);
+  }
+
+  private runPipeline(sessionId: string, entry: PipelineEntry): Promise<Pipeline> {
+    if (entry.inFlight) return entry.inFlight;
+    const flight = entry
+      .load()
+      .catch((error: unknown) => unavailable(reasonOf(error)))
+      .then((answered) => {
+        entry.inFlight = undefined;
+        if (this.pipelines.get(sessionId) !== entry) return answered;
+        entry.askedAt = this.now();
+        const changed = JSON.stringify(answered) !== JSON.stringify(entry.value);
+        entry.value = answered;
+        if (changed) for (const listener of this.pipelineListeners) listener(sessionId);
+        return answered;
+      });
+    entry.inFlight = flight;
+    return flight;
   }
 
   onChange(listener: PullRequestListener): () => void {

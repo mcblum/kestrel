@@ -9,7 +9,7 @@ export const PROJECT_SECTIONS = ['general', 'folders', 'git', 'actions', 'script
 export type ProjectSection = (typeof PROJECT_SECTIONS)[number];
 
 /** Settings' sections, in the order of its list (ui SettingsPage draws its list from this). */
-export const SETTINGS_SECTIONS = ['general', 'appearance', 'colours', 'notifications', 'shortcuts', 'presets', 'workflow', 'agent-setup', 'environment', 'permissions', 'git', 'code-reviews', 'tickets', 'connections', 'worktrees', 'archived'] as const;
+export const SETTINGS_SECTIONS = ['general', 'appearance', 'colours', 'notifications', 'shortcuts', 'presets', 'workflow', 'agent-setup', 'usage', 'environment', 'permissions', 'git', 'code-reviews', 'tickets', 'connections', 'worktrees', 'archived'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 /** Pages under a Settings section that have an address of their own (an MCP server's page is by name, `agent-setup/mcp/<name>`). */
 export const SETTINGS_PAGES = ['connections/recovery', 'connections/setup', 'agent-setup/mcp/new'] as const;

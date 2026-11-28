@@ -77,27 +77,39 @@
   .kestrel .composer-under .ctl-effort { display: none; }
 }
 
-/* ---- the context ring and its popup ----------------------------------------------------------- */
-.kestrel .ctl-context { position: relative; flex-shrink: 0 !important; }
+/* ---- the composer usage and context popup ----------------------------------------------------- */
+.kestrel .ctl-context { --s-red: light-dark(#b3403a, #e07b74); position: relative; flex-shrink: 0 !important; }
 .kestrel .ctx-button { align-items: center; padding: 3px 5px; }
+.kestrel .ctx-button[aria-expanded='true'] { background: var(--s-soft); }
 .kestrel .ctx-ring { width: 13px; height: 13px; display: block; }
-/* The track has to be seen on the window's background at 13px: the line colour was too faint. */
-.kestrel .ctx-track { fill: none; stroke: color-mix(in srgb, var(--s-muted) 50%, transparent); stroke-width: 2; }
-.kestrel .ctx-fill { fill: none; stroke: var(--s-label); stroke-width: 2; stroke-linecap: round; }
-.kestrel .ctx-button:hover .ctx-fill { stroke: var(--s-ink); }
-.kestrel .ctx-button.nearly-full .ctx-fill { stroke: var(--s-amber); }
-.kestrel .ctx-pop { position: fixed; z-index: 40; width: 250px; padding: 10px 12px; background: var(--s-paper); border: 1px solid var(--s-line); border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, .28); font-size: 11px; color: var(--s-ink); cursor: default; }
-.kestrel .ctx-title { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; color: var(--s-muted); margin-bottom: 4px; }
-.kestrel .ctx-total { font-size: 12px; margin-bottom: 6px; }
-.kestrel .ctx-total strong { font-weight: 600; }
+.kestrel .ctx-track { fill: none; stroke: color-mix(in srgb, var(--ctx-status, var(--s-muted)) 50%, transparent); stroke-width: 2; }
+.kestrel .ctx-fill { fill: none; stroke: var(--ctx-status, var(--s-label)); stroke-width: 2; stroke-linecap: round; }
+.kestrel .ctx-button:hover .ctx-fill { stroke: var(--ctx-status, var(--s-ink)); }
+.kestrel .ctx-button.near { --ctx-status: var(--s-amber); }
+.kestrel .ctx-button.full { --ctx-status: var(--s-red); }
+.kestrel .ctx-button:is(.near, .full) .ctx-track:only-child { stroke: var(--ctx-status); }
+.kestrel .ctx-pop { position: fixed; z-index: 40; width: 320px; padding: 12px; background: var(--s-paper); border: 1px solid var(--s-line); border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, .28); font-size: 11px; color: var(--s-ink); cursor: default; }
+.kestrel .ctx-pop .plan-usage { gap: 6px; }
+.kestrel .ctx-pop .plan-usage-head { justify-content: space-between; }
+.kestrel .ctx-section { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--s-line); }
+.kestrel .ctx-heading { font-size: 11px; font-weight: 600; margin-bottom: 3px; }
+.kestrel .ctx-pop .ctx-disclosure { display: flex; align-items: center; gap: 5px; width: 100%; padding: 4px; border-radius: 5px; background: transparent; font-weight: 600; text-align: left; cursor: pointer; }
+.kestrel .ctx-disclosure:hover { background: var(--s-soft); }
+.kestrel .ctx-disclosure:focus-visible { outline-offset: -1px; }
+.kestrel .ctx-disclosure svg { width: 12px; height: 12px; color: var(--s-muted); }
+.kestrel .ctx-disclosure[aria-expanded='true'] svg { transform: rotate(90deg); }
+.kestrel .ctx-total { margin-left: auto; color: var(--s-label); font-weight: 400; font-variant-numeric: tabular-nums; text-align: right; }
+.kestrel .ctx-details { padding: 4px 4px 0 21px; }
 .kestrel .ctx-rows { margin: 0; display: grid; gap: 1px; }
 .kestrel .ctx-row { display: flex; justify-content: space-between; gap: 10px; }
 .kestrel .ctx-row dt { color: var(--s-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.kestrel .ctx-row dd { margin: 0; color: var(--s-muted); font-variant-numeric: tabular-nums; }
+.kestrel .ctx-row dd { margin: 0; color: var(--s-muted); font-variant-numeric: tabular-nums; text-align: right; }
 .kestrel .ctx-row.free dt, .kestrel .ctx-row.buffer dt, .kestrel .ctx-row.deferred dt { color: var(--s-muted); }
 .kestrel .ctx-sub { margin: 8px 0 2px; font-size: 10px; color: var(--s-muted); }
 .kestrel .ctx-foot { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--s-line); font-size: 10px; color: var(--s-muted); }
 .kestrel .ctx-none { margin: 0; color: var(--s-muted); }
+.kestrel .ctx-actions { margin-top: 8px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.kestrel .ctx-why { color: var(--s-muted); }
 
 /* ---- menu rows the model menu uses: tick, shortcut, current value, heading, switch ------------ */
 .kestrel .menu-item .menu-tick { flex: none; display: inline-grid; place-items: center; width: 12px; }
@@ -108,21 +120,12 @@
 .kestrel .menu-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--s-paper); box-shadow: 0 1px 2px #0003; transition: transform .12s; }
 .kestrel .menu-switch.on { background: var(--s-accent); }
 .kestrel .menu-switch.on::after { transform: translateX(10px); }
-/* Compact, under the numbers (kestrel-connect.md, "The context window, and Compact"). */
-.kestrel .ctx-actions { margin-top: 8px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-.kestrel .ctx-why { font-size: 11px; color: var(--s-muted); }
 /* Autopilot: text only. Grey while off; on, the git colour (--s-git-blue, the token for version control:
    commits, the next-step card), gently. Its words say the state; the colour only says it belongs to the request. */
 .kestrel .ctl-autopilot .ctl-autopilot-on { color: color-mix(in srgb, var(--s-git-blue) 85%, var(--s-label)); }
 .kestrel .ctl-autopilot .ctl-autopilot-on:hover { color: var(--s-git-blue); }
 
-/* ---- plan usage (issue 80): the readout under the message box, its menu, and Settings' overview ---------------- */
-.kestrel .ctl-usage { position: relative; flex-shrink: 0 !important; }
-.kestrel .usage-button { font-variant-numeric: tabular-nums; }
-.kestrel .usage-button.none { color: var(--s-muted); }
-.kestrel .usage-button.near { color: var(--s-amber); }
-.kestrel .usage-button.full { color: var(--s-red); }
-.kestrel .plan-pop { width: 270px; }
+/* ---- plan usage shared by the composer popup and Settings ------------------------------------- */
 .kestrel .plan-usage { display: grid; gap: 4px; }
 .kestrel .plan-usage-head { display: flex; align-items: baseline; gap: 6px; font-size: 12px; }
 .kestrel .plan-usage-head strong { font-weight: 600; }
@@ -137,5 +140,4 @@
 .kestrel .plan-window.full .plan-bar-fill { background: var(--s-red); }
 .kestrel .plan-usage-note { margin: 0; color: var(--s-muted); }
 .kestrel .plan-usage-foot { font-size: 10px; color: var(--s-muted); }
-.kestrel .plan-session { margin-top: 2px; }
 .kestrel .plan-overview { display: grid; gap: 14px; max-width: 420px; font-size: 11px; }

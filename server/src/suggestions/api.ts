@@ -2,14 +2,14 @@
 // and a body reader, and gets an answer, or null when the path is not one of these. The card itself
 // reaches the UI on the session's live channel, like any message.
 //
-//   POST  /api/sessions/:id/suggestions/:sid/answer   { button, picks? }       200 { suggestion }
+//   POST  /api/sessions/:id/suggestions/:sid/answer   { button, picks?, toggles? }   200 { suggestion }
 //   POST  /api/sessions/:id/suggestions/:sid/dismiss                           200 { suggestion }
 //   POST  /api/sessions/:id/suggestions/:sid/undo                              200 { suggestion }
 //   GET   /api/suggestion-prefs/tags                                           200 { enabled, rules }
 //   PATCH /api/suggestion-prefs/tags  { enabled?: boolean, rule?: { key, value } }   200 { enabled, rules }
 //   GET   /api/suggestion-prefs/tickets                                        200 { answers }
 //   PATCH /api/suggestion-prefs/tickets  { change, source, answer: ask | always | never }  200 { answers }
-import { isPicks, isSuggestionId } from '../shared/suggestions.ts';
+import { isPicks, isSuggestionId, isToggles } from '../shared/suggestions.ts';
 import { isRuleValue, parseRuleKey, ruleRows, type TagSuggestionPrefs } from '../shared/tag-rules.ts';
 import { ANSWER_SOURCES, isTicketChange, type AnswerSource } from '../shared/ticket-changes.ts';
 import type { Suggestions } from './service.ts';
@@ -30,10 +30,11 @@ export async function suggestionRoute(parts: readonly string[], method: string, 
   const [sessionId, suggestionId, action] = [parts[2]!, parts[4]!, parts[5]!];
   if (!isSuggestionId(suggestionId)) return bad('The suggestion id is not valid.');
   if (action === 'answer') {
-    const { button, picks } = await readBody();
+    const { button, picks, toggles } = await readBody();
     if (!isSuggestionId(button)) return bad('button must be one of the suggestion\'s button ids.');
     if (picks !== undefined && !isPicks(picks)) return bad('picks must be a short list of names.');
-    return { status: 200, body: { suggestion: await suggestions.answer(sessionId, suggestionId, button, picks) } };
+    if (toggles !== undefined && !isToggles(toggles)) return bad('toggles must be a short list of the button\'s choices.');
+    return { status: 200, body: { suggestion: await suggestions.answer(sessionId, suggestionId, button, picks, toggles) } };
   }
   const suggestion = action === 'dismiss' ? await suggestions.dismiss(sessionId, suggestionId) : await suggestions.undo(sessionId, suggestionId);
   return { status: 200, body: { suggestion } };

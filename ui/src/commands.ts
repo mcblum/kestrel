@@ -204,7 +204,7 @@ export async function runMenuAction(action: MenuAction, newTab = false): Promise
       tabActions.setUnread(action.sessionId, action.unread);
       return;
     case 'set-autopilot':
-      await setSessionAutopilot(action.sessionId, { on: action.on, ...(action.merge === undefined ? {} : { merge: action.merge }) });
+      await setSessionAutopilot(action.sessionId, { on: action.on, ...(action.merge === undefined ? {} : { merge: action.merge }), ...(action.watch === undefined ? {} : { watch: action.watch }) });
       return;
     case 'reveal':
       await actions.reveal(action.path);

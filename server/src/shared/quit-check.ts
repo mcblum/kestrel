@@ -14,6 +14,11 @@
 //     out right now, which a restart cuts off part way.
 // Any other card a finished turn left survives a restart and holds nothing up: "If the turn is done
 // and there's a card, it'll be there when I get back."
+//
+// Only a session this computer runs holds a quit up (Matt, 2026-11-27: "only sessions running on that
+// machine count as 'working'"). Quitting stops this server's agents and no others, so a session on
+// another computer of the account (`runsOn`, drawn here from the replica) never counts and is never
+// named, whatever its state. `runsHere` says which; the window's update notice counts by `workingHere`.
 import type { ChatMessage, SessionView } from '../model.ts';
 import { statusOf } from './status.ts';
 import { turnUnderWay } from './turns.ts';
@@ -31,10 +36,19 @@ export interface QuitCheck {
   waiting: QuitSession[];
 }
 
-type Checked = Pick<SessionView, 'id' | 'title' | 'state' | 'note'> & Partial<Pick<SessionView, 'request' | 'stopped'>>;
+type Checked = Pick<SessionView, 'id' | 'title' | 'state' | 'note'> & Partial<Pick<SessionView, 'request' | 'stopped' | 'runsOn'>>;
 type Hold = 'working' | 'waiting' | null;
 
 const named = (s: Checked): QuitSession => ({ id: s.id, title: s.title.trim() || 'Untitled session' });
+
+/** Whether this computer runs the session, so quitting here would stop it: never one on another computer of the account. */
+export const runsHere = (session: Pick<Checked, 'runsOn'>): boolean => !session.runsOn;
+
+/**
+ * The sessions with an agent running on this computer: what the window can tell at a glance, without the
+ * conversations (the update notice holds Restart while there are any). The quit check itself asks `quitCheck`.
+ */
+export const workingHere = <S extends Checked>(sessions: readonly S[]): S[] => sessions.filter((s) => runsHere(s) && statusOf(s) === 'working');
 
 /** Whether one of Kestrel's own cards is open in the conversation that a restart would close: one with no stored step waiting on it. */
 export const hasOpenKestrelCard = (messages: readonly ChatMessage[], steps: readonly WaitingStep[] = []): boolean => messages.some((m) => m.input?.kestrel === true && !m.input.resolved && !survives(steps, m.input.id));
@@ -60,6 +74,7 @@ export function quitHold(session: Checked, conversation: () => Conversation | un
 export function quitCheck(sessions: readonly Checked[], messagesOf: (id: string) => Conversation | undefined): QuitCheck {
   const check: QuitCheck = { working: [], waiting: [] };
   for (const s of sessions) {
+    if (!runsHere(s)) continue;
     const hold = quitHold(s, () => messagesOf(s.id));
     if (hold) check[hold].push(named(s));
   }

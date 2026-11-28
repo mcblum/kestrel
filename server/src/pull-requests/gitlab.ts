@@ -12,13 +12,15 @@
 // `detailed_merge_status` only while nothing else blocks the merge (a conflict or a failed pipeline
 // hides it), so each open one's reviewers are asked too (`…/merge_requests/<iid>/reviewers`), once per
 // change to the merge request (its `updated_at` and head), and, only when one asked for changes, its
-// discussions, for what they said (`reviewLookup`). Also GitLab's
+// discussions, for what they said (`reviewLookup`). While Autopilot watches the target branch after a
+// merge, the pipelines for the merge's commit on that branch are asked for (`pipelineOn`), and a failed
+// one's jobs as for a request. Also GitLab's
 // commands for creating one (`gitlabCommands`). The runner is injected: tests never call glab.
-import { clipReviewText, REVIEW_COMMENTS_KEPT, type ChangesRequest, type ChecksState, type FailedCheck, type MergeReadiness, type PullRequest, type PullRequestState, type ReviewComment, type ReviewState } from '../shared/details.ts';
+import { clipReviewText, REVIEW_COMMENTS_KEPT, type BasePipeline, type ChangesRequest, type ChecksState, type FailedCheck, type MergeReadiness, type PullRequest, type PullRequestState, type ReviewComment, type ReviewState } from '../shared/details.ts';
 import { ready, reasonOf, unavailable, type Sourced } from '../shared/sourced.ts';
 import { execRunner } from './github.ts';
 import { GLAB_TIMEOUT_MS, glabFailureReason } from './glab.ts';
-import type { CommandRunner, HostCommands, PullRequestProvider } from './types.ts';
+import type { CommandRunner, HostCommands, PipelineProvider, PullRequestProvider } from './types.ts';
 
 type Fields = Record<string, unknown>;
 
@@ -66,7 +68,11 @@ export function mapGlabMergeRequest(mr: Fields): PullRequest {
   const author = mr.author && typeof mr.author === 'object' ? text((mr.author as Fields).username) : undefined;
   const pipeline = (mr.head_pipeline ?? mr.pipeline) as Fields | null | undefined;
   const readiness = gitlabReadiness(mr.detailed_merge_status, mr.has_conflicts);
+  const state = stateOf(mr.state, mr.draft);
+  // The commit the merge put on the target branch: its merge commit, else its squash commit, else (a fast-forward) the head.
+  const mergeSha = state === 'merged' ? (text(mr.merge_commit_sha) || text(mr.squash_commit_sha) || text(mr.sha)) : undefined;
   return {
+    ...(mergeSha ? { mergeSha } : {}),
     ...(text(mr.sha) ? { headSha: text(mr.sha) } : {}),
     ...(pipeline && typeof pipeline.web_url === 'string' && /^https:\/\//.test(pipeline.web_url) ? { checksUrl: pipeline.web_url } : {}),
     ...(text(mr.description) !== undefined ? { body: text(mr.description) } : {}),
@@ -76,7 +82,7 @@ export function mapGlabMergeRequest(mr: Fields): PullRequest {
     ...(readiness !== 'unknown' ? { readiness } : {}),
     number: mr.iid as number,
     title: typeof mr.title === 'string' ? mr.title : `!${String(mr.iid)}`,
-    state: stateOf(mr.state, mr.draft),
+    state,
     checks: pipelineChecks(pipeline && typeof pipeline === 'object' ? pipeline.status : undefined),
     review: gitlabReview(mr.detailed_merge_status),
     url: typeof mr.web_url === 'string' && /^https:\/\//.test(mr.web_url) ? mr.web_url : '',
@@ -269,9 +275,19 @@ function failedJobsLookup(run: CommandRunner) {
   };
 }
 
+export const pipelinesArgs = (sha: string, ref: string): string[] => ['api', `projects/:id/pipelines?sha=${sha}${ref ? `&ref=${encodeURIComponent(ref)}` : ''}&per_page=20`];
+
+/** The newest of the pipelines `…/pipelines?sha=` lists, or null when there is none yet. Pure. */
+export function newestPipelineOf(json: string): Fields | null {
+  const parsed: unknown = JSON.parse(json);
+  if (!Array.isArray(parsed)) throw new Error('glab did not answer with a list of pipelines');
+  const pipelines = parsed.filter((p): p is Fields => typeof p === 'object' && p !== null && Number.isInteger(p.id));
+  return pipelines.reduce<Fields | null>((a, p) => (!a || (p.id as number) > (a.id as number) ? p : a), null);
+}
+
 const unreadable = (error: unknown) => `glab gave an answer Kestrel cannot read: ${reasonOf(error)}`;
 
-export function gitlabProvider(run: CommandRunner = execRunner): PullRequestProvider {
+export function gitlabProvider(run: CommandRunner = execRunner): PullRequestProvider & PipelineProvider {
   const failedJobs = failedJobsLookup(run);
   const reviews = reviewLookup(run);
   return {
@@ -293,6 +309,26 @@ export function gitlabProvider(run: CommandRunner = execRunner): PullRequestProv
       } catch (error) {
         return unavailable(error instanceof SyntaxError ? unreadable(error) : glabFailureReason(error));
       }
+    },
+    async pipelineOn(repoPath, sha, ref): Promise<Sourced<BasePipeline>> {
+      if (!SHA.test(sha)) return unavailable('That is not a commit id');
+      let stdout: string;
+      try {
+        ({ stdout } = await run('glab', pipelinesArgs(sha, ref), { cwd: repoPath, timeoutMs: GLAB_TIMEOUT_MS }));
+      } catch (error) {
+        return unavailable(glabFailureReason(error));
+      }
+      let pipeline: Fields | null;
+      try {
+        pipeline = newestPipelineOf(stdout);
+      } catch (error) {
+        return unavailable(unreadable(error));
+      }
+      if (!pipeline) return ready({ sha, checks: 'none' });
+      const checks = pipelineChecks(pipeline.status);
+      const failed = checks === 'failing' ? await failedJobs(repoPath, { ...pipeline, sha }) : null;
+      const url = typeof pipeline.web_url === 'string' && /^https:\/\//.test(pipeline.web_url) ? pipeline.web_url : undefined;
+      return ready({ sha, checks, ...(failed ? { failedChecks: failed } : {}), ...(url ? { url } : {}) });
     },
   };
 }

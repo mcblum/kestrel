@@ -94,6 +94,26 @@ export interface PullRequest {
   failedChecks?: FailedCheck[];
   /** While `review` is changes-requested on an open or draft request: who asked, and what they said, where the host could say. */
   changesRequested?: ChangesRequest;
+  /**
+   * Once merged: the commit the merge put on the base branch (GitHub's `mergeCommit`; GitLab's merge commit,
+   * else its squash commit, else the head for a fast-forward). Autopilot watches the pipeline on it.
+   */
+  mergeSha?: string;
+}
+
+/**
+ * The pipeline on one commit of a request's target branch after it merged, as the PR store holds it while
+ * Autopilot watches it (docs/designs/pr-autopilot.md, "Watching the target branch's pipeline"): GitHub's check
+ * runs and statuses on the commit, GitLab's newest pipeline for the commit on the branch. `checks` is none
+ * until one has started.
+ */
+export interface BasePipeline {
+  sha: string;
+  checks: ChecksState;
+  /** While failing: the checks or jobs that failed, as for a request. */
+  failedChecks?: FailedCheck[];
+  /** The pipeline's page, where the host says. */
+  url?: string;
 }
 
 /** The pull-requests route's answer: which kind of host answered (its words follow it), and what it found. */
