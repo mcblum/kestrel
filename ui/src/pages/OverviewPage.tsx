@@ -9,7 +9,7 @@ import { opener, openView } from '../route.ts';
 import { useApp } from '../store.ts';
 import { openCreateProject } from '../projectNav.ts';
 import { SessionCanvas } from './SessionCanvas.tsx';
-import { useMemo, useState } from 'react';
+import { type ReactNode, useMemo, useState } from 'react';
 import type { SessionView, WorkspaceState } from '@kestrel/server/model';
 import { FILTER_LABEL, emptyState, inView, overviewLine } from '@kestrel/server/status';
 import { overviewSections, showsStatus } from '@kestrel/server/overview';
@@ -25,8 +25,6 @@ import { ProjectsOnboarding } from './ProjectsOnboarding.tsx';
 import { StarterSurface } from './StarterSurface.tsx';
 import { SessionTable } from './SessionTable.tsx';
 import './overview.css';
-
-const OVERVIEW_HEADING = 'What will you build today?';
 
 function Section({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
   return (
@@ -75,15 +73,11 @@ function WorktreeCleanupNotice() {
 
 export function OverviewPage({ workspace }: { workspace: WorkspaceState }) {
   const [visual, setVisual] = useState(() => new URLSearchParams(location.search).get('view') === 'visualizer' || sessionStorage.getItem('overview-mode') === 'visualizer');
-  // The top bar: the page's name at its left, in the switch's own type (Matt, 2026-11-27), and the Dashboard / Visualizer switch at its right.
-  const bar = <div className="overview-bar">
-    <h1>{visual ? 'Session map' : 'Overview'}</h1>
-    <div className="overview-switch" role="group" aria-label="Overview layout">
-      {['Dashboard', 'Visualizer'].map((label, i) => <button key={label} aria-pressed={visual === Boolean(i)} onClick={() => {
-        setVisual(Boolean(i));
-        sessionStorage.setItem('overview-mode', label.toLowerCase());
-      }}>{label}</button>)}
-    </div>
+  const switcher = <div className="overview-switch" role="group" aria-label="Overview layout">
+    {['Dashboard', 'Visualizer'].map((label, i) => <button type="button" key={label} aria-pressed={visual === Boolean(i)} onClick={() => {
+      setVisual(Boolean(i));
+      sessionStorage.setItem('overview-mode', label.toLowerCase());
+    }}>{label}</button>)}
   </div>;
   const seen = useApp((s) => s.seen);
   const pullRequests = useApp((s) => s.pullRequests);
@@ -96,53 +90,64 @@ export function OverviewPage({ workspace }: { workspace: WorkspaceState }) {
   const empty = emptyState({ view: 'overview', shown: listed.length, unfiltered: listed.length, projects: workspace.projects.length, sessions: workspace.sessions.length });
   const newSession = (newTab: boolean) => void runMenuAction(item.newSession().action!, newTab);
   const addProject = () => openCreateProject();
-  // No sessions yet: a first-session experience (starter, then the projects), never "nothing needs you".
-  if (visual) return <div className="overview-page">{bar}<SessionCanvas sessions={listed} workspace={workspace} needs={rows['needs-you']} /></div>;
-  if (empty === 'first-session')
-    return (
+  let content: ReactNode;
+  if (visual) {
+    content = <SessionCanvas sessions={listed} workspace={workspace} needs={rows['needs-you']} />;
+  } else if (empty === 'first-session') {
+    content = (
       <div className="page column">
-        {bar}
-        <PageHeader title={OVERVIEW_HEADING} line="Start in a project, or explore an idea without one." />
+        <section className="page-section">
+          <h2>What will you build today?</h2>
+          <div className="page-head-line">Start in a project, or explore an idea without one.</div>
+        </section>
         {/* First run: the projects come first, several at once. */}
         {workspace.projects.length === 0 && <ProjectsOnboarding />}
         <StarterSurface />
         <ProjectTiles projects={workspace.projects} onAddProject={addProject} onAddFromFolder={() => openCreateProject(false, true)} />
       </div>
     );
+  } else {
+    content = (
+      <>
+        <div className="overview-scroll">
+          <div className="page column inbox-page overview-content">
+            <PageHeader line={overviewLine(counts)} onNewSession={newSession} />
+            {rows['needs-you'].length > 0 && (
+              <Section title={FILTER_LABEL['needs-you']} count={counts['needs-you']}>
+                <div className="queue">
+                  {rows['needs-you'].map((s) => (
+                    <AttentionRow key={s.id} session={s} workspace={workspace} attention={attention.get(s.id) ?? null} />
+                  ))}
+                </div>
+              </Section>
+            )}
+            <WorktreeCleanupNotice />
+            <TableSection title="Unread" count={counts.unread} rows={rows.unread} workspace={workspace} />
+            <TableSection title={FILTER_LABEL.working} count={counts.working} rows={rows.working} workspace={workspace} />
+            <TableSection title={FILTER_LABEL.review} count={counts.review} rows={rows.review} workspace={workspace} />
+            <TableSection title={FILTER_LABEL.interrupted} count={counts.interrupted} rows={rows.interrupted} workspace={workspace} />
+            <TableSection title="Recently done" count={counts.done} rows={rows.done} workspace={workspace}>
+              {counts.done > rows.done.length && (
+                <button type="button" className="link-button overview-view-all" aria-label="View all done sessions" {...opener((newTab) => openView({ kind: 'all', filter: 'done' }, newTab))}>
+                  View all <ArrowRight aria-hidden />
+                </button>
+              )}
+            </TableSection>
+          </div>
+        </div>
+        <footer className="overview-activity" aria-label="Recent activity">
+          <div className="column"><ActivityGarden workspace={workspace} /></div>
+        </footer>
+      </>
+    );
+  }
 
   return (
     <div className="overview-page">
-      {bar}
-      <div className="overview-scroll">
-        <div className="page column inbox-page overview-content">
-          {/* The name is in the bar above; what stood beside it, the line of counts and New session, leads the page. */}
-          <PageHeader line={overviewLine(counts)} onNewSession={newSession} />
-          {rows['needs-you'].length > 0 && (
-            <Section title={FILTER_LABEL['needs-you']} count={counts['needs-you']}>
-              <div className="queue">
-                {rows['needs-you'].map((s) => (
-                  <AttentionRow key={s.id} session={s} workspace={workspace} attention={attention.get(s.id) ?? null} />
-                ))}
-              </div>
-            </Section>
-          )}
-          <WorktreeCleanupNotice />
-          <TableSection title="Unread" count={counts.unread} rows={rows.unread} workspace={workspace} />
-          <TableSection title={FILTER_LABEL.working} count={counts.working} rows={rows.working} workspace={workspace} />
-          <TableSection title={FILTER_LABEL.review} count={counts.review} rows={rows.review} workspace={workspace} />
-          <TableSection title={FILTER_LABEL.interrupted} count={counts.interrupted} rows={rows.interrupted} workspace={workspace} />
-          <TableSection title="Recently done" count={counts.done} rows={rows.done} workspace={workspace}>
-            {counts.done > rows.done.length && (
-              <button type="button" className="link-button overview-view-all" aria-label="View all done sessions" {...opener((newTab) => openView({ kind: 'all', filter: 'done' }, newTab))}>
-                View all <ArrowRight aria-hidden />
-              </button>
-            )}
-          </TableSection>
-        </div>
+      <div className="overview-header">
+        <div className="column"><PageHeader title="Overview" actions={switcher} /></div>
       </div>
-      <footer className="overview-activity" aria-label="Recent activity">
-        <div className="column"><ActivityGarden workspace={workspace} /></div>
-      </footer>
+      <div className="overview-body">{content}</div>
     </div>
   );
 }

@@ -221,7 +221,7 @@ body { background: light-dark(#fafbf9, #171a19); }
 @media (prefers-reduced-motion: reduce) { .kestrel .working-pulse { animation: none; } }
 /* Your messages sit on the right in a bubble; the agent's run down the left with no label. */
 .kestrel .chat-message.mine { display: flex; justify-content: flex-end; }
-.kestrel .chat-message.mine .chat-text { max-width: min(78%, 520px); margin: 0; padding: 8px 12px; background: var(--s-soft); border-radius: 12px 12px 3px 12px; }
+.kestrel .chat-message.mine .chat-text { max-width: min(78%, calc(520px * var(--chat-text-scale, 1))); margin: 0; padding: 8px 12px; background: var(--s-soft); border-radius: 12px 12px 3px 12px; }
 .kestrel .chat-message.theirs .chat-text { margin: 0 0 8px; }
 .kestrel .chat-message { margin-bottom: 14px; }
 .kestrel .stop-button svg { width: 10px; height: 10px; }
@@ -281,7 +281,6 @@ body { background: light-dark(#fafbf9, #171a19); }
 .kestrel .new-session-space:has(.new-session-note) { align-content: center; }
 .kestrel .new-session-note { margin: 8px 0 0; font-size: 12px; }
 .kestrel .new-session h1 { font-family: Georgia, 'Times New Roman', serif; font-size: 24px; font-weight: 500; letter-spacing: -.01em; margin: 0; color: var(--s-muted); }
-.kestrel .new-session .composer-box .composer-input { font-size: 13px; }
 
 
 /* ---- project picker -------------------------------------------------------------------- */
@@ -747,13 +746,18 @@ body { background: light-dark(#fafbf9, #171a19); }
 
 /* ---- the message box: as wide as the text column, no focus ring, grows as you type -------- */
 .kestrel .composer-wrap { padding-left: 0; padding-right: 0; }
-.kestrel .composer-box .composer-input { field-sizing: content; min-height: 44px; max-height: 240px; overflow-y: auto; resize: none; outline: 0; box-shadow: none; }
+.kestrel .composer-box .composer-input { field-sizing: content; min-height: 44px; max-height: min(calc(11lh + 10px), 40vh); overflow-y: auto; resize: none; outline: 0; box-shadow: none; }
 .kestrel .composer-box .composer-input:focus, .kestrel .composer-box .composer-input:focus-visible { outline: 0; box-shadow: none; }
 
 /* ---- message box: the text and a return key; the session's settings sit under it ---------- */
 .kestrel .composer-box { display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 14px; border-radius: 14px; }
 .kestrel .composer-box .composer-input { flex: 1; min-width: 0; min-height: 28px; padding: 5px 0; }
-.kestrel .new-session .composer-box .composer-input { font-size: 13px; }
+/* Every message box (a new session's, a session's, a held message put back to edit) is one size:
+   Settings → Appearance → Input text size (`--composer-font-size`, shared/appearance.ts), never
+   smaller than a conversation's text unless the user makes it so. It grows a line at a time up to
+   eleven lines (the max-height above is in lines, so it holds at every size) or 40% of the window,
+   whichever is less, then scrolls. */
+.kestrel .composer-box .composer-input { font-size: var(--composer-font-size, 14px); line-height: 1.5; }
 .kestrel .send-icon { display: grid; place-items: center; width: 28px; height: 28px; flex: none; padding: 0; background: transparent; border: 0; border-radius: 7px; color: var(--s-label); cursor: pointer; }
 .kestrel .send-icon:hover:not(:disabled) { background: var(--s-soft); color: var(--s-ink); }
 .kestrel .send-icon:disabled { opacity: .35; cursor: default; }

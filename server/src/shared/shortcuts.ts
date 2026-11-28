@@ -21,16 +21,26 @@ export const SHORTCUT_COMMANDS: readonly ShortcutCommand[] = [
   { id: 'next-tab', label: 'Next tab', group: 'Tabs', default: 'mod+shift+]' },
   { id: 'prev-tab', label: 'Previous tab', group: 'Tabs', default: 'mod+shift+[' },
   { id: 'toggle-sidebar', label: 'Show or hide the sidebar', group: 'View', default: 'mod+b' },
-  // A browser's own keys on a Mac. Windows and Linux browsers use Alt with the arrows, which is fixed below.
+  // A browser's own keys on a Mac. Cmd with the arrows works there too, and Alt with the arrows on
+  // Windows and Linux; both are fixed below.
   { id: 'back', label: 'Back', group: 'View', default: 'mod+[' },
   { id: 'forward', label: 'Forward', group: 'View', default: 'mod+]' },
 ];
 
+export interface FixedShortcut {
+  label: string;
+  group: ShortcutCommand['group'];
+  keys: string;
+  /** Only on this kind of computer; listed only there, since its keys mean something else on the other. */
+  only?: 'mac' | 'other';
+}
+
 /** Shortcuts that are listed so they can be found, and cannot be changed. */
-export const FIXED_SHORTCUTS: readonly { label: string; group: ShortcutCommand['group']; keys: string }[] = [
+export const FIXED_SHORTCUTS: readonly FixedShortcut[] = [
   { label: 'Go to tab 1 to 9', group: 'Tabs', keys: 'mod+1 … mod+9' },
   { label: 'New terminal (in the Terminal pane)', group: 'View', keys: 'ctrl+shift+`' },
-  { label: 'Back and forward, on Windows and Linux', group: 'View', keys: 'alt+left … alt+right' },
+  { label: 'Back and forward, when not typing', group: 'View', keys: 'mod+left … mod+right', only: 'mac' },
+  { label: 'Back and forward, on Windows and Linux', group: 'View', keys: 'alt+left … alt+right', only: 'other' },
 ];
 
 /**
@@ -41,6 +51,87 @@ export const FIXED_SHORTCUTS: readonly { label: string; group: ShortcutCommand['
 export function browserNavCommand(binding: string | null, mac: boolean): 'back' | 'forward' | null {
   if (mac) return null;
   return binding === 'alt+left' ? 'back' : binding === 'alt+right' ? 'forward' : null;
+}
+
+/**
+ * Cmd with the left and right arrows on a Mac, as in a browser: Back and Forward, beside ⌘[ and ⌘],
+ * fixed. Only Cmd: with Shift, Option or Control the keys select or move by word, and they are left
+ * alone. Not on Windows and Linux, where Ctrl with an arrow moves the cursor a word at a time.
+ * Whether the key is the page's to take at all is `arrowNavCommand`'s question.
+ */
+export function macArrowNavCommand(binding: string | null, mac: boolean): 'back' | 'forward' | null {
+  if (!mac) return null;
+  return binding === 'mod+left' ? 'back' : binding === 'mod+right' ? 'forward' : null;
+}
+
+/** As much of an element as `keepsArrowKeys` reads, so it is pure and a test needs no browser. */
+export interface KeyTarget {
+  tagName?: string;
+  isContentEditable?: boolean;
+  getAttribute?(name: string): string | null;
+  classList?: { contains(token: string): boolean };
+  parentElement?: KeyTarget | null;
+}
+
+/** Elements whose arrow keys are their own: text is typed into them, or another page is inside. */
+const OWN_KEYS_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'WEBVIEW', 'IFRAME', 'OBJECT', 'EMBED']);
+/** Roles that move a caret or a value with the arrows. */
+const OWN_KEYS_ROLES = new Set(['textbox', 'searchbox', 'combobox', 'spinbutton', 'slider']);
+/** Embedded editors and terminals, by their own class: the terminal pane's xterm, and any code editor. */
+const OWN_KEYS_CLASSES = ['xterm', 'cm-editor', 'monaco-editor'];
+
+/**
+ * Whether a key press aimed at `target` belongs to it: anything typed into (an input, a text area,
+ * editable content such as the message box, a terminal or a code editor), a select, or a page of its
+ * own (the browser pane's webview, a frame). There Cmd with an arrow moves the caret to the start or
+ * end of the line, and must reach it untouched.
+ */
+export function keepsArrowKeys(target: unknown): boolean {
+  for (let el = asKeyTarget(target); el; el = el.parentElement ?? null) {
+    if (el.isContentEditable) return true;
+    if (el.tagName && OWN_KEYS_TAGS.has(el.tagName.toUpperCase())) return true;
+    const role = el.getAttribute?.('role');
+    if (role && OWN_KEYS_ROLES.has(role)) return true;
+    const editable = el.getAttribute?.('contenteditable');
+    if (editable != null && editable !== 'false') return true;
+    if (OWN_KEYS_CLASSES.some((name) => el!.classList?.contains(name))) return true;
+  }
+  return false;
+}
+
+const asKeyTarget = (target: unknown): KeyTarget | null => (typeof target === 'object' && target !== null && 'tagName' in target ? (target as KeyTarget) : null);
+
+/** A keydown as `arrowNavCommand` reads it (a DOM `KeyboardEvent` is one). */
+export interface NavKeyPress extends KeyPress {
+  target: unknown;
+  defaultPrevented: boolean;
+  isComposing?: boolean;
+}
+
+/**
+ * The command a keydown that reached the window is, by Cmd with an arrow on a Mac (`macArrowNavCommand`),
+ * or null. Null when what has the focus keeps its arrow keys (`keepsArrowKeys`), when something on the
+ * way already handled the key, while text is being composed, and when the user gave that key to a
+ * command of their own (it runs instead, by the page's or the menu's own handling).
+ */
+export function arrowNavCommand(press: NavKeyPress, mac: boolean, overrides: ShortcutOverrides): 'back' | 'forward' | null {
+  if (press.defaultPrevented || press.isComposing) return null;
+  const binding = bindingOf(press, mac);
+  const command = macArrowNavCommand(binding, mac);
+  if (!command || commandFor(overrides, binding) !== null) return null;
+  return keepsArrowKeys(press.target) ? null : command;
+}
+
+/**
+ * The page's handling of Cmd with an arrow: run Back or Forward and prevent the key (so a browser does
+ * not step its own history too), or leave the key entirely alone. True when it ran a command.
+ */
+export function handleArrowNavKey(event: NavKeyPress & { preventDefault(): void }, mac: boolean, overrides: ShortcutOverrides, run: (command: 'back' | 'forward') => void): boolean {
+  const command = arrowNavCommand(event, mac, overrides);
+  if (!command) return false;
+  event.preventDefault();
+  run(command);
+  return true;
 }
 
 /** The user's own keys, by command id; '' takes a command's key away. A command not listed keeps its default. */
@@ -166,8 +257,8 @@ export function acceleratorOf(binding: string): string {
 export const menuAccelerators = (overrides: ShortcutOverrides): Record<string, string> => Object.fromEntries(SHORTCUT_COMMANDS.map((c) => [c.id, acceleratorOf(bindingFor(overrides, c.id))]));
 
 /** The rows the Settings list shows for a search: by what the command is called or its keys. */
-export function searchShortcuts(query: string, overrides: ShortcutOverrides, mac: boolean): { commands: ShortcutCommand[]; fixed: typeof FIXED_SHORTCUTS } {
+export function searchShortcuts(query: string, overrides: ShortcutOverrides, mac: boolean): { commands: ShortcutCommand[]; fixed: readonly FixedShortcut[] } {
   const q = query.trim().toLowerCase();
   const hit = (label: string, keys: string) => !q || label.toLowerCase().includes(q) || keys.toLowerCase().replace(/\s+/g, '').includes(q.replace(/\s+/g, ''));
-  return { commands: SHORTCUT_COMMANDS.filter((c) => hit(c.label, formatBinding(bindingFor(overrides, c.id), mac))), fixed: FIXED_SHORTCUTS.filter((f) => hit(f.label, formatBinding(f.keys, mac))) };
+  return { commands: SHORTCUT_COMMANDS.filter((c) => hit(c.label, formatBinding(bindingFor(overrides, c.id), mac))), fixed: FIXED_SHORTCUTS.filter((f) => (!f.only || (f.only === 'mac') === mac) && hit(f.label, formatBinding(f.keys, mac))) };
 }

@@ -1,5 +1,6 @@
 // How Kestrel looks on this computer (0.0.20, matt/kestrel#21): light, dark or the system's; the
-// font code is drawn in; the terminal's text size; higher-contrast text for code; and diffs in
+// font code is drawn in; the terminal's text size; the message box's text size and a scale for a
+// conversation's text (0.0.34); higher-contrast text for code; and diffs in
 // blue and orange for people who do not tell red from green. A preference of the window, kept in
 // the browser (ui/src/appearance.ts), not server data. Pure and browser-safe.
 
@@ -12,13 +13,24 @@ export interface Appearance {
   /** A font family for code, diffs and the terminal; '' for the system's monospace. */
   codeFont: string;
   terminalFontSize: number;
+  /** The message box's text size in px (every composer: a new session's, a session's, editing a queued message). */
+  composerFontSize: number;
+  /**
+   * A conversation's text as a scale of its own sizes (1 is as drawn): its messages' text is several
+   * sizes (body, headings, code, tables), so one scale keeps them in proportion (Matt, 2026-11-28).
+   */
+  chatTextScale: number;
   contrast: Contrast;
   diffColors: DiffColors;
 }
 
 export const MIN_TERMINAL_FONT = 9;
 export const MAX_TERMINAL_FONT = 24;
-export const DEFAULT_APPEARANCE: Appearance = { theme: 'system', codeFont: '', terminalFontSize: 12, contrast: 'standard', diffColors: 'red-green' };
+export const MIN_COMPOSER_FONT = 12;
+export const MAX_COMPOSER_FONT = 20;
+/** The scales a conversation's text is offered at, smallest first; anything else read back goes to the nearest. */
+export const CHAT_TEXT_SCALES: readonly number[] = [0.85, 0.9, 1, 1.1, 1.25, 1.5];
+export const DEFAULT_APPEARANCE: Appearance = { theme: 'system', codeFont: '', terminalFontSize: 12, composerFontSize: 14, chatTextScale: 1, contrast: 'standard', diffColors: 'red-green' };
 
 export const THEME_LABEL: Record<Theme, string> = { system: 'Match the system', light: 'Light', dark: 'Dark' };
 /**
@@ -53,6 +65,13 @@ export function codeFontProblem(name: string): string | null {
 export const codeFontStack = (font: string): string => (font && codeFontProblem(font) === null ? `"${font}", ${SYSTEM_MONO}` : SYSTEM_MONO);
 
 export const clampTerminalFont = (size: number): number => Math.max(MIN_TERMINAL_FONT, Math.min(MAX_TERMINAL_FONT, Math.round(size)));
+export const clampComposerFont = (size: number): number => Math.max(MIN_COMPOSER_FONT, Math.min(MAX_COMPOSER_FONT, Math.round(size)));
+/** The offered scale nearest `scale` (the smaller of two as near). */
+export const nearestChatScale = (scale: number): number => CHAT_TEXT_SCALES.reduce((best, step) => (Math.abs(step - scale) < Math.abs(best - scale) ? step : best));
+/** A scale as the setting shows it: 1.1 is "110%". */
+export const scalePercent = (scale: number): string => `${Math.round(scale * 100)}%`;
+
+const isNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 
 /** Stored preferences as read back: anything unreadable is the default for that part. */
 export function sanitizeAppearance(value: unknown): Appearance {
@@ -61,7 +80,9 @@ export function sanitizeAppearance(value: unknown): Appearance {
   return {
     theme: v.theme === 'light' || v.theme === 'dark' ? v.theme : 'system',
     codeFont: codeFontProblem(font) === null ? font : '',
-    terminalFontSize: typeof v.terminalFontSize === 'number' && Number.isFinite(v.terminalFontSize) ? clampTerminalFont(v.terminalFontSize) : DEFAULT_APPEARANCE.terminalFontSize,
+    terminalFontSize: isNumber(v.terminalFontSize) ? clampTerminalFont(v.terminalFontSize) : DEFAULT_APPEARANCE.terminalFontSize,
+    composerFontSize: isNumber(v.composerFontSize) ? clampComposerFont(v.composerFontSize) : DEFAULT_APPEARANCE.composerFontSize,
+    chatTextScale: isNumber(v.chatTextScale) ? nearestChatScale(v.chatTextScale) : DEFAULT_APPEARANCE.chatTextScale,
     contrast: v.contrast === 'high' ? 'high' : 'standard',
     diffColors: v.diffColors === 'blue-orange' ? 'blue-orange' : 'red-green',
   };
@@ -70,9 +91,32 @@ export function sanitizeAppearance(value: unknown): Appearance {
 /** Whether the window is drawn dark: the choice, or the system's when it is left to the system. */
 export const isDark = (theme: Theme, systemDark: boolean): boolean => (theme === 'system' ? systemDark : theme === 'dark');
 
-/** What goes on the page's root element: the colour scheme the stylesheets' light-dark() follows, and what the high-contrast and diff rules key on. */
-export function rootLook(appearance: Appearance): { colorScheme: string; contrast: Contrast; diff: DiffColors; mono: string } {
-  return { colorScheme: appearance.theme === 'system' ? 'light dark' : appearance.theme, contrast: appearance.contrast, diff: appearance.diffColors, mono: codeFontStack(appearance.codeFont) };
+/** The custom properties the stylesheets read, by name: the code font, the message box's text size, and the scale every text size of a conversation's messages is multiplied by. */
+export interface RootProperties {
+  '--mono': string;
+  '--composer-font-size': string;
+  '--chat-text-scale': string;
+}
+
+export interface RootLook {
+  colorScheme: string;
+  contrast: Contrast;
+  diff: DiffColors;
+  properties: RootProperties;
+}
+
+/** What goes on the page's root element: the colour scheme the stylesheets' light-dark() follows, what the high-contrast and diff rules key on, and the custom properties. */
+export function rootLook(appearance: Appearance): RootLook {
+  return {
+    colorScheme: appearance.theme === 'system' ? 'light dark' : appearance.theme,
+    contrast: appearance.contrast,
+    diff: appearance.diffColors,
+    properties: {
+      '--mono': codeFontStack(appearance.codeFont),
+      '--composer-font-size': `${appearance.composerFontSize}px`,
+      '--chat-text-scale': String(appearance.chatTextScale),
+    },
+  };
 }
 
 /** The terminal's own colours: grey surfaces as the app's, xterm's colours for program output. */

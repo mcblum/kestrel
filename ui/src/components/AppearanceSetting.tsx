@@ -1,13 +1,34 @@
 // Settings → Appearance (server: shared/appearance.ts; ui/src/appearance.ts): the theme,
-// the code font, the terminal's text size, higher contrast for code, and the diff colours. Kept in
+// the code font, the text size of the message box, a conversation and the terminal, higher contrast
+// for code, and the diff colours. Kept in
 // this browser, so each change shows at once and nothing is saved to the server.
 import { useState } from 'react';
 import { thisComputer } from '../platform.ts';
-import { CODE_FONTS, codeFontProblem, DIFF_LABEL, MAX_TERMINAL_FONT, MIN_TERMINAL_FONT, THEME_LABEL, type DiffColors, type Theme } from '@kestrel/server/appearance';
+import { CHAT_TEXT_SCALES, CODE_FONTS, codeFontProblem, DEFAULT_APPEARANCE, DIFF_LABEL, MAX_COMPOSER_FONT, MAX_TERMINAL_FONT, MIN_COMPOSER_FONT, MIN_TERMINAL_FONT, scalePercent, THEME_LABEL, type DiffColors, type Theme } from '@kestrel/server/appearance';
 import { setAppearance, useAppearance } from '../appearance.ts';
 import { SettingSection } from './SettingHelp.tsx';
 
 const CUSTOM = '__custom__';
+
+interface TextSizeProps {
+  id: string;
+  value: number;
+  min: number;
+  max: number;
+  fallback: number;
+  onChange: (size: number) => void;
+}
+
+/** A text size in px: the number, its range and default, and a way back to the default once changed. */
+function TextSize({ id, value, min, max, fallback, onChange }: TextSizeProps) {
+  return (
+    <div className="appearance-font">
+      <input id={id} className="form-control appearance-number" type="number" min={min} max={max} step={1} value={value} onChange={(e) => e.target.value !== '' && onChange(Number(e.target.value))} />
+      <span className="delegation-limit-default">{min} to {max} · default {fallback}</span>
+      {value !== fallback && <button type="button" className="link-button appearance-reset" onClick={() => onChange(fallback)}>Use default</button>}
+    </div>
+  );
+}
 const SAMPLE = 'const total = items.reduce((sum, item) => sum + item.price, 0); // 0O 1lI';
 
 function Controls() {
@@ -36,11 +57,16 @@ function Controls() {
       {typing && problem && <span className="delegation-limit-problem appearance-wide" role="alert">{problem}</span>}
       <code className="appearance-sample appearance-wide">{SAMPLE}</code>
 
+      <label htmlFor="appearance-input">Input text size</label>
+      <TextSize id="appearance-input" value={look.composerFontSize} min={MIN_COMPOSER_FONT} max={MAX_COMPOSER_FONT} fallback={DEFAULT_APPEARANCE.composerFontSize} onChange={(composerFontSize) => setAppearance({ composerFontSize })} />
+
+      <label htmlFor="appearance-chat">Conversation text size</label>
+      <select id="appearance-chat" className="form-control" value={look.chatTextScale} onChange={(e) => setAppearance({ chatTextScale: Number(e.target.value) })}>
+        {CHAT_TEXT_SCALES.map((scale) => <option key={scale} value={scale}>{scalePercent(scale)}{scale === DEFAULT_APPEARANCE.chatTextScale ? ' (default)' : ''}</option>)}
+      </select>
+
       <label htmlFor="appearance-terminal">Terminal text size</label>
-      <div className="appearance-font">
-        <input id="appearance-terminal" className="form-control appearance-number" type="number" min={MIN_TERMINAL_FONT} max={MAX_TERMINAL_FONT} step={1} value={look.terminalFontSize} onChange={(e) => e.target.value !== '' && setAppearance({ terminalFontSize: Number(e.target.value) })} />
-        <span className="delegation-limit-default">{MIN_TERMINAL_FONT} to {MAX_TERMINAL_FONT} · default 12</span>
-      </div>
+      <TextSize id="appearance-terminal" value={look.terminalFontSize} min={MIN_TERMINAL_FONT} max={MAX_TERMINAL_FONT} fallback={DEFAULT_APPEARANCE.terminalFontSize} onChange={(terminalFontSize) => setAppearance({ terminalFontSize })} />
 
       <label htmlFor="appearance-diff">Diff colours</label>
       <select id="appearance-diff" className="form-control" value={look.diffColors} onChange={(e) => setAppearance({ diffColors: e.target.value as DiffColors })}>
@@ -57,7 +83,8 @@ function Controls() {
 
 const HELP = (
   <p className="settings-help">
-    How Kestrel looks in this window; kept on this computer, not with your sessions. The code font is used for code in conversations, diffs and the terminal, and a font that is not installed falls back to the system's. "Blue and orange" draws added lines blue
+    How Kestrel looks in this window; kept on this computer, not with your sessions. Input text size is the message box's; conversation text size
+    scales the messages in a conversation, their headings, code and tables with them. The code font is used for code in conversations, diffs and the terminal, and a font that is not installed falls back to the system's. "Blue and orange" draws added lines blue
     and removed lines orange, for anyone who does not tell red from green. Higher contrast darkens (or, in dark, lightens) code colours, quiet text and lines.
   </p>
 );

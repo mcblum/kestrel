@@ -46,6 +46,7 @@
 .kestrel .appearance-font input.form-control { flex: 1; }
 .kestrel .appearance-number { flex: none !important; width: 72px; }
 .kestrel .appearance-wide { grid-column: 1 / -1; }
+.kestrel .appearance-font .appearance-reset { padding: 0; font-size: 11px; white-space: nowrap; }
 .kestrel .appearance-sample { padding: 8px 10px; border: 1px solid var(--s-line); border-radius: 6px; background: var(--s-paper); font-family: var(--mono); font-size: 12px; color: var(--s-ink); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
 /* Settings → Keyboard shortcuts (ShortcutsSetting.tsx). */

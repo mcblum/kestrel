@@ -312,8 +312,10 @@ function createWindow() {
   trackBounds(win);
   attachEditMenu(win);
   // A browser's Back and Forward where they are not menu keys: Alt with the arrows on Windows and
-  // Linux (on a Mac Option with an arrow moves the cursor by a word, and the keys are ⌘[ and ⌘]), and
-  // the mouse's and keyboard's own back and forward buttons on Windows.
+  // Linux, and the mouse's and keyboard's own back and forward buttons on Windows. On a Mac Option
+  // with an arrow moves the cursor by a word; the keys there are ⌘[ and ⌘] (the menu's), and ⌘← and
+  // ⌘→, which the page handles itself (ui/src/commands.ts `onArrowNavKey`): only the page knows
+  // whether a text field has the focus, where they move the caret to the start or end of the line.
   if (process.platform !== 'darwin') {
     win.webContents.on('before-input-event', (event, input) => {
       if (input.type !== 'keyDown' || !input.alt || input.control || input.meta || input.shift) return;

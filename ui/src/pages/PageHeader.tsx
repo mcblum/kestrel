@@ -38,7 +38,6 @@ export function PageHeader({
   actions,
   mark,
 }: {
-  /** None where the page's name is said elsewhere (the Overview's, in its top bar): the line and the actions lead. */
   title?: string;
   /** `newTab` is a shift, Cmd or middle click. */
   onNewSession?: (newTab: boolean) => void;

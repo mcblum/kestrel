@@ -1,51 +1,142 @@
-/* The Overview's top bar: the page's name in the switch's own type at the left, the switch at the right. */
-.kestrel .overview-bar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 18px; }
-.kestrel .overview-bar h1 { margin: 0; font: inherit; font-size: 12px; color: var(--s-muted); }
 .kestrel .overview-switch { flex: none; display: flex; gap: 2px; padding: 3px; border: 1px solid var(--s-line); border-radius: 8px; background: var(--s-soft); }
-.kestrel .overview-switch button { border: 0; border-radius: 5px; padding: 5px 12px; font: inherit; font-size: 12px; color: var(--s-muted); background: transparent; cursor: pointer; }
+.kestrel .overview-switch button { border: 0; border-radius: 5px; padding: 3px 12px; font: inherit; font-size: 12px; line-height: 16px; color: var(--s-muted); background: transparent; cursor: pointer; }
 .kestrel .overview-switch [aria-pressed=true] { color: var(--s-ink); background: var(--s-paper); box-shadow: 0 1px 4px #0002; }
-.kestrel .session-canvas { flex: 1; overflow: auto; padding: clamp(18px, 3vw, 44px); border-top: 1px solid var(--s-line); background: radial-gradient(circle, var(--s-line) 1px, transparent 1px) 0 0 / 16px 16px, var(--s-bg); }
+.kestrel .session-canvas { --canvas-dot: 16px; flex: 1; overflow: auto; scrollbar-gutter: stable; background: var(--s-bg); }
+.kestrel .session-canvas > .column { padding-block-end: var(--canvas-dot); }
 .canvas-summary, .canvas-meta, .canvas-state { display: flex; align-items: center; gap: 8px; }
-.canvas-summary { margin: 8px 0 25px; color: var(--s-muted); font-size: 12px; }
-.canvas-summary span + span::before { content: '·'; margin-right: 8px; }
+.canvas-summary { flex-wrap: wrap; gap: 4px; margin: 8px 0 var(--canvas-dot); }
+.kestrel .canvas-summary button { border: 1px solid transparent; border-radius: 6px; background: transparent; font: inherit; font-size: 12px; color: var(--s-muted); padding: 3px 6px; cursor: pointer; }
+.kestrel .canvas-summary button[aria-pressed=true], .kestrel .canvas-summary button:hover:not(:disabled) { background: var(--s-soft); color: var(--s-ink); }
+.kestrel .canvas-summary button:disabled { cursor: default; }
 .session-canvas ul { list-style: none; margin: 0; padding: 0; }
+.canvas-grid-area { container-type: inline-size; }
 .canvas-grid {
-  --track: 4px;
-  --card-tracks: 27;
-  --gap-tracks: 5;
+  --track: var(--canvas-dot);
+  --card-tracks: 10;
+  --gap-tracks: 1;
+  --column-tracks: 18;
+  --column-min: calc(var(--column-tracks) * var(--track));
   --card-height: calc(var(--card-tracks) * var(--track));
   --gap: calc(var(--gap-tracks) * var(--track));
-  --junction: calc(var(--gap) + 21px);
+  --junction: calc(var(--gap) + 2 * var(--track));
+  --card-rows: 18px 1fr 18px 22px;
+  --card-padding: 12px 14px;
+  --title-lines: 3;
+  --canvas-elbow-line: var(--elbow-line);
+  --focus-text: color-mix(in srgb, var(--s-ink) 60%, var(--s-muted));
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  /* The background moves with the grid. Card edges share its dot pitch. */
+  width: round(down, 100%, var(--track));
+  grid-template-columns: repeat(auto-fit, min(100%, var(--column-min)));
   grid-auto-flow: row dense;
   grid-auto-rows: var(--track);
   column-gap: var(--gap);
   align-items: start;
+  background: radial-gradient(circle, var(--s-line) 1px, transparent 1px)
+    calc(var(--track) / -2) calc(var(--track) / -2) / var(--track) var(--track);
+}
+@supports (width: calc(1px / 1px * 1px)) {
+  .canvas-grid {
+    /* Spread the available dots evenly. Any indivisible dots stay at the outer edge. */
+    --available: round(down, 100cqi, var(--track));
+    --columns: max(1, round(down, calc((var(--available) + var(--gap)) / (var(--column-min) + var(--gap))), 1));
+    --gaps: calc((var(--columns) - 1) * var(--gap));
+    --column-width: round(down, calc((var(--available) - var(--gaps)) / var(--columns)), var(--track));
+    width: calc(var(--columns) * var(--column-width) + var(--gaps));
+    grid-template-columns: repeat(var(--columns), var(--column-width));
+  }
+}
+.canvas-grid[data-size=compact] {
+  --card-tracks: 6;
+  --column-tracks: 13;
+  --junction: calc(var(--gap) + var(--track));
+  --card-rows: 16px 1fr 22px;
+  --card-padding: 9px 10px;
+  --title-lines: 1;
 }
 /* Each session reserves one card and one gap, including the gap after the tree. */
 .canvas-grid > li { grid-row-end: span calc(var(--tree-size) * (var(--card-tracks) + var(--gap-tracks))); }
-.canvas-grid li { position: relative; min-width: 0; }
-.canvas-grid li > ul { margin-left: var(--gap); }
-.canvas-grid li > ul > li { padding: var(--gap) 0 0 var(--gap); }
-.canvas-grid li > ul > li { --elbow-x: 0px; --elbow-mid: var(--junction); --elbow-width: var(--gap); --elbow-radius: 8px; }
-.kestrel .canvas-card { --tone: var(--s-muted); position: relative; box-sizing: border-box; width: 100%; min-width: 0; height: var(--card-height); display: grid; grid-template: 13px 32px 18px 15px / minmax(0, 1fr); align-items: start; justify-items: start; gap: 3px; text-align: left; font: inherit; color: var(--s-ink); padding: 9px 12px; border: 1px solid color-mix(in srgb, var(--tone) 30%, var(--s-line)); border-radius: 12px; background: linear-gradient(125deg, color-mix(in srgb, var(--tone) 5%, var(--s-paper)), var(--s-paper) 75%); box-shadow: 0 3px 10px #0000000c; cursor: pointer; }
+.canvas-grid li { position: relative; min-width: 0; container: canvas-branch / inline-size; }
+.canvas-grid li > ul {
+  --branch-indent: var(--gap);
+  --branch-elbow: visible;
+  --branch-stem: 0px;
+  margin-left: var(--branch-indent);
+}
+.canvas-grid li > ul > li {
+  --elbow-line: var(--canvas-elbow-line);
+  --elbow-x: 0px;
+  --elbow-mid: var(--junction);
+  --elbow-width: var(--gap);
+  --elbow-radius: 8px;
+  padding: var(--gap) 0 0 var(--branch-indent);
+  background: linear-gradient(var(--elbow-line), var(--elbow-line)) var(--track) top / 1px var(--branch-stem) no-repeat;
+}
+.canvas-grid li > ul > li::before, .canvas-grid li > ul > li::after { visibility: var(--branch-elbow); }
+@container canvas-branch (max-width: 192px) {
+  /* Connect cards vertically once the column has no room for another indent. */
+  .canvas-grid li > ul { --branch-indent: 0px; --branch-elbow: hidden; --branch-stem: var(--gap); }
+}
+.kestrel .canvas-card {
+  --tone: var(--s-muted);
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: var(--card-height);
+  display: grid;
+  grid-template: var(--card-rows) / minmax(0, 1fr);
+  align-items: start;
+  justify-items: start;
+  gap: 6px;
+  text-align: left;
+  font: inherit;
+  color: var(--s-ink);
+  padding: var(--card-padding);
+  border: 1px solid color-mix(in srgb, var(--tone) 30%, var(--s-line));
+  border-radius: 12px;
+  background: linear-gradient(125deg, color-mix(in srgb, var(--tone) 5%, var(--s-paper)), var(--s-paper) 75%);
+  box-shadow: 0 3px 10px #0000000c;
+  cursor: pointer;
+}
 .kestrel .canvas-card:hover { border-color: var(--tone); }
 .canvas-card[data-state=attention] { --tone: var(--s-amber); }
 .canvas-card[data-state=unread] { --tone: var(--s-green); }
-.canvas-card strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: 14px; line-height: 16px; overflow-wrap: anywhere; }
-.canvas-meta { width: 100%; color: var(--s-muted); font-size: 11px; }
-.canvas-meta time { margin-left: auto; }
-.canvas-state { color: var(--tone); background: color-mix(in srgb, var(--tone) 10%, transparent); font-size: 11px; padding: 2px 7px; border-radius: 5px; }
-.canvas-note { max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; line-height: 1.4; color: var(--s-muted); overflow-wrap: anywhere; }
+.canvas-card strong { grid-row: 2; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--title-lines); overflow: hidden; font-size: 14px; line-height: 18px; overflow-wrap: anywhere; }
+.canvas-meta { width: 100%; height: 100%; color: var(--s-muted); font-size: 11px; }
+.canvas-meta svg, .canvas-meta time { flex: none; }
+.canvas-project, .canvas-note { max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.canvas-meta time { margin-inline-start: auto; white-space: nowrap; }
+.canvas-note { grid-row: 3; font-size: 12px; line-height: 18px; color: var(--s-muted); }
+.canvas-state { grid-row: -2; box-sizing: border-box; height: 100%; color: var(--tone); background: color-mix(in srgb, var(--tone) 10%, transparent); font-size: 11px; padding: 2px 7px; border-radius: 5px; }
+.canvas-grid[data-size=compact] .canvas-note { display: none; }
+.canvas-grid[data-size=compact] .canvas-card strong { font-size: 13px; }
+.canvas-grid[data-focus=working] .canvas-card:not([data-state=working]),
+.canvas-grid[data-focus=attention] .canvas-card:not([data-state=attention]) {
+  opacity: .67;
+  --focus-text: var(--s-ink);
+  --tone: var(--focus-text);
+}
+.canvas-grid[data-focus] :is(.canvas-meta, .canvas-note) { color: var(--focus-text); }
+.kestrel .canvas-grid[data-focus=working] .canvas-card[data-state=working],
+.kestrel .canvas-grid[data-focus=attention] .canvas-card[data-state=attention] {
+  border-color: var(--tone);
+  box-shadow: 0 0 0 1px var(--tone);
+}
+.canvas-grid[data-focus=working] li:has(> .canvas-card:not([data-state=working])),
+.canvas-grid[data-focus=attention] li:has(> .canvas-card:not([data-state=attention])) {
+  --elbow-line: color-mix(in srgb, var(--s-muted) 16%, transparent);
+}
 @media (prefers-reduced-motion: no-preference) {
-  .canvas-grid li > ul > li::before, .canvas-grid li > ul > li::after { transition: opacity 180ms ease-out; }
+  .canvas-card { transition: opacity 180ms ease-out, border-color 180ms ease-out, box-shadow 180ms ease-out; }
+  .canvas-grid li > ul > li::before, .canvas-grid li > ul > li::after { transition: opacity 180ms ease-out, border-color 180ms ease-out; }
   .canvas-grid > .canvas-tree-moving li::before, .canvas-grid > .canvas-tree-moving li::after { opacity: 0; transition-duration: 80ms; }
   .canvas-card[data-state=working]::after { content: ""; position: absolute; inset: -1px; pointer-events: none; border-radius: inherit; box-shadow: 0 0 0 2px color-mix(in srgb, var(--s-muted) 22%, transparent); animation: canvas-pulse 3s ease-in-out infinite alternate; }
   @keyframes canvas-pulse { from { opacity: .05; } to { opacity: .85; } }
 }
-.canvas-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 0 0 9px; }
-.canvas-simulate { margin-inline-start: auto; }
-.canvas-filter span { margin-right: 4px; font-size: 12px; color: var(--s-muted); }
+.canvas-filter, .canvas-filter-group { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.canvas-filter { align-items: start; gap: 8px 16px; margin-bottom: 9px; }
+.canvas-size { min-height: var(--overview-first-row-height); margin-inline-start: auto; }
+.canvas-filter-label { margin-inline-end: 4px; white-space: nowrap; }
 .kestrel .canvas-filter button { padding: 4px 9px; font: inherit; font-size: 12px; border-radius: 12px; background: var(--s-paper); color: var(--s-ink); border: 1px solid var(--s-line); cursor: pointer; }
 .kestrel .canvas-filter button[aria-pressed=true] { background: var(--s-ink); color: var(--s-paper); border-color: var(--s-ink); }

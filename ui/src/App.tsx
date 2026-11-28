@@ -23,7 +23,7 @@ import { useResource } from './data/resources.ts';
 import { asSetup, isSetupOpen, SETUP_PATH } from './onboarding/data.ts';
 import { OnboardingWizard } from './onboarding/OnboardingWizard.tsx';
 import './onboarding/onboarding.css';
-import { commandForKey, runCommand, setSwitcherOpener } from './commands.ts';
+import { commandForKey, onArrowNavKey, runCommand, setSwitcherOpener } from './commands.ts';
 import { openFoldersInCreateProject } from './openedFolders.ts';
 import { tabRoute } from './route.ts';
 import { useCrashReporting } from './components/CrashReportsSetting.tsx';
@@ -73,9 +73,12 @@ export function App() {
     };
     // In Electron the app menu owns these shortcuts; handling the key here as well would run each twice.
     if (!window.kestrelShell) window.addEventListener('keydown', onKey);
+    // Cmd with an arrow is the page's in both, since only the page knows whether a text field has the focus.
+    window.addEventListener('keydown', onArrowNavKey);
     const offShell = window.kestrelShell?.onCommand(runCommand);
     return () => {
       window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onArrowNavKey);
       offShell?.();
     };
   }, []);

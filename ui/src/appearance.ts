@@ -1,7 +1,7 @@
 // How Kestrel looks in this window (server: shared/appearance.ts), remembered in this browser only,
 // like the diff view's choice (diffView.ts): a convenience of the window, not server data. A
 // change is put on the page's root element at once: the colour scheme every light-dark() colour
-// follows, the code font, and what the high-contrast and diff-colour rules key on
+// follows, the code font, the message box's text size and the conversation's text scale, and what the high-contrast and diff-colour rules key on
 // (styles/appearance.css). The terminal and drawn widgets, which hold colours of their own, listen.
 import { useSyncExternalStore } from 'react';
 import { DEFAULT_APPEARANCE, isDark, rootLook, sanitizeAppearance, type Appearance } from '@kestrel/server/appearance';
@@ -25,7 +25,7 @@ function apply(): void {
   const root = document.documentElement;
   const look = rootLook(current);
   root.style.colorScheme = look.colorScheme;
-  root.style.setProperty('--mono', look.mono);
+  for (const [name, value] of Object.entries(look.properties)) root.style.setProperty(name, value);
   root.dataset.contrast = look.contrast;
   root.dataset.diff = look.diff;
 }

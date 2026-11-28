@@ -5,7 +5,13 @@
    any rule elsewhere that sizes a bare `p` or `li` inside a container that can hold markdown would
    win and split the sizes (it did: `.chat-message p` made paragraphs 12px beside 14px lists). Size
    such things by their own class or with a child selector, never by element inside a container. */
-.kestrel { --prose-size: 14px; --prose-leading: 1.7; }
+.kestrel { --prose-base: 14px; --prose-size: var(--prose-base); --prose-leading: 1.7; }
+/* A message's text in a conversation (the agent's and the user's, `.chat-text`) is drawn at
+   Settings → Appearance → Conversation text size: one scale (`--chat-text-scale`,
+   shared/appearance.ts) on the one size, so headings, code, tables and footnotes, all sized from it
+   in em, keep their proportions. The chrome around a message (steps, footers, cards, notices) keeps
+   its own size. */
+.kestrel .chat-text { --prose-size: calc(var(--prose-base) * var(--chat-text-scale, 1)); }
 .kestrel .prose {
   font-size: var(--prose-size);
   line-height: var(--prose-leading);
@@ -85,6 +91,7 @@
 .kestrel .prose .code-block > pre { margin: 0; padding: 0 16px 12px; border: 0; border-radius: 0 0 8px 8px; background: none; }
 .kestrel .prose .code-head { display: flex; align-items: center; gap: 8px; min-height: 26px; padding: 3px 6px 0 16px; user-select: none; -webkit-user-select: none; }
 .kestrel .prose .code-lang { color: var(--s-muted); font: 11px/1 var(--mono); }
+.kestrel .chat-text .code-lang { font-size: calc(11px * var(--chat-text-scale, 1)); }
 .kestrel .prose .code-tools { display: flex; gap: 2px; margin-left: auto; visibility: hidden; }
 .kestrel .prose .code-block:hover .code-tools,
 .kestrel .prose .code-block:focus-within .code-tools,

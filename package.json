@@ -11,6 +11,6 @@
     "dev:restart": "scripts/dev-restart.sh",
     "demo": "scripts/demo.sh",
     "typecheck": "pnpm -r --if-present typecheck",
-    "test": "pnpm --filter @kestrel/server --filter @kestrel/app test"
+    "test": "pnpm --filter @kestrel/server --filter @kestrel/app --filter @kestrel/ui test"
   }
 }

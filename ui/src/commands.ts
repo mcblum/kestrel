@@ -1,6 +1,6 @@
 // Things the user can do from a shortcut, a menu, or the Electron app menu. One place, so the
 // page and the native menu can never disagree.
-import { bindingOf, commandFor, browserNavCommand } from '@kestrel/server/shortcuts';
+import { bindingOf, handleArrowNavKey, commandFor, browserNavCommand } from '@kestrel/server/shortcuts';
 import { goBack, goForward } from './navHistory.ts';
 import { isMac, shortcuts } from './shortcuts.ts';
 import { openCreateProject, openProjectFolders, openProjectPage, openProjectSettings } from './projectNav.ts';
@@ -132,6 +132,17 @@ export function runCommand(command: Command | string): void {
 export function commandForKey(event: KeyboardEvent): string | null {
   const binding = bindingOf(event, isMac());
   return commandFor(shortcuts(), binding) ?? browserNavCommand(binding, isMac());
+}
+
+/**
+ * Cmd with the left or right arrow on a Mac goes Back or Forward (shared/shortcuts.ts `handleArrowNavKey`),
+ * unless what has the focus keeps its arrow keys: in the message box, a field, the terminal or the
+ * browser pane the key moves the caret and is not touched. Handled here, by the page, in the desktop
+ * app and a browser alike: the app's menu cannot see what has the focus, so it has no such key, and in
+ * a browser preventing the key keeps the browser's own history step from running as well.
+ */
+export function onArrowNavKey(event: KeyboardEvent): void {
+  handleArrowNavKey(event, isMac(), shortcuts(), runCommand);
 }
 
 /**
