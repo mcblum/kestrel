@@ -43,7 +43,7 @@ function Floating({ request }: { request: ConnectJoinRequest }) {
         joinOverlay.putAside(request.id);
       }}
     >
-      <JoinRequestCard request={request} as="section" titleId={titleId} extra={putAside} />
+      <JoinRequestCard request={request} as="section" titleId={titleId} putAside={putAside} />
     </div>
   );
 }
